@@ -4,6 +4,10 @@ on:
   push:
     branches: [ main ]
 
+# permit CI to write back to repo (needed for git push)
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -11,28 +15,54 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          # persist the token in the checked-out repo so subsequent git push uses it
+          persist-credentials: true
 
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      - name: Install dependencies
+      - name: Install dependencies (filter known-bad entries)
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f requirements.txt ]; then
+            # create a filtered requirements file to avoid installing a bogus package named 'time'
+            # This removes lines that are exactly 'time' (or blank/comment lines).
+            grep -v -E '^\s*(time)\s*$' requirements.txt > /tmp/reqs_filtered.txt || true
+            # remove pure-empty/file-of-comments case
+            if [ -s /tmp/reqs_filtered.txt ]; then
+              pip install -r /tmp/reqs_filtered.txt
+            else
+              echo "No valid requirements to install after filtering."
+            fi
+          fi
 
       - name: Run build script
         # Set SKIP_GEOCODE=1 to avoid network geocoding in CI (recommended)
-        run: |
-          python scripts/build_all.py
         env:
           SKIP_GEOCODE: "1"
+        run: |
+          python scripts/build_all.py
+
+      - name: Debug list (optional; helps troubleshoot)
+        run: |
+          echo "---- repo root listing ----"
+          ls -la
+          echo "---- docs listing (if any) ----"
+          ls -la docs || true
 
       - name: Commit docs
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs || true
+
+          # If docs are in .gitignore, use -f, otherwise plain add is OK.
+          # Replace the next line by `git add docs` if you removed docs from .gitignore.
+          git add -f docs || true
+
+          # show staged changes for debugging
+          git status --porcelain
           git commit -m "chore: build docs (CI)" || echo "No changes to commit"
           git push origin HEAD:main
