@@ -22,7 +22,7 @@ env["SKIP_GEOCODE"] = env.get("SKIP_GEOCODE", "1")  # CI default: skip network g
 # 2) Run your main script that creates the HTML maps
 # Replace "main_maps.py" with the real path if different.
 print("Running main build script (main_maps.py)...")
-rc = subprocess.run([sys.executable, str(ROOT / "main_maps.py")], env=env)
+rc = subprocess.run([sys.executable, str(ROOT / "player_base_and_maps\main_maps.py")], env=env)
 if rc.returncode != 0:
     print("⚠️ main_maps.py failed (exit code {})".format(rc.returncode))
     # continue anyway to attempt to collect output files
@@ -66,3 +66,7 @@ if not index.exists():
 </body></html>
 """ % ("\n".join(f'<li><a href="{p.name}">{p.name}</a></li>' for p in sorted(DOCS.glob("*.html")))))
     print(f"✅ index.html créé dans {DOCS}")
+
+
+print("Generating player pages...")
+subprocess.run([sys.executable, os.path.join(os.path.dirname(__file__), "generate_players.py")], check=True)
