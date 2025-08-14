@@ -52,21 +52,71 @@ if moved == 0:
 else:
     print(f"✅ {moved} fichier(s) HTML copiés dans {DOCS}")
 
-# 4) small index page
-index = DOCS / "index.html"
-if not index.exists():
-    index.write_text("""<!doctype html>
-<html><head><meta charset="utf-8"><title>Maps</title></head>
-<body>
-  <h1>Cartes Tennis</h1>
-  <ul>
-  <!-- generated links -->
-  %s
-  </ul>
-</body></html>
-""" % ("\n".join(f'<li><a href="{p.name}">{p.name}</a></li>' for p in sorted(DOCS.glob("*.html")))))
-    print(f"✅ index.html créé dans {DOCS}")
-
-
+# 4) Generate player pages BEFORE building the main index
 print("Generating player pages...")
 subprocess.run([sys.executable, os.path.join(os.path.dirname(__file__), "generate_players.py")], check=True)
+
+# 5) Build a nicer index.html (Bootstrap) that includes maps + link to players
+maps_links = []
+for p in sorted(DOCS.glob("*.html")):
+    if p.name == "index.html":
+        continue
+    maps_links.append(f'          <a class="list-group-item list-group-item-action" href="{p.name}">{p.stem}</a>')
+
+# if players index exists, add a link to the players directory
+players_index_rel = "players/index.html"
+players_link_html = ""
+if (DOCS / "players" / "index.html").exists():
+    players_link_html = '          <a class="list-group-item list-group-item-action" href="players/index.html">Joueurs</a>'
+
+INDEX_HTML = f"""<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Central Court — Cartes Tennis</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+  <nav class="navbar navbar-dark bg-dark">
+    <div class="container">
+      <a class="navbar-brand" href="#">Central Court</a>
+    </div>
+  </nav>
+
+  <main class="container py-4">
+    <div class="row">
+      <div class="col-lg-8">
+        <h1>Cartes Tennis</h1>
+        <p class="lead">Cartes interactives générées à partir des données.</p>
+
+        <div class="list-group">
+{players_link_html if players_link_html else ""}
+{chr(10).join(maps_links)}
+        </div>
+      </div>
+
+      <aside class="col-lg-4">
+        <div class="card mb-3">
+          <div class="card-body">
+            <h5 class="card-title">Recherche joueurs</h5>
+            <p class="card-text">Utilise la page <a href="players/index.html">Joueurs</a> (si disponible).</p>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <footer class="text-center py-3">
+    <small>© Central Court</small>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
+"""
+
+# write the index (always overwrite with the nicer template)
+index_path = DOCS / "index.html"
+index_path.write_text(INDEX_HTML, encoding="utf-8")
+print(f"✅ index.html créé/écrasé dans {index_path}")
