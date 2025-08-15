@@ -1,0 +1,55 @@
+name: Weekly update (scrape + commit)
+
+on:
+  schedule:
+    # Runs Mondays at 04:00 UTC (== 06:00 Paris during CEST). Adjust as needed.
+    - cron: '0 4 * * 1'
+  workflow_dispatch: {}  # allows manual trigger
+
+jobs:
+  update_players:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install build deps
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements-build.txt ]; then pip install -r requirements-build.txt; fi
+
+      - name: Run main.py (update CSV)
+        env:
+          # override if you need environment variables the script expects
+          # SKIP_GEOCODE: "1"
+        run: |
+          python main.py
+
+      - name: Check for changes
+        id: git-check
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # show diff for debug
+          git status --porcelain
+          git add -A
+          if git diff --cached --quiet; then
+            echo "no-changes=true" >> $GITHUB_OUTPUT
+            echo "No changes to commit"
+          else
+            echo "no-changes=false" >> $GITHUB_OUTPUT
+            git commit -m "chore(automated): weekly update player DB [skip ci]" || true
+          fi
+
+      - name: Push changes
+        if: steps.git-check.outputs.no-changes == 'false'
+        run: |
+          # push back to the repo using the token provided automatically by GitHub Actions
+          git push --follow-tags origin HEAD:main
