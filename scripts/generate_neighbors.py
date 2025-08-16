@@ -181,12 +181,31 @@ with open(DOCS_DATA / "players_neighbors.json", "w", encoding="utf8") as f:
 print("Wrote", DOCS_DATA / "players_meta.json", "and", DOCS_DATA / "players_neighbors.json")
 
 
-# --- append at end of scripts/generate_neighbors.py or in a new script ---
+# --- after writing players_meta.json and players_neighbors.json above ---
+
+import html  # for html.escape
 from pathlib import Path
 TEMPL_DIR = Path(__file__).resolve().parents[1] / "docs" / "players"
 TEMPL_DIR.mkdir(parents=True, exist_ok=True)
 
-# small bootstrap HTML generator
+# helper functions (defined once)
+def id_str_from_entry(x):
+    v = x.get("id")
+    if isinstance(v, dict):
+        # try common keys
+        for k in ("player_id", "id", "slug"):
+            if k in v:
+                return str(v[k])
+        # fallback: stable JSON string
+        try:
+            return json.dumps(v, sort_keys=True, ensure_ascii=False)
+        except Exception:
+            return str(v)
+    return str(v)
+
+def name_from_entry(x):
+    return x.get("name") or x.get("label") or id_str_from_entry(x)
+
 page_template = """<!doctype html>
 <html lang="fr">
 <head>
@@ -220,8 +239,32 @@ page_template = """<!doctype html>
 
 for pid, rec in results.items():
     slug = rec.get("slug") or slugify(rec.get("name") or pid)
-    top_html = "\n".join(f'<li><a href="{players_map.get(x["id"],{{}}).get("slug",x["id"])}.html">{x["name"]} <small>({x["score"]})</small></a></li>' for x in rec["top"])
-    bottom_html = "\n".join(f'<li><a href="{players_map.get(x["id"],{{}}).get("slug",x["id"])}.html">{x["name"]} <small>({x["score"]})</small></a></li>' for x in rec["bottom"])
+
+    # build top list robustly
+    top_items = []
+    for x in rec.get("top", []):
+        other_id = id_str_from_entry(x)
+        other_slug = players_map.get(other_id, {}).get("slug") or other_id
+        other_name = html.escape(name_from_entry(x))
+        score = x.get("score", "")
+        top_items.append(f'<li><a href="{other_slug}.html">{other_name} <small>({score})</small></a></li>')
+    top_html = "\n".join(top_items)
+
+    # build bottom list robustly
+    bottom_items = []
+    for x in rec.get("bottom", []):
+        other_id = id_str_from_entry(x)
+        other_slug = players_map.get(other_id, {}).get("slug") or other_id
+        other_name = html.escape(name_from_entry(x))
+        score = x.get("score", "")
+        bottom_items.append(f'<li><a href="{other_slug}.html">{other_name} <small>({score})</small></a></li>')
+    bottom_html = "\n".join(bottom_items)
+
     outpath = TEMPL_DIR / f"{slug}.html"
-    outpath.write_text(page_template.format(name=rec["name"], id=pid, top_html=top_html, bottom_html=bottom_html), encoding="utf8")
+    outpath.write_text(page_template.format(name=html.escape(rec.get("name") or pid),
+                                           id=html.escape(str(pid)),
+                                           top_html=top_html,
+                                           bottom_html=bottom_html),
+                       encoding="utf8")
+
 print("Wrote per-player pages in", TEMPL_DIR)
