@@ -13,9 +13,12 @@ import html
 import re
 from datetime import datetime
 
-CSV = Path("player_data_wta.csv")
-OUT_DIR = Path("docs/players")
+# repo root (one level above scripts/)
+ROOT = Path(__file__).resolve().parents[1]
+CSV = ROOT /"player_data_wta.csv"
+OUT_DIR = ROOT / "docs" / "players"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
+
 
 def safe_slug(name: str) -> str:
     s = (name or "unknown").strip().lower()
