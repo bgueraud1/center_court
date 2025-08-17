@@ -1,5 +1,7 @@
 from map_birth_place import load_and_clean, geocode_with_cache, normalize_dates_and_heights, build_and_save_map
 
+from scripts.geocode_utils import geocode_place, should_skip_geocode
+
 from config_maps import INPUT_CSV, CACHE_FILE, OUTPUT_HTML_BIRTHPLACE, OUTPUT_HTML_FROM, OUTPUT_HTML_PERCENTAGE, OUTPUT_HTML_TO, IOC_TO_ISO3, geolocator, CACHE_FILE_MIGRATION, GEOJSON_URL, OUTPUT_HTML_FALSE
 from migration_map_from import (
     load_and_normalize, load_cache, build_points_and_migrations,
@@ -18,6 +20,9 @@ from migration_map_from import load_and_normalize
 import pandas as pd
 
 # Map for birthplaces
+
+
+
 
 # 1) Load & clean
 df = load_and_clean(INPUT_CSV)
@@ -75,22 +80,22 @@ build_and_save_presence_map(players, OUTPUT_HTML_PERCENTAGE, GEOJSON_URL)
 
 
 # False map birthplace
+#
+#
 
+#from map_birth_place import build_and_save_map  # your existing map builder
+#from false_birthplace_map import apply_cache_coords, create_false_all_pts_from_df#
 
+## 1) load whole CSV (do NOT call load_and_clean because that drops missing birthplace rows)
+#df_all = pd.read_csv(INPUT_CSV)#
 
-from map_birth_place import build_and_save_map  # your existing map builder
-from false_birthplace_map import apply_cache_coords, create_false_all_pts_from_df
+## 2) apply your cache (no network)
+#df_with_coords = apply_cache_coords(df_all, CACHE_FILE)#
 
-# 1) load whole CSV (do NOT call load_and_clean because that drops missing birthplace rows)
-df_all = pd.read_csv(INPUT_CSV)
+## 3) create the false all_pts (deterministic with seed)
+#all_pts_false, stats = create_false_all_pts_from_df(df_with_coords, seed=42)#
 
-# 2) apply your cache (no network)
-df_with_coords = apply_cache_coords(df_all, CACHE_FILE)
+#print("False-map stats:", stats)#
 
-# 3) create the false all_pts (deterministic with seed)
-all_pts_false, stats = create_false_all_pts_from_df(df_with_coords, seed=42)
-
-print("False-map stats:", stats)
-
-# 4) render map with your existing map builder
-build_and_save_map(all_pts_false, OUTPUT_HTML_FALSE)
+## 4) render map with your existing map builder
+#build_and_save_map(all_pts_false, OUTPUT_HTML_FALSE)#
