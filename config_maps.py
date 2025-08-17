@@ -1,7 +1,7 @@
 from geopy.geocoders import Nominatim
 
 CACHE_FILE = "player_base_and_maps\maps_html\coords_cache.json"
-INPUT_CSV  = "player_base_and_maps\player_data_wta.csv"
+INPUT_CSV  = "player_data_wta.csv"
 OUTPUT_HTML_BIRTHPLACE = r"player_base_and_maps\maps_html\birthplace_map_wta.html"
 
 OUTPUT_HTML_FROM   = r"player_base_and_maps\maps_html\migration_map_from.html"
