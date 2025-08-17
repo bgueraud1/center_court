@@ -219,6 +219,11 @@ def build_and_save_map(all_pts: list, out_html: str):
     macro._template = Template(html)
     m.get_root().add_child(macro)
 
-    m.save(out_html)
-    print(f"✅ Map saved to {out_html}")
+    from pathlib import Path
+    
+    out_path = Path(out_html)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    m.save(str(out_path))
+    print(f"✅ Map saved to {out_path} (exists={out_path.exists()})")
+    
 

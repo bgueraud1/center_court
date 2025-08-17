@@ -688,5 +688,11 @@ countryLayers.forEach(layer => {
     map_obj.get_root().add_child(macro)
 
     # finally save (use map_obj)
-    map_obj.save(out_html)
-    print(f"🔗 {out_html} written.")
+    from pathlib import Path
+
+    out_path = Path(out_html)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    map_obj.save(str(out_path))
+    print(f"✅ Map saved to {out_path} (exists={out_path.exists()})")
+
+
