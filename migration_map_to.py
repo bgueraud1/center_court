@@ -9,6 +9,7 @@ import folium
 from folium import Element, JavascriptLink
 from branca.element import Template, MacroElement
 import math
+from scripts.geocode_utils import load_cache, save_cache, geocode_place, reverse_to_iso3, is_skip_geocode
 
 
 # ── CACHE HANDLING ──────────────────────────────────────────
@@ -121,10 +122,18 @@ def build_points_and_migrations_to(cache_file, geolocator, df: pd.DataFrame, cac
             'height_m': height_m
         })
         # migration logic
-        birth_coords = geocode(cache_file, geolocator, row['birthplace'], cache)
+        # ensure cache loaded at top of processing
+        cache = load_cache(cache_file)
+        
+        birth_coords = geocode_place(row['birthplace'], cache, cache_file,
+                                     user_agent="migration-mapper", delay=1.0, timeout=10)
         if not birth_coords:
+            # either not found or SKIP_GEOCODE set -> skip this row
             continue
-        from_iso = reverse_iso3(cache_file,geolocator,birth_coords[0],birth_coords[1],cache)
+          
+        from_iso = reverse_to_iso3(birth_coords[0], birth_coords[1], cache, cache_file,
+                                  user_agent="migration-mapper", delay=1.0, timeout=10)
+
         if from_iso and from_iso != to_iso:
             dest_name = pycountry.countries.get(alpha_3=to_iso).name
             dest_coords = geocode(cache_file, geolocator, dest_name, cache)

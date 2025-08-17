@@ -2,8 +2,8 @@ import pandas as pd
 import re
 import json
 from datetime import datetime
-from geopy.geocoders import Nominatim
-from geopy.extra.rate_limiter import RateLimiter
+from scripts.geocode_utils import load_cache, save_cache, geocode_place, bulk_geocode, is_skip_geocode
+
 import folium
 from folium import Element
 from branca.element import Template, MacroElement
@@ -29,25 +29,37 @@ def save_cache(cache: dict, path: str):
 def geocode_with_cache(df: pd.DataFrame,
                        cache_file: str,
                        user_agent: str = "birthplace-mapper",
-                       delay: float = 1.0) -> pd.DataFrame:
-    geolocator = Nominatim(user_agent=user_agent)
-    geocode    = RateLimiter(geolocator.geocode, min_delay_seconds=delay)
+                       delay: float = 1.0,
+                       timeout: int = 10) -> pd.DataFrame:
+    """
+    Fill df with lat/lon using scripts.geocode_utils. Honors SKIP_GEOCODE env var.
+    Returns dataframe filtered to rows that have lat/lon.
+    """
+    # load cache once
     cache = load_cache(cache_file)
-    places = df['birthplace'].unique()
 
-    for place in places:
-        if place in cache:
-            continue
-        loc = geocode(place)
-        cache[place] = (loc.latitude, loc.longitude) if loc else (None, None)
+    # get distinct places to ensure they are cached (bulk will skip cached items)
+    places = [p for p in df['birthplace'].unique() if isinstance(p, str) and p.strip()]
+    # bulk_geocode will call geocode_place for entries not in cache
+    # but will also check SKIP_GEOCODE and then not perform network lookups
+    bulk_geocode(places, cache_file, user_agent=user_agent, delay=delay, timeout=timeout)
 
-    save_cache(cache, cache_file)
+    # reload cache (bulk_geocode already saved)
+    cache = load_cache(cache_file)
 
-    # map coords back into df
-    df['lat'] = df['birthplace'].map(lambda p: cache[p][0])
-    df['lon'] = df['birthplace'].map(lambda p: cache[p][1])
+    # map coords into df
+    def _get_lat(p):
+        val = cache.get("geocode", {}).get(p)
+        return None if val is None else val[0]
+    def _get_lon(p):
+        val = cache.get("geocode", {}).get(p)
+        return None if val is None else val[1]
+
+    df['lat'] = df['birthplace'].map(_get_lat)
+    df['lon'] = df['birthplace'].map(_get_lon)
     df = df.dropna(subset=['lat', 'lon'])
     return df
+
 
 def normalize_dates_and_heights(df: pd.DataFrame) -> list:
     all_pts = []
