@@ -6,6 +6,8 @@ import shutil
 import os
 import glob
 
+
+
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / "docs"
 
@@ -16,6 +18,8 @@ DOCS.mkdir(parents=True, exist_ok=True)
 
 # 1) Option: set SKIP_GEOCODE env so main_maps will not call network in CI.
 # If your main_maps.py knows how to honor this env var (see note below), it will use cached coords.
+print("SKIP_GEOCODE =", repr(os.getenv("SKIP_GEOCODE")))
+
 env = os.environ.copy()
 env["SKIP_GEOCODE"] = env.get("SKIP_GEOCODE", "1")  # CI default: skip network geocoding
 
