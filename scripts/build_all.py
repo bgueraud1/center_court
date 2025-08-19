@@ -4,28 +4,89 @@ import sys
 from pathlib import Path
 import shutil
 import os
-import glob
-
-
+import json
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / "docs"
 
+# -------------------------
+# Helpers / config loaders
+# -------------------------
+def load_json_optional(path: Path):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        print(f"⚠️ Could not parse JSON {path}: {e}")
+        return {}
+
+# load optional map display names mapping
+MAPS_METADATA = load_json_optional(ROOT / "maps_metadata.json")
+# load optional site-wide config (contact, copyright, title)
+SITE_CONFIG = load_json_optional(ROOT / "site_config.json")
+
+SITE_TITLE = SITE_CONFIG.get("site_title") or os.getenv("SITE_TITLE") or "Center Court — Cartes Tennis"
+CONTACT_EMAIL = SITE_CONFIG.get("contact_email") or os.getenv("SITE_CONTACT_EMAIL") or "contact@example.com"
+COPYRIGHT = SITE_CONFIG.get("copyright") or os.getenv("SITE_COPYRIGHT") or "© Center Court"
+
+# -------------------------
+# Utility pretty name
+# -------------------------
+def pretty_name_from_stem(stem: str) -> str:
+    # remove common suffixes/prefixes used in filenames
+    s = stem
+    # remove common map suffixes
+    for suffix in ("_map_wta", "_map", "-map", "_maphtml", "map_"):
+        if s.endswith(suffix):
+            s = s[: -len(suffix)]
+    # replace underscores / dashes with spaces
+    s = s.replace("_", " ").replace("-", " ").strip()
+    # small cleanup for repeated words
+    s = " ".join(s.split())
+    # title-case but keep some acronyms uppercase (WTA, ATP)
+    words = []
+    for w in s.split():
+        up = w.upper()
+        if up in ("WTA", "ATP"):
+            words.append(up)
+        else:
+            words.append(w.capitalize())
+    return " ".join(words) if words else stem
+
+# -------------------------
 # 0) ensure docs dir is fresh
+# -------------------------
 if DOCS.exists():
     shutil.rmtree(DOCS)
 DOCS.mkdir(parents=True, exist_ok=True)
 
-# 1) Option: set SKIP_GEOCODE env so main_maps will not call network in CI.
-# If your main_maps.py knows how to honor this env var (see note below), it will use cached coords.
-print("SKIP_GEOCODE =", repr(os.getenv("SKIP_GEOCODE")))
+# -------------------------
+# copy logo if present (logo.png search in several places)
+# -------------------------
+LOGO_CANDIDATES = [ROOT / "logo.png", ROOT / "assets" / "logo.png", ROOT / "static" / "logo.png"]
+logo_path = None
+for cand in LOGO_CANDIDATES:
+    if cand.exists():
+        try:
+            shutil.copy2(cand, DOCS / "logo.png")
+            logo_path = "logo.png"
+            print("Copied logo -> docs/logo.png")
+            break
+        except Exception as e:
+            print("Could not copy logo", cand, e)
 
+# -------------------------
+# 1) Option: set SKIP_GEOCODE env so main_maps will not call network in CI.
+# -------------------------
+print("SKIP_GEOCODE =", repr(os.getenv("SKIP_GEOCODE")))
 env = os.environ.copy()
 env["SKIP_GEOCODE"] = env.get("SKIP_GEOCODE", "1")  # CI default: skip network geocoding
 
-# 2) Run your main script that creates the HTML maps (use Path join for cross-platform)
+# -------------------------
+# 2) Run your main script that creates the HTML maps
+# -------------------------
 print("Running main build script (main_maps.py)...")
-# --- find main_maps.py robustly (it may be at repo root or inside player_base_and_maps/)
 candidates_main = [
     ROOT / "main_maps.py",
     ROOT / "player_base_and_maps" / "main_maps.py",
@@ -45,7 +106,9 @@ else:
 if rc.returncode != 0:
     print("⚠️ main_maps.py failed (exit code {})".format(rc.returncode))
 
+# -------------------------
 # 3) Collect HTML outputs (maps)
+# -------------------------
 candidates = []
 candidates += list(ROOT.glob("*.html"))
 candidates += list((ROOT / "maps_html").glob("*.html")) if (ROOT / "maps_html").exists() else []
@@ -62,7 +125,9 @@ for p in sorted(set(candidates)):
         print("Could not copy", p, e)
 print(f"✅ {moved} fichier(s) HTML copiés dans {DOCS}")
 
+# -------------------------
 # 4) Generate neighbors FIRST so generate_players can embed them
+# -------------------------
 print("Generating neighbors (embeddings / knn)...")
 subprocess.run([sys.executable, str(ROOT / "scripts" / "generate_neighbors.py")],
                cwd=str(ROOT), env=env, check=True)
@@ -76,65 +141,111 @@ for pattern in ("node_knn_top10.csv","graphsage_knn_top10.csv","node_embeddings*
         except Exception as e:
             print("Could not copy data file", f, e)
 
-# 5) Now generate player pages (they can read the neighbor CSV now)
+# -------------------------
+# 5) Now generate player pages
+# -------------------------
 print("Generating player pages...")
 subprocess.run([sys.executable, str(ROOT / "scripts" / "generate_players.py")],
                cwd=str(ROOT), env=env, check=True)
 
+# -------------------------
+# 6) Build the nicer index.html with sections, custom names, header logo, footer
+# -------------------------
+# collect maps (exclude index.html)
+map_files = [p for p in sorted((DOCS).glob("*.html")) if p.name != "index.html"]
 
-# 5) Build a nicer index.html (Bootstrap) that includes maps + link to players
-maps_links = []
-for p in sorted(DOCS.glob("*.html")):
-    if p.name == "index.html":
-        continue
-    maps_links.append(f'          <a class="list-group-item list-group-item-action" href="{p.name}">{p.stem}</a>')
+# build maps HTML list using metadata mapping or pretty name
+maps_entries_html = []
+for p in map_files:
+    stem = p.stem
+    display = MAPS_METADATA.get(stem) or MAPS_METADATA.get(p.name) or pretty_name_from_stem(stem)
+    # small hint showing filename in muted text
+    maps_entries_html.append(f'<a class="list-group-item list-group-item-action d-flex justify-content-between align-items-start" href="{p.name}"><div><strong>{display}</strong><div class="small text-muted">{p.name}</div></div><span class="badge bg-secondary rounded-pill">Carte</span></a>')
 
-# if players index exists, add a link to the players directory
-players_index_rel = "players/index.html"
+# players block (link to players if exists)
 players_link_html = ""
-if (DOCS / "players" / "index.html").exists():
-    players_link_html = '          <a class="list-group-item list-group-item-action" href="players/index.html">Joueurs</a>'
+players_exist = (DOCS / "players" / "index.html").exists()
+if players_exist:
+    # don't duplicate: add a header link card separately
+    players_link_html = f'<a class="list-group-item list-group-item-action d-flex justify-content-between align-items-start" href="players/index.html"><div><strong>Joueuses — annuaire</strong><div class="small text-muted">Fiches individuelles</div></div><span class="badge bg-primary rounded-pill">Joueurs</span></a>'
 
+# Construct the final HTML using Bootstrap, with separate sections and footer
+logo_img_html = f'<img src="{logo_path}" alt="logo" height="38" class="me-2"/>' if logo_path else ""
 INDEX_HTML = f"""<!doctype html>
 <html lang="fr">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Center Court — Cartes Tennis</title>
+  <title>{SITE_TITLE}</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    /* small custom tweaks */
+    .maps-section .card {{ min-height: 200px; }}
+    .players-section .card {{ min-height: 120px; }}
+    .site-footer {{ background:#f8f9fa; border-top:1px solid #e9ecef; }}
+    .map-filename {{ font-family: monospace; font-size: .85rem; }}
+  </style>
 </head>
 <body class="bg-light">
   <nav class="navbar navbar-dark bg-dark">
-    <div class="container">
-      <a class="navbar-brand" href="#">Center Court</a>
+    <div class="container d-flex align-items-center">
+      <a class="navbar-brand d-flex align-items-center" href="#">
+        {logo_img_html}
+        <span>Center Court</span>
+      </a>
+      <div class="ms-auto text-muted small">Cartes & fiches générées</div>
     </div>
   </nav>
 
   <main class="container py-4">
-    <div class="row">
-      <div class="col-lg-8">
-        <h1>Cartes Tennis</h1>
-        <p class="lead">Cartes interactives générées à partir des données.</p>
+    <header class="mb-4">
+      <h1 class="h3">{SITE_TITLE}</h1>
+      <p class="lead">Cartes interactives et pages joueuses générées automatiquement.</p>
+    </header>
 
-        <div class="list-group">
-{players_link_html if players_link_html else ""}
-{chr(10).join(maps_links)}
+    <div class="row g-4">
+      <div class="col-lg-8">
+        <div class="card maps-section shadow-sm">
+          <div class="card-body">
+            <h4 class="card-title">Cartes</h4>
+            <p class="card-text text-muted">Clique sur une carte pour l'ouvrir dans un nouvel onglet.</p>
+            <div class="list-group">
+{chr(10).join(maps_entries_html) if maps_entries_html else '              <div class="text-muted">Aucune carte trouvée</div>'}
+            </div>
+          </div>
         </div>
       </div>
 
-      <aside class="col-lg-4">
-        <div class="card mb-3">
+      <div class="col-lg-4">
+        <div class="card players-section shadow-sm mb-3">
           <div class="card-body">
-            <h5 class="card-title">Recherche joueurs</h5>
-            <p class="card-text">Utilise la page <a href="players/index.html">Joueurs</a> (si disponible).</p>
+            <h5 class="card-title">Joueurs</h5>
+            <p class="card-text">Accède à l'annuaire des joueuses et aux fiches individuelles.</p>
+            <div class="list-group">
+{players_link_html if players_link_html else '              <div class="small text-muted">Index des joueuses non disponible</div>'}
+            </div>
           </div>
         </div>
-      </aside>
+
+        <div class="card shadow-sm">
+          <div class="card-body">
+            <h6 class="card-title">À propos</h6>
+            <p class="card-text small text-muted">Ce site présente des cartes et fiches générées à partir de tes données. Configure le contenu via <code>maps_metadata.json</code> et <code>site_config.json</code> si besoin.</p>
+          </div>
+        </div>
+
+      </div>
     </div>
   </main>
 
-  <footer class="text-center py-3">
-    <small>© Central Court</small>
+  <footer class="site-footer py-4">
+    <div class="container d-flex justify-content-between align-items-center">
+      <div>
+        <strong>Contact</strong> — <a href="mailto:{CONTACT_EMAIL}">{CONTACT_EMAIL}</a><br>
+        <small class="text-muted">{COPYRIGHT}</small>
+      </div>
+      <div class="text-end small text-muted">Généré automatiquement</div>
+    </div>
   </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
