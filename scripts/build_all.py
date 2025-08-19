@@ -167,7 +167,7 @@ players_link_html = ""
 players_exist = (DOCS / "players" / "index.html").exists()
 if players_exist:
     # don't duplicate: add a header link card separately
-    players_link_html = f'<a class="list-group-item list-group-item-action d-flex justify-content-between align-items-start" href="players/index.html"><div><strong>Joueuses — annuaire</strong><div class="small text-muted">Fiches individuelles</div></div><span class="badge bg-primary rounded-pill">Joueurs</span></a>'
+    players_link_html = f'<a class="list-group-item list-group-item-action d-flex justify-content-between align-items-start" href="players/index.html"><div><strong>Player directory</strong><div class="small text-muted">Individual Profile</div></div><span class="badge bg-primary rounded-pill">Players</span></a>'
 
 # Construct the final HTML using Bootstrap, with separate sections and footer
 logo_img_html = f'<img src="{logo_path}" alt="logo" height="38" class="me-2"/>' if logo_path else ""
@@ -222,7 +222,7 @@ INDEX_HTML = f"""<!doctype html>
             <h5 class="card-title">Players</h5>
             <p class="card-text">Access the player directory and individual profiles.</p>
             <div class="list-group">
-{players_link_html if players_link_html else '              <div class="small text-muted">Index des joueuses non disponible</div>'}
+{players_link_html if players_link_html else '              <div class="small text-muted">Player directory not available.</div>'}
             </div>
           </div>
         </div>
@@ -230,7 +230,7 @@ INDEX_HTML = f"""<!doctype html>
         <div class="card shadow-sm">
           <div class="card-body">
             <h6 class="card-title">About</h6>
-            <p class="card-text small text-muted">Ce site This site presents maps and player profile generated from hand-collected data of the internet</p>
+            <p class="card-text small text-muted">This site presents maps and player profile generated from hand-collected data of the internet</p>
           </div>
         </div>
 
