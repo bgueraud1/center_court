@@ -26,7 +26,7 @@ MAPS_METADATA = load_json_optional(ROOT / "maps_metadata.json")
 # load optional site-wide config (contact, copyright, title)
 SITE_CONFIG = load_json_optional(ROOT / "site_config.json")
 
-SITE_TITLE = SITE_CONFIG.get("site_title") or os.getenv("SITE_TITLE") or "Center Court — Cartes Tennis"
+SITE_TITLE = SITE_CONFIG.get("site_title") or os.getenv("SITE_TITLE") or "Center Court"
 CONTACT_EMAIL = SITE_CONFIG.get("contact_email") or os.getenv("SITE_CONTACT_EMAIL") or "contact@example.com"
 COPYRIGHT = SITE_CONFIG.get("copyright") or os.getenv("SITE_COPYRIGHT") or "© Center Court"
 
@@ -160,7 +160,7 @@ for p in map_files:
     stem = p.stem
     display = MAPS_METADATA.get(stem) or MAPS_METADATA.get(p.name) or pretty_name_from_stem(stem)
     # small hint showing filename in muted text
-    maps_entries_html.append(f'<a class="list-group-item list-group-item-action d-flex justify-content-between align-items-start" href="{p.name}"><div><strong>{display}</strong><div class="small text-muted">{p.name}</div></div><span class="badge bg-secondary rounded-pill">Carte</span></a>')
+    maps_entries_html.append(f'<a class="list-group-item list-group-item-action d-flex justify-content-between align-items-start" href="{p.name}"><div><strong>{display}</strong><div class="small text-muted">{p.name}</div></div><span class="badge bg-secondary rounded-pill">Map</span></a>')
 
 # players block (link to players if exists)
 players_link_html = ""
@@ -193,24 +193,24 @@ INDEX_HTML = f"""<!doctype html>
         {logo_img_html}
         <span>Center Court</span>
       </a>
-      <div class="ms-auto text-muted small">Cartes & fiches générées</div>
+      <div class="ms-auto text-muted small">Maps and Player Profile</div>
     </div>
   </nav>
 
   <main class="container py-4">
     <header class="mb-4">
       <h1 class="h3">{SITE_TITLE}</h1>
-      <p class="lead">Cartes interactives et pages joueuses générées automatiquement.</p>
+      <p class="lead">Interactive Maps and Player Profile</p>
     </header>
 
     <div class="row g-4">
       <div class="col-lg-8">
         <div class="card maps-section shadow-sm">
           <div class="card-body">
-            <h4 class="card-title">Cartes</h4>
-            <p class="card-text text-muted">Clique sur une carte pour l'ouvrir dans un nouvel onglet.</p>
+            <h4 class="card-title">Maps</h4>
+            <p class="card-text text-muted">Click a map to open it.</p>
             <div class="list-group">
-{chr(10).join(maps_entries_html) if maps_entries_html else '              <div class="text-muted">Aucune carte trouvée</div>'}
+{chr(10).join(maps_entries_html) if maps_entries_html else '              <div class="text-muted">No map found</div>'}
             </div>
           </div>
         </div>
@@ -219,8 +219,8 @@ INDEX_HTML = f"""<!doctype html>
       <div class="col-lg-4">
         <div class="card players-section shadow-sm mb-3">
           <div class="card-body">
-            <h5 class="card-title">Joueurs</h5>
-            <p class="card-text">Accède à l'annuaire des joueuses et aux fiches individuelles.</p>
+            <h5 class="card-title">Players</h5>
+            <p class="card-text">Access the player directory and individual profiles.</p>
             <div class="list-group">
 {players_link_html if players_link_html else '              <div class="small text-muted">Index des joueuses non disponible</div>'}
             </div>
@@ -229,8 +229,8 @@ INDEX_HTML = f"""<!doctype html>
 
         <div class="card shadow-sm">
           <div class="card-body">
-            <h6 class="card-title">À propos</h6>
-            <p class="card-text small text-muted">Ce site présente des cartes et fiches générées à partir de tes données. Configure le contenu via <code>maps_metadata.json</code> et <code>site_config.json</code> si besoin.</p>
+            <h6 class="card-title">About</h6>
+            <p class="card-text small text-muted">Ce site This site presents maps and player profile generated from hand-collected data of the internet</p>
           </div>
         </div>
 
@@ -244,7 +244,7 @@ INDEX_HTML = f"""<!doctype html>
         <strong>Contact</strong> — <a href="mailto:{CONTACT_EMAIL}">{CONTACT_EMAIL}</a><br>
         <small class="text-muted">{COPYRIGHT}</small>
       </div>
-      <div class="text-end small text-muted">Généré automatiquement</div>
+      <div class="text-end small text-muted">Automatically generated</div>
     </div>
   </footer>
 
