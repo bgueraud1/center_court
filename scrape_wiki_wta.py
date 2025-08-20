@@ -10,7 +10,7 @@ from typing import Optional, List, Dict
 import glob
 import os
 import unicodedata
-
+import time
 
 # US state abbreviations for birthplace normalization
 US_STATE_ABBR = {
@@ -55,91 +55,147 @@ def parse_iso_date(value: str) -> str:
 
 
 
+# utils in scrape_wiki_wta.py (or a shared util module)
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
 def make_retry_session(
-    total_retries: int = 3,
-    backoff_factor: float = 0.5,
-    status_forcelist: List[int] = (500, 502, 503, 504)
-) -> requests.Session:
+    total_retries=5,
+    backoff_factor=1.0,
+    status_forcelist=(429, 500, 502, 503, 504),
+    allowed_methods=frozenset(["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"])
+):
     """
-    Return a requests.Session that will retry GETs on network errors or 5xx.
+    Return a requests.Session preconfigured with Retry logic that also honors
+    429 responses and Retry-After headers.
     """
     session = requests.Session()
-    retries = Retry(
+
+    session.headers.update({
+        "User-Agent": "CenterCourtBot/1.0 (+https://center-court.net; contact:ben.gueraud@yahoo.com)",
+    })
+
+    retry = Retry(
         total=total_retries,
+        read=total_retries,
+        connect=total_retries,
         backoff_factor=backoff_factor,
-        status_forcelist=status_forcelist,
-        allowed_methods=["GET"]
+        status_forcelist=list(status_forcelist),
+        allowed_methods=allowed_methods,
+        raise_on_status=False,  # we will handle statuses manually after retries
+        respect_retry_after_header=True
     )
-    adapter = HTTPAdapter(max_retries=retries)
+
+    adapter = HTTPAdapter(max_retries=retry)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
     return session
 
 
 
-def scrape_wiki_player(session: requests.Session, url: str) -> dict:
-    """
-    Fetch & parse a Wikipedia infobox. Raises FileNotFoundError on 404,
-    RuntimeError on other network issues.
-    """
-    try:
-        resp = session.get(url, timeout=10)
-    except requests.RequestException as e:
-        raise RuntimeError(f"Network error fetching {url}: {e}")
-    if resp.status_code == 404:
-        raise FileNotFoundError(f"Page not found: {url}")
-    resp.raise_for_status()
-    soup = BeautifulSoup(resp.text, 'html.parser')
-    infobox = soup.find('table', class_='infobox')
-    if not infobox:
-        raise ValueError("Infobox not found")
 
-    out = {
-        'height_ft': None, 'height_m': None,
-        'plays':     None,
-        'birth_date':   None,
-        'birth_place':  None
-    }
-
-    for row in infobox.find_all('tr'):
-        th = row.find('th')
-        td = row.find('td')
-        if not th or not td:
+def scrape_wiki_player(session: requests.Session, url: str,
+                       max_tries: int = 5, base_delay: float = 0.8) -> dict:
+    """
+    Fetch & parse a Wikipedia infobox. Retries on 429/5xx with exponential backoff.
+    Raises FileNotFoundError on 404, RuntimeError on failure after retries.
+    """
+    attempt = 0
+    last_exc = None
+    while attempt < max_tries:
+        attempt += 1
+        try:
+            resp = session.get(url, timeout=15)
+        except requests.RequestException as e:
+            last_exc = e
+            wait = base_delay * (2 ** (attempt - 1))
+            print(f"[WARN] network error fetching {url}: {e} — sleeping {wait:.2f}s (try {attempt}/{max_tries})")
+            time.sleep(wait)
             continue
-        label = clean_ws(th.get_text())
-        value = clean_ws(td.get_text(" "))
 
-        if label == 'Height':
-            m = re.match(r'(.+?)\s*\((.+?)\)', value)
-            if m:
-                a, b = m.groups()
-                # determine which is metric vs feet
-                if 'm' in a:
-                    out['height_m'], out['height_ft'] = a.strip(), b.strip()
-                else:
-                    out['height_ft'], out['height_m'] = a.strip(), b.strip()
+        # 404 -> page missing
+        if resp.status_code == 404:
+            raise FileNotFoundError(f"Page not found: {url}")
 
-        elif label == 'Plays':
-            # e.g. "Right-handed (two-handed backhand)"
-            out['plays'] = 'Left-Handed' if 'Left' in value else 'Right-Handed'
-        
-        elif label == 'Born':
-            # Date
-            span = td.find('span', class_='bday')
-            if span:
-                out['birth_date'] = span.get_text()
-            else:
-                m2 = re.search(r'([A-Za-z]+ \d{1,2}, \d{4})', value)
-                if m2:
-                    out['birth_date'] = datetime.strptime(m2.group(1), '%B %d, %Y') \
-                                          .strftime('%Y-%m-%d')
-            # Place (after the <br/>)
-            br = td.find('br')
-            if br:
-                raw = ''.join(str(s) for s in td.contents[td.contents.index(br)+1:])
-                out['birth_place'] = clean_ws(BeautifulSoup(raw, 'html.parser').get_text())
+        # 200 -> parse
+        if resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            infobox = soup.find('table', class_='infobox')
+            if not infobox:
+                # keep behavior similar to before
+                raise ValueError("Infobox not found")
 
-    return out
+            out = {
+                'height_ft': None, 'height_m': None,
+                'plays':     None,
+                'birth_date':   None,
+                'birth_place':  None
+            }
+
+            for row in infobox.find_all('tr'):
+                th = row.find('th')
+                td = row.find('td')
+                if not th or not td:
+                    continue
+                label = clean_ws(th.get_text())
+                value = clean_ws(td.get_text(" "))
+
+                if label == 'Height':
+                    m = re.match(r'(.+?)\s*\((.+?)\)', value)
+                    if m:
+                        a, b = m.groups()
+                        if 'm' in a:
+                            out['height_m'], out['height_ft'] = a.strip(), b.strip()
+                        else:
+                            out['height_ft'], out['height_m'] = a.strip(), b.strip()
+
+                elif label == 'Plays':
+                    out['plays'] = 'Left-Handed' if 'Left' in value else 'Right-Handed'
+
+                elif label == 'Born':
+                    span = td.find('span', class_='bday')
+                    if span:
+                        out['birth_date'] = span.get_text()
+                    else:
+                        m2 = re.search(r'([A-Za-z]+ \d{1,2}, \d{4})', value)
+                        if m2:
+                            out['birth_date'] = datetime.strptime(m2.group(1), '%B %d, %Y') \
+                                                  .strftime('%Y-%m-%d')
+                    br = td.find('br')
+                    if br:
+                        raw = ''.join(str(s) for s in td.contents[td.contents.index(br)+1:])
+                        out['birth_place'] = clean_ws(BeautifulSoup(raw, 'html.parser').get_text())
+
+            return out
+
+        # non-200: handle 429 (rate limit) and 5xx (server)
+        if resp.status_code == 429:
+            # respect Retry-After if supplied, else exponential backoff
+            ra = resp.headers.get("Retry-After")
+            try:
+                wait = float(ra) if ra is not None and ra.strip().isdigit() else base_delay * (2 ** (attempt - 1))
+            except Exception:
+                wait = base_delay * (2 ** (attempt - 1))
+            print(f"[WARN] 429 for {url} — sleeping {wait:.2f}s (try {attempt}/{max_tries})")
+            time.sleep(wait)
+            continue
+
+        if 500 <= resp.status_code < 600:
+            wait = base_delay * (2 ** (attempt - 1))
+            print(f"[WARN] server {resp.status_code} for {url} — sleeping {wait:.2f}s (try {attempt}/{max_tries})")
+            time.sleep(wait)
+            continue
+
+        # other unexpected status -> raise RuntimeError (enrich_csv attrape RuntimeError)
+        raise RuntimeError(f"Unexpected status {resp.status_code} fetching {url}")
+
+    # exhausted retries
+    msg = f"Failed to fetch {url} after {max_tries} tries"
+    if last_exc:
+        msg += f": {last_exc}"
+    raise RuntimeError(msg)
+
 
 def format_heights(ft: str, m: str):
     # transform scraped "5 ft 11 in" or "1.80 m" into your desired format
@@ -231,6 +287,11 @@ def enrich_csv(
     changes: List[Dict] = []
     attempted = scraped = 0
 
+       # --- configuration vitesse (ajustable) ---
+    SLEEP_BETWEEN = float(os.getenv("WIKI_DELAY", "0.25"))  # secondes, par défaut 0.25s
+    MAX_SCRAPE_TRIES = int(os.getenv("WIKI_MAX_TRIES", "5"))
+    BASE_BACKOFF = float(os.getenv("WIKI_BASE_BACKOFF", "0.8"))
+
     for pos in range(start_index, end_index):
         idx = active_idxs[pos]
         row = df.loc[idx]
@@ -247,12 +308,26 @@ def enrich_csv(
         # scrape
         wiki_url = f"https://en.wikipedia.org/wiki/{name.replace(' ', '_')}"
         try:
-            info = scrape_wiki_player(session, wiki_url)
-        except (FileNotFoundError, RuntimeError, ValueError) as e:
+            info = scrape_wiki_player(session, wiki_url,
+                                      max_tries=MAX_SCRAPE_TRIES,
+                                      base_delay=BASE_BACKOFF)
+        except FileNotFoundError as e:
             print(f"[{idx}] SKIP – {name}: {e}")
-            sleep(1)
+            time.sleep(SLEEP_BETWEEN)
+            continue
+        except (RuntimeError, ValueError) as e:
+            # network/server/parse issue — log and skip this player, continue with the rest
+            print(f"[{idx}] SKIP – {name}: {e}")
+            time.sleep(SLEEP_BETWEEN)
             continue
 
+        # if info is None for any reason, skip
+        if not info:
+            print(f"[{idx}] SKIP – {name}: empty info")
+            time.sleep(SLEEP_BETWEEN)
+            continue
+
+        # format heights / build new_data (unchanged)
         ft, cm = format_heights(info['height_ft'], info['height_m'])
         new_data = {
             'height_inches': ft or '',
@@ -269,25 +344,20 @@ def enrich_csv(
             not min_first_date or row['first_appearance'] > min_first_dt
         )
 
-        # apply new_data
+        # apply new_data (unchanged)
         for col, new_val in new_data.items():
             old_val = df.at[idx, col]
 
             if (pid, col) in prev_rejects:
-                # Don’t apply, don’t log
                 continue
 
-            # 3. never replace non-blank with blank
             if not new_val and old_val:
                 continue
-            # 1. skip if identical
             if new_val == old_val:
                 continue
-            # if old is non-blank and we’re not allowed to overwrite, skip
             if old_val and not allow_over:
                 continue
 
-            # record change
             changes.append({
                 'player_id': pid,
                 'player_name': name,
@@ -299,9 +369,9 @@ def enrich_csv(
             df.at[idx, col] = new_val
 
         scraped += 1
-        pct = scraped/attempted*100
+        pct = scraped / attempted * 100
         print(f"[{idx}] OK – {name} – {scraped}/{attempted} = {pct:.1f}%")
-        sleep(1)
+        time.sleep(SLEEP_BETWEEN)
 
     # write outputs
     df.to_csv(output_csv, index=False)
