@@ -1,21 +1,44 @@
+from pathlib import Path
 import pandas as pd
-import glob
 import os
+import glob
 from typing import List, Set, Dict
+
 
 def load_players(filepath: str) -> pd.DataFrame:
     """
-    Load existing player data, parse birth_date, and coerce player_id to int.
+    Lecture robuste du master CSV. Si le fichier est absent, on lève une
+    erreur claire ou on crée un template selon ton choix. Ici on préfère
+    créer un template vide pour que le pipeline continue proprement.
     """
+    p = Path(filepath)
+    if not p.exists():
+        # créer dossier si besoin et un CSV template pour éviter crash
+        p.parent.mkdir(parents=True, exist_ok=True)
+        cols = [
+            "player_id","full_name","birth_date","birthplace","represented_country",
+            "best_rank","plays","height_inches","height_cm",
+            "first_appearance","last_appearance"
+        ]
+        pd.DataFrame(columns=cols).to_csv(str(p), index=False, encoding="utf-8")
+        print(f"[INFO] players CSV absent — template créé: {p}")
+        return pd.DataFrame(columns=cols)
+
+    # si le fichier existe, le lire en protégeant les conversions
     df = pd.read_csv(
-        filepath,
+        str(p),
         keep_default_na=False,
         parse_dates=["birth_date", "first_appearance", "last_appearance"],
     )
-    df['player_id'] = (
-        pd.to_numeric(df['player_id'], errors='coerce')
-          .dropna().astype(int)
-    )
+    # tenter de normaliser player_id en entier (ignore les erreurs)
+    try:
+        df['player_id'] = (
+            pd.to_numeric(df['player_id'], errors='coerce')
+              .dropna().astype(int)
+        )
+    except Exception:
+        # si conversion impossible, on laisse tel quel (debug print)
+        print("[WARN] Impossible de convertir player_id en int pour certains enregistrements.")
     return df
 
 def load_rankings(directory: str, pattern: str = 'data*.csv') -> pd.DataFrame:
