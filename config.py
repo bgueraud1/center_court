@@ -2,16 +2,17 @@
 # Created Aug 7 2025
 # Ran to end
 
-# config.py
+# config.py — correction du ROOT
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]   # repo root
+# ROOT doit être le dossier où se trouve ce fichier (le package), pas le parent parent
+ROOT = Path(__file__).resolve().parent
+
 DATA_DIR = ROOT / "player_base_and_maps"
 
-# chemins (Path objects). Quand tu passes à pandas, utilise str(PATH)
 players_path = DATA_DIR / "player_data_wta.csv"
-output_path  = DATA_DIR / "player_data_wta.csv" 
-rankings_dir  = ROOT / "wta_rankings"  
+output_path  = DATA_DIR / "player_data_wta.csv"
+rankings_dir = ROOT / "wta_rankings"
 
 
 

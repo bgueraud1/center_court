@@ -10,6 +10,11 @@ from rankings_to_player_base import load_players, load_rankings, find_new_ids, s
 from add_ioc_to_player import enrich_country_codes
 from scrape_wiki_wta import enrich_csv, make_retry_session
 
+print("DEBUG: cwd =", os.getcwd())
+print("DEBUG: players_path =", str(players_path.resolve()))
+print("DEBUG: output_path =", str(output_path.resolve()))
+print("DEBUG: rankings_dir =", str(rankings_dir.resolve()))
+
 # This pipeline is meant to 
 # 1- scrape new ranking data from WTA website
 # 2- Incorporate new players in the players database and enrich their data with ranking and IOC informations
