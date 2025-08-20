@@ -25,8 +25,8 @@ from scrape_wiki_wta import enrich_csv, make_retry_session
 os.makedirs(rankings_dir, exist_ok=True)
 
 # Generate all Mondays in 2023
-start_date = datetime.date(2025, 8, 11)  # First Monday in 2023
-end_date = datetime.date(2025, 8, 11)  # Last Monday in 2023
+start_date = datetime.date(2025, 8, 18)  # First Monday in 2023
+end_date = datetime.date(2025, 8, 18)  # Last Monday in 2023
 specific_dates = [start_date + datetime.timedelta(weeks=i) for i in range((end_date - start_date).days // 7 + 1)]
 
 # Run the scraper

@@ -2,10 +2,19 @@
 # Created Aug 7 2025
 # Ran to end
 
+# config.py
+from pathlib import Path
 
-players_path: str = 'player_base_and_maps\player_data_wta.csv'
-output_path: str = 'player_base_and_maps\player_data_wta.csv'
-rankings_dir: str = 'player_base_and_maps\wta_rankings'
+ROOT = Path(__file__).resolve().parents[1]   # repo root
+DATA_DIR = ROOT / "player_base_and_maps"
+
+# chemins (Path objects). Quand tu passes à pandas, utilise str(PATH)
+players_path = DATA_DIR / "player_data_wta.csv"
+output_path  = DATA_DIR / "player_data_wta.csv" 
+rankings_dir  = ROOT / "wta_rankings"  
+
+
+
 
 
 min_first_date = '2015-01-01' # date under which player's data won't be overwritten if overwriting activated
