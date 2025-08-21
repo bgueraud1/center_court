@@ -11,6 +11,8 @@ def load_players(filepath: str) -> pd.DataFrame:
     erreur claire ou on crée un template selon ton choix. Ici on préfère
     créer un template vide pour que le pipeline continue proprement.
     """
+
+    
     p = Path(filepath)
     if not p.exists():
         # créer dossier si besoin et un CSV template pour éviter crash
@@ -24,6 +26,16 @@ def load_players(filepath: str) -> pd.DataFrame:
         print(f"[INFO] players CSV absent — template créé: {p}")
         return pd.DataFrame(columns=cols)
 
+
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"players CSV not found at {filepath} (CI workspace). Aborting to avoid creating a new template.")
+    # existing implementation continues...
+    df = pd.read_csv(
+        filepath,
+        keep_default_na=False,
+        parse_dates=["birth_date", "first_appearance", "last_appearance"],
+    )
+    
     # si le fichier existe, le lire en protégeant les conversions
     df = pd.read_csv(
         str(p),
