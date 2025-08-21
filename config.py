@@ -1,47 +1,54 @@
 # Configuration file for the player_data_wta enrichment Pipeline
 # Created Aug 7 2025
 # Ran to end
-
-# config.py (remplacement robuste)
+# config.py (patch auto-detect)
 from pathlib import Path
+import os
+import sys
 
-# point de départ : ce fichier
-THIS = Path(__file__).resolve()
-
-# remonter pour trouver la racine du repo (là où .git existe), limiter la recherche
-REPO_ROOT = THIS
-for _ in range(8):
-    if (REPO_ROOT / ".git").exists():
-        break
-    if REPO_ROOT.parent == REPO_ROOT:
-        break
-    REPO_ROOT = REPO_ROOT.parent
-
-# fallback: si .git non trouvé, utiliser deux niveaux au-dessus (comportement précédent)
-if not (REPO_ROOT / ".git").exists():
-    REPO_ROOT = THIS.parents[1]
-
-# candidates possibles pour le dossier de données (ajoute d'autres chemins si nécessaire)
-CANDIDATES = [
-    REPO_ROOT / "player_base_and_maps",
-    REPO_ROOT / "center_court" / "player_base_and_maps",
-    REPO_ROOT / "data" / "player_base_and_maps",
-    REPO_ROOT / "player_base_and_maps"  # redondant mais sûr
+REPO_ROOT = Path(__file__).resolve().parents[1]   # repo root
+# candidate relative locations (ordered by preference)
+CANDIDATE_PATHS = [
+    REPO_ROOT / "player_base_and_maps" / "player_data_wta.csv",
+    REPO_ROOT / "player_base_and_maps" / "data" / "player_data_wta.csv",
+    REPO_ROOT / "player_data_wta.csv",
+    REPO_ROOT / "data" / "player_data_wta.csv",
 ]
 
-DATA_DIR = next((p for p in CANDIDATES if p.exists()), REPO_ROOT / "player_base_and_maps")
-DATA_DIR = DATA_DIR.resolve()
+found = None
+found_candidates = []
+for p in CANDIDATE_PATHS:
+    if p.exists():
+        found_candidates.append(p)
 
-# chemins utilisés ailleurs
-players_path = DATA_DIR / "player_data_wta.csv"
-output_path  = DATA_DIR / "player_data_wta.csv"
+# also allow any case-insensitive match near root (helpful if someone committed with different case)
+if not found_candidates:
+    for p in REPO_ROOT.rglob("*player_data_wta.csv"):
+        found_candidates.append(p)
+
+if found_candidates:
+    # prefer the one under player_base_and_maps if present
+    pref = next((p for p in found_candidates if "player_base_and_maps" in str(p)), None)
+    found = pref or found_candidates[0]
+else:
+    # no file found — keep default location under player_base_and_maps (so code fails early & deterministically)
+    found = REPO_ROOT / "player_base_and_maps" / "player_data_wta.csv"
+
+# expose same names your scripts expect
+DATA_DIR = found.parent
+players_path = found
+output_path = found
+REPO_ROOT = REPO_ROOT
 rankings_dir = REPO_ROOT / "wta_rankings"
 
-# debug utile (sera imprimé lors du run)
+# debug prints (useful in CI)
 print("DEBUG(config): REPO_ROOT =", REPO_ROOT)
-print("DEBUG(config): DATA_DIR  =", DATA_DIR)
+print("DEBUG(config): candidate CSVs checked:", [str(p) for p in CANDIDATE_PATHS])
+print("DEBUG(config): found_candidates:", [str(p) for p in found_candidates])
 print("DEBUG(config): players_path =", players_path)
+print("DEBUG(config): DATA_DIR  =", DATA_DIR)
 print("DEBUG(config): rankings_dir =", rankings_dir)
+
 
 
 
