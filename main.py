@@ -97,9 +97,29 @@ else:
 
         # Build tmp input CSV containing only the rows for new_ids
         # Ensure player_id is int for matching
-        players_df['player_id'] = pd.to_numeric(players_df['player_id'], errors='coerce').astype(int)
+        # ensure numeric player_id
+        players_df['player_id'] = pd.to_numeric(players_df['player_id'], errors='coerce').astype('Int64')
+        
+        # build subset for new players
         mask = players_df['player_id'].isin(new_ids)
         df_new_subset = players_df.loc[mask].copy()
+        
+        # --- IMPORTANT: keep only players that are "active" in the latest rankings ---
+        # ranks_df est déjà chargé plus haut (load_rankings). On calcule les player_id apparus
+        # à la date de classement la plus récente et on filtre df_new_subset sur cette liste.
+        try:
+            latest_date = ranks_df['date'].max()
+            active_ids = set(ranks_df.loc[ranks_df['date'] == latest_date, 'player_id'].astype(int))
+            print(f"DEBUG: latest ranking date = {latest_date}, active ids = {len(active_ids)}")
+            # filter the new-subset to only active players (avoid scraping retirees / historical players)
+            before = len(df_new_subset)
+            df_new_subset = df_new_subset[df_new_subset['player_id'].isin(active_ids)].copy()
+            after = len(df_new_subset)
+            print(f"DEBUG: filtered new-subset by active ids: {before} -> {after} rows")
+        except Exception as e:
+            # if something goes wrong reading ranks_df, continue but warn
+            print("WARNING: could not filter new-subset by active ids:", e)
+
 
         # If there are no rows (safety)
         if df_new_subset.shape[0] == 0:
