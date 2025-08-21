@@ -71,3 +71,15 @@ jobs:
           git status --porcelain
           git commit -m "chore: build docs (CI)" || echo "No changes to commit"
           git push origin HEAD:main
+
+      - name: Trigger Netlify deploy (build hook)
+        if: always()
+        env:
+          NETLIFY_BUILD_HOOK: ${{ secrets.NETLIFY_BUILD_HOOK }}
+        run: |
+          if [ -n "${NETLIFY_BUILD_HOOK}" ]; then
+            echo "Triggering Netlify build hook..."
+            curl -s -X POST "${NETLIFY_BUILD_HOOK}" -d '{}' || true
+          else
+            echo "No NETLIFY_BUILD_HOOK secret configured; skipping."
+          fi
