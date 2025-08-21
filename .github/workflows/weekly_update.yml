@@ -2,12 +2,11 @@ name: Weekly update (scrape + commit)
 
 permissions:
   contents: write
-  
+
 on:
   schedule:
-    # Runs Mondays at 04:00 UTC (== 06:00 Paris during CEST).
     - cron: '0 4 * * 1'
-  workflow_dispatch: {}  # allows manual trigger
+  workflow_dispatch: {}
 
 jobs:
   update_players:
@@ -17,15 +16,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: true
           lfs: true
 
       - name: Debug workspace contents
         run: |
           echo "PWD: $(pwd)"
           ls -la
-          echo "Find player_data_wta.csv (maxdepth 6):"
-          find . -maxdepth 6 -name 'player_data_wta.csv' -print -exec ls -l {} \; || true
-
+          find . -maxdepth 4 -name 'player_data_wta.csv' -print -exec ls -l {} \; || true
 
       - name: Setup Python
         uses: actions/setup-python@v4
@@ -36,32 +34,72 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements-build.txt ]; then pip install -r requirements-build.txt; fi
+          # ensure geopy & pandas present (for the geocoder script)
+          pip install geopy pandas
 
       - name: Run main.py (update CSV)
         env:
-          # override if you need environment variables the script expects
           SKIP_GEOCODE: "1"
         run: |
           python main.py
 
-      - name: Check for changes
-        id: git-check
+      # ---------- NEW: geocode only missing places (updates cache) ----------
+      - name: Geocode missing places and update cache
+        env:
+          # put a contact in the user agent: keeps Nominatim happy
+          USER_AGENT: "center-court-bot/1.0 (your-email@example.com)"
+        run: |
+          # Only run geocoding if NET SKIP is not set; you may keep SKIP_GEOCODE=1 during main.py,
+          # but here we perform the cache update explicitly.
+          python scripts/geocode_new_players.py \
+            --csv player_base_and_maps/player_data_wta.csv \
+            --cache player_base_and_maps/maps_html/coords_cache.json \
+            --user-agent "$USER_AGENT" \
+            --delay 1.2 \
+            --max 1000
+
+      # ---------- Generate embeddings (if used) ----------
+      - name: Generate quick embeddings (optional)
+        run: |
+          python scripts/make_quick_embeddings.py
+
+      # ---------- Build all (maps + players pages) using the updated cache ----------
+      - name: Run build_all (generate maps & docs)
+        env:
+          SKIP_GEOCODE: "1"   # build will use the cache written above
+        run: |
+          python scripts/build_all.py
+
+      - name: Debug list (optional)
+        run: |
+          echo "---- repo root listing ----"
+          ls -la
+          echo "---- docs listing (if any) ----"
+          ls -la docs || true
+
+      - name: Commit docs, cache and CSV
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # show diff for debug
+          # Add docs and cache (and CSV) — force docs in case .gitignore ignores it
+          git add -f docs || true
+          git add -f player_base_and_maps/maps_html/coords_cache.json || true
+          git add player_base_and_maps/player_data_wta.csv || true
           git status --porcelain
-          git add -A
-          if git diff --cached --quiet; then
-            echo "no-changes=true" >> $GITHUB_OUTPUT
-            echo "No changes to commit"
-          else
-            echo "no-changes=false" >> $GITHUB_OUTPUT
-            git commit -m "chore(automated): weekly update player DB" || true
-          fi
+          git commit -m "chore(automated): weekly update player DB + rebuild docs" || echo "No changes to commit"
+          # push using the token provided by actions/checkout (persist-credentials: true)
+          git push origin HEAD:main
 
-      - name: Push changes
-        if: steps.git-check.outputs.no-changes == 'false'
+      - name: Trigger Netlify deploy via build hook
+        if: ${{ success() }}
+        env:
+          NETLIFY_BUILD_HOOK: ${{ secrets.NETLIFY_BUILD_HOOK }}
         run: |
-          # push back to the repo using the token provided automatically by GitHub Actions
-          git push --follow-tags origin HEAD:main
+          if [ -z "$NETLIFY_BUILD_HOOK" ]; then
+            echo "No NETLIFY_BUILD_HOOK set — skipping deploy trigger"
+            exit 0
+          fi
+          echo "Calling Netlify build hook..."
+          curl -s -X POST "$NETLIFY_BUILD_HOOK" -o /tmp/netlify_hook_resp.txt -w "\nHTTP_STATUS:%{http_code}\n"
+          echo "Netlify response:"
+          cat /tmp/netlify_hook_resp.txt || true
