@@ -24,7 +24,6 @@ def fetch_data_with_retries(url, retries=5, delay=0):
             response = requests.get(url)
             if response.status_code == 429:  # Rate limit
                 print(f"Rate limit reached. Retrying in {delay} seconds...")
-                time.sleep(delay)
                 delay *= 2  # Exponential backoff
                 continue
             response.raise_for_status()
@@ -33,7 +32,6 @@ def fetch_data_with_retries(url, retries=5, delay=0):
             print(f"Error fetching {url}: {e}")
             if attempt == retries - 1:
                 return None
-            time.sleep(delay)
     return None
 
 # Main scraping function
