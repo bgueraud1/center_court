@@ -13,6 +13,53 @@ from rankings_to_player_base import load_players, load_rankings, find_new_ids, s
 from add_ioc_to_player import enrich_country_codes
 from scrape_wiki_wta import enrich_csv, make_retry_session
 
+
+
+
+# main.py — ajouter tout en haut, après imports
+from pathlib import Path
+import sys
+import os
+
+# players_path vient de config import (déjà présent plus bas)
+# mais si tu veux tester avant import, tu peux vérifier après l'import config
+
+# Diagnostic helper (affiche beaucoup d'info utiles dans CI logs)
+def debug_find_csv(filename="player_data_wta.csv"):
+    print(">>> DEBUG: Searching for player_data_wta.csv in workspace (case-insensitive)")
+    # liste racine
+    os.system("pwd || true")
+    os.system("ls -la || true")
+    # recherche insensible à la casse et maxdepth raisonnable
+    os.system("find . -maxdepth 8 -iname '*player_data_wta.csv' -print -exec ls -l {} \\; || true")
+    # vérifier git index
+    os.system("git ls-files | grep -i player_data_wta.csv || true")
+    # tenter d'afficher un aperçu si le fichier existe
+    for p in Path('.').rglob('*player_data_wta.csv'):
+        try:
+            print(f"--- HEAD of {p} ---")
+            os.system(f"head -n 6 {p} || true")
+            print("--- file command ---")
+            os.system(f"file {p} || true")
+            print("--- hexdump first 200 bytes (detect LFS pointer / BOM) ---")
+            os.system(f"xxd -l 200 {p} || true")
+        except Exception:
+            pass
+
+# Appelé plus tard **après** l'import config (qui définit players_path)
+# Si players_path n'existe pas -> crash proprement avec diagnostic
+if not players_path.exists():
+    print("ERROR: players_path NOT FOUND at:", players_path)
+    debug_find_csv()
+    raise SystemExit("ERROR: players CSV absent in CI workspace — aborting to avoid creating template.")
+else:
+    print("OK: players_path exists:", players_path, "size:", players_path.stat().st_size)
+    # show a quick head to be safe
+    os.system(f"head -n 6 {players_path} || true")
+
+
+
+
 print("DEBUG: cwd =", os.getcwd())
 print("DEBUG: players_path =", str(players_path.resolve()))
 print("DEBUG: output_path =", str(output_path.resolve()))
@@ -99,11 +146,11 @@ else:
         # Ensure player_id is int for matching
         # ensure numeric player_id
         players_df['player_id'] = pd.to_numeric(players_df['player_id'], errors='coerce').astype('Int64')
-        
+
         # build subset for new players
         mask = players_df['player_id'].isin(new_ids)
         df_new_subset = players_df.loc[mask].copy()
-        
+
         # --- IMPORTANT: keep only players that are "active" in the latest rankings ---
         # ranks_df est déjà chargé plus haut (load_rankings). On calcule les player_id apparus
         # à la date de classement la plus récente et on filtre df_new_subset sur cette liste.
