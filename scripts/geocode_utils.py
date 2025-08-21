@@ -62,6 +62,50 @@ def _do_geocode(geolocator, place: str, timeout: int) -> Optional[Tuple[float, f
         _log.debug("Non fatal geocode error for %r: %s", place, e)
     return None
 
+# --- utilité: charger/save cache simple (dict place -> [lat, lon] or None) ---
+def load_coords_cache(path: str) -> dict:
+    try:
+        with open(path, "r", encoding="utf8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        return {}
+
+def save_coords_cache(path: str, cache: dict):
+    try:
+        parent = os.path.dirname(path)
+        if parent and not os.path.exists(parent):
+            os.makedirs(parent, exist_ok=True)
+        with open(path, "w", encoding="utf8") as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+# --- should_skip_geocode: decide si on doit tenter un geocode pour 'place' ---
+def should_skip_geocode(place: str, cache_path: Optional[str] = None) -> bool:
+    """
+    Retourne True si le geocoding doit être sauté pour 'place'.
+    Conditions courantes:
+      - SKIP_GEOCODE env var = '1' (CI)
+      - place présent dans cache_path (et non-null)
+    """
+    # Respect de la variable d'environnement
+    if os.environ.get("SKIP_GEOCODE", "") == "1":
+        # on skip globalement (mais parfois on veut encore utiliser cache)
+        return True
+
+    if not place:
+        return True
+
+    if cache_path:
+        cache = load_coords_cache(cache_path)
+        if place in cache:
+            # si cached value is None => previously failed -> skip
+            return cache.get(place) is not None
+
+    return False
+
 
 def geocode_place(place: str,
                   cache: Dict[str, Any],
