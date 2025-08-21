@@ -89,6 +89,30 @@ jobs:
           git commit -m "chore(automated): weekly update player DB + rebuild docs" || echo "No changes to commit"
           # push using the token provided by actions/checkout (persist-credentials: true)
           git push origin HEAD:main
+          
+            - name: Push changes (using PAT to allow downstream workflows)
+        if: steps.git-check.outputs.no-changes == 'false'
+        env:
+          PAT: ${{ secrets.PAT_FOR_CI }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Make remote use PAT so the push triggers other workflows
+          git remote set-url origin https://x-access-token:${PAT}@github.com/${{ github.repository }} || true
+
+          # Optional: fetch and rebase to avoid rejected pushes
+          git fetch origin main --quiet || true
+          git rebase origin/main || true
+
+          # Push
+          set -x
+          git push origin HEAD:main
+          set +x
+
+          # Debug remote
+          git ls-remote origin HEAD
+
 
       - name: Trigger Netlify deploy via build hook
         if: ${{ success() }}
@@ -103,3 +127,8 @@ jobs:
           curl -s -X POST "$NETLIFY_BUILD_HOOK" -o /tmp/netlify_hook_resp.txt -w "\nHTTP_STATUS:%{http_code}\n"
           echo "Netlify response:"
           cat /tmp/netlify_hook_resp.txt || true
+
+      
+
+
+
