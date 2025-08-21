@@ -77,7 +77,7 @@ jobs:
           echo "---- docs listing (if any) ----"
           ls -la docs || true
 
-      - name: Commit docs, cache and CSV
+            - name: Commit docs, cache and CSV
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -87,10 +87,26 @@ jobs:
           git add player_base_and_maps/player_data_wta.csv || true
           git status --porcelain
           git commit -m "chore(automated): weekly update player DB + rebuild docs" || echo "No changes to commit"
-          # push using the token provided by actions/checkout (persist-credentials: true)
-          git push origin HEAD:main
-          
-            - name: Push changes (using PAT to allow downstream workflows)
+          # Note: we do NOT push here (push handled in the next conditional step)
+
+      - name: Check for changes
+        id: git-check
+        run: |
+          # if there are any commits not yet pushed, set no-changes=false
+          # This checks whether HEAD is different from origin/main (best-effort)
+          git fetch origin main --quiet || true
+          if git rev-parse --verify origin/main >/dev/null 2>&1; then
+            if git rev-parse HEAD | grep -q $(git rev-parse origin/main); then
+              echo "no-changes=true" >> $GITHUB_OUTPUT
+            else
+              echo "no-changes=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            # origin/main not present (first push), assume there are changes to push
+            echo "no-changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Push changes (using PAT to allow downstream workflows)
         if: steps.git-check.outputs.no-changes == 'false'
         env:
           PAT: ${{ secrets.PAT_FOR_CI }}
@@ -113,6 +129,7 @@ jobs:
           # Debug remote
           git ls-remote origin HEAD
 
+      
 
       - name: Trigger Netlify deploy via build hook
         if: ${{ success() }}
