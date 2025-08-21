@@ -193,7 +193,7 @@ def build_and_save_map(all_pts: list, out_html: str):
           let html = `<div><strong>${g.birthplace} — ${g.names.length} player${g.names.length>1?'s':''}</strong><ul style="padding-left:1em;margin:0;">`;
           for(let i=0;i<g.names.length;i++){
             const name=g.names[i], dob=g.births[i], id=g.ids[i],
-                  wiki=`https://en.wikipedia.org/wiki/${name.replace(/ /g,'_')}`,
+                  wiki=`https://www.center-court.net/players/${name.replace(/ /g,'_')-2}`,
                   slug=name.toLowerCase().replace(/ /g,'-'),
                   wta=`https://www.wtatennis.com/players/${id}/${slug}`;
             html+=`<li><a href="${wiki}" target="_blank">${name}</a>, ${dob}, <a href="${wta}" target="_blank">WTA</a></li>`;
