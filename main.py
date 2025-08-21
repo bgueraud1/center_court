@@ -69,11 +69,30 @@ print("DEBUG: rankings_dir =", str(rankings_dir.resolve()))
 os.makedirs(rankings_dir, exist_ok=True)
 DATA_DIR = players_path.parent
 
-# --- 1) Scrape rankings for the requested dates (unchanged) ---
-# Generate all Mondays (keep your existing dates)
-start_date = datetime.date(2025, 8, 18)
-end_date = datetime.date(2025, 8, 18)
+# --- 1) Scrape rankings for the requested dates ---
+
+
+today = datetime.date.today()
+
+# Option: forcer depuis env var SCRAPE_DATE="YYYY-MM-DD"
+scrape_date_env = os.getenv("SCRAPE_DATE")
+if scrape_date_env:
+    try:
+        start_date = datetime.datetime.strptime(scrape_date_env, "%Y-%m-%d").date()
+    except Exception:
+        raise SystemExit("SCRAPE_DATE mal formattée, utiliser YYYY-MM-DD")
+else:
+    # calculer le lundi de la semaine courante (weekday(): Monday=0)
+    # Si today is Monday -> use today, else go back to last Monday
+    days_since_monday = today.weekday()  # 0..6
+    start_date = today - datetime.timedelta(days=days_since_monday)
+
+# si tu veux scraper seulement ce lundi (une date) :
+end_date = start_date
+
 specific_dates = [start_date + datetime.timedelta(weeks=i) for i in range((end_date - start_date).days // 7 + 1)]
+print(f"Will scrape rankings for: {specific_dates}")
+
 scrape_data(specific_dates, rankings_dir)
 
 # --- 2) Update player base from rankings (unchanged) ---
