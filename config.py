@@ -1,49 +1,62 @@
+# config.py — robust CI-aware
 from pathlib import Path
 import shutil
 import os
 
-REPO_ROOT = Path(__file__).resolve().parents[1]   # repo root
+# Prefer GITHUB_WORKSPACE in CI (this is the path where actions/checkout places the repo)
+gw = os.environ.get("GITHUB_WORKSPACE")
+if gw:
+    REPO_ROOT = Path(gw)
+else:
+    # fallback: file-based discovery (works locally)
+    REPO_ROOT = Path(__file__).resolve().parents[1]
+
 CANONICAL = REPO_ROOT / "player_base_and_maps" / "player_data_wta.csv"
 
-# try to find an existing CSV anywhere (case-insensitive) — fallback to canonical
+# Look for any existing player_data_wta.csv in repo or near repo root
 found_candidates = []
-for p in (
+# some likely locations (ordered)
+candidates = [
     REPO_ROOT / "player_base_and_maps" / "player_data_wta.csv",
     REPO_ROOT / "player_base_and_maps" / "data" / "player_data_wta.csv",
     REPO_ROOT / "player_data_wta.csv",
     REPO_ROOT / "data" / "player_data_wta.csv",
-):
+]
+for p in candidates:
     if p.exists():
         found_candidates.append(p)
 
+# also search case-insensitive if none found
 if not found_candidates:
-    # case-insensitive search near root
     for p in REPO_ROOT.rglob("*player_data_wta.csv"):
         found_candidates.append(p)
 
 if found_candidates:
     found = found_candidates[0]
 else:
-    found = CANONICAL  # none found, will create at canonical later
+    found = None
 
-# If found somewhere else than canonical, copy it to canonical (safe, non-destructive)
-if found.exists() and found.resolve() != CANONICAL.resolve():
+copied_msg = ""
+if found and found.resolve() != CANONICAL.resolve():
     CANONICAL.parent.mkdir(parents=True, exist_ok=True)
     try:
         shutil.copy2(found, CANONICAL)
         copied_msg = f"Copied existing CSV from {found} -> {CANONICAL}"
     except Exception as e:
         copied_msg = f"Could not copy {found} -> {CANONICAL}: {e}"
+elif found:
+    copied_msg = f"Found canonical CSV at {CANONICAL}"
 else:
-    copied_msg = "No external CSV to copy (either canonical already present or none found)."
+    copied_msg = "No CSV found at any candidate path; will create canonical if needed."
 
-# Expose variables used by scripts (always use CANONICAL)
+# Expose variables used by scripts
 players_path = CANONICAL
 output_path = CANONICAL
 DATA_DIR = players_path.parent
 rankings_dir = REPO_ROOT / "wta_rankings"
 
-# Debug prints (CI logs)
+# debug
+print("DEBUG(config): GITHUB_WORKSPACE =", gw)
 print("DEBUG(config): REPO_ROOT =", REPO_ROOT)
 print("DEBUG(config): canonical CSV =", CANONICAL)
 print("DEBUG(config): found_candidates:", [str(p) for p in found_candidates])
@@ -52,7 +65,7 @@ print("DEBUG(config): copy status ->", copied_msg)
 print("DEBUG(config): DATA_DIR  =", DATA_DIR)
 print("DEBUG(config): rankings_dir =", rankings_dir)
 
-# other options
+# rest of config
 min_first_date = '2015-01-01'
 overwrite_wiki = False
 overwrite_ioc = False
