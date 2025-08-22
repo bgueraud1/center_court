@@ -81,17 +81,20 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Add docs and cache (and CSV) — force docs in case .gitignore ignores it
+          # add things we expect
           git add -f docs || true
           git add -f player_base_and_maps/maps_html/coords_cache.json || true
-          
-          # ADD both possible CSV locations (primary + fallback root)
           git add -f player_base_and_maps/player_data_wta.csv || true
           git add -f player_data_wta.csv || true
-
+          # debug show exactly what is staged & what's in repo
+          echo "---- git status ----"
           git status --porcelain
+          echo "---- git ls-files (matching player_data_wta) ----"
+          git ls-files | grep -i player_data_wta || true
+          echo "---- staged diff (if any) ----"
+          git --no-pager diff --staged || true
           git commit -m "chore(automated): weekly update player DB + rebuild docs" || echo "No changes to commit"
-          # Note: we do NOT push here (push handled in the next conditional step)
+
 
       - name: Check for changes
         id: git-check
