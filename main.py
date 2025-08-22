@@ -108,7 +108,7 @@ else:
     print("No new players to add.")
 
 players_df = update_last_appearances(players_df, ranks_df)
-save_players(players_df, output_path)
+save_players(players_df, str(players_path))
 print(f"Player data refreshed and written to → {output_path}")
 
 # --- 3) Decide whether to run full refresh or only on new players ---
@@ -236,7 +236,7 @@ else:
                                 updated += 1
 
                 # Save merged master
-                save_players(players_df, output_path)
+                save_players(players_df, str(players_path))
                 print(f"Merged enriched data for {len(enriched)} rows into master; approx {updated} fields updated. Master saved -> {output_path}")
 
                 # Clean tmp files (optional)
@@ -289,7 +289,7 @@ else:
                             players_df.at[idx, c] = new_val
                             ioc_updated += 1
 
-                save_players(players_df, output_path)
+                save_players(players_df, str(players_path))
                 print(f"Merged IOC enrichment for {len(ioc_enriched)} rows into master; approx {ioc_updated} fields updated. Master saved -> {output_path}")
 
                 # clean tmp files
