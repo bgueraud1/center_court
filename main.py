@@ -30,10 +30,28 @@ import os
 from pathlib import Path
 import os, sys
 
-# repo root = parent of this file's parent (scripts live in repo root)
+# Ensure execution from repo root (robust for CI)
+from pathlib import Path
+import os
 REPO_ROOT = Path(__file__).resolve().parents[1]
 os.chdir(str(REPO_ROOT))
-print(f"DEBUG: forced cwd -> {os.getcwd()}")
+print("DEBUG: forced cwd ->", os.getcwd())
+
+
+# after "from config import players_path, output_path, ..."
+players_path = Path(players_path).resolve()
+output_path = Path(output_path).resolve()
+
+if not players_path.exists():
+    print("ERROR: players_path NOT FOUND at:", players_path)
+    # print workspace contents for debugging
+    os.system("pwd || true")
+    os.system("ls -la || true")
+    os.system("find . -maxdepth 3 -iname 'player_data_wta.csv' -print -exec ls -l {} \\; || true")
+    raise SystemExit("ERROR: players CSV absent in workspace — aborting.")
+else:
+    print("OK: players_path exists:", players_path, "size:", players_path.stat().st_size)
+
 # --------------------------------------------------------
 
 # Diagnostic helper (affiche beaucoup d'info utiles dans CI logs)

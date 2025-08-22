@@ -126,11 +126,15 @@ def update_last_appearances(players: pd.DataFrame, ranks_df: pd.DataFrame) -> pd
     # Drop the helper column
     return merged.drop(columns=['new_last'])
 
+
 def save_players(df: pd.DataFrame, output_path: str) -> None:
     """
-    Save the DataFrame to CSV. Ensures parent directory exists and prints debug path.
+    Save the DataFrame to CSV. Do NOT create unexpected parent directories;
+    require the parent directory to already exist to avoid nested/misplaced files.
     """
     p = Path(output_path)
-    p.parent.mkdir(parents=True, exist_ok=True)
+    parent = p.parent
+    if not parent.exists():
+        raise RuntimeError(f"save_players: parent dir does not exist: {parent} (refusing to create it)")
     print(f"DEBUG(save_players): writing players CSV to {p.resolve()}")
     df.to_csv(str(p), index=False)
