@@ -30,70 +30,14 @@ import os
 from pathlib import Path
 import os, sys
 
-# Ensure execution from repo root (robust for CI)
+# Force execution from repository root
 from pathlib import Path
 import os
-REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+REPO_ROOT = Path(__file__).resolve().parent
 os.chdir(str(REPO_ROOT))
-print("DEBUG: forced cwd ->", os.getcwd())
-
-
-# after "from config import players_path, output_path, ..."
-players_path = Path(players_path).resolve()
-output_path = Path(output_path).resolve()
-
-if not players_path.exists():
-    print("ERROR: players_path NOT FOUND at:", players_path)
-    # print workspace contents for debugging
-    os.system("pwd || true")
-    os.system("ls -la || true")
-    os.system("find . -maxdepth 3 -iname 'player_data_wta.csv' -print -exec ls -l {} \\; || true")
-    raise SystemExit("ERROR: players CSV absent in workspace — aborting.")
-else:
-    print("OK: players_path exists:", players_path, "size:", players_path.stat().st_size)
-
-# --------------------------------------------------------
-
-# Diagnostic helper (affiche beaucoup d'info utiles dans CI logs)
-def debug_find_csv(filename="player_data_wta.csv"):
-    print(">>> DEBUG: Searching for player_data_wta.csv in workspace (case-insensitive)")
-    # liste racine
-    os.system("pwd || true")
-    os.system("ls -la || true")
-    # recherche insensible à la casse et maxdepth raisonnable
-    os.system("find . -maxdepth 8 -iname '*player_data_wta.csv' -print -exec ls -l {} \\; || true")
-    # vérifier git index
-    os.system("git ls-files | grep -i player_data_wta.csv || true")
-    # tenter d'afficher un aperçu si le fichier existe
-    for p in Path('.').rglob('*player_data_wta.csv'):
-        try:
-            print(f"--- HEAD of {p} ---")
-            os.system(f"head -n 6 {p} || true")
-            print("--- file command ---")
-            os.system(f"file {p} || true")
-            print("--- hexdump first 200 bytes (detect LFS pointer / BOM) ---")
-            os.system(f"xxd -l 200 {p} || true")
-        except Exception:
-            pass
-
-# Appelé plus tard **après** l'import config (qui définit players_path)
-# Si players_path n'existe pas -> crash proprement avec diagnostic
-if not players_path.exists():
-    print("ERROR: players_path NOT FOUND at:", players_path)
-    debug_find_csv()
-    raise SystemExit("ERROR: players CSV absent in CI workspace — aborting to avoid creating template.")
-else:
-    print("OK: players_path exists:", players_path, "size:", players_path.stat().st_size)
-    # show a quick head to be safe
-    os.system(f"head -n 6 {players_path} || true")
-
-
-
-
-print("DEBUG: cwd =", os.getcwd())
-print("DEBUG: players_path =", str(players_path.resolve()))
-print("DEBUG: output_path =", str(output_path.resolve()))
-print("DEBUG: rankings_dir =", str(rankings_dir.resolve()))
+print("DEBUG: forced cwd ->", REPO_ROOT)
 
 # Ensure directories exist
 os.makedirs(rankings_dir, exist_ok=True)

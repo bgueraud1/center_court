@@ -129,8 +129,8 @@ def update_last_appearances(players: pd.DataFrame, ranks_df: pd.DataFrame) -> pd
 
 def save_players(df: pd.DataFrame, output_path: str) -> None:
     """
-    Save the DataFrame to CSV. Do NOT create unexpected parent directories;
-    require the parent directory to already exist to avoid nested/misplaced files.
+    Save the DataFrame to CSV. Refuse to create unexpected parent directories:
+    require the parent directory to already exist (fail loudly otherwise).
     """
     p = Path(output_path)
     parent = p.parent
