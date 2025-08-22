@@ -35,7 +35,7 @@ def load_players(filepath: str) -> pd.DataFrame:
         keep_default_na=False,
         parse_dates=["birth_date", "first_appearance", "last_appearance"],
     )
-    
+
     # si le fichier existe, le lire en protégeant les conversions
     df = pd.read_csv(
         str(p),
@@ -128,6 +128,9 @@ def update_last_appearances(players: pd.DataFrame, ranks_df: pd.DataFrame) -> pd
 
 def save_players(df: pd.DataFrame, output_path: str) -> None:
     """
-    Save the DataFrame to CSV.
+    Save the DataFrame to CSV. Ensures parent directory exists and prints debug path.
     """
-    df.to_csv(output_path, index=False)
+    p = Path(output_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    print(f"DEBUG(save_players): writing players CSV to {p.resolve()}")
+    df.to_csv(str(p), index=False)

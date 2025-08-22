@@ -9,6 +9,44 @@ import json
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / "docs"
 
+
+
+# Safety: if nested player_base_and_maps/player_base_and_maps exists (old bug), move its files out
+nested = ROOT / "player_base_and_maps" / "player_base_and_maps"
+canonical = ROOT / "player_base_and_maps"
+if nested.exists() and nested.is_dir():
+    print("DEBUG(build_all): Found nested player_base_and_maps -> moving known artifacts to canonical location")
+    # move csv if present
+    nested_csv = nested / "player_data_wta.csv"
+    if nested_csv.exists():
+        target_csv = canonical / "player_data_wta.csv"
+        target_csv.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            nested_csv.replace(target_csv)
+            print(f"Moved {nested_csv} -> {target_csv}")
+        except Exception as e:
+            print("Could not move nested csv:", e)
+    # move coords_cache if exists
+    nested_cache = nested / "maps_html" / "coords_cache.json"
+    if nested_cache.exists():
+        target_cache_dir = canonical / "maps_html"
+        target_cache_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            nested_cache.replace(target_cache_dir / "coords_cache.json")
+            print(f"Moved {nested_cache} -> {target_cache_dir / 'coords_cache.json'}")
+        except Exception as e:
+            print("Could not move nested cache:", e)
+    # optionally remove nested empty dir (only if empty)
+    try:
+        if not any(nested.iterdir()):
+            nested.rmdir()
+            print("Removed empty nested dir", nested)
+    except Exception:
+        pass
+
+
+
+
 # -------------------------
 # Helpers / config loaders
 # -------------------------
@@ -82,6 +120,10 @@ for cand in LOGO_CANDIDATES:
 print("SKIP_GEOCODE =", repr(os.getenv("SKIP_GEOCODE")))
 env = os.environ.copy()
 env["SKIP_GEOCODE"] = env.get("SKIP_GEOCODE", "1")  # CI default: skip network geocoding
+
+
+
+
 
 # -------------------------
 # 2) Run your main script that creates the HTML maps
