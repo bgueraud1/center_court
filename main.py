@@ -24,6 +24,11 @@ import os
 # players_path vient de config import (déjà présent plus bas)
 # mais si tu veux tester avant import, tu peux vérifier après l'import config
 
+from config import REPO_ROOT
+os.chdir(str(REPO_ROOT))
+print("DEBUG: cwd after chdir ->", os.getcwd())
+
+
 # Diagnostic helper (affiche beaucoup d'info utiles dans CI logs)
 def debug_find_csv(filename="player_data_wta.csv"):
     print(">>> DEBUG: Searching for player_data_wta.csv in workspace (case-insensitive)")
