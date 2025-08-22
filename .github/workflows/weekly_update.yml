@@ -106,28 +106,46 @@ jobs:
             echo "no-changes=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Push changes (using PAT to allow downstream workflows)
+      - name: Push changes (robust: PAT preferred, fallback to GITHUB_TOKEN)
         if: steps.git-check.outputs.no-changes == 'false'
         env:
           PAT: ${{ secrets.PAT_FOR_CI }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Make remote use PAT so the push triggers other workflows
-          git remote set-url origin https://x-access-token:${PAT}@github.com/${{ github.repository }} || true
+          # Choose auth token: use PAT when available (preferred for triggering downstream workflows),
+          # otherwise fallback to the GITHUB_TOKEN that Actions provides automatically.
+          AUTH="${PAT:-${GITHUB_TOKEN}}"
 
-          # Optional: fetch and rebase to avoid rejected pushes
+          if [ -z "$AUTH" ]; then
+            echo "ERROR: no PAT_FOR_CI or GITHUB_TOKEN available to perform push" >&2
+            exit 1
+          fi
+
+          # Set remote url to embed auth token (so push uses the token). Use HTTPS remote.
+          git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}" || true
+
+          # Fetch remote state and try to rebase local commits on top of origin/main to avoid rejects.
           git fetch origin main --quiet || true
-          git rebase origin/main || true
+          # If origin/main exists, rebase; ignore errors (we'll still attempt push)
+          if git rev-parse --verify origin/main >/dev/null 2>&1; then
+            git rebase origin/main || echo "rebase had conflicts or failed; continuing to push attempt"
+          fi
 
-          # Push
-          set -x
-          git push origin HEAD:main
-          set +x
+          # Try normal push first
+          echo "Attempting git push origin HEAD:main ..."
+          if git push origin HEAD:main; then
+            echo "Push succeeded."
+          else
+            echo "Push failed; attempt push with --force-with-lease (safer force) ..."
+            git push --force-with-lease origin HEAD:main
+          fi
 
-          # Debug remote
-          git ls-remote origin HEAD
+          # Show remote HEAD for debugging
+          git ls-remote origin HEAD || true
 
       - name: Trigger Netlify deploy via build hook
         if: ${{ success() }}
