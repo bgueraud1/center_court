@@ -1,46 +1,50 @@
-# config.py (CI-aware)
+# config.py — robust auto-detection of canonical player_data_wta.csv
 from pathlib import Path
-import shutil
 import os
 
-gw = os.environ.get("GITHUB_WORKSPACE")
-if gw:
-    REPO_ROOT = Path(gw)
+REPO_ROOT = Path(__file__).resolve().parents[1]   # repo root
+
+# Candidate locations in order of preference:
+CANDIDATE_PATHS = [
+    REPO_ROOT / "player_data_wta.csv",                             # prefer root copy
+    REPO_ROOT / "player_base_and_maps" / "player_data_wta.csv",    # legacy location
+    REPO_ROOT / "player_data_wta" / "player_data_wta.csv",
+    REPO_ROOT / "data" / "player_data_wta.csv",
+]
+
+found_candidates = []
+for p in CANDIDATE_PATHS:
+    if p.exists():
+        found_candidates.append(p)
+
+# fallback: any case-insensitive match near root
+if not found_candidates:
+    for p in REPO_ROOT.rglob("*player_data_wta.csv"):
+        found_candidates.append(p)
+
+if found_candidates:
+    # pick the highest-priority from the candidate list
+    # (we already added candidates in priority order)
+    found = found_candidates[0]
 else:
-    REPO_ROOT = Path(__file__).resolve().parents[1]
+    # if nothing found, default to canonical legacy path (will cause fail early)
+    found = REPO_ROOT / "player_base_and_maps" / "player_data_wta.csv"
 
-CANONICAL = REPO_ROOT / "player_base_and_maps" / "player_data_wta.csv"
-
-# search for any existing csv inside repo (or in strange nested dirs)
-found = None
-for p in REPO_ROOT.rglob("*player_data_wta.csv"):
-    found = p
-    break
-
-if found and found.resolve() != CANONICAL.resolve():
-    CANONICAL.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        shutil.copy2(found, CANONICAL)
-        copy_status = f"Copied {found} -> {CANONICAL}"
-    except Exception as e:
-        copy_status = f"Could not copy {found} -> {CANONICAL}: {e}"
-elif found:
-    copy_status = f"Using found CSV at {found}"
-else:
-    copy_status = "No CSV found; canonical path will be used/created when writing"
-
-players_path = CANONICAL
-output_path = CANONICAL
+# canonical paths exposed to scripts
+players_path = found
+output_path = found
 DATA_DIR = players_path.parent
 rankings_dir = REPO_ROOT / "wta_rankings"
 
-print("DEBUG(config): GITHUB_WORKSPACE =", gw)
+# DEBUG prints for CI logs
 print("DEBUG(config): REPO_ROOT =", REPO_ROOT)
-print("DEBUG(config): players_path (canonical) =", players_path)
-print("DEBUG(config): copy_status ->", copy_status)
+print("DEBUG(config): candidate CSVs checked:", [str(p) for p in CANDIDATE_PATHS])
+print("DEBUG(config): found_candidates:", [str(p) for p in found_candidates])
+print("DEBUG(config): players_path  ->", players_path)
+print("DEBUG(config): DATA_DIR      ->", DATA_DIR)
+print("DEBUG(config): rankings_dir  ->", rankings_dir)
 
-
-# rest of config
+# other config values (unchanged)
 min_first_date = '2015-01-01'
 overwrite_wiki = False
 overwrite_ioc = False
