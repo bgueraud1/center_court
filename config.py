@@ -1,72 +1,62 @@
-# Configuration file for the player_data_wta enrichment Pipeline
-# Created Aug 7 2025
-# Ran to end
-# config.py (patch auto-detect)
 from pathlib import Path
+import shutil
 import os
-import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[1]   # repo root
-# candidate relative locations (ordered by preference)
-CANDIDATE_PATHS = [
+CANONICAL = REPO_ROOT / "player_base_and_maps" / "player_data_wta.csv"
+
+# try to find an existing CSV anywhere (case-insensitive) — fallback to canonical
+found_candidates = []
+for p in (
     REPO_ROOT / "player_base_and_maps" / "player_data_wta.csv",
     REPO_ROOT / "player_base_and_maps" / "data" / "player_data_wta.csv",
     REPO_ROOT / "player_data_wta.csv",
     REPO_ROOT / "data" / "player_data_wta.csv",
-]
-
-found = None
-found_candidates = []
-for p in CANDIDATE_PATHS:
+):
     if p.exists():
         found_candidates.append(p)
 
-# also allow any case-insensitive match near root (helpful if someone committed with different case)
 if not found_candidates:
+    # case-insensitive search near root
     for p in REPO_ROOT.rglob("*player_data_wta.csv"):
         found_candidates.append(p)
 
 if found_candidates:
-    # prefer the one under player_base_and_maps if present
-    pref = next((p for p in found_candidates if "player_base_and_maps" in str(p)), None)
-    found = pref or found_candidates[0]
+    found = found_candidates[0]
 else:
-    # no file found — keep default location under player_base_and_maps (so code fails early & deterministically)
-    found = REPO_ROOT / "player_base_and_maps" / "player_data_wta.csv"
+    found = CANONICAL  # none found, will create at canonical later
 
-# expose same names your scripts expect
-DATA_DIR = found.parent
-players_path = found
-output_path = found
-REPO_ROOT = REPO_ROOT
+# If found somewhere else than canonical, copy it to canonical (safe, non-destructive)
+if found.exists() and found.resolve() != CANONICAL.resolve():
+    CANONICAL.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.copy2(found, CANONICAL)
+        copied_msg = f"Copied existing CSV from {found} -> {CANONICAL}"
+    except Exception as e:
+        copied_msg = f"Could not copy {found} -> {CANONICAL}: {e}"
+else:
+    copied_msg = "No external CSV to copy (either canonical already present or none found)."
+
+# Expose variables used by scripts (always use CANONICAL)
+players_path = CANONICAL
+output_path = CANONICAL
+DATA_DIR = players_path.parent
 rankings_dir = REPO_ROOT / "wta_rankings"
 
-# debug prints (useful in CI)
+# Debug prints (CI logs)
 print("DEBUG(config): REPO_ROOT =", REPO_ROOT)
-print("DEBUG(config): candidate CSVs checked:", [str(p) for p in CANDIDATE_PATHS])
+print("DEBUG(config): canonical CSV =", CANONICAL)
 print("DEBUG(config): found_candidates:", [str(p) for p in found_candidates])
-print("DEBUG(config): players_path =", players_path)
+print("DEBUG(config): players_path (used) =", players_path)
+print("DEBUG(config): copy status ->", copied_msg)
 print("DEBUG(config): DATA_DIR  =", DATA_DIR)
 print("DEBUG(config): rankings_dir =", rankings_dir)
 
-
-
-
-
-
-min_first_date = '2015-01-01' # date under which player's data won't be overwritten if overwriting activated
-
-
-
+# other options
+min_first_date = '2015-01-01'
 overwrite_wiki = False
 overwrite_ioc = False
-
-begin_index_wiki = 0  # index under which player won't be scraped for wiki data
-end_index_wiki = None # index above which player won't be scraped for wiki data
-
-begin_index_ioc = 0  # index under which player won't be scraped for ioc
-end_index_ioc = None # index above which player won't be scraped for ioc
-
-
-
-
+begin_index_wiki = 0
+end_index_wiki = None
+begin_index_ioc = 0
+end_index_ioc = None
