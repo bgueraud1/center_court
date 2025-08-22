@@ -24,10 +24,17 @@ import os
 # players_path vient de config import (déjà présent plus bas)
 # mais si tu veux tester avant import, tu peux vérifier après l'import config
 
-from config import REPO_ROOT
-os.chdir(str(REPO_ROOT))
-print("DEBUG: cwd after chdir ->", os.getcwd())
 
+
+# ---- Force working dir to repo root (robust for CI) ----
+from pathlib import Path
+import os, sys
+
+# repo root = parent of this file's parent (scripts live in repo root)
+REPO_ROOT = Path(__file__).resolve().parents[1]
+os.chdir(str(REPO_ROOT))
+print(f"DEBUG: forced cwd -> {os.getcwd()}")
+# --------------------------------------------------------
 
 # Diagnostic helper (affiche beaucoup d'info utiles dans CI logs)
 def debug_find_csv(filename="player_data_wta.csv"):
@@ -113,7 +120,7 @@ else:
     print("No new players to add.")
 
 players_df = update_last_appearances(players_df, ranks_df)
-save_players(players_df, str(players_path))
+save_players(players_df, str(players_path.resolve()))
 print(f"Player data refreshed and written to → {output_path}")
 
 # --- 3) Decide whether to run full refresh or only on new players ---
@@ -241,7 +248,7 @@ else:
                                 updated += 1
 
                 # Save merged master
-                save_players(players_df, str(players_path))
+                save_players(players_df, str(players_path.resolve()))
                 print(f"Merged enriched data for {len(enriched)} rows into master; approx {updated} fields updated. Master saved -> {output_path}")
 
                 # Clean tmp files (optional)
@@ -294,7 +301,7 @@ else:
                             players_df.at[idx, c] = new_val
                             ioc_updated += 1
 
-                save_players(players_df, str(players_path))
+                save_players(players_df, str(players_path.resolve()))
                 print(f"Merged IOC enrichment for {len(ioc_enriched)} rows into master; approx {ioc_updated} fields updated. Master saved -> {output_path}")
 
                 # clean tmp files
