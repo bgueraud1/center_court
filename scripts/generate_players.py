@@ -92,6 +92,11 @@ PLAYER_TMPL = """<!doctype html>
       <div class="card-body">
         <h1 class="card-title">{esc_name}</h1>
         <p class="text-muted">{esc_country}</p>
+
+        <div class="mb-3">
+          <button class="btn btn-outline-primary" id="suggest-btn">Suggest an edit</button>
+        </div>
+
         <div class="row">
           <div class="col-md-8">
             <dl class="row">
@@ -110,15 +115,112 @@ PLAYER_TMPL = """<!doctype html>
             </div>
           </div>
         </div>
+
         <p class="mt-3"><a href="index.html">&larr; Back to the player index</a></p>
       </div>
     </div>
   </main>
 
+  <!-- Suggestion modal (hidden initially) -->
+  <div class="modal fade" id="suggestModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <form id="suggest-form">
+          <div class="modal-header">
+            <h5 class="modal-title">Suggest an edit for {esc_name}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <input type="hidden" name="player_id" value="{player_id}">
+            <div class="mb-3">
+              <label class="form-label">Full name (display)</label>
+              <input class="form-control" name="full_name" value="{esc_name}">
+            </div>
+            <div class="row">
+              <div class="col">
+                <label class="form-label">Birth date (YYYY-MM-DD)</label>
+                <input class="form-control" name="birth_date" value="{birth_date}">
+              </div>
+              <div class="col">
+                <label class="form-label">Birth place</label>
+                <input class="form-control" name="birthplace" value="{esc_birthplace}">
+              </div>
+            </div>
+
+            <div class="row mt-2">
+              <div class="col">
+                <label class="form-label">Height (cm)</label>
+                <input class="form-control" name="height_cm" placeholder="e.g. 175">
+              </div>
+              <div class="col">
+                <label class="form-label">Plays (Left-Handed / Right-Handed)</label>
+                <input class="form-control" name="plays" placeholder="Right-Handed">
+              </div>
+            </div>
+
+            <div class="mt-3">
+              <label class="form-label">Admin code (if you have one)</label>
+              <input class="form-control" name="admin_code" placeholder="Optional">
+              <div class="form-text">If you have a trusted admin code, the edit will create a PR automatically.</div>
+            </div>
+
+            <div class="mt-3">
+              <label class="form-label">Comment / justification</label>
+              <textarea class="form-control" name="note" rows="3"></textarea>
+            </div>
+
+            <div id="suggest-result" class="mt-2" style="display:none"></div>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            <button type="submit" class="btn btn-primary">Submit suggestion</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <footer class="text-center py-3">
     <small>© Central Court</small>
   </footer>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    // show modal
+    const suggestBtn = document.getElementById('suggest-btn');
+    const suggestModal = new bootstrap.Modal(document.getElementById('suggestModal'));
+    suggestBtn && suggestBtn.addEventListener('click', () => suggestModal.show());
+
+    // submit handler
+    document.getElementById('suggest-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const form = ev.target;
+      const data = Object.fromEntries(new FormData(form));
+      const resultDiv = document.getElementById('suggest-result');
+      resultDiv.style.display = 'block';
+      resultDiv.innerText = 'Sending...';
+
+      try {
+        const resp = await fetch('/.netlify/functions/submit-edit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+        const j = await resp.json();
+        if (resp.ok) {
+          resultDiv.className = 'alert alert-success';
+          resultDiv.innerHTML = j.message || 'Suggestion sent. Thank you!';
+        } else {
+          resultDiv.className = 'alert alert-danger';
+          resultDiv.innerHTML = j.message || 'Error: ' + (j || resp.status);
+        }
+      } catch (err) {
+        resultDiv.className = 'alert alert-danger';
+        resultDiv.innerText = 'Network error: ' + err.message;
+      }
+    });
+  </script>
 </body>
 </html>
 """
@@ -210,16 +312,17 @@ def main():
             htxt = row.get("height_inches","") or row.get("height_cm","") or ""
 
         content = PLAYER_TMPL.format(
-            esc_name = esc(name),
-            esc_country = esc(country),
-            birth_date = esc(birth_date),
-            esc_birthplace = esc(birthplace),
-            height = esc(htxt),
-            plays = esc(plays),
-            best_rank = esc(best_rank),
-            first_appearance = esc(first_app),
-            last_appearance = esc(last_app)
-        )
+          esc_name = esc(name),
+          esc_country = esc(country),
+          birth_date = esc(birth_date),
+          esc_birthplace = esc(birthplace),
+          height = esc(htxt),
+          plays = esc(plays),
+          best_rank = esc(best_rank),
+          first_appearance = esc(first_app),
+          last_appearance = esc(last_app),
+          player_id = esc(row.get("player_id",""))
+      )
         out_file = OUT_DIR / f"{slug}.html"
         out_file.write_text(content, encoding="utf-8")
 

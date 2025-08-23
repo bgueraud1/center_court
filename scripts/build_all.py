@@ -146,8 +146,27 @@ print(f"✅ {moved} fichier(s) HTML copiés dans {DOCS}")
 # 4) Generate neighbors FIRST so generate_players can embed them
 # -------------------------
 print("Generating neighbors (embeddings / knn)...")
-subprocess.run([sys.executable, str(ROOT / "scripts" / "generate_neighbors.py")],
-               cwd=str(ROOT), env=env, check=True)
+# try incremental generation: fetch origin/main player_data_wta.csv into /tmp/old_player_data.csv
+import subprocess, tempfile
+tmp_old = Path("/tmp/old_player_data_wta.csv")
+try:
+    # try to fetch remote file content (best-effort)
+    subprocess.run(["git","fetch","origin","main"], cwd=str(ROOT), check=False)
+    # use git show to get the file in origin/main (if exists)
+    proc = subprocess.run(["git","show","origin/main:player_data_wta.csv"], cwd=str(ROOT), capture_output=True, text=True)
+    if proc.returncode == 0 and proc.stdout:
+        tmp_old.write_text(proc.stdout, encoding="utf-8")
+        print("DEBUG(build_all): obtained origin/main player_data_wta.csv for incremental generation.")
+        subprocess.run([sys.executable, str(ROOT / "scripts" / "generate_players_incremental.py"), "--old", str(tmp_old), "--new", str(ROOT / "player_data_wta.csv")],
+                       cwd=str(ROOT), env=env, check=True)
+    else:
+        print("DEBUG(build_all): origin/main player_data_wta.csv not available — falling back to full generation.")
+        subprocess.run([sys.executable, str(ROOT / "scripts" / "generate_players.py")],
+                       cwd=str(ROOT), env=env, check=True)
+except Exception as e:
+    print("DEBUG(build_all): incremental generation failed, fallback to full:", e)
+    subprocess.run([sys.executable, str(ROOT / "scripts" / "generate_players.py")],
+                   cwd=str(ROOT), env=env, check=True)
 
 # Copy neighbor/embedding files into docs/ (so they are served)
 for pattern in ("node_knn_top10.csv","graphsage_knn_top10.csv","node_embeddings*.csv","players_graphsage_embeddings.csv"):
@@ -162,7 +181,7 @@ for pattern in ("node_knn_top10.csv","graphsage_knn_top10.csv","node_embeddings*
 # 5) Now generate player pages
 # -------------------------
 print("Generating player pages...")
-subprocess.run([sys.executable, str(ROOT / "scripts" / "generate_players.py")],
+subprocess.run([sys.executable, str(ROOT / "scripts" / "generate_players_incrementals.py")],
                cwd=str(ROOT), env=env, check=True)
 
 # -------------------------
