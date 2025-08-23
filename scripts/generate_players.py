@@ -76,14 +76,14 @@ PLAYER_TMPL = """<!doctype html>
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>{esc_name} — Fiche joueuse</title>
+  <title>{esc_name} — Player Profile</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body class="bg-light">
   <nav class="navbar navbar-dark bg-dark">
     <div class="container">
-      <a class="navbar-brand" href="../index.html">Central Court</a>
-      <a class="navbar-text text-white" href="../players/index.html">Joueurs</a>
+      <a class="navbar-brand" href="../index.html">Center Court</a>
+      <a class="navbar-text text-white" href="../players/index.html">Players</a>
     </div>
   </nav>
 
@@ -95,22 +95,22 @@ PLAYER_TMPL = """<!doctype html>
         <div class="row">
           <div class="col-md-8">
             <dl class="row">
-              <dt class="col-sm-4">Date de naissance</dt><dd class="col-sm-8">{birth_date}</dd>
-              <dt class="col-sm-4">Lieu de naissance</dt><dd class="col-sm-8">{esc_birthplace}</dd>
-              <dt class="col-sm-4">Taille</dt><dd class="col-sm-8">{height}</dd>
-              <dt class="col-sm-4">Main</dt><dd class="col-sm-8">{plays}</dd>
-              <dt class="col-sm-4">Meilleur classement</dt><dd class="col-sm-8">{best_rank}</dd>
-              <dt class="col-sm-4">Première apparition</dt><dd class="col-sm-8">{first_appearance}</dd>
-              <dt class="col-sm-4">Dernière apparition</dt><dd class="col-sm-8">{last_appearance}</dd>
+              <dt class="col-sm-4">Birth date</dt><dd class="col-sm-8">{birth_date}</dd>
+              <dt class="col-sm-4">Birth place</dt><dd class="col-sm-8">{esc_birthplace}</dd>
+              <dt class="col-sm-4">Height</dt><dd class="col-sm-8">{height}</dd>
+              <dt class="col-sm-4">Hand</dt><dd class="col-sm-8">{plays}</dd>
+              <dt class="col-sm-4">Best rank</dt><dd class="col-sm-8">{best_rank}</dd>
+              <dt class="col-sm-4">First appearance</dt><dd class="col-sm-8">{first_appearance}</dd>
+              <dt class="col-sm-4">Last appearance</dt><dd class="col-sm-8">{last_appearance}</dd>
             </dl>
           </div>
           <div class="col-md-4">
             <div class="border rounded p-3 text-center">
-              <p class="mb-0"><small>Photo non fournie</small></p>
+              <p class="mb-0"><small>Picture non available</small></p>
             </div>
           </div>
         </div>
-        <p class="mt-3"><a href="index.html">&larr; Retour à la liste des joueuses</a></p>
+        <p class="mt-3"><a href="index.html">&larr; Back to the player index</a></p>
       </div>
     </div>
   </main>
@@ -128,21 +128,21 @@ INDEX_TOP = """<!doctype html>
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Joueuses — Central Court</title>
+  <title>Players — Center Court</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body class="bg-light">
   <nav class="navbar navbar-dark bg-dark mb-3">
     <div class="container">
       <a class="navbar-brand" href="../index.html">Central Court</a>
-      <span class="navbar-text text-white">Joueurs</span>
+      <span class="navbar-text text-white">Players</span>
     </div>
   </nav>
 
   <main class="container py-4">
-    <h1>Liste des joueuses</h1>
-    <p class="lead">Recherche rapide par nom :</p>
-    <input id="search" class="form-control mb-3" placeholder="Tapez un nom...">
+    <h1>Players list</h1>
+    <p class="lead">Search by name :</p>
+    <input id="search" class="form-control mb-3" placeholder="Enter a name...">
     <div class="list-group" id="players-list">
 """
 
@@ -151,7 +151,7 @@ INDEX_BOTTOM = """
   </main>
 
   <footer class="text-center py-3">
-    <small>© Central Court</small>
+    <small>© Center Court</small>
   </footer>
 
   <script>
