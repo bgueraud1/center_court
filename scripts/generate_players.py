@@ -10,6 +10,7 @@ import html
 import re
 from datetime import datetime
 import shutil
+from urllib.parse import quote_plus
 
 ROOT = Path(__file__).resolve().parents[1]
 CSV = ROOT / "player_data_wta.csv"
@@ -96,10 +97,10 @@ PLAYER_TMPL = """<!doctype html>
 
         <!-- Link to propose edits -->
         <p class="mt-3">
-          <a class="btn btn-outline-primary" href="edit.html?player_id={player_id}">Proposer une modification</a>
-        </p>
+        <a class="me-3" href="index.html">&larr; Back to the player index</a>
+        <a class="btn btn-sm btn-outline-primary" href="../edit.html?player={slug}&name={url_name}">Suggérer une modification</a>
+      </p>
 
-        <p class="mt-3"><a href="index.html">&larr; Back to the player index</a></p>
       </div>
     </div>
   </main>
@@ -184,7 +185,7 @@ def main():
         # Prefer stable filename using player_id if available
         pid_raw = row.get("player_id", "")
         try:
-            pid = str(int(float(pid_raw))) if pid_raw not in ("", None) else ""
+            pid = str(int(float(pid_raw))) if pid_raw not in ("", None, "") else ""
         except Exception:
             pid = pid_raw or ""
         base_slug = safe_slug(name)
@@ -192,6 +193,9 @@ def main():
             filename_stem = f"{pid}-{base_slug}"
         else:
             filename_stem = base_slug
+
+        # === HERE: slug used in URLs ===
+        slug = filename_stem
 
         birthplace = row.get("birthplace", "") or ""
         birth_date = parse_date_only(row.get("birth_date",""))
@@ -206,18 +210,22 @@ def main():
         else:
             htxt = row.get("height_inches","") or row.get("height_cm","") or ""
 
+        url_name = quote_plus(name)
+
         content = PLAYER_TMPL.format(
-            esc_name = esc(name),
-            esc_country = esc(country),
-            birth_date = esc(birth_date),
-            esc_birthplace = esc(birthplace),
-            height = esc(htxt),
-            plays = esc(plays),
-            best_rank = esc(best_rank),
-            first_appearance = esc(first_app),
-            last_appearance = esc(last_app),
-            player_id = esc(pid)
-        )
+          esc_name = esc(name),
+          esc_country = esc(country),
+          birth_date = esc(birth_date),
+          esc_birthplace = esc(birthplace),
+          height = esc(htxt),
+          plays = esc(plays),
+          best_rank = esc(best_rank),
+          first_appearance = esc(first_app),
+          last_appearance = esc(last_app),
+          slug = slug,
+          url_name = url_name
+      )
+
         out_file = OUT_DIR / f"{filename_stem}.html"
         out_file.write_text(content, encoding="utf-8")
 
