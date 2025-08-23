@@ -7,6 +7,7 @@ from scripts.geocode_utils import load_cache, save_cache, geocode_place, bulk_ge
 import folium
 from folium import Element
 from branca.element import Template, MacroElement
+from pathlib import Path
 
 
 
@@ -15,11 +16,35 @@ def load_and_clean(csv_path: str) -> pd.DataFrame:
     df = df[df['birthplace'].notna() & df['birthplace'].str.contains(r',')].copy()
     return df
 
-def load_cache(path: str) -> dict:
+def load_cache(cache_file):
+    """
+    Load coords cache safely using UTF-8 and falling back gracefully.
+    Returns {} if file not found or malformed.
+    """
+    p = Path(cache_file)
+    if not p.exists():
+        return {}
+
+    # Try robust utf-8 read, fallback to cp1252 then replace errors if needed
     try:
-        with open(path, "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
+        text = p.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        try:
+            # try reading as windows-1252 and re-encode to utf-8
+            text = p.read_text(encoding="cp1252")
+            # optionally re-save in utf-8 for future runs
+            p.write_text(text,encoding='utf-8')
+            
+        except Exception:
+            # last resort: read bytes and decode with replacement
+            b = p.read_bytes()
+            text = b.decode("utf-8", errors="replace")
+
+    try:
+        return json.loads(text)
+    except Exception as e:
+        print(f"WARNING: could not parse JSON cache {cache_file}: {e}")
+        # don't raise — return empty cache so the build can continue
         return {}
 
 def save_cache(cache: dict, path: str):
