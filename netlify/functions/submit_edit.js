@@ -199,7 +199,35 @@ exports.handler = async function(event, context) {
     safeLog("Env presence:", envChecks);
 
     // validate
-    const body = bodyParsed || {};
+    // ---------- Normalisation des variantes côté client ----------
+    let body = bodyParsed || {};
+      
+    // Si front envoie player_slug / player_id / player_name, mappe-les sur les clés attendues
+    if (body && typeof body === 'object') {
+      // map player_name -> name
+      if (!body.name && body.player_name) body.name = body.player_name;
+    
+      // map player_slug / player_id -> player (valeur utilisée pour le matching)
+      if (!body.player) {
+        if (body.player_slug) body.player = body.player_slug;
+        else if (body.player_id) body.player = String(body.player_id);
+      }
+    
+      // Si l'appel n'envoie pas d'"edits" structuré, construis-le automatiquement :
+      // on considère comme "meta" : player/player_slug/player_id/player_name/name/admin_code/reported_via/source/notes
+      if (!body.edits || typeof body.edits !== 'object') {
+        const metaKeys = new Set(['player','player_slug','player_id','player_name','name','admin_code','reported_via','source','notes']);
+        const edits = {};
+        for (const k of Object.keys(body)) {
+          if (!metaKeys.has(k)) {
+            edits[k] = body[k];
+          }
+        }
+        // si on a trouvé des clés à modifier, on les place dans body.edits
+        if (Object.keys(edits).length > 0) body.edits = edits;
+      }
+    }
+// ---------- Fin normalisation ----------
     const player = body.player;
     const editsRaw = body.edits;
 
