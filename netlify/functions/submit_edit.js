@@ -275,15 +275,17 @@ exports.handler = async function(event, context) {
       (editsRaw && (editsRaw.admin_code || editsRaw.admin)) ||
       ''
     ).toString();
-    const providedAdmin = providedAdminRaw.trim(); // remove accidental leading/trailing spaces
-    const ADMIN_CODE_NORMALIZED = (ADMIN_CODE || '').toString().trim();
-    
-    safeLog('Admin provided? ', providedAdmin.length > 0, 'len=', providedAdmin.length);
-    safeLog('Admin hashes (short): provided=', shortHash(providedAdmin), 'env=', ADMIN_CODE_NORMALIZED ? shortHash(ADMIN_CODE_NORMALIZED) : '(no-env)');
-    
-    const isAdmin = (ADMIN_CODE_NORMALIZED && providedAdmin && providedAdmin === ADMIN_CODE_NORMALIZED && !!GITHUB_PAT);
-    if (providedAdmin && !ADMIN_CODE_NORMALIZED) safeLog('ADMIN_CODE not configured but admin_code provided (ignored)');
-    
+    const providedAdminCodeRaw = (body.admin_code === undefined ? null : body.admin_code);
+    const providedAdminCode = (typeof providedAdminCodeRaw === 'string') ? providedAdminCodeRaw.trim() : providedAdminCodeRaw;
+    const adminEnvRaw = (typeof ADMIN_CODE === 'string' ? ADMIN_CODE : (ADMIN_CODE === undefined ? null : String(ADMIN_CODE)));
+    const adminEnv = adminEnvRaw ? adminEnvRaw.trim() : adminEnvRaw;
+      
+    // log presence (but never log the secret itself)
+    safeLog('admin_code provided ?', !!providedAdminCode, 'ADMIN_CODE configured ?', !!adminEnv, 'GITHUB_PAT present ?', !!GITHUB_PAT);
+      
+    const isAdmin = !!(adminEnv && providedAdminCode && providedAdminCode === adminEnv && !!GITHUB_PAT);
+      
+    if (providedAdminCode && !adminEnv) safeLog('ADMIN_CODE not configured but admin_code provided (ignored)');
     // ADMIN path: update CSV
     if (isAdmin) {
       if (!OWNER || !REPO || !GITHUB_PAT) {
@@ -325,30 +327,30 @@ exports.handler = async function(event, context) {
 
       // --- Remove known meta keys from edits (notes, source, etc.) so they don't trigger sanitizeEdits errors ---
       const metaKeys = new Set(['player','player_slug','player_id','player_name','name','admin_code','reported_via','source','notes']);
-          
+
       // clone edits to avoid mutating caller data
       const editsToApply = (editsRaw && typeof editsRaw === 'object') ? Object.assign({}, editsRaw) : {};
-          
+
       // strip meta keys if present
       for (const k of Object.keys(editsToApply)) {
         if (metaKeys.has(k)) {
           delete editsToApply[k];
         }
       }
-      
+
       // if nothing remains to edit -> return informative response
       if (!editsToApply || Object.keys(editsToApply).length === 0) {
         return { statusCode: 400, headers: {'Content-Type':'application/json'},
                  body: JSON.stringify({ ok:false, error: 'No editable fields provided (notes/source are meta, not CSV fields).' }) };
       }
-      
+
       let sanitizedEdits;
       try {
         sanitizedEdits = sanitizeEdits(editsToApply, fields);
       } catch (e) {
         return { statusCode: 400, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: e.message || String(e) }) };
       }
-      
+
 
       const updatedRows = rows.map(r => {
         if ((String(r[keyCol]) === String(existingRow[keyCol])) || ((''+r[keyCol]).toLowerCase() === (''+existingRow[keyCol]).toLowerCase())) {
