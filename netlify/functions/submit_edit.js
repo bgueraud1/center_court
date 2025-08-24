@@ -242,10 +242,24 @@ exports.handler = async function(event, context) {
       return { statusCode: 400, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: 'edits object is required' }) };
     }
 
-    const providedAdminCode = body.admin_code || null;
-    const isAdmin = (ADMIN_CODE && providedAdminCode && providedAdminCode === ADMIN_CODE && !!GITHUB_PAT);
-    if (providedAdminCode && !ADMIN_CODE) safeLog('ADMIN_CODE not configured but admin_code provided (ignored)');
-
+    // --- normalize and debug-admin-check (safe: logs short hashes, not secrets) ---
+    const crypto = require('crypto');
+      
+    function shortHash(s){
+      try { return crypto.createHash('sha256').update(String(s||'')).digest('hex').slice(0,8); }
+      catch(e){ return '(hash-fail)'; }
+    }
+    
+    const providedAdminRaw = (body.admin_code || body.admin || '').toString();
+    const providedAdmin = providedAdminRaw.trim(); // remove accidental leading/trailing spaces
+    const ADMIN_CODE_NORMALIZED = (ADMIN_CODE || '').toString().trim();
+    
+    safeLog('Admin provided? ', providedAdmin.length > 0, 'len=', providedAdmin.length);
+    safeLog('Admin hashes (short): provided=', shortHash(providedAdmin), 'env=', ADMIN_CODE_NORMALIZED ? shortHash(ADMIN_CODE_NORMALIZED) : '(no-env)');
+    
+    const isAdmin = (ADMIN_CODE_NORMALIZED && providedAdmin && providedAdmin === ADMIN_CODE_NORMALIZED && !!GITHUB_PAT);
+    if (providedAdmin && !ADMIN_CODE_NORMALIZED) safeLog('ADMIN_CODE not configured but admin_code provided (ignored)');
+    
     // ADMIN path: update CSV
     if (isAdmin) {
       if (!OWNER || !REPO || !GITHUB_PAT) {
