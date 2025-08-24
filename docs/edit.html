@@ -19,30 +19,32 @@
     <p class="text-muted">Remplis les champs ci-dessous. Si tu as un code d’admin, indique-le pour appliquer automatiquement la modification.</p>
 
     <form id="edit-form" class="card p-3">
-      <input type="hidden" id="player_slug" name="player_slug" value="">
+      <!-- Hidden: use 'player' as the canonical param sent to the server -->
+      <input type="hidden" id="player" name="player" value="">
+
       <div class="mb-3">
         <label class="form-label">Joueuse (pré-rempli)</label>
-        <input id="player_name" class="form-control" readonly>
+        <input id="player_name" name="name" class="form-control" readonly>
       </div>
 
       <div class="mb-3">
         <label class="form-label">Date de naissance (YYYY-MM-DD)</label>
-        <input id="birth_date" name="birth_date" class="form-control" placeholder="1999-01-01">
+        <input id="birth_date" name="birth_date" data-editable class="form-control" placeholder="1999-01-01">
       </div>
 
       <div class="mb-3">
         <label class="form-label">Lieu de naissance</label>
-        <input id="birthplace" name="birthplace" class="form-control" placeholder="Paris, France">
+        <input id="birthplace" name="birthplace" data-editable class="form-control" placeholder="Paris, France">
       </div>
 
       <div class="mb-3">
         <label class="form-label">Taille (cm)</label>
-        <input id="height_cm" name="height_cm" class="form-control" placeholder="170">
+        <input id="height_cm" name="height_cm" data-editable class="form-control" placeholder="170">
       </div>
 
       <div class="mb-3">
         <label class="form-label">Pays représenté (ISO3 ou nom)</label>
-        <input id="represented_country" name="represented_country" class="form-control" placeholder="FRA">
+        <input id="represented_country" name="represented_country" data-editable class="form-control" placeholder="FRA">
       </div>
 
       <div class="mb-3">
@@ -52,7 +54,7 @@
 
       <div class="mb-3">
         <label class="form-label">Commentaires / source</label>
-        <textarea id="notes" name="notes" class="form-control" rows="3"></textarea>
+        <textarea id="notes" name="notes" data-editable class="form-control" rows="3"></textarea>
       </div>
 
       <button id="submit-btn" type="submit" class="btn btn-primary">Envoyer la suggestion</button>
@@ -63,50 +65,27 @@
     <p class="small text-muted">Note : si tu fournis le code d’admin correct, la modification peut être appliquée automatiquement ; sinon la suggestion sera stockée pour validation.</p>
   </main>
 
+  <!-- include the client JS you created -->
+  <script src="/assets/js/edit-submit.js" defer></script>
+
   <script>
-    // helper: parse query params
-    function q(name){ const params = new URLSearchParams(window.location.search); return params.get(name) || ""; }
+    // small helper here only to prefill the hidden 'player' and the readonly name field
+    function qParam(name){ const p = new URLSearchParams(window.location.search); return p.get(name) || ""; }
 
-    // Remplir champs initiaux
-    document.getElementById('player_slug').value = q('player') || '';
-    const n = q('name') || '';
-    document.getElementById('player_name').value = decodeURIComponent(n);
+    document.addEventListener('DOMContentLoaded', function () {
+      // Fill canonical player field (the JS will send 'player' key)
+      const playerVal = qParam('player') || '';
+      document.getElementById('player').value = playerVal;
 
-    const form = document.getElementById('edit-form');
-    const status = document.getElementById('status');
+      // Prefill name for display (and for payload's name)
+      const rawName = qParam('name') || '';
+      document.getElementById('player_name').value = decodeURIComponent(rawName);
 
-    form.addEventListener('submit', async (ev) => {
-      ev.preventDefault();
-      status.textContent = 'Envoi en cours...';
-      const payload = {
-        player_slug: document.getElementById('player_slug').value,
-        player_name: document.getElementById('player_name').value,
-        birth_date: document.getElementById('birth_date').value,
-        birthplace: document.getElementById('birthplace').value,
-        height_cm: document.getElementById('height_cm').value,
-        represented_country: document.getElementById('represented_country').value,
-        admin_code: document.getElementById('admin_code').value,
-        notes: document.getElementById('notes').value,
-        source: window.location.href
-      };
-
-      try {
-        const endpoint = '/.netlify/functions/submit_edit'; // <--- si ta function a un autre nom, adapte ici
-        const res = await fetch(endpoint, {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(payload)
-        });
-        const data = await res.json().catch(()=>({ok: res.ok}));
-        if (res.ok) {
-          status.innerHTML = '<div class="alert alert-success">Suggestion envoyée. Merci !</div>';
-          form.reset();
-        } else {
-          status.innerHTML = '<div class="alert alert-danger">Erreur : ' + (data.error || res.status) + '</div>';
-        }
-      } catch (e) {
-        status.innerHTML = '<div class="alert alert-danger">Erreur réseau : ' + e.message + '</div>';
-      }
+      // If you want to prefill also other fields from query params (optional)
+      const birth_date = qParam('birth_date'); if (birth_date) document.getElementById('birth_date').value = birth_date;
+      const birthplace = qParam('birthplace'); if (birthplace) document.getElementById('birthplace').value = birthplace;
+      const height_cm = qParam('height_cm'); if (height_cm) document.getElementById('height_cm').value = height_cm;
+      const represented_country = qParam('represented_country'); if (represented_country) document.getElementById('represented_country').value = represented_country;
     });
   </script>
 </body>
