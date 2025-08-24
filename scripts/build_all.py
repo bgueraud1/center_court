@@ -75,6 +75,21 @@ if DOCS.exists():
 DOCS.mkdir(parents=True, exist_ok=True)
 
 # -------------------------
+# Copy repo-provided static site assets (durable files)
+# -------------------------
+STATIC_DIR = ROOT / "site_static"
+if STATIC_DIR.exists() and STATIC_DIR.is_dir():
+    try:
+        # Python 3.8+: dirs_exist_ok=True to merge into DOCS
+        shutil.copytree(STATIC_DIR, DOCS, dirs_exist_ok=True)
+        print(f"Copied durable static files from {STATIC_DIR} -> {DOCS}")
+    except Exception as e:
+        print(f"Could not copy static dir {STATIC_DIR} into docs/: {e}")
+else:
+    print("No site_static directory found — skipping copy of durable static files.")
+
+
+# -------------------------
 # copy logo if present (logo.png search in several places)
 # -------------------------
 LOGO_CANDIDATES = [ROOT / "logo.png", ROOT / "assets" / "logo.png", ROOT / "static" / "logo.png"]
