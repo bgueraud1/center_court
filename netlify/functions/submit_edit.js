@@ -281,10 +281,32 @@ exports.handler = async function(event, context) {
       if (!existingRow) {
         return { statusCode: 404, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: `Player not found for '${player}'` }) };
       }
+      // --- Remove known meta keys from edits (notes, source, etc.) so they don't trigger sanitizeEdits errors ---
+      const metaKeys = new Set(['player','player_slug','player_id','player_name','name','admin_code','reported_via','source','notes']);
+          
+      // clone edits to avoid mutating caller data
+      const editsToApply = (editsRaw && typeof editsRaw === 'object') ? Object.assign({}, editsRaw) : {};
+          
+      // strip meta keys if present
+      for (const k of Object.keys(editsToApply)) {
+        if (metaKeys.has(k)) {
+          delete editsToApply[k];
+        }
+      }
+      
+      // if nothing remains to edit -> return informative response
+      if (!editsToApply || Object.keys(editsToApply).length === 0) {
+        return { statusCode: 400, headers: {'Content-Type':'application/json'},
+                 body: JSON.stringify({ ok:false, error: 'No editable fields provided (notes/source are meta, not CSV fields).' }) };
+      }
+      
       let sanitizedEdits;
-      try { sanitizedEdits = sanitizeEdits(editsRaw, fields); } catch (e) {
+      try {
+        sanitizedEdits = sanitizeEdits(editsToApply, fields);
+      } catch (e) {
         return { statusCode: 400, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: e.message || String(e) }) };
       }
+      
       const updatedRows = rows.map(r => {
         if ((String(r[keyCol]) === String(existingRow[keyCol])) || ((''+r[keyCol]).toLowerCase() === (''+existingRow[keyCol]).toLowerCase())) {
           return Object.assign({}, r, sanitizedEdits);
