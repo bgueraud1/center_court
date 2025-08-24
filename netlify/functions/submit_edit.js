@@ -1,7 +1,5 @@
 // netlify/functions/submit_edit.js
-// CommonJS module (Netlify Functions). Uses node-fetch v2 and papaparse.
-// package.json below lists dependencies.
-
+// CommonJS; requires node-fetch@2 and papaparse installed at repo root.
 const fetch = require('node-fetch');
 const Papa = require('papaparse');
 
@@ -17,8 +15,8 @@ const SUGGESTION_LABELS = (process.env.SUGGESTION_LABELS || 'suggestion,from-web
 const SITE_BASE_URL = process.env.SITE_BASE_URL || 'https://www.center-court.net';
 
 function safeLog(...args) {
-  // Avoid logging secrets
-  console.log(...args);
+  // DO NOT print secrets
+  try { console.log(...args); } catch(e){ /* ignore */ }
 }
 
 function buildGithubHeaders() {
@@ -29,86 +27,63 @@ function buildGithubHeaders() {
   };
 }
 
+// Github helpers (unchanged)
 async function githubGetFile(path) {
   const url = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(BRANCH)}`;
   const res = await fetch(url, { headers: buildGithubHeaders() });
-  if (res.status === 404) {
-    const text = await res.text();
-    throw { code: 404, message: `File not found: ${path}`, body: text };
-  }
   if (!res.ok) {
     const body = await res.text();
-    throw { code: res.status, message: `GitHub GET contents failed`, body };
+    throw { code: res.status, message: 'GitHub GET contents failed', body };
   }
-  const json = await res.json();
-  return json; // includes .content (base64), .sha
+  return await res.json();
 }
 
 async function githubPutFile(path, message, contentBase64, sha) {
   const url = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${encodeURIComponent(path)}`;
-  const payload = {
-    message,
-    content: contentBase64,
-    branch: BRANCH,
-    committer: { name: COMMITTER_NAME, email: COMMITTER_EMAIL },
-    sha
-  };
-  const res = await fetch(url, {
-    method: 'PUT',
-    headers: buildGithubHeaders(),
-    body: JSON.stringify(payload)
-  });
-  const body = await res.text();
+  const payload = { message, content: contentBase64, branch: BRANCH, committer: { name: COMMITTER_NAME, email: COMMITTER_EMAIL }, sha };
+  const res = await fetch(url, { method: 'PUT', headers: buildGithubHeaders(), body: JSON.stringify(payload) });
+  const text = await res.text();
   if (!res.ok) {
-    let parsed;
-    try { parsed = JSON.parse(body); } catch(e){ parsed = { body }; }
+    let parsed; try { parsed = JSON.parse(text); } catch(e){ parsed = { body: text }; }
     throw { code: res.status, message: 'GitHub PUT contents failed', body: parsed };
   }
-  return JSON.parse(body);
+  return JSON.parse(text);
 }
 
 async function githubCreateIssue(title, body, labels) {
   const url = `https://api.github.com/repos/${OWNER}/${REPO}/issues`;
   const payload = { title, body, labels };
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: buildGithubHeaders(),
-    body: JSON.stringify(payload)
-  });
+  const res = await fetch(url, { method: 'POST', headers: buildGithubHeaders(), body: JSON.stringify(payload) });
   const text = await res.text();
   if (!res.ok) {
-    let parsed;
-    try { parsed = JSON.parse(text); } catch(e){ parsed = { body: text }; }
+    let parsed; try { parsed = JSON.parse(text); } catch(e){ parsed = { body: text }; }
     throw { code: res.status, message: 'GitHub create issue failed', body: parsed };
   }
   return JSON.parse(text);
 }
 
+// CSV helpers
 function detectKeyColumn(fields) {
   const candidates = ['player_key','player','slug','id','player_id','player_slug','url'];
-  for (const c of candidates) {
-    if (fields.includes(c)) return c;
-  }
-  // fallback to first column
+  for (const c of candidates) if (fields.includes(c)) return c;
   return fields[0];
 }
 
 function tryMatchRow(rows, keyCol, playerVal) {
   if (!playerVal) return null;
-  // try exact
-  const exact = rows.find(r => String(r[keyCol]) === String(playerVal));
+  const sPlayer = String(playerVal);
+  // exact match
+  const exact = rows.find(r => String(r[keyCol]) === sPlayer);
   if (exact) return exact;
-  // try numeric id extraction from slug: e.g., "313112-xxx"
-  const numeric = (''+playerVal).match(/^(\d+)/);
+  // numeric prefix from slug
+  const numeric = sPlayer.match(/^(\d+)/);
   if (numeric) {
     const num = numeric[1];
-    // try columns id/player_id
-    const altCols = ['id','player_id'];
+    const altCols = ['player_id','id'];
     for (const col of altCols) {
-      const found = rows.find(r => String(r[col]) === String(num));
-      if (found) return found;
+      const f = rows.find(r => String(r[col]) === String(num));
+      if (f) return f;
     }
-    // also try keyCol numeric part
     const found2 = rows.find(r => {
       const v = ''+r[keyCol];
       const m = v.match(/^(\d+)/);
@@ -116,8 +91,8 @@ function tryMatchRow(rows, keyCol, playerVal) {
     });
     if (found2) return found2;
   }
-  // case-insensitive slug match
-  const lower = rows.find(r => (''+r[keyCol]).toLowerCase() === (''+playerVal).toLowerCase());
+  // case-insensitive
+  const lower = rows.find(r => (''+r[keyCol]).toLowerCase() === sPlayer.toLowerCase());
   if (lower) return lower;
   return null;
 }
@@ -125,41 +100,112 @@ function tryMatchRow(rows, keyCol, playerVal) {
 function sanitizeEdits(edits, allowedFields) {
   const keys = Object.keys(edits || {});
   if (keys.length === 0) throw { code:400, message: 'edits empty' };
-  // Only keep edits where key in allowedFields
   const sanitized = {};
   for (const k of keys) {
-    if (!allowedFields.includes(k)) {
-      throw { code:400, message: `Invalid field in edits: ${k}` };
-    }
-    // values should be string (or convertible)
+    if (!allowedFields.includes(k)) throw { code:400, message: `Invalid field in edits: ${k}` };
     sanitized[k] = edits[k] === null || edits[k] === undefined ? '' : String(edits[k]);
   }
   return sanitized;
 }
 
-// main handler
+// Robust body parser:
+// - try JSON
+// - if not JSON and content-type urlencoded -> parse URLSearchParams
+// - else if body string contains "=" -> parse URLSearchParams
+// - else fallback to event.queryStringParameters (GET/form)
+function parseRequestBody(event) {
+  let raw = null;
+  if (!event.body) return null;
+  raw = event.isBase64Encoded ? Buffer.from(event.body,'base64').toString('utf8') : event.body;
+  // try JSON
+  try {
+    const j = JSON.parse(raw);
+    return j;
+  } catch (err) {
+    // not JSON
+  }
+  // try urlencoded like a=b&c=d
+  const contentType = (event.headers && (event.headers['content-type'] || event.headers['Content-Type'] || '')).toLowerCase();
+  if (contentType.includes('application/x-www-form-urlencoded') || contentType.includes('text/plain') || raw.includes('=')) {
+    try {
+      const params = new URLSearchParams(raw);
+      const obj = {};
+      for (const [k,v] of params) {
+        // If keys like edits[field]=value, handle nested edits
+        const m = k.match(/^edits\[(.+)\]$/);
+        if (m) {
+          obj.edits = obj.edits || {};
+          obj.edits[m[1]] = v;
+        } else {
+          // simple keys: player, name, admin_code etc.
+          if (obj[k] === undefined) obj[k] = v;
+          else {
+            // already exists -> convert to array
+            if (!Array.isArray(obj[k])) obj[k] = [obj[k]];
+            obj[k].push(v);
+          }
+        }
+      }
+      return obj;
+    } catch(e) {
+      // fallthrough
+    }
+  }
+  // if nothing, return raw string as fallback
+  return raw;
+}
+
 exports.handler = async function(event, context) {
   try {
     safeLog("=== submit_edit invoked ===");
     safeLog("Method:", event.httpMethod);
+    safeLog("Path:", event.path || '(none)');
+    safeLog("Headers keys:", Object.keys(event.headers || {}).join(", "));
+    safeLog("QueryStringParameters:", event.queryStringParameters ? JSON.stringify(event.queryStringParameters) : '{}');
+    // parse body robustly
+    let bodyParsed = null;
+    if (event.body) {
+      bodyParsed = parseRequestBody(event);
+      safeLog("Parsed body type:", typeof bodyParsed);
+      // For debugging: do not log whole content if big
+      if (typeof bodyParsed === 'object') safeLog("Parsed JSON body keys:", Object.keys(bodyParsed).join(", "));
+      else safeLog("Parsed raw body length:", String(bodyParsed).length);
+    } else {
+      safeLog("No body in request");
+    }
+
+    // If bodyParsed is null or a string, try fallback to query params
+    if ((!bodyParsed || typeof bodyParsed === 'string') && event.queryStringParameters && Object.keys(event.queryStringParameters).length) {
+      // prefer query params when body is not parseable
+      const q = event.queryStringParameters;
+      const fallback = {};
+      // Any param that is not standard becomes edits
+      for (const k of Object.keys(q)) {
+        if (['player','name','admin_code','reported_via'].includes(k)) fallback[k] = q[k];
+        else {
+          fallback.edits = fallback.edits || {};
+          fallback.edits[k] = q[k];
+        }
+      }
+      bodyParsed = Object.assign({}, (typeof bodyParsed === 'object' ? bodyParsed : {}), fallback);
+      safeLog("Used query-string fallback, keys:", Object.keys(bodyParsed).join(", "));
+    }
+
+    const envChecks = {
+      ADMIN_CODE_PRESENT: !!ADMIN_CODE,
+      GITHUB_PAT_PRESENT: !!GITHUB_PAT,
+      CSV_PATH: !!CSV_PATH
+    };
+    safeLog("Env presence:", envChecks);
+
+    // validate
+    const body = bodyParsed || {};
+    const player = body.player;
+    const editsRaw = body.edits;
+
     if (event.httpMethod !== 'POST') {
       return { statusCode: 405, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: 'Method Not Allowed - use POST' }) };
     }
-
-    let body = null;
-    if (!event.body) {
-      return { statusCode: 400, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: 'Empty request body' }) };
-    }
-    try {
-      body = JSON.parse(event.isBase64Encoded ? Buffer.from(event.body,'base64').toString('utf8') : event.body);
-    } catch (err) {
-      return { statusCode: 400, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: 'Request body must be JSON' }) };
-    }
-
-    const player = body.player;
-    const editsRaw = body.edits;
-    const providedAdminCode = body.admin_code || null;
-    const reporter = body.reporter || null; // optional metadata (user name/email), we won't trust for auth
 
     if (!player) {
       return { statusCode: 400, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: 'player (slug/id) is required' }) };
@@ -168,85 +214,52 @@ exports.handler = async function(event, context) {
       return { statusCode: 400, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: 'edits object is required' }) };
     }
 
-    // Determine admin mode
+    const providedAdminCode = body.admin_code || null;
     const isAdmin = (ADMIN_CODE && providedAdminCode && providedAdminCode === ADMIN_CODE && !!GITHUB_PAT);
-    if (providedAdminCode && !ADMIN_CODE) {
-      safeLog('ADMIN_CODE not configured on server but client sent admin_code - ignoring');
-    }
+    if (providedAdminCode && !ADMIN_CODE) safeLog('ADMIN_CODE not configured but admin_code provided (ignored)');
 
-    // If admin mode -> commit
+    // ADMIN path: update CSV
     if (isAdmin) {
-      // Validate repo env
       if (!OWNER || !REPO || !GITHUB_PAT) {
         return { statusCode: 500, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: 'Server misconfigured: missing GITHUB_OWNER/GITHUB_REPO/GITHUB_PAT_FOR_NETLIFY' }) };
       }
-
-      // Step 1: get file current content
+      // fetch CSV
       let fileJson;
-      try {
-        fileJson = await githubGetFile(CSV_PATH);
-      } catch (err) {
+      try { fileJson = await githubGetFile(CSV_PATH); } catch (err) {
         safeLog('Error fetching CSV from GitHub:', err);
         return { statusCode: 502, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: 'Failed to fetch CSV from GitHub', detail: err }) };
       }
-
       const sha = fileJson.sha;
-      const contentB64 = fileJson.content;
-      const csvRaw = Buffer.from(contentB64, 'base64').toString('utf8');
-
-      // parse CSV
+      const csvRaw = Buffer.from(fileJson.content, 'base64').toString('utf8');
       const parsed = Papa.parse(csvRaw, { header: true, skipEmptyLines: false });
-      if (parsed.errors && parsed.errors.length) {
-        safeLog('Warning: CSV parse errors', parsed.errors);
-      }
       const rows = parsed.data;
       const fields = parsed.meta && parsed.meta.fields ? parsed.meta.fields : Object.keys(rows[0] || {});
       const keyCol = detectKeyColumn(fields);
-
       const existingRow = tryMatchRow(rows, keyCol, player);
       if (!existingRow) {
         return { statusCode: 404, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: `Player not found for '${player}'` }) };
       }
-
-      // sanitize edits
       let sanitizedEdits;
-      try {
-        sanitizedEdits = sanitizeEdits(editsRaw, fields);
-      } catch (err) {
-        return { statusCode: 400, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: err.message || String(err) }) };
+      try { sanitizedEdits = sanitizeEdits(editsRaw, fields); } catch (e) {
+        return { statusCode: 400, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: e.message || String(e) }) };
       }
-
-      // apply merge
       const updatedRows = rows.map(r => {
-        if (r[keyCol] === existingRow[keyCol] || ((''+r[keyCol]).toLowerCase() === (''+existingRow[keyCol]).toLowerCase())) {
+        if ((String(r[keyCol]) === String(existingRow[keyCol])) || ((''+r[keyCol]).toLowerCase() === (''+existingRow[keyCol]).toLowerCase())) {
           return Object.assign({}, r, sanitizedEdits);
         }
         return r;
       });
-
-      // serialize
       const newCsv = Papa.unparse(updatedRows, { header: true });
-
-      // commit message
       const changeSummary = Object.keys(sanitizedEdits).map(k => `${k} -> ${sanitizedEdits[k]}`).join('; ');
       const message = `Update ${player} via site (admin). ${changeSummary}`;
-
       const contentNewB64 = Buffer.from(newCsv, 'utf8').toString('base64');
-
-      // attempt commit (with one retry in case SHA changed)
       try {
         const putRes = await githubPutFile(CSV_PATH, message, contentNewB64, sha);
         const commitUrl = putRes.commit && putRes.commit.html_url ? putRes.commit.html_url : null;
-        return {
-          statusCode: 200,
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ ok:true, committed:true, commit: putRes.commit, content: putRes.content, commit_url: commitUrl })
-        };
+        return { statusCode: 200, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:true, committed:true, commit: putRes.commit, commit_url: commitUrl }) };
       } catch (err) {
-        safeLog('First commit attempt failed:', err);
-        // if conflict due to outdated sha, try one retry: fetch latest, reapply, commit with new sha
-        if (err && err.code && (err.code === 409 || err.code === 422 || String(err.message).toLowerCase().includes('sha'))) {
-          safeLog('Retrying commit after re-fetching latest file...');
+        safeLog('Commit failed, attempting retry if possible:', err);
+        if (err && (err.code === 409 || err.code === 422 || String(err.message || '').toLowerCase().includes('sha'))) {
           try {
             const latest = await githubGetFile(CSV_PATH);
             const latestCsv = Buffer.from(latest.content, 'base64').toString('utf8');
@@ -255,40 +268,32 @@ exports.handler = async function(event, context) {
             const fieldsLatest = parsedLatest.meta && parsedLatest.meta.fields ? parsedLatest.meta.fields : Object.keys(rowsLatest[0] || {});
             const keyColLatest = detectKeyColumn(fieldsLatest);
             const existingLatest = tryMatchRow(rowsLatest, keyColLatest, player);
-            if (!existingLatest) {
-              return { statusCode: 409, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error:'Conflict: player row disappeared in latest CSV' }) };
-            }
+            if (!existingLatest) return { statusCode: 409, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error:'Conflict: player missing in latest CSV' }) };
             const updatedLatestRows = rowsLatest.map(r => {
-              if ((''+r[keyColLatest]) === (''+existingLatest[keyColLatest]) || ((''+r[keyColLatest]).toLowerCase() === (''+existingLatest[keyColLatest]).toLowerCase())) {
-                return Object.assign({}, r, sanitizedEdits);
+              if ((String(r[keyColLatest]) === String(existingLatest[keyColLatest])) || ((''+r[keyColLatest]).toLowerCase() === (''+existingLatest[keyColLatest]).toLowerCase())) {
+                return Object.assign({}, r, sanitizeEdits(editsRaw, fieldsLatest));
               }
               return r;
             });
             const newCsv2 = Papa.unparse(updatedLatestRows, { header: true });
             const contentNewB642 = Buffer.from(newCsv2, 'utf8').toString('base64');
             const putRes2 = await githubPutFile(CSV_PATH, message + ' (retry)', contentNewB642, latest.sha);
-            return {
-              statusCode: 200,
-              headers: {'Content-Type':'application/json'},
-              body: JSON.stringify({ ok:true, committed:true, commit: putRes2.commit, content: putRes2.content })
-            };
+            return { statusCode:200, headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ok:true, committed:true, commit: putRes2.commit }) };
           } catch (err2) {
-            safeLog('Retry commit failed:', err2);
-            return { statusCode: 502, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: 'Commit failed after retry', detail: err2 }) };
+            safeLog('Retry failed:', err2);
+            return { statusCode:502, headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error:'Commit failed after retry', detail: err2 }) };
           }
         }
-        return { statusCode: 502, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: 'Commit failed', detail: err }) };
+        return { statusCode:502, headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error:'Commit failed', detail: err }) };
       }
     } // end admin path
 
-    // Non-admin path: create GitHub issue with suggestion
-    // Validate owner/repo exist
+    // NON-ADMIN path -> create issue
     if (!OWNER || !REPO || !GITHUB_PAT) {
-      // If PAT missing, still we could create issue anonymously? No - GitHub API requires auth for creating issues in private repo.
-      return { statusCode: 500, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: 'Server misconfigured: missing GITHUB_OWNER/GITHUB_REPO/GITHUB_PAT_FOR_NETLIFY' }) };
+      return { statusCode:500, headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error:'Server misconfigured: missing GITHUB_OWNER/GITHUB_REPO/GITHUB_PAT_FOR_NETLIFY' }) };
     }
 
-    // Build issue body - try to include current vs proposed by fetching CSV (best effort)
+    // Try to fetch a snapshot of current values (best-effort)
     let currentSnap = null;
     try {
       const fileJson = await githubGetFile(CSV_PATH);
@@ -299,18 +304,17 @@ exports.handler = async function(event, context) {
       const existing = tryMatchRow(parsed.data, keyCol, player);
       currentSnap = { row: existing, fields, keyCol };
     } catch (err) {
-      safeLog('Could not fetch CSV to include current values in issue (continuing):', err);
+      safeLog('Could not fetch CSV snapshot (continuing):', err);
     }
 
-    // Build table of changes
+    // Build issue body
     let tableRows = '';
     if (currentSnap && currentSnap.row) {
       tableRows = currentSnap.fields
-        .filter(f => body.edits.hasOwnProperty(f))
+        .filter(f => body.edits && body.edits.hasOwnProperty(f))
         .map(f => `| ${f} | ${currentSnap.row[f] || ''} | ${body.edits[f] || ''} |`).join('\n');
     } else {
-      // we don't have current snapshot; just list proposed edits
-      tableRows = Object.keys(body.edits).map(k => `| ${k} |  | ${body.edits[k] || ''} |`).join('\n');
+      tableRows = Object.keys(body.edits || {}).map(k => `| ${k} |  | ${body.edits[k] || ''} |`).join('\n');
     }
 
     const pageLink = `${SITE_BASE_URL}/players/${player}`;
@@ -339,18 +343,14 @@ exports.handler = async function(event, context) {
 
     try {
       const created = await githubCreateIssue(issueTitle, issueBody, SUGGESTION_LABELS);
-      return {
-        statusCode: 200,
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ ok:true, suggestion:true, issue_url: created.html_url, issue_number: created.number })
-      };
+      return { statusCode:200, headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ok:true, suggestion:true, issue_url: created.html_url, issue_number: created.number }) };
     } catch (err) {
       safeLog('Failed to create issue:', err);
-      return { statusCode: 502, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: 'Failed to create suggestion issue', detail: err }) };
+      return { statusCode:502, headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error:'Failed to create suggestion issue', detail: err }) };
     }
 
   } catch (err) {
     console.error('submit_edit unexpected ERROR:', err && err.stack ? err.stack : err);
-    return { statusCode: 500, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: String(err && err.stack ? err.stack : err) }) };
+    return { statusCode:500, headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: String(err && err.stack ? err.stack : err) }) };
   }
 };
