@@ -14,6 +14,19 @@ const COMMITTER_EMAIL = process.env.GITHUB_COMMITTER_EMAIL || 'bot@center-court.
 const SUGGESTION_LABELS = (process.env.SUGGESTION_LABELS || 'suggestion,from-website').split(',').map(s => s.trim()).filter(Boolean);
 const SITE_BASE_URL = process.env.SITE_BASE_URL || 'https://www.center-court.net';
 
+// ---------- Trigger Netlify build hook (optional, but recommended) ----------
+async function triggerNetlifyBuild() {
+  const hook = process.env.NETLIFY_BUILD_HOOK;
+  if (!hook) return null;
+  try {
+    const r = await fetch(hook, { method: 'POST', timeout: 10000 });
+    return { ok: true, status: r.status };
+  } catch (err) {
+    console.error('triggerNetlifyBuild failed:', err && err.stack ? err.stack : err);
+    return { ok: false, error: String(err) };
+  }
+}
+
 function safeLog(...args) {
   // DO NOT print secrets
   try { console.log(...args); } catch(e){ /* ignore */ }
@@ -227,7 +240,7 @@ exports.handler = async function(event, context) {
         if (Object.keys(edits).length > 0) body.edits = edits;
       }
     }
-// ---------- Fin normalisation ----------
+    // ---------- Fin normalisation ----------
     const player = body.player;
     const editsRaw = body.edits;
 
@@ -281,32 +294,30 @@ exports.handler = async function(event, context) {
       if (!existingRow) {
         return { statusCode: 404, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: `Player not found for '${player}'` }) };
       }
+
       // --- Remove known meta keys from edits (notes, source, etc.) so they don't trigger sanitizeEdits errors ---
       const metaKeys = new Set(['player','player_slug','player_id','player_name','name','admin_code','reported_via','source','notes']);
-          
       // clone edits to avoid mutating caller data
       const editsToApply = (editsRaw && typeof editsRaw === 'object') ? Object.assign({}, editsRaw) : {};
-          
       // strip meta keys if present
       for (const k of Object.keys(editsToApply)) {
         if (metaKeys.has(k)) {
           delete editsToApply[k];
         }
       }
-      
       // if nothing remains to edit -> return informative response
       if (!editsToApply || Object.keys(editsToApply).length === 0) {
         return { statusCode: 400, headers: {'Content-Type':'application/json'},
                  body: JSON.stringify({ ok:false, error: 'No editable fields provided (notes/source are meta, not CSV fields).' }) };
       }
-      
+
       let sanitizedEdits;
       try {
         sanitizedEdits = sanitizeEdits(editsToApply, fields);
       } catch (e) {
         return { statusCode: 400, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: e.message || String(e) }) };
       }
-      
+
       const updatedRows = rows.map(r => {
         if ((String(r[keyCol]) === String(existingRow[keyCol])) || ((''+r[keyCol]).toLowerCase() === (''+existingRow[keyCol]).toLowerCase())) {
           return Object.assign({}, r, sanitizedEdits);
@@ -320,7 +331,22 @@ exports.handler = async function(event, context) {
       try {
         const putRes = await githubPutFile(CSV_PATH, message, contentNewB64, sha);
         const commitUrl = putRes.commit && putRes.commit.html_url ? putRes.commit.html_url : null;
-        return { statusCode: 200, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:true, committed:true, commit: putRes.commit, commit_url: commitUrl }) };
+        // after successful commit -> trigger Netlify build hook and include its result
+        try {
+          const netlifyResp = await triggerNetlifyBuild();
+          return {
+            statusCode: 200,
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ ok:true, committed:true, commit: putRes.commit, commit_url: commitUrl, netlify: netlifyResp })
+          };
+        } catch (e) {
+          return {
+            statusCode: 200,
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ ok:true, committed:true, commit: putRes.commit, commit_url: commitUrl, netlify: { ok:false, error: String(e) } })
+          };
+        }
+
       } catch (err) {
         safeLog('Commit failed, attempting retry if possible:', err);
         if (err && (err.code === 409 || err.code === 422 || String(err.message || '').toLowerCase().includes('sha'))) {
@@ -342,7 +368,22 @@ exports.handler = async function(event, context) {
             const newCsv2 = Papa.unparse(updatedLatestRows, { header: true });
             const contentNewB642 = Buffer.from(newCsv2, 'utf8').toString('base64');
             const putRes2 = await githubPutFile(CSV_PATH, message + ' (retry)', contentNewB642, latest.sha);
-            return { statusCode:200, headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ok:true, committed:true, commit: putRes2.commit }) };
+            const commitUrl2 = putRes2.commit && putRes2.commit.html_url ? putRes2.commit.html_url : null;
+            try {
+              const netlifyResp2 = await triggerNetlifyBuild();
+              return {
+                statusCode: 200,
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({ ok:true, committed:true, commit: putRes2.commit, commit_url: commitUrl2, netlify: netlifyResp2 })
+              };
+            } catch (e) {
+              return {
+                statusCode: 200,
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({ ok:true, committed:true, commit: putRes2.commit, commit_url: commitUrl2, netlify: { ok:false, error: String(e) } })
+              };
+            }
+
           } catch (err2) {
             safeLog('Retry failed:', err2);
             return { statusCode:502, headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error:'Commit failed after retry', detail: err2 }) };
