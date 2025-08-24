@@ -14,22 +14,8 @@ const COMMITTER_EMAIL = process.env.GITHUB_COMMITTER_EMAIL || 'bot@center-court.
 const SUGGESTION_LABELS = (process.env.SUGGESTION_LABELS || 'suggestion,from-website').split(',').map(s => s.trim()).filter(Boolean);
 const SITE_BASE_URL = process.env.SITE_BASE_URL || 'https://www.center-court.net';
 
-// ---------- Trigger Netlify build hook (optional, but recommended) ----------
-async function triggerNetlifyBuild() {
-  const hook = process.env.NETLIFY_BUILD_HOOK;
-  if (!hook) return null;
-  try {
-    const r = await fetch(hook, { method: 'POST', timeout: 10000 });
-    return { ok: true, status: r.status };
-  } catch (err) {
-    console.error('triggerNetlifyBuild failed:', err && err.stack ? err.stack : err);
-    return { ok: false, error: String(err) };
-  }
-}
-
 function safeLog(...args) {
-  // DO NOT print secrets
-  try { console.log(...args); } catch(e){ /* ignore */ }
+  try { console.log(...args); } catch (e) { /* ignore */ }
 }
 
 function buildGithubHeaders() {
@@ -40,7 +26,7 @@ function buildGithubHeaders() {
   };
 }
 
-// Github helpers (unchanged)
+// Github helpers
 async function githubGetFile(path) {
   const url = `https://api.github.com/repos/${OWNER}/${REPO}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(BRANCH)}`;
   const res = await fetch(url, { headers: buildGithubHeaders() });
@@ -85,10 +71,8 @@ function detectKeyColumn(fields) {
 function tryMatchRow(rows, keyCol, playerVal) {
   if (!playerVal) return null;
   const sPlayer = String(playerVal);
-  // exact match
   const exact = rows.find(r => String(r[keyCol]) === sPlayer);
   if (exact) return exact;
-  // numeric prefix from slug
   const numeric = sPlayer.match(/^(\d+)/);
   if (numeric) {
     const num = numeric[1];
@@ -104,7 +88,6 @@ function tryMatchRow(rows, keyCol, playerVal) {
     });
     if (found2) return found2;
   }
-  // case-insensitive
   const lower = rows.find(r => (''+r[keyCol]).toLowerCase() === sPlayer.toLowerCase());
   if (lower) return lower;
   return null;
@@ -121,39 +104,30 @@ function sanitizeEdits(edits, allowedFields) {
   return sanitized;
 }
 
-// Robust body parser:
-// - try JSON
-// - if not JSON and content-type urlencoded -> parse URLSearchParams
-// - else if body string contains "=" -> parse URLSearchParams
-// - else fallback to event.queryStringParameters (GET/form)
+// Robust body parser
 function parseRequestBody(event) {
   let raw = null;
   if (!event.body) return null;
   raw = event.isBase64Encoded ? Buffer.from(event.body,'base64').toString('utf8') : event.body;
-  // try JSON
   try {
     const j = JSON.parse(raw);
     return j;
   } catch (err) {
     // not JSON
   }
-  // try urlencoded like a=b&c=d
   const contentType = (event.headers && (event.headers['content-type'] || event.headers['Content-Type'] || '')).toLowerCase();
   if (contentType.includes('application/x-www-form-urlencoded') || contentType.includes('text/plain') || raw.includes('=')) {
     try {
       const params = new URLSearchParams(raw);
       const obj = {};
       for (const [k,v] of params) {
-        // If keys like edits[field]=value, handle nested edits
         const m = k.match(/^edits\[(.+)\]$/);
         if (m) {
           obj.edits = obj.edits || {};
           obj.edits[m[1]] = v;
         } else {
-          // simple keys: player, name, admin_code etc.
           if (obj[k] === undefined) obj[k] = v;
           else {
-            // already exists -> convert to array
             if (!Array.isArray(obj[k])) obj[k] = [obj[k]];
             obj[k].push(v);
           }
@@ -164,41 +138,43 @@ function parseRequestBody(event) {
       // fallthrough
     }
   }
-  // if nothing, return raw string as fallback
   return raw;
+}
+
+// Trigger Netlify build hook (optional)
+async function triggerNetlifyBuild() {
+  const hook = process.env.NETLIFY_BUILD_HOOK;
+  if (!hook) return null;
+  try {
+    const r = await fetch(hook, { method: 'POST', timeout: 10000 });
+    return { ok: true, status: r.status };
+  } catch (err) {
+    console.error('triggerNetlifyBuild failed:', err && err.stack ? err.stack : err);
+    return { ok: false, error: String(err) };
+  }
 }
 
 exports.handler = async function(event, context) {
   try {
     safeLog("=== submit_edit invoked ===");
-    safeLog('DBG: start handler');
     safeLog("Method:", event.httpMethod);
     safeLog("Path:", event.path || '(none)');
     safeLog("Headers keys:", Object.keys(event.headers || {}).join(", "));
     safeLog("QueryStringParameters:", event.queryStringParameters ? JSON.stringify(event.queryStringParameters) : '{}');
-    // parse body robustly
+
     let bodyParsed = null;
     if (event.body) {
       bodyParsed = parseRequestBody(event);
       safeLog("Parsed body type:", typeof bodyParsed);
-      // For debugging: do not log whole content if big
       if (typeof bodyParsed === 'object') safeLog("Parsed JSON body keys:", Object.keys(bodyParsed).join(", "));
       else safeLog("Parsed raw body length:", String(bodyParsed).length);
     } else {
       safeLog("No body in request");
     }
-    safeLog('DBG: parsed body type:', typeof bodyParsed);
-    safeLog('DBG: bodyParsed keys:', Object.keys(bodyParsed || {}).join(',') || '(none)');
-    safeLog('DBG: edits keys (from bodyParsed):', Object.keys((bodyParsed && bodyParsed.edits) || {}).join(',') || '(none)');
 
-
-
-    // If bodyParsed is null or a string, try fallback to query params
     if ((!bodyParsed || typeof bodyParsed === 'string') && event.queryStringParameters && Object.keys(event.queryStringParameters).length) {
-      // prefer query params when body is not parseable
       const q = event.queryStringParameters;
       const fallback = {};
-      // Any param that is not standard becomes edits
       for (const k of Object.keys(q)) {
         if (['player','name','admin_code','reported_via'].includes(k)) fallback[k] = q[k];
         else {
@@ -217,43 +193,30 @@ exports.handler = async function(event, context) {
     };
     safeLog("Env presence:", envChecks);
 
-    // validate
-    // ---------- Normalisation des variantes côté client ----------
+    // Normalize variations
     let body = bodyParsed || {};
-      
-    // Si front envoie player_slug / player_id / player_name, mappe-les sur les clés attendues
     if (body && typeof body === 'object') {
-      // map player_name -> name
       if (!body.name && body.player_name) body.name = body.player_name;
-    
-      // map player_slug / player_id -> player (valeur utilisée pour le matching)
       if (!body.player) {
         if (body.player_slug) body.player = body.player_slug;
         else if (body.player_id) body.player = String(body.player_id);
       }
-    
-      // Si l'appel n'envoie pas d'"edits" structuré, construis-le automatiquement :
-      // on considère comme "meta" : player/player_slug/player_id/player_name/name/admin_code/reported_via/source/notes
       if (!body.edits || typeof body.edits !== 'object') {
         const metaKeys = new Set(['player','player_slug','player_id','player_name','name','admin_code','reported_via','source','notes']);
         const edits = {};
         for (const k of Object.keys(body)) {
-          if (!metaKeys.has(k)) {
-            edits[k] = body[k];
-          }
+          if (!metaKeys.has(k)) edits[k] = body[k];
         }
-        // si on a trouvé des clés à modifier, on les place dans body.edits
         if (Object.keys(edits).length > 0) body.edits = edits;
       }
     }
-    // ---------- Fin normalisation ----------
+
     const player = body.player;
     const editsRaw = body.edits;
 
     if (event.httpMethod !== 'POST') {
       return { statusCode: 405, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: 'Method Not Allowed - use POST' }) };
     }
-
     if (!player) {
       return { statusCode: 400, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: 'player (slug/id) is required' }) };
     }
@@ -261,31 +224,15 @@ exports.handler = async function(event, context) {
       return { statusCode: 400, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: 'edits object is required' }) };
     }
 
-    // --- normalize and debug-admin-check (safe: logs short hashes, not secrets) ---
-    const crypto = require('crypto');
-      
-    function shortHash(s){
-      try { return crypto.createHash('sha256').update(String(s||'')).digest('hex').slice(0,8); }
-      catch(e){ return '(hash-fail)'; }
-    }
-    
-    const providedAdminRaw = (
-      body.admin_code ||
-      body.admin ||
-      (editsRaw && (editsRaw.admin_code || editsRaw.admin)) ||
-      ''
-    ).toString();
-    const providedAdminCodeRaw = (body.admin_code === undefined ? null : body.admin_code);
-    const providedAdminCode = (typeof providedAdminCodeRaw === 'string') ? providedAdminCodeRaw.trim() : providedAdminCodeRaw;
-    const adminEnvRaw = (typeof ADMIN_CODE === 'string' ? ADMIN_CODE : (ADMIN_CODE === undefined ? null : String(ADMIN_CODE)));
-    const adminEnv = adminEnvRaw ? adminEnvRaw.trim() : adminEnvRaw;
+    // Admin check (trimmed comparison)
+    const providedAdminRaw = (body.admin_code || body.admin || (editsRaw && (editsRaw.admin_code || editsRaw.admin)) || '').toString();
+    const providedAdmin = providedAdminRaw.trim();
+    const ADMIN_CODE_NORMALIZED = (ADMIN_CODE || '').toString().trim();
+    safeLog('Admin provided? ', providedAdmin.length > 0, 'len=', providedAdmin.length);
+    safeLog('Admin hashes (short): provided=', providedAdmin ? require('crypto').createHash('sha256').update(providedAdmin).digest('hex').slice(0,8) : '(none)', 'env=', ADMIN_CODE_NORMALIZED ? require('crypto').createHash('sha256').update(ADMIN_CODE_NORMALIZED).digest('hex').slice(0,8) : '(no-env)');
+    const isAdmin = (ADMIN_CODE_NORMALIZED && providedAdmin && providedAdmin === ADMIN_CODE_NORMALIZED && !!GITHUB_PAT);
+    if (providedAdmin && !ADMIN_CODE_NORMALIZED) safeLog('ADMIN_CODE not configured but admin_code provided (ignored)');
 
-    // log presence (but never log the secret itself)
-    safeLog('admin_code provided ?', !!providedAdminCode, 'ADMIN_CODE configured ?', !!adminEnv, 'GITHUB_PAT present ?', !!GITHUB_PAT);
-
-    const isAdmin = !!(adminEnv && providedAdminCode && providedAdminCode === adminEnv && !!GITHUB_PAT);
-
-    if (providedAdminCode && !adminEnv) safeLog('ADMIN_CODE not configured but admin_code provided (ignored)');
     // ADMIN path: update CSV
     if (isAdmin) {
       if (!OWNER || !REPO || !GITHUB_PAT) {
@@ -293,7 +240,6 @@ exports.handler = async function(event, context) {
       }
       // fetch CSV
       let fileJson;
-      safeLog('DBG: about to call githubGetFile');
       try { fileJson = await githubGetFile(CSV_PATH); } catch (err) {
         safeLog('Error fetching CSV from GitHub:', err);
         return { statusCode: 502, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: 'Failed to fetch CSV from GitHub', detail: err }) };
@@ -309,20 +255,17 @@ exports.handler = async function(event, context) {
         return { statusCode: 404, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: `Player not found for '${player}'` }) };
       }
 
-      
-      }
-      // if nothing remains to edit -> return informative response
-      if (!editsToApply || Object.keys(editsToApply).length === 0) {
-        return { statusCode: 400, headers: {'Content-Type':'application/json'},
-                 body: JSON.stringify({ ok:false, error: 'No editable fields provided (notes/source are meta, not CSV fields).' }) };
+      // meta keys to ignore for CSV
+      const metaKeys = new Set(['player','player_slug','player_id','player_name','name','admin_code','reported_via','source','notes']);
+
+      // Prepare editsToApply (strip meta keys)
+      const editsToApply = (editsRaw && typeof editsRaw === 'object') ? Object.assign({}, editsRaw) : {};
+      for (const k of Object.keys(editsToApply)) {
+        if (metaKeys.has(k)) delete editsToApply[k];
       }
 
-    
-
-      // if nothing remains to edit -> return informative response
       if (!editsToApply || Object.keys(editsToApply).length === 0) {
-        return { statusCode: 400, headers: {'Content-Type':'application/json'},
-                 body: JSON.stringify({ ok:false, error: 'No editable fields provided (notes/source are meta, not CSV fields).' }) };
+        return { statusCode: 400, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: 'No editable fields provided (notes/source are meta, not CSV fields).' }) };
       }
 
       let sanitizedEdits;
@@ -331,7 +274,6 @@ exports.handler = async function(event, context) {
       } catch (e) {
         return { statusCode: 400, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: e.message || String(e) }) };
       }
-
 
       const updatedRows = rows.map(r => {
         if ((String(r[keyCol]) === String(existingRow[keyCol])) || ((''+r[keyCol]).toLowerCase() === (''+existingRow[keyCol]).toLowerCase())) {
@@ -343,9 +285,11 @@ exports.handler = async function(event, context) {
       const changeSummary = Object.keys(sanitizedEdits).map(k => `${k} -> ${sanitizedEdits[k]}`).join('; ');
       const message = `Update ${player} via site (admin). ${changeSummary}`;
       const contentNewB64 = Buffer.from(newCsv, 'utf8').toString('base64');
+
       try {
         const putRes = await githubPutFile(CSV_PATH, message, contentNewB64, sha);
         const commitUrl = putRes.commit && putRes.commit.html_url ? putRes.commit.html_url : null;
+
         // after successful commit -> trigger Netlify build hook and include its result
         try {
           const netlifyResp = await triggerNetlifyBuild();
@@ -366,8 +310,6 @@ exports.handler = async function(event, context) {
         safeLog('Commit failed, attempting retry if possible:', err);
         if (err && (err.code === 409 || err.code === 422 || String(err.message || '').toLowerCase().includes('sha'))) {
           try {
-            safeLog('DBG: about to call githubGetFile');
-
             const latest = await githubGetFile(CSV_PATH);
             const latestCsv = Buffer.from(latest.content, 'base64').toString('utf8');
             const parsedLatest = Papa.parse(latestCsv, { header: true, skipEmptyLines: false });
@@ -386,6 +328,7 @@ exports.handler = async function(event, context) {
             const contentNewB642 = Buffer.from(newCsv2, 'utf8').toString('base64');
             const putRes2 = await githubPutFile(CSV_PATH, message + ' (retry)', contentNewB642, latest.sha);
             const commitUrl2 = putRes2.commit && putRes2.commit.html_url ? putRes2.commit.html_url : null;
+
             try {
               const netlifyResp2 = await triggerNetlifyBuild();
               return {
@@ -400,7 +343,6 @@ exports.handler = async function(event, context) {
                 body: JSON.stringify({ ok:true, committed:true, commit: putRes2.commit, commit_url: commitUrl2, netlify: { ok:false, error: String(e) } })
               };
             }
-
           } catch (err2) {
             safeLog('Retry failed:', err2);
             return { statusCode:502, headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error:'Commit failed after retry', detail: err2 }) };
@@ -418,8 +360,6 @@ exports.handler = async function(event, context) {
     // Try to fetch a snapshot of current values (best-effort)
     let currentSnap = null;
     try {
-      safeLog('DBG: about to call githubGetFile');
-
       const fileJson = await githubGetFile(CSV_PATH);
       const csvRaw = Buffer.from(fileJson.content, 'base64').toString('utf8');
       const parsed = Papa.parse(csvRaw, { header: true, skipEmptyLines: false });
@@ -431,7 +371,6 @@ exports.handler = async function(event, context) {
       safeLog('Could not fetch CSV snapshot (continuing):', err);
     }
 
-    // Build issue body
     let tableRows = '';
     if (currentSnap && currentSnap.row) {
       tableRows = currentSnap.fields
@@ -466,8 +405,6 @@ exports.handler = async function(event, context) {
     const issueBody = issueBodyLines.join('\n');
 
     try {
-      safeLog('DBG: about to call githubCreateIssue');
-
       const created = await githubCreateIssue(issueTitle, issueBody, SUGGESTION_LABELS);
       return { statusCode:200, headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ok:true, suggestion:true, issue_url: created.html_url, issue_number: created.number }) };
     } catch (err) {
