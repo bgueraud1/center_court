@@ -279,12 +279,12 @@ exports.handler = async function(event, context) {
     const providedAdminCode = (typeof providedAdminCodeRaw === 'string') ? providedAdminCodeRaw.trim() : providedAdminCodeRaw;
     const adminEnvRaw = (typeof ADMIN_CODE === 'string' ? ADMIN_CODE : (ADMIN_CODE === undefined ? null : String(ADMIN_CODE)));
     const adminEnv = adminEnvRaw ? adminEnvRaw.trim() : adminEnvRaw;
-      
+
     // log presence (but never log the secret itself)
     safeLog('admin_code provided ?', !!providedAdminCode, 'ADMIN_CODE configured ?', !!adminEnv, 'GITHUB_PAT present ?', !!GITHUB_PAT);
-      
+
     const isAdmin = !!(adminEnv && providedAdminCode && providedAdminCode === adminEnv && !!GITHUB_PAT);
-      
+
     if (providedAdminCode && !adminEnv) safeLog('ADMIN_CODE not configured but admin_code provided (ignored)');
     // ADMIN path: update CSV
     if (isAdmin) {
@@ -309,15 +309,7 @@ exports.handler = async function(event, context) {
         return { statusCode: 404, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: `Player not found for '${player}'` }) };
       }
 
-      // --- Remove known meta keys from edits (notes, source, etc.) so they don't trigger sanitizeEdits errors ---
-      const metaKeys = new Set(['player','player_slug','player_id','player_name','name','admin_code','reported_via','source','notes']);
-      // clone edits to avoid mutating caller data
-      const editsToApply = (editsRaw && typeof editsRaw === 'object') ? Object.assign({}, editsRaw) : {};
-      // strip meta keys if present
-      for (const k of Object.keys(editsToApply)) {
-        if (metaKeys.has(k)) {
-          delete editsToApply[k];
-        }
+      
       }
       // if nothing remains to edit -> return informative response
       if (!editsToApply || Object.keys(editsToApply).length === 0) {
@@ -325,18 +317,7 @@ exports.handler = async function(event, context) {
                  body: JSON.stringify({ ok:false, error: 'No editable fields provided (notes/source are meta, not CSV fields).' }) };
       }
 
-      // --- Remove known meta keys from edits (notes, source, etc.) so they don't trigger sanitizeEdits errors ---
-      const metaKeys = new Set(['player','player_slug','player_id','player_name','name','admin_code','reported_via','source','notes']);
-
-      // clone edits to avoid mutating caller data
-      const editsToApply = (editsRaw && typeof editsRaw === 'object') ? Object.assign({}, editsRaw) : {};
-
-      // strip meta keys if present
-      for (const k of Object.keys(editsToApply)) {
-        if (metaKeys.has(k)) {
-          delete editsToApply[k];
-        }
-      }
+    
 
       // if nothing remains to edit -> return informative response
       if (!editsToApply || Object.keys(editsToApply).length === 0) {
