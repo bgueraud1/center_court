@@ -54,7 +54,27 @@
       edits[el.name] = el.value;
     });
 
-    const payload = { player, name, edits };
+    // build payload (replace existing payload builder)
+    const payload = {
+      player: form.querySelector('[name="player"]').value || '',
+      name: form.querySelector('[name="name"]').value || '',
+      edits: {}
+    };
+    
+    // collect editable fields
+    document.querySelectorAll('[data-editable]').forEach(el => {
+      if (el.name) payload.edits[el.name] = el.value || '';
+    });
+    
+    // IMPORTANT: include admin_code trimmed if present
+    const adminEl = form.querySelector('[name="admin_code"]') || document.getElementById('admin_code');
+    const adminVal = adminEl ? (adminEl.value || '').toString().trim() : '';
+    if (adminVal) payload.admin_code = adminVal;
+    
+    // optionally include source/notes
+    const notesEl = form.querySelector('[name="notes"]');
+    if (notesEl && notesEl.value) payload.edits.notes = notesEl.value;
+    
 
     // disable submit button
     const submitBtn = form.querySelector('[type="submit"]');
