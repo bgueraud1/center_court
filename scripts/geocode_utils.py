@@ -17,34 +17,98 @@ _log = logging.getLogger("geocode_utils")
 logging.basicConfig(level=logging.INFO)
 
 
+import re
+def normalize_place(place: str) -> str:
+    """
+    Normalise la chaîne 'place' utilisée comme clé de cache :
+    - strip (retire espaces en tête/fin)
+    - retire virgules ou espaces en trop au début/fin
+    - remplace séquences de virgules/espaces par une virgule + espace simple
+    - retire caractères de contrôle
+    - collapse espaces multiples
+    """
+    if not place or not isinstance(place, str):
+        return ""
+    s = place
+    # remove control chars
+    s = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', s)
+    # trim and remove leading/trailing commas/spaces
+    s = s.strip()
+    s = re.sub(r'^[,;\s]+|[,;\s]+$', '', s)
+    # replace sequences like ",  ," or ", ," with ", "
+    s = re.sub(r'\s*,\s*', ', ', s)
+    # collapse multiple spaces
+    s = re.sub(r'\s+', ' ', s)
+    # final trim
+    s = s.strip()
+    return s
+
+
 def is_skip_geocode() -> bool:
     v = os.getenv("SKIP_GEOCODE", "0")
     return str(v).strip().lower() in ("1", "true", "yes")
 
 
-def load_cache(cache_file: str) -> Dict[str, Dict[str, Any]]:
+# ── CACHE HANDLING (robuste pour encodages & écritures atomiques) ──
+import tempfile
+
+def load_cache(path: str) -> dict:
+    """
+    Charge le cache JSON en essayant UTF-8, puis latin-1, puis nettoyage
+    des caractères de contrôle. Si tout échoue, retourne la structure vide.
+    """
+    if not os.path.exists(path):
+        return {"geocode": {}, "reverse": {}}
     try:
-        with open(cache_file, "r", encoding="utf8") as f:
-            data = json.load(f)
-            # ensure expected shape
-            if not isinstance(data, dict):
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except UnicodeDecodeError:
+        # fallback: try latin-1 then parse
+        try:
+            with open(path, 'r', encoding='latin-1') as f:
+                raw = f.read()
+            return json.loads(raw)
+        except Exception:
+            # last resort: remove control chars then try parse
+            try:
+                import re
+                with open(path, 'r', encoding='latin-1') as f:
+                    raw = f.read()
+                cleaned = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', raw)
+                return json.loads(cleaned)
+            except Exception as e:
+                print(f"Warning: failed to parse cache {path}: {e}")
                 return {"geocode": {}, "reverse": {}}
-            data.setdefault("geocode", {})
-            data.setdefault("reverse", {})
-            return data
-    except FileNotFoundError:
+    except json.JSONDecodeError as e:
+        print(f"Warning: JSON decode error for cache {path}: {e}")
         return {"geocode": {}, "reverse": {}}
     except Exception as e:
-        _log.warning("Could not load cache %s: %s", cache_file, e)
+        print(f"Warning: unexpected error reading cache {path}: {e}")
         return {"geocode": {}, "reverse": {}}
 
 
-def save_cache(cache: Dict[str, Any], cache_file: str):
+def save_cache(cache: dict, path: str):
+    """
+    Sauvegarde le cache en UTF-8 JSON, atomiquement.
+    """
+    parent = os.path.dirname(path)
+    if parent and not os.path.exists(parent):
+        os.makedirs(parent, exist_ok=True)
+    # write to a temp file then replace to avoid partial writes
+    fd, tmp_path = tempfile.mkstemp(prefix="cache_", suffix=".json", dir=parent or ".")
     try:
-        with open(cache_file, "w", encoding="utf8") as f:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
             json.dump(cache, f, indent=2, ensure_ascii=False)
+        # atomic replace
+        os.replace(tmp_path, path)
     except Exception as e:
-        _log.warning("Failed to save cache %s: %s", cache_file, e)
+        print(f"Warning: Failed to save cache {path}: {e}")
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+
 
 
 def get_geolocator(user_agent: str = "center_court_build", timeout: int = DEFAULT_TIMEOUT):
@@ -121,14 +185,14 @@ def geocode_place(place: str,
     """
     if not place or not isinstance(place, str):
         return None
-
+    # normalise la clé (IMPORTANT)
+    place_key = normalize_place(place)
     cache_geo = cache.setdefault("geocode", {})
-
-    # if cached already -> return cached value (even if SKIP is enabled)
-    if place in cache_geo:
-        v = cache_geo[place]
+    # if cached already -> return cached value (even if SKIP enabled)
+    if place_key in cache_geo:
+        v = cache_geo[place_key]
         return None if v is None else tuple(v)
-    
+
     # If SKIP_GEOCODE is enabled, don't call network (but we already returned cached above)
     if is_skip_geocode():
         _log.info("SKIP_GEOCODE enabled -> not geocoding %r", place)
@@ -142,7 +206,7 @@ def geocode_place(place: str,
         try:
             coords = _do_geocode(geolocator, place, timeout)
             # store standardized: list [lat,lon] or None
-            cache_geo[place] = list(coords) if coords else None
+            cache_geo[place_key] = list(coords) if coords else None
             if save_each_time:
                 save_cache(cache, cache_file)
             return coords
