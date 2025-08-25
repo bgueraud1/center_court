@@ -32,17 +32,21 @@ jobs:
       - name: Install dependencies (filter known-bad entries)
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then
+          # prefer requirements-build.txt if present, fallback to requirements.txt
+          if [ -f requirements-build.txt ]; then
+            pip install -r requirements-build.txt
+          elif [ -f requirements.txt ]; then
             # create a filtered requirements file to avoid installing a bogus package named 'time'
-            # This removes lines that are exactly 'time' (or blank/comment lines).
             grep -v -E '^\s*(time)\s*$' requirements.txt > /tmp/reqs_filtered.txt || true
-            # remove pure-empty/file-of-comments case
             if [ -s /tmp/reqs_filtered.txt ]; then
               pip install -r /tmp/reqs_filtered.txt
             else
               echo "No valid requirements to install after filtering."
             fi
+          else
+            echo "No requirements file found; skipping pip install"
           fi
+
 
       - name: Run build script
         # Set SKIP_GEOCODE=1 to avoid network geocoding in CI (recommended)
