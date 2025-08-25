@@ -80,7 +80,18 @@ STATIC_DIR = ROOT / "site_static"
 if STATIC_DIR.exists() and STATIC_DIR.is_dir():
     try:
         # dirs_exist_ok requires Python 3.8+. CI uses Python 3.10.
-        shutil.copytree(STATIC_DIR, DOCS, dirs_exist_ok=True)
+        # instead of shutil.copytree(STATIC_DIR, DOCS, dirs_exist_ok=True)
+        for root, dirs, files in os.walk(STATIC_DIR):
+            rel = os.path.relpath(root, STATIC_DIR)
+            target_dir = DOCS / rel
+            target_dir.mkdir(parents=True, exist_ok=True)
+            for fn in files:
+                if fn in ('edit.html', 'some_other_file.html'):   # <- ignore these
+                    continue
+                src = Path(root) / fn
+                dst = target_dir / fn
+                shutil.copy2(src, dst)
+        
         print(f"Copied durable static files from {STATIC_DIR} -> {DOCS}")
     except Exception as e:
         print(f"Could not copy static dir {STATIC_DIR} into docs/: {e}")
