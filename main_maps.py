@@ -1,6 +1,6 @@
 from map_birth_place import load_and_clean, geocode_with_cache, normalize_dates_and_heights, build_and_save_map
 
-from scripts.geocode_utils import geocode_place, should_skip_geocode
+from scripts.geocode_utils import geocode_place, should_skip_geocode, load_cache, save_cache, bulk_geocode
 
 from config_maps import INPUT_CSV, CACHE_FILE, OUTPUT_HTML_BIRTHPLACE, OUTPUT_HTML_FROM, OUTPUT_HTML_PERCENTAGE, OUTPUT_HTML_TO, IOC_TO_ISO3, geolocator, CACHE_FILE_MIGRATION, GEOJSON_URL, OUTPUT_HTML_FALSE
 from migration_map_from import (
@@ -18,7 +18,7 @@ from map_percentage import prepare_players, build_and_save_presence_map, load_an
 from migration_map_from import load_and_normalize 
 
 import pandas as pd
-
+import os
 # Map for birthplaces
 
 
@@ -41,6 +41,24 @@ build_and_save_map(all_pts, OUTPUT_HTML_BIRTHPLACE)
 
 cache = load_cache(CACHE_FILE_MIGRATION)
 df = load_and_normalize(IOC_TO_ISO3, INPUT_CSV)
+# load cache
+cache = load_cache(CACHE_FILE_MIGRATION)
+places = [p for p in df['birthplace'].dropna().unique() if p not in cache.get('geocode', {})]
+
+if places:
+    # temporarly allow network geocoding (local run or special CI step)
+    old = os.environ.get("SKIP_GEOCODE")
+    os.environ["SKIP_GEOCODE"] = "0"
+    try:
+        # bulk_geocode uses geocode_place -> will write to cache_file
+        cache = bulk_geocode(places, CACHE_FILE_MIGRATION, user_agent="center-court-bot", delay=1.2, timeout=10)
+    finally:
+        # restore env
+        if old is None:
+            os.environ.pop("SKIP_GEOCODE", None)
+        else:
+            os.environ["SKIP_GEOCODE"] = old
+
 all_pts, migrations = build_points_and_migrations(CACHE_FILE_MIGRATION, geolocator, df, cache)
 print(f"✅ {len(all_pts)} players loaded.")
 print(f"🚀 {len(migrations)} migration records built.")
