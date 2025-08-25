@@ -13,16 +13,65 @@ from scripts.geocode_utils import load_cache, save_cache, geocode_place, reverse
 
 
 # ── CACHE HANDLING ──────────────────────────────────────────
+# robust cache I/O (replace the simple load_cache/save_cache)
+import tempfile
+import re
+
 def load_cache_to(path: str) -> dict:
-    if os.path.exists(path):
-        with open(path, 'r') as f:
+    """
+    Charge le cache JSON en essayant UTF-8, puis latin-1, puis nettoyage
+    des caractères de contrôle. Si tout échoue, retourne la structure vide.
+    """
+    if not os.path.exists(path):
+        return {"geocode": {}, "reverse": {}}
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
             return json.load(f)
-    return {'geocode': {}, 'reverse': {}}
+    except UnicodeDecodeError:
+        # fallback: try latin-1 then parse
+        try:
+            with open(path, 'r', encoding='latin-1') as f:
+                raw = f.read()
+            return json.loads(raw)
+        except Exception:
+            # last resort: remove control chars then try parse
+            try:
+                with open(path, 'r', encoding='latin-1') as f:
+                    raw = f.read()
+                cleaned = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', raw)
+                return json.loads(cleaned)
+            except Exception as e:
+                print(f"Warning: failed to parse cache {path}: {e}")
+                return {"geocode": {}, "reverse": {}}
+    except json.JSONDecodeError as e:
+        print(f"Warning: JSON decode error for cache {path}: {e}")
+        return {"geocode": {}, "reverse": {}}
+    except Exception as e:
+        print(f"Warning: unexpected error reading cache {path}: {e}")
+        return {"geocode": {}, "reverse": {}}
 
 
-def save_cache(cache: dict, path: str):
-    with open(path, 'w') as f:
-        json.dump(cache, f, indent=2)
+def save_cache_to(cache: dict, path: str):
+    """
+    Sauvegarde le cache en UTF-8 JSON, atomiquement.
+    """
+    parent = os.path.dirname(path)
+    if parent and not os.path.exists(parent):
+        os.makedirs(parent, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(prefix="cache_", suffix=".json", dir=parent or ".")
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            json.dump(cache, f, indent=2, ensure_ascii=False)
+        # atomic replace
+        os.replace(tmp_path, path)
+    except Exception as e:
+        print(f"Warning: Failed to save cache {path}: {e}")
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+
 
 
 def geocode(cache_file, geolocator, place: str, cache: dict, delay: float = 1.0):
