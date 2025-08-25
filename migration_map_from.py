@@ -93,6 +93,10 @@ def load_and_normalize(ioc_to_iso3, csv_path: str) -> pd.DataFrame:
 
 # ── BUILD POINTS & MIGRATIONS ───────────────────────────────
 def build_points_and_migrations(cache_file, geolocator, df: pd.DataFrame, cache: dict):
+    
+    # ensure cache loaded at top of processing
+    cache = load_cache(cache_file)
+
     all_pts = []
     migrations = []
     for _, row in df.iterrows():
@@ -122,8 +126,7 @@ def build_points_and_migrations(cache_file, geolocator, df: pd.DataFrame, cache:
             'height_m': height_m
         })
         # migration logic
-        # ensure cache loaded at top of processing
-        cache = load_cache(cache_file)
+        
 
         birth_coords = geocode_place(row['birthplace'], cache, cache_file,
                                      user_agent="migration-mapper", delay=1.0, timeout=10)
