@@ -358,6 +358,7 @@ exports.handler = async function(event, context) {
     }
 
     // Try to fetch a snapshot of current values (best-effort)
+    // Why not ?
     let currentSnap = null;
     try {
       const fileJson = await githubGetFile(CSV_PATH);
@@ -417,3 +418,4 @@ exports.handler = async function(event, context) {
     return { statusCode:500, headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: String(err && err.stack ? err.stack : err) }) };
   }
 };
+
