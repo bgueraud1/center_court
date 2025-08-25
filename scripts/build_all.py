@@ -86,11 +86,10 @@ if STATIC_DIR.exists() and STATIC_DIR.is_dir():
             target_dir = DOCS / rel
             target_dir.mkdir(parents=True, exist_ok=True)
             for fn in files:
-                if fn in ('edit.html', 'some_other_file.html'):   # <- ignore these
-                    continue
                 src = Path(root) / fn
                 dst = target_dir / fn
                 shutil.copy2(src, dst)
+        
 
         print(f"Copied durable static files from {STATIC_DIR} -> {DOCS}")
     except Exception as e:
