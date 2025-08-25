@@ -122,17 +122,17 @@ def geocode_place(place: str,
     if not place or not isinstance(place, str):
         return None
 
-    if is_skip_geocode():
-        _log.info("SKIP_GEOCODE enabled -> not geocoding %r", place)
-        # do not add to cache here; caller can decide
-        return None
-
     cache_geo = cache.setdefault("geocode", {})
 
-    # if cached already
+    # if cached already -> return cached value (even if SKIP is enabled)
     if place in cache_geo:
         v = cache_geo[place]
         return None if v is None else tuple(v)
+    
+    # If SKIP_GEOCODE is enabled, don't call network (but we already returned cached above)
+    if is_skip_geocode():
+        _log.info("SKIP_GEOCODE enabled -> not geocoding %r", place)
+        return None
 
     geolocator = get_geolocator(user_agent=user_agent, timeout=timeout)
 
