@@ -91,26 +91,13 @@ if STATIC_DIR.exists() and STATIC_DIR.is_dir():
                 src = Path(root) / fn
                 dst = target_dir / fn
                 shutil.copy2(src, dst)
-        
+
         print(f"Copied durable static files from {STATIC_DIR} -> {DOCS}")
     except Exception as e:
         print(f"Could not copy static dir {STATIC_DIR} into docs/: {e}")
 else:
     print("No site_static directory found — skipping copy of durable static files.")
 
-# -------------------------
-# Copy repo-provided static site assets (durable files)
-# -------------------------
-STATIC_DIR = ROOT / "site_static"
-if STATIC_DIR.exists() and STATIC_DIR.is_dir():
-    try:
-        # Python 3.8+: dirs_exist_ok=True to merge into DOCS
-        shutil.copytree(STATIC_DIR, DOCS, dirs_exist_ok=True)
-        print(f"Copied durable static files from {STATIC_DIR} -> {DOCS}")
-    except Exception as e:
-        print(f"Could not copy static dir {STATIC_DIR} into docs/: {e}")
-else:
-    print("No site_static directory found — skipping copy of durable static files.")
 
 
 # -------------------------
@@ -260,7 +247,9 @@ except Exception as e:
 # 6) Build the nicer index.html with sections, custom names, header logo, footer
 # -------------------------
 # collect maps (exclude index.html)
-map_files = [p for p in sorted((DOCS).glob("*.html")) if p.name != "index.html"]
+# collect maps (exclude index.html and non-map pages like edit.html)
+EXCLUDE_HTML = {"index.html", "edit.html", "404.html", "some_other_file.html"}  # ajoute ici d'autres noms si besoin
+map_files = [p for p in sorted(DOCS.glob("*.html")) if p.name not in EXCLUDE_HTML]
 
 # build maps HTML list using metadata mapping or pretty name
 maps_entries_html = []
