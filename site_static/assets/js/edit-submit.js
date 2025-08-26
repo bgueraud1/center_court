@@ -62,9 +62,19 @@
     };
     
     // collect editable fields
+        // collect editable fields (handle checkboxes correctly)
     document.querySelectorAll('[data-editable]').forEach(el => {
-      if (el.name) payload.edits[el.name] = el.value || '';
+      if (!el.name) return;
+      // checkboxes: use checked state -> send "true" or "false"
+      if (el.type === 'checkbox') {
+        payload.edits[el.name] = el.checked ? (el.value || 'true') : 'false';
+      } else if (el.tagName && el.tagName.toLowerCase() === 'select') {
+        payload.edits[el.name] = el.value || '';
+      } else {
+        payload.edits[el.name] = el.value || '';
+      }
     });
+
     
     // IMPORTANT: include admin_code trimmed if present
     const adminEl = form.querySelector('[name="admin_code"]') || document.getElementById('admin_code');
