@@ -99,6 +99,8 @@ else:
 
 
 
+
+
 # -------------------------
 # copy logo if present (logo.png search in several places)
 # -------------------------
@@ -119,7 +121,19 @@ for cand in LOGO_CANDIDATES:
 # -------------------------
 print("SKIP_GEOCODE =", repr(os.getenv("SKIP_GEOCODE")))
 env = os.environ.copy()
-env["SKIP_GEOCODE"] = env.get("SKIP_GEOCODE", "1")  # déjà présent
+# 1) Option: set SKIP_GEOCODE env so main_maps will not call network in CI.
+print("SKIP_GEOCODE (before) =", repr(os.getenv("SKIP_GEOCODE")))
+env = os.environ.copy()
+# If we're running in CI (or Netlify/GitHub Actions), default to skipping geocode.
+# Otherwise keep current value or default to "0" for local runs.
+if os.getenv("CI") or os.getenv("NETLIFY") or os.getenv("GITHUB_ACTIONS"):
+    env["SKIP_GEOCODE"] = env.get("SKIP_GEOCODE", "1")
+else:
+    env["SKIP_GEOCODE"] = env.get("SKIP_GEOCODE", "0")
+# ensure UTF-8 for subprocesses
+env["PYTHONIOENCODING"] = "utf-8"
+env.setdefault("LANG", "en_US.UTF-8")
+print("SKIP_GEOCODE (used for subprocesses) =", repr(env["SKIP_GEOCODE"]))
 # forcer utf-8 pour les sous-processus et Python stdio
 env["PYTHONIOENCODING"] = "utf-8"
 env.setdefault("LANG", "en_US.UTF-8")
@@ -131,25 +145,31 @@ env.setdefault("LANG", "en_US.UTF-8")
 # -------------------------
 # 2) Run your main script that creates the HTML maps
 # -------------------------
-print("Running main build script (main_maps.py)...")
-candidates_main = [
+# ---------- RUN both WTA and ATP map builders ----------
+print("Running WTA maps (main_maps.py)...")
+candidates_main_wta = [
     ROOT / "main_maps.py",
     ROOT / "player_base_and_maps" / "main_maps.py",
     ROOT / "player_base_and_maps.py",
 ]
-MAIN_MAP = next((p for p in candidates_main if p.exists()), None)
-
-if MAIN_MAP is None:
-    print("⚠️ main_maps.py not found in expected locations. Skipping main_maps run.")
-    rc = subprocess.CompletedProcess(args=[], returncode=0)
+MAIN_MAP_WTA = next((p for p in candidates_main_wta if p.exists()), None)
+if MAIN_MAP_WTA:
+    print(f"Running WTA main build script ({MAIN_MAP_WTA})...")
+    rc_wta = subprocess.run([sys.executable, str(MAIN_MAP_WTA)], cwd=str(ROOT), env=env)
+    if rc_wta.returncode != 0:
+        print("⚠️ WTA main build failed (exit code {})".format(rc_wta.returncode))
 else:
-    print(f"Running main build script ({MAIN_MAP})...")
-    rc = subprocess.run([sys.executable, str(MAIN_MAP)], cwd=str(ROOT), env=env)
-    if rc.returncode != 0:
-        print("⚠️ main_maps.py failed (exit code {})".format(rc.returncode))
+    print("⚠️ WTA main_maps.py not found — skipping WTA maps.")
 
-if rc.returncode != 0:
-    print("⚠️ main_maps.py failed (exit code {})".format(rc.returncode))
+# ---------- ATP (if module exists) ----------
+print("Running ATP maps (main_maps_atp.py)...")
+MAIN_MAP_ATP = ROOT / "main_maps_atp.py"
+if MAIN_MAP_ATP.exists():
+    rc_atp = subprocess.run([sys.executable, str(MAIN_MAP_ATP)], cwd=str(ROOT), env=env)
+    if rc_atp.returncode != 0:
+        print("⚠️ ATP main build failed (exit code {})".format(rc_atp.returncode))
+else:
+    print("No main_maps_atp.py found — skipping ATP maps.")
 
 # -------------------------
 # 3) Collect HTML outputs (maps)
@@ -242,12 +262,52 @@ except Exception as e:
     raise
 
 
+# === Generate ATP player pages (if script exists) ===
+print("Generating ATP player pages (if available)...")
+gen_atp = ROOT / "scripts" / "generate_players_atp.py"
+if gen_atp.exists():
+    try:
+        res = subprocess.run(
+            [sys.executable, str(gen_atp)],
+            cwd=str(ROOT),
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=900
+        )
+        if res.stdout:
+            print(res.stdout)
+        if res.stderr:
+            print("STDERR from generate_players_atp:", res.stderr)
+    except subprocess.CalledProcessError as e:
+        print("generate_players_atp failed, returncode:", e.returncode)
+        if e.output:
+            print("OUTPUT:", e.output)
+        if e.stderr:
+            print("STDERR:", e.stderr)
+        raise
+else:
+    print("No generate_players_atp.py found — skipping ATP player pages.")
+
+# copy players directories into docs (if present)
+for src_dir, dst_dir in [(ROOT / "players", DOCS / "players"), (ROOT / "players_atp", DOCS / "players_atp")]:
+    if src_dir.exists() and src_dir.is_dir():
+        try:
+            shutil.copytree(src_dir, dst_dir, dirs_exist_ok=True)
+            print(f"Copied player dir {src_dir} -> {dst_dir}")
+        except Exception as e:
+            print(f"Could not copy player dir {src_dir} -> {dst_dir}: {e}")
+
+
+
 # -------------------------
 # 6) Build the nicer index.html with sections, custom names, header logo, footer
 # -------------------------
 # collect maps (exclude index.html)
 # collect maps (exclude index.html and non-map pages like edit.html)
-EXCLUDE_HTML = {"index.html", "edit.html", "404.html", "some_other_file.html"}  # ajoute ici d'autres noms si besoin
+EXCLUDE_HTML = {"index.html", "edit.html", "404.html", "edit_atp.html", "some_other_file.html"}  # ajoute ici d'autres noms si besoin
 map_files = [p for p in sorted(DOCS.glob("*.html")) if p.name not in EXCLUDE_HTML]
 
 # build maps HTML list using metadata mapping or pretty name
