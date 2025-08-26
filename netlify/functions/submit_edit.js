@@ -286,6 +286,15 @@ exports.handler = async function(event, context) {
         if (metaKeys.has(k)) delete editsToApply[k];
       }
 
+      // remove empty-string edits (client should avoid sending them, but double-check here)
+      for (const k of Object.keys(editsToApply)) {
+        if (editsToApply[k] === '') {
+          delete editsToApply[k];
+          safeLog(`[submit_edit] removed empty edit for ${k}`);
+        }
+      }
+
+
       // If reviewed_player present in edits, coerce to "True"/"False" and set/clear date_review
       if (Object.prototype.hasOwnProperty.call(editsToApply, 'reviewed_player')) {
         const rawRv = (editsToApply['reviewed_player'] || '').toString().toLowerCase();
