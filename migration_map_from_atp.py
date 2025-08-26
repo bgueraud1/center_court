@@ -363,7 +363,7 @@ def build_points_and_migrations_from_atp(cache_file: str, geolocator, df: pd.Dat
 def build_and_save_map_migration_from_atp(all_pts, migrations, out_html: str):
     map_obj = folium.Map(location=[20, 0], zoom_start=2, tiles="CartoDB Positron")
 
-    # debug print
+    # debug print (Python-side)
     print("First 20 migrations (raw):")
     for i, rec in enumerate(migrations[:20]):
         print(i, rec.get('name'), rec.get('coords'))
@@ -409,12 +409,10 @@ def build_and_save_map_migration_from_atp(all_pts, migrations, out_html: str):
         JavascriptLink("https://unpkg.com/@turf/turf@6.5.0/turf.min.js")
     )
 
-    # macro (interactive controls) - largely identical au WTA, adapte les textes si besoin
     macro = MacroElement()
-    macro_html = r"""
+    macro_html = """
 {% macro html(this, kwargs) %}
   <style>
-    /* mêmes styles que pour la version WTA */
     #migfilters {
       position: absolute; top: 10px; left: 10px; right: auto;
       z-index: 9999; background: white; padding: 8px;
@@ -449,7 +447,7 @@ def build_and_save_map_migration_from_atp(all_pts, migrations, out_html: str):
   </style>
 
   <div id="migfilters">
-    <label>Search Name: <input type="text" id="flt_name" placeholder="e.g. Djokovic"/></label>
+    <label>Search Name: <input type="text" id="flt_name" placeholder="e.g. Kasatkina"/></label>
     <hr/>
     <label>Born From: <input type="date" id="flt_start"/></label>
     <label>Born To:   <input type="date" id="flt_end"/></label>
@@ -465,6 +463,22 @@ def build_and_save_map_migration_from_atp(all_pts, migrations, out_html: str):
   </div>
 
   <script>
+  // Définitions de sécurité : SITE_BASE fallback et escapeHtml
+  // safer SITE_BASE reference: check window/globalThis to avoid TDZ when const/let exist in same scope
+const SITE_BASE = (typeof globalThis !== 'undefined' && globalThis.SITE_BASE !== undefined)
+                   ? globalThis.SITE_BASE
+                   : 'https://www.center-court.net';
+
+  function escapeHtml(s){
+    if (s === null || s === undefined) return '';
+    return String(s)
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;')
+      .replace(/'/g,'&#39;');
+  }
+
   (function(){
     setTimeout(function(){
       const mapKey = Object.keys(window).find(k=>k.startsWith("map_"));
@@ -478,8 +492,11 @@ def build_and_save_map_migration_from_atp(all_pts, migrations, out_html: str):
 
       const countryLayers = [];
       map.eachLayer(l => { if (l.feature && l.feature.id) countryLayers.push(l); });
-
+    
       let groups = {};
+
+      
+      // precompute totals
       const originTotals = {};
       const dupCounts = {};
       migrations.forEach(m => {
@@ -508,6 +525,7 @@ def build_and_save_map_migration_from_atp(all_pts, migrations, out_html: str):
         });
       }
 
+      // clicking the map outside country layers should deselect & close popups
       map.on('click', function(){
         if (selected) {
           selected = null;
@@ -519,6 +537,7 @@ def build_and_save_map_migration_from_atp(all_pts, migrations, out_html: str):
         Object.values(migrationLines).flat().forEach(l => { try { l.closePopup(); } catch(e){} });
       });
 
+      // prevent clicks inside popups from propagating to the map
       map.on('popupopen', function(e){
         try {
           const el = e.popup.getElement();
@@ -542,6 +561,7 @@ def build_and_save_map_migration_from_atp(all_pts, migrations, out_html: str):
             const aLat = Number(A[0]), aLon = Number(A[1]), bLat = Number(B[0]), bLon = Number(B[1]);
             if (![aLat,aLon,bLat,bLon].every(v=>Number.isFinite(v))) { skipped++; return; }
 
+            // indices
             const origin = m.from_iso;
             const totalOrigin = originTotals[origin] || 1;
             const oIdx = originIndex[origin] || 0; originIndex[origin] = oIdx + 1;
@@ -550,10 +570,12 @@ def build_and_save_map_migration_from_atp(all_pts, migrations, out_html: str):
             const totalDup = dupCounts[key] || 1;
             const dIdx = dupIndex[key] || 0; dupIndex[key] = dIdx + 1;
 
+            // arc (turf expects [lon,lat])
             const arc = turf.greatCircle(turf.point([aLon,aLat]), turf.point([bLon,bLat]), { npoints: 50 });
             if (!arc || !arc.geometry || !Array.isArray(arc.geometry.coordinates)) { skipped++; return; }
             let coords = arc.geometry.coordinates.map(c => [c[1], c[0]]); // [lat,lon]
 
+            // offset duplicates but KEEP endpoints exact
             const dx = bLon - aLon, dy = bLat - aLat;
             let perp_lon = -dy, perp_lat = dx;
             let plen = Math.sqrt(perp_lon*perp_lon + perp_lat*perp_lat);
@@ -574,6 +596,7 @@ def build_and_save_map_migration_from_atp(all_pts, migrations, out_html: str):
               coords[coords.length-1] = [ bLat, bLon ];
             }
 
+            // color & weight
             const baseHue = originBaseHue[origin] || 200;
             const hueDelta = 6;
             const hue = baseHue + ((oIdx - (totalOrigin-1)/2) * hueDelta);
@@ -588,6 +611,7 @@ def build_and_save_map_migration_from_atp(all_pts, migrations, out_html: str):
             const line = L.polyline(coords, { pane: 'migPane', weight: weight, color: color, opacity: 0, interactive: false }).addTo(map);
             line._tooltipBound = false;
 
+            // store metadata including the birthplace_text and dest_name present in the migration object
             line._meta = {
               from_iso: m.from_iso,
               to_iso: m.to_iso,
@@ -657,124 +681,140 @@ def build_and_save_map_migration_from_atp(all_pts, migrations, out_html: str):
           try { layer.setStyle({ fillColor: count2color[c] || count2color[0] }); } catch(e) {}
         });
 
+        // show selected country's visible lines
         if (selected) {
           const lines = migrationLines[selected] || [];
           lines.forEach(l => {
             if (l._visibleByFilter) {
               if (l.options) l.options.interactive = true;
 
+              // lazy-bind popup (once) using DOM creation (safer than string-building)
               if (!l._popupBound) {
-                const safeName = l._meta.name || '';
-                const wikiName = encodeURIComponent(safeName.replace(/\s+/g, '_'));
-                const wikiUrl = 'https://fr.wikipedia.org/wiki/' + wikiName;
-                const pid = l._meta.player_id || '';
-                let slug = safeName.toLowerCase().replace(/[^a-z0-9\u00C0-\u024F]+/g, '-').replace(/(^-|-$)/g,'');
-                slug = encodeURIComponent(slug);
-                const atpUrl = pid ? ('https://www.atptour.com/en/players/' + pid) : '#';
+                  const safeName = l._meta.name || '';
+                  const pid = l._meta.player_id || '';
+                  let slug = safeName.toLowerCase().replace(/[^a-z0-9\u00C0-\u024F]+/g,'-').replace(/(^-|-$)/g,'');
+                  slug = encodeURIComponent(slug);
 
-                const originText = l._meta.birthplace_text || '';
-                const destText = l._meta.dest_name || '';
+                                // use SITE_BASE defined once at script top (do not redeclare here)
+                  const localUrl = (typeof SITE_BASE !== 'undefined' ? SITE_BASE.replace(/\/$/, '') : 'https://www.center-court.net') 
+                                   + '/players_atp/' 
+                                   + (pid ? (encodeURIComponent(pid) + '-' + slug + '.html') : (slug + '.html'));
 
-                const contentEl = document.createElement('div');
-                contentEl.className = 'player-tooltip';
-                contentEl.addEventListener('click', function(ev){ ev.stopPropagation(); });
+                  const atpUrl = pid ? ('https://www.atptour.com/en/players/' + slug + '/' + encodeURIComponent(String(pid).toLowerCase()) + '/overview') : '#';
 
-                const row = document.createElement('div');
-                row.style.display = 'flex';
-                row.style.alignItems = 'center';
-                row.style.gap = '8px';
 
-                const aWiki = document.createElement('a');
-                aWiki.href = wikiUrl;
-                aWiki.target = '_blank';
-                aWiki.rel = 'noopener noreferrer';
-                aWiki.textContent = safeName;
-                aWiki.addEventListener('click', function(ev){ ev.stopPropagation(); });
+                  const originText = l._meta.birthplace_text || '';
+                  const destText = l._meta.dest_name || '';
 
-                const aAtp = document.createElement('a');
-                aAtp.href = atpUrl;
-                aAtp.target = '_blank';
-                aAtp.rel = 'noopener noreferrer';
-                aAtp.textContent = 'ATP';
-                aAtp.addEventListener('click', function(ev){ ev.stopPropagation(); });
+                  const contentEl = document.createElement('div');
+                  contentEl.className = 'player-tooltip';
+                  contentEl.addEventListener('click', function(ev){ ev.stopPropagation(); });
 
-                const btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'more-toggle';
-                btn.textContent = '+';
-                btn.addEventListener('click', function(ev){
-                  ev.stopPropagation();
-                  const info = contentEl.querySelector('.more-info');
-                  if (!info) return;
-                  info.style.display = (info.style.display === 'block') ? 'none' : 'block';
-                });
+                  const row = document.createElement('div');
+                  row.style.display = 'flex';
+                  row.style.alignItems = 'center';
+                  row.style.gap = '8px';
 
-                row.appendChild(aWiki);
-                row.appendChild(aAtp);
-                row.appendChild(btn);
+                  const aLocal = document.createElement('a');
+                  aLocal.href = localUrl;
+                  aLocal.textContent = safeName;
+                  aLocal.addEventListener('click', function(ev){ ev.stopPropagation(); });
 
-                const info = document.createElement('div');
-                info.className = 'more-info';
-                info.style.display = 'none';
-                info.textContent = (originText ? (originText + ' → ') : '') + (destText || '');
+                  const aAtp = document.createElement('a');
+                  aAtp.href = atpUrl;
+                  aAtp.target = '_blank';
+                  aAtp.rel = 'noopener noreferrer';
+                  aAtp.textContent = 'ATP';
+                  aAtp.addEventListener('click', function(ev){ ev.stopPropagation(); });
 
-                contentEl.appendChild(row);
-                contentEl.appendChild(info);
+                  const btn = document.createElement('button');
+                  btn.type = 'button';
+                  btn.className = 'more-toggle';
+                  btn.textContent = '+';
+                  btn.addEventListener('click', function(ev){
+                    ev.stopPropagation();
+                    const info = contentEl.querySelector('.more-info');
+                    if (!info) return;
+                    info.style.display = (info.style.display === 'block') ? 'none' : 'block';
+                  });
 
-                l.bindPopup(contentEl, {
-                  className: 'player-tooltip',
-                  pane: 'tooltipPane',
-                  closeOnClick: false,
-                  autoClose: false,
-                  interactive: true,
-                  maxWidth: 350
-                });
+                  row.appendChild(aLocal);
+                  row.appendChild(aAtp);
+                  row.appendChild(btn);
 
-                l._popupBound = true;
-              }
+                  const info = document.createElement('div');
+                  info.className = 'more-info';
+                  info.style.display = 'none';
+                  info.textContent = (originText ? (originText + ' → ') : '') + (destText || '');
 
+                  contentEl.appendChild(row);
+                  contentEl.appendChild(info);
+
+                  l.bindPopup(contentEl, {
+                    className: 'player-tooltip',
+                    pane: 'tooltipPane',
+                    closeOnClick: false,
+                    autoClose: false,
+                    interactive: true,
+                    maxWidth: 350
+                  });
+
+                  l._popupBound = true;
+                }
+
+              
+
+              // open the popup for this line
               try { l.openPopup(); } catch(e){}
+
               l.setStyle({ opacity: 1 });
               l.bringToFront();
               try { l.openTooltip(); } catch(e) {}
             }
           });
         } else {
+          // when deselected ensure all popups closed
           Object.values(migrationLines).flat().forEach(l => { try { l.closePopup(); } catch(e){} });
         }
       }
 
-      let selected = null;
-      countryLayers.forEach(layer => {
-        const iso = layer.feature.id;
+      // attach handlers
+      // attach handlers
+let selected = null;
+countryLayers.forEach(layer => {
+  const iso = layer.feature.id;
 
-        layer.on('click', function(e) {
-          if (e && e.originalEvent) { L.DomEvent.stopPropagation(e); }
-          selected = (selected === iso ? null : iso);
-          buildAndWireLines();
-        });
+  layer.on('click', function(e) {
+    if (e && e.originalEvent) { L.DomEvent.stopPropagation(e); }
+    selected = (selected === iso ? null : iso);
+    buildAndWireLines();
+  });
 
-        layer.on('mouseover', function() {
-          const c = (groups[iso] || 0);
-          const fill = count2color[c] || count2color[0];
-          try { layer.setStyle({ fillColor: fill, weight: 2, color: '#333' }); } catch(e) {}
-          if (!selected) {
-            (migrationLines[iso]||[]).forEach(l => {
-              if (l._visibleByFilter) { l.setStyle({opacity:1}); l.bringToFront(); }
-            });
-          }
-        });
-
-        layer.on('mouseout', function() {
-          const c = (groups[iso] || 0);
-          const fill = count2color[c] || count2color[0];
-          try { layer.setStyle({ fillColor: fill, weight: 1, color: '#999' }); } catch(e) {}
-          if (!selected) {
-            (migrationLines[iso]||[]).forEach(l => { l.setStyle({opacity:0}); try{ l.closeTooltip(); }catch(e){} });
-          }
-        });
+  layer.on('mouseover', function() {
+    // compute the filtered color for this country; if absent use default 0
+    const c = (groups[iso] || 0);
+    const fill = count2color[c] || count2color[0];
+    try { layer.setStyle({ fillColor: fill, weight: 2, color: '#333' }); } catch(e) {}
+    if (!selected) {
+      (migrationLines[iso]||[]).forEach(l => {
+        if (l._visibleByFilter) { l.setStyle({opacity:1}); l.bringToFront(); }
       });
+    }
+  });
 
+  layer.on('mouseout', function() {
+    // reapply the filtered color (so hover doesn't revert to original)
+    const c = (groups[iso] || 0);
+    const fill = count2color[c] || count2color[0];
+    try { layer.setStyle({ fillColor: fill, weight: 1, color: '#999' }); } catch(e) {}
+    if (!selected) {
+      (migrationLines[iso]||[]).forEach(l => { l.setStyle({opacity:0}); try{ l.closeTooltip(); }catch(e){} });
+    }
+  });
+});
+
+
+      // inputs redraw
       [
          'flt_name','flt_start','flt_end','flt_rank',
          'flt_min_h','flt_max_h','flt_keep_hu',
@@ -786,6 +826,7 @@ def build_and_save_map_migration_from_atp(all_pts, migrations, out_html: str):
          });
       });
 
+      // initial draw
       buildAndWireLines();
 
     }, 500);
@@ -796,7 +837,6 @@ def build_and_save_map_migration_from_atp(all_pts, migrations, out_html: str):
     macro._template = Template(macro_html)
     map_obj.get_root().add_child(macro)
 
-    # save
     from pathlib import Path
     out_path = Path(out_html)
     out_path.parent.mkdir(parents=True, exist_ok=True)

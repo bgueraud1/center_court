@@ -236,6 +236,22 @@ def build_and_save_map_atp(all_pts: list, out_html: str):
   </div>
 
   <script>
+  // Définitions de sécurité : SITE_BASE fallback et escapeHtml
+    // safer SITE_BASE reference: check window/globalThis to avoid TDZ when const/let exist in same scope
+const SITE_BASE = (typeof globalThis !== 'undefined' && globalThis.SITE_BASE !== undefined)
+                   ? globalThis.SITE_BASE
+                   : 'https://www.center-court.net';
+
+    function escapeHtml(s){
+      if (s === null || s === undefined) return '';
+      return String(s)
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;')
+        .replace(/'/g,'&#39;');
+    }
+
     document.addEventListener("DOMContentLoaded", function() {
       const mapObj      = window["%MAP_VAR%"];
       const circleLayer = L.layerGroup().addTo(mapObj);
@@ -282,15 +298,26 @@ def build_and_save_map_atp(all_pts: list, out_html: str):
         });
         Object.values(agg).forEach(g => {
           let html = `<div><strong>${g.birthplace} — ${g.names.length} player${g.names.length>1?'s':''}</strong><ul style="padding-left:1em;margin:0;">`;
-          for(let i=0;i<g.names.length;i++){
-            const name=g.names[i], dob=g.births[i], id=g.ids[i];
-            const wiki=`https://en.wikipedia.org/wiki/` + encodeURIComponent(name.replace(/ /g,'_'));
-            const slug = name.toLowerCase().replace(/[^a-z0-9\u00C0-\u024F]+/g,'-').replace(/(^-|-$)/g,'');
-            const atp = id ? ("https://www.atptour.com/en/players/" + encodeURIComponent(id)) : '#';
-            html+=`<li><a href="${wiki}" target="_blank" rel="noopener">${name}</a>, ${dob}`;
-            if (id) html += ` — <a href="${atp}" target="_blank" rel="noopener">ATP</a>`;
-            html += `</li>`;
-          }
+          for (let i = 0; i < g.names.length; i++) {
+              const name = g.names[i] || '';
+              const dob = g.births[i] || '';
+              const id = g.ids[i] || '';
+            
+              let slug = name.toLowerCase().replace(/[^a-z0-9\u00C0-\u024F]+/g,'-').replace(/(^-|-$)/g,'');
+              slug = encodeURIComponent(slug);
+            
+              // local ATP player page absolute (production)
+              const localPath = SITE_BASE + '/players_atp/' + (id ? (encodeURIComponent(id) + '-' + slug + '.html') : (slug + '.html'));
+
+              const atp = id ? ("https://www.atptour.com/en/players/" + slug + "/" + encodeURIComponent(id.toString().toLowerCase()) + "/overview") : '#';
+            
+              html += `<li><a href="${localPath}">${escapeHtml(name)}</a>, ${dob}`;
+              if (id) html += ` — <a href="${atp}" target="_blank" rel="noopener">ATP</a>`;
+              html += `</li>`;
+            }
+
+
+
           html+=`</ul></div>`;
           L.circleMarker([g.lat,g.lon],{radius:3+g.names.length,color:"crimson",fill:true,fillOpacity:0.6})
             .bindPopup(html).addTo(circleLayer);

@@ -461,6 +461,22 @@ def build_and_save_map_migration_to(all_pts, migrations, out_html: str):
   </div>
 
   <script>
+  // Définitions de sécurité : SITE_BASE fallback et escapeHtml
+    // safer SITE_BASE reference: check window/globalThis to avoid TDZ when const/let exist in same scope
+const SITE_BASE = (typeof globalThis !== 'undefined' && globalThis.SITE_BASE !== undefined)
+                   ? globalThis.SITE_BASE
+                   : 'https://www.center-court.net';
+
+    function escapeHtml(s){
+      if (s === null || s === undefined) return '';
+      return String(s)
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;')
+        .replace(/'/g,'&#39;');
+    }
+
   (function(){
     setTimeout(function(){
       const mapKey = Object.keys(window).find(k=>k.startsWith("map_"));
@@ -660,75 +676,84 @@ def build_and_save_map_migration_to(all_pts, migrations, out_html: str):
             if (l._visibleByFilter) {
               if (l.options) l.options.interactive = true;
 
+
+
+
+
               if (!l._popupBound) {
-                const safeName = l._meta.name || '';
-                const wikiName = encodeURIComponent(safeName.replace(/\s+/g, '_'));
-                const wikiUrl = 'https://fr.wikipedia.org/wiki/' + wikiName;
-                const pid = l._meta.player_id || '';
-                let slug = safeName.toLowerCase().replace(/[^a-z0-9\u00C0-\u024F]+/g, '-').replace(/(^-|-$)/g,'');
-                slug = encodeURIComponent(slug);
-                const atpUrl = pid ? ('https://www.atptour.com/en/players/' + encodeURIComponent(pid)) : '#';
+                  const safeName = l._meta.name || '';
+                  const pid = l._meta.player_id || '';
+                  let slug = safeName.toLowerCase().replace(/[^a-z0-9\u00C0-\u024F]+/g,'-').replace(/(^-|-$)/g,'');
+                  slug = encodeURIComponent(slug);
 
-                const originText = l._meta.birthplace_text || '';
-                const destText = l._meta.dest_name || '';
+                                // use SITE_BASE defined once at script top (do not redeclare here)
+                  const localUrl = (typeof SITE_BASE !== 'undefined' ? SITE_BASE.replace(/\/$/, '') : 'https://www.center-court.net') 
+                                   + '/players_atp/' 
+                                   + (pid ? (encodeURIComponent(pid) + '-' + slug + '.html') : (slug + '.html'));
 
-                const contentEl = document.createElement('div');
-                contentEl.className = 'player-tooltip';
-                contentEl.addEventListener('click', function(ev){ ev.stopPropagation(); });
+                  const atpUrl = pid ? ('https://www.atptour.com/en/players/' + slug + '/' + encodeURIComponent(String(pid).toLowerCase()) + '/overview') : '#';
 
-                const row = document.createElement('div');
-                row.style.display = 'flex';
-                row.style.alignItems = 'center';
-                row.style.gap = '8px';
 
-                const aWiki = document.createElement('a');
-                aWiki.href = wikiUrl;
-                aWiki.target = '_blank';
-                aWiki.rel = 'noopener noreferrer';
-                aWiki.textContent = safeName;
-                aWiki.addEventListener('click', function(ev){ ev.stopPropagation(); });
+                  const originText = l._meta.birthplace_text || '';
+                  const destText = l._meta.dest_name || '';
 
-                const aAtp = document.createElement('a');
-                aAtp.href = atpUrl;
-                aAtp.target = '_blank';
-                aAtp.rel = 'noopener noreferrer';
-                aAtp.textContent = 'ATP';
-                aAtp.addEventListener('click', function(ev){ ev.stopPropagation(); });
+                  const contentEl = document.createElement('div');
+                  contentEl.className = 'player-tooltip';
+                  contentEl.addEventListener('click', function(ev){ ev.stopPropagation(); });
 
-                const btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'more-toggle';
-                btn.textContent = '+';
-                btn.addEventListener('click', function(ev){
-                  ev.stopPropagation();
-                  const info = contentEl.querySelector('.more-info');
-                  if (!info) return;
-                  info.style.display = (info.style.display === 'block') ? 'none' : 'block';
-                });
+                  const row = document.createElement('div');
+                  row.style.display = 'flex';
+                  row.style.alignItems = 'center';
+                  row.style.gap = '8px';
 
-                row.appendChild(aWiki);
-                row.appendChild(aAtp);
-                row.appendChild(btn);
+                  const aLocal = document.createElement('a');
+                  aLocal.href = localUrl;
+                  aLocal.textContent = safeName;
+                  aLocal.addEventListener('click', function(ev){ ev.stopPropagation(); });
 
-                const info = document.createElement('div');
-                info.className = 'more-info';
-                info.style.display = 'none';
-                info.textContent = (originText ? (originText + ' → ') : '') + (destText || '');
+                  const aAtp = document.createElement('a');
+                  aAtp.href = atpUrl;
+                  aAtp.target = '_blank';
+                  aAtp.rel = 'noopener noreferrer';
+                  aAtp.textContent = 'ATP';
+                  aAtp.addEventListener('click', function(ev){ ev.stopPropagation(); });
 
-                contentEl.appendChild(row);
-                contentEl.appendChild(info);
+                  const btn = document.createElement('button');
+                  btn.type = 'button';
+                  btn.className = 'more-toggle';
+                  btn.textContent = '+';
+                  btn.addEventListener('click', function(ev){
+                    ev.stopPropagation();
+                    const info = contentEl.querySelector('.more-info');
+                    if (!info) return;
+                    info.style.display = (info.style.display === 'block') ? 'none' : 'block';
+                  });
 
-                l.bindPopup(contentEl, {
-                  className: 'player-tooltip',
-                  pane: 'tooltipPane',
-                  closeOnClick: false,
-                  autoClose: false,
-                  interactive: true,
-                  maxWidth: 350
-                });
+                  row.appendChild(aLocal);
+                  row.appendChild(aAtp);
+                  row.appendChild(btn);
 
-                l._popupBound = true;
-              }
+                  const info = document.createElement('div');
+                  info.className = 'more-info';
+                  info.style.display = 'none';
+                  info.textContent = (originText ? (originText + ' → ') : '') + (destText || '');
+
+                  contentEl.appendChild(row);
+                  contentEl.appendChild(info);
+
+                  l.bindPopup(contentEl, {
+                    className: 'player-tooltip',
+                    pane: 'tooltipPane',
+                    closeOnClick: false,
+                    autoClose: false,
+                    interactive: true,
+                    maxWidth: 350
+                  });
+
+                  l._popupBound = true;
+                }
+
+
 
               try { l.openPopup(); } catch(e){}
               l.setStyle({ opacity: 1 });

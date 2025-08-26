@@ -373,6 +373,22 @@ def build_and_save_map_migration(all_pts, migrations, out_html: str):
   </div>
 
   <script>
+  // Définitions de sécurité : SITE_BASE fallback et escapeHtml
+  // safer SITE_BASE reference: check window/globalThis to avoid TDZ when const/let exist in same scope
+const SITE_BASE = (typeof globalThis !== 'undefined' && globalThis.SITE_BASE !== undefined)
+                   ? globalThis.SITE_BASE
+                   : 'https://www.center-court.net';
+
+  function escapeHtml(s){
+    if (s === null || s === undefined) return '';
+    return String(s)
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;')
+      .replace(/'/g,'&#39;');
+  }
+
   (function(){
     setTimeout(function(){
       const mapKey = Object.keys(window).find(k=>k.startsWith("map_"));
@@ -585,17 +601,16 @@ def build_and_save_map_migration(all_pts, migrations, out_html: str):
               // lazy-bind popup (once) using DOM creation (safer than string-building)
               if (!l._popupBound) {
                 const safeName = l._meta.name || '';
-                const wikiName = encodeURIComponent(safeName.replace(/\s+/g, '_'));
-                const wikiUrl = 'https://fr.wikipedia.org/wiki/' + wikiName;
                 const pid = l._meta.player_id || '';
-                let slug = safeName.toLowerCase().replace(/[^a-z0-9\u00C0-\u024F]+/g, '-').replace(/(^-|-$)/g,'');
+                let slug = safeName.toLowerCase().replace(/[^a-z0-9\u00C0-\u024F]+/g,'-').replace(/(^-|-$)/g,'');
                 slug = encodeURIComponent(slug);
+
+                const localUrl = SITE_BASE + '/players/' + (pid ? (encodeURIComponent(pid) + '-' + slug + '.html') : (slug + '.html'));
                 const wtaUrl = pid ? ('https://www.wtatennis.com/players/' + pid + '/' + slug) : '#';
 
                 const originText = l._meta.birthplace_text || '';
                 const destText = l._meta.dest_name || '';
 
-                // build DOM popup content
                 const contentEl = document.createElement('div');
                 contentEl.className = 'player-tooltip';
                 contentEl.addEventListener('click', function(ev){ ev.stopPropagation(); });
@@ -605,12 +620,10 @@ def build_and_save_map_migration(all_pts, migrations, out_html: str):
                 row.style.alignItems = 'center';
                 row.style.gap = '8px';
 
-                const aWiki = document.createElement('a');
-                aWiki.href = wikiUrl;
-                aWiki.target = '_blank';
-                aWiki.rel = 'noopener noreferrer';
-                aWiki.textContent = safeName;
-                aWiki.addEventListener('click', function(ev){ ev.stopPropagation(); });
+                const aLocal = document.createElement('a');
+                aLocal.href = localUrl;
+                aLocal.textContent = safeName;
+                aLocal.addEventListener('click', function(ev){ ev.stopPropagation(); });
 
                 const aWta = document.createElement('a');
                 aWta.href = wtaUrl;
@@ -623,14 +636,9 @@ def build_and_save_map_migration(all_pts, migrations, out_html: str):
                 btn.type = 'button';
                 btn.className = 'more-toggle';
                 btn.textContent = '+';
-                btn.addEventListener('click', function(ev){
-                  ev.stopPropagation();
-                  const info = contentEl.querySelector('.more-info');
-                  if (!info) return;
-                  info.style.display = (info.style.display === 'block') ? 'none' : 'block';
-                });
+                btn.addEventListener('click', function(ev){ ev.stopPropagation(); const info = contentEl.querySelector('.more-info'); if (!info) return; info.style.display = (info.style.display === 'block') ? 'none' : 'block'; });
 
-                row.appendChild(aWiki);
+                row.appendChild(aLocal);
                 row.appendChild(aWta);
                 row.appendChild(btn);
 
@@ -642,7 +650,6 @@ def build_and_save_map_migration(all_pts, migrations, out_html: str):
                 contentEl.appendChild(row);
                 contentEl.appendChild(info);
 
-                // bind popup using the DOM node (Leaflet accepts HTMLElement)
                 l.bindPopup(contentEl, {
                   className: 'player-tooltip',
                   pane: 'tooltipPane',
@@ -654,6 +661,8 @@ def build_and_save_map_migration(all_pts, migrations, out_html: str):
 
                 l._popupBound = true;
               }
+
+              
 
               // open the popup for this line
               try { l.openPopup(); } catch(e){}

@@ -1,3 +1,4 @@
+# map_percentage.py  (remplacé / corrigé)
 import re
 import json
 from collections import Counter
@@ -7,8 +8,6 @@ from folium import Element
 from branca.element import Template, MacroElement
 from branca.colormap import linear
 import pycountry
-
-
 
 def load_and_normalize_percentage(ioc_to_iso3, csv_path: str) -> pd.DataFrame:
     df = pd.read_csv(csv_path)
@@ -21,16 +20,10 @@ def load_and_normalize_percentage(ioc_to_iso3, csv_path: str) -> pd.DataFrame:
           .map(lambda c: ioc_map.get(c, c))
     )
 
-    # Keep rows that have a valid represented_country ISO3.
-    # Do NOT drop rows just because birthplace is missing — we want to
-    # count missing birthplaces in the presence map.
     valid = {c.alpha_3 for c in pycountry.countries}
-    # Keep rows where represented_country is valid and (optionally) birth_date exists.
-    # If you don't need birth_date for this map, remove that condition too.
     df = df[df['represented_country'].isin(valid)]
 
     return df
-
 
 def prepare_players(df: pd.DataFrame) -> list:
     players = []
@@ -40,29 +33,24 @@ def prepare_players(df: pd.DataFrame) -> list:
         return str(x)
 
     for _, r in df.iterrows():
-        # use safe_str to avoid NaN float getting through
         rc_raw = safe_str(r.get('represented_country')).strip()
-        rc = rc_raw.upper() if rc_raw else 'UNK'   # keep unknowns under 'UNK'
+        rc = rc_raw.upper() if rc_raw else 'UNK'
 
         full_name = safe_str(r.get('full_name')).strip()
         birthplace_raw = safe_str(r.get('birthplace')).strip()
         if birthplace_raw.lower() in ('nan', 'none', 'null'):
             birthplace_raw = ''
 
-        # Robust has_birthplace test:
         has_birthplace = False
         if birthplace_raw:
             parts = [p.strip() for p in re.split(r',', birthplace_raw) if p and p.strip()!='']
             if len(parts) >= 2:
                 last = parts[-1]
-                # require the final token contains at least one letter (unicode)
                 if any(ch.isalpha() for ch in last):
                     has_birthplace = True
 
-        # birth_date
         birth_date = safe_str(r.get('birth_date')).strip()
 
-        # player id
         pid = None
         try:
             if pd.notna(r.get('player_id')):
@@ -70,8 +58,7 @@ def prepare_players(df: pd.DataFrame) -> list:
         except Exception:
             pid = None
 
-        # best_rank
-        br = r.get('best_rank')
+        br = r.get('best_rank') if 'best_rank' in r.index else r.get('highest_ranking')
         try:
             best_rank = float(br) if pd.notna(br) else float('inf')
         except Exception:
@@ -99,13 +86,7 @@ def prepare_players(df: pd.DataFrame) -> list:
         })
     return players
 
-
-
 def build_and_save_presence_map(players: list, out_html: str, geojson):
-    """
-    Build the presence map using the players list (each player now has has_birthplace boolean).
-    """
-    # initial unfiltered aggregates (for initial style before JS redraw)
     total_by_country = Counter()
     have_by_country = Counter()
     for p in players:
@@ -119,7 +100,6 @@ def build_and_save_presence_map(players: list, out_html: str, geojson):
         h = have_by_country.get(iso, 0)
         initial_pct[iso] = 0 if tot == 0 else round(100.0 * h / tot)
 
-    # --- Use blue colormap; keep 0..100 scale ---
     colormap = linear.Blues_09.scale(0, 100)
     colormap.caption = "Percent with birthplace recorded (%)"
     pct2color = {i: colormap(i) for i in range(0, 101)}
@@ -127,7 +107,6 @@ def build_and_save_presence_map(players: list, out_html: str, geojson):
     m = folium.Map(location=[20,0], zoom_start=2, tiles="CartoDB Positron")
     colormap.add_to(m)
 
-    # inject data
     m.get_root().html.add_child(Element(
         "<script>\n"
         f"var presencePlayers = {json.dumps(players)};\n"
@@ -136,7 +115,6 @@ def build_and_save_presence_map(players: list, out_html: str, geojson):
         "</script>"
     ))
 
-    # template (modified to render grey for countries with no players)
     template = r"""
 {% macro html(this, kwargs) %}
 <style>
@@ -180,7 +158,6 @@ def build_and_save_presence_map(players: list, out_html: str, geojson):
     const geoLayer = L.geoJson(null, {
       style: function(feature) {
         const iso = (feature.id || (feature.properties && feature.properties.iso_a3) || '').toUpperCase();
-        // if initialPct does not have this iso, there are no players -> grey
         if (initialPct[iso] === undefined) {
           return { fillColor: '#dddddd', color: "#999", weight: 1, fillOpacity: 0.75 };
         }
@@ -221,7 +198,6 @@ def build_and_save_presence_map(players: list, out_html: str, geojson):
       });
     }
 
-    // safe escape for popup names
     function escapeHtml(s){ if(!s) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
     function redraw() {
@@ -241,14 +217,13 @@ def build_and_save_presence_map(players: list, out_html: str, geojson):
         }
       });
 
-      // update geo layer style and tooltip
       geoLayer.eachLayer(layer => {
         const iso = (layer.feature.id || (layer.feature.properties && layer.feature.properties.iso_a3) || '').toUpperCase();
         const t = total[iso] || 0;
         const h = have[iso] || 0;
         const pct = t === 0 ? 0 : Math.round(100 * h / t);
+        const SITE_BASE = 'https://www.center-court.net';
 
-        // if no players at all for this iso, grey it
         let color;
         if (t === 0) {
           color = '#dddddd';
@@ -261,7 +236,6 @@ def build_and_save_presence_map(players: list, out_html: str, geojson):
         layer.unbindTooltip();
         layer.bindTooltip("<div class='presence-tooltip'>"+tipText+"</div>", {sticky:true, direction:'auto'});
 
-        // click popup: list missing players for this country
         layer.off('click');
         layer.on('click', function(e){
           L.DomEvent.stopPropagation(e);
@@ -272,12 +246,20 @@ def build_and_save_presence_map(players: list, out_html: str, geojson):
           } else {
             html += "<div>Players missing birthplace:</div><ul>";
             miss.forEach(p => {
-              const wiki = "https://en.wikipedia.org/wiki/" + encodeURIComponent(p.name.replace(/ /g,'_'));
-              let slug = (p.name || "").toLowerCase().replace(/[^a-z0-9\u00C0-\u024F]+/g, '-').replace(/(^-|-$)/g,'');
+              const name = p.name || '';
+              const id = p.id || '';
+
+              let slug = name.toLowerCase().replace(/[^a-z0-9\u00C0-\u024F]+/g, '-').replace(/(^-|-$)/g,'');
               slug = encodeURIComponent(slug);
-              const wta = p.id ? ("https://www.wtatennis.com/players/" + p.id + "/" + slug) : '#';
-              html += "<li><a href='"+wiki+"' target='_blank' rel='noopener'>"+escapeHtml(p.name)+"</a>";
-              if (p.id) html += " — <a href='"+wta+"' target='_blank' rel='noopener'>WTA</a>";
+
+              // local WTA player page absolute (production)
+              const localPath = SITE_BASE + '/players/' + (id ? (encodeURIComponent(id) + '-' + slug + '.html') : (slug + '.html'));
+
+              // external WTA profile
+              const wta = id ? ("https://www.wtatennis.com/players/" + id + "/" + slug) : '#';
+
+              html += "<li><a href='" + localPath + "' rel='noopener'>" + escapeHtml(p.name) + "</a>";
+              if (p.id) html += " — <a href='" + wta + "' target='_blank' rel='noopener'>WTA</a>";
               html += "</li>";
             });
             html += "</ul>";
@@ -288,11 +270,9 @@ def build_and_save_presence_map(players: list, out_html: str, geojson):
       });
     }
 
-    // wire inputs
     ['p_name','p_start','p_end','p_rank','p_min_h','p_max_h','p_keep_hu','p_RH','p_LH','p_UL']
       .forEach(id => { const el = document.getElementById(id); if(el) el.addEventListener('input', redraw); });
 
-    // close popup on map click
     map.on('click', function(){ map.closePopup(); });
 
   }, 300);
@@ -307,7 +287,6 @@ def build_and_save_presence_map(players: list, out_html: str, geojson):
     m.get_root().add_child(macro)
 
     from pathlib import Path
-
     out_path = Path(out_html)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     m.save(str(out_path))
