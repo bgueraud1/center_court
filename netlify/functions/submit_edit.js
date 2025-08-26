@@ -265,6 +265,18 @@ exports.handler = async function(event, context) {
         return { statusCode: 404, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: `Player not found for '${player}'` }) };
       }
 
+      
+
+            // --- Ensure columns for reviewed_player and date_review exist (add if missing) ---
+      const ensureCols = ['reviewed_player','date_review'];
+      for (const c of ensureCols) {
+        if (!fields.includes(c)) {
+          fields.push(c);
+          // ensure every row has the key (so Papa.unparse will include the header)
+          rows.forEach(r => { if (r[c] === undefined) r[c] = ''; });
+        }
+      }
+
       // meta keys to ignore for CSV
       const metaKeys = new Set(['player','player_slug','player_id','player_name','name','admin_code','reported_via','source','notes','dataset']);
 
@@ -273,6 +285,21 @@ exports.handler = async function(event, context) {
       for (const k of Object.keys(editsToApply)) {
         if (metaKeys.has(k)) delete editsToApply[k];
       }
+
+      // If reviewed_player present in edits, coerce to "True"/"False" and set/clear date_review
+      if (Object.prototype.hasOwnProperty.call(editsToApply, 'reviewed_player')) {
+        const rawRv = (editsToApply['reviewed_player'] || '').toString().toLowerCase();
+        const truthy = ['1','true','on','yes','y'].includes(rawRv);
+        if (truthy) {
+          editsToApply['reviewed_player'] = 'True';
+          // store date as YYYY-MM-DD
+          editsToApply['date_review'] = (new Date()).toISOString().split('T')[0];
+        } else {
+          editsToApply['reviewed_player'] = 'False';
+          editsToApply['date_review'] = '';
+        }
+      }
+
 
       if (!editsToApply || Object.keys(editsToApply).length === 0) {
         return { statusCode: 400, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: 'No editable fields provided (notes/source are meta, not CSV fields).' }) };

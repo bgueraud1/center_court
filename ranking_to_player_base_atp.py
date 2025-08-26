@@ -88,38 +88,66 @@ def summarize_new_players_atp(ranks_df: pd.DataFrame, new_ids: Set[str], columns
         })
     return pd.DataFrame(new_rows, columns=columns)
 
-def update_last_appearances_atp(players: pd.DataFrame, ranks_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Update last_appearance using ranks (attempt using player_id_str if needed).
-    """
-    # prefer player_id numeric if present in ranks_df; else use player_id_str
-    if 'player_id' in ranks_df and ranks_df['player_id'].dtype.kind in 'iu':
-        latest = ranks_df.groupby('player_id')['date'].max().rename('new_last').reset_index()
-        # ensure players.player_id numeric where possible (skip otherwise)
-        try:
-            players_int = players.copy()
-            players_int['player_id_num'] = pd.to_numeric(players_int['player_id'], errors='coerce')
-            merged = players_int.merge(latest, left_on='player_id_num', right_on='player_id', how='left')
-            merged['last_appearance'] = pd.to_datetime(merged['last_appearance'], errors='coerce')
-            mask = merged['new_last'].notna() & (merged['new_last'] > merged['last_appearance'])
-            merged.loc[mask, 'last_appearance'] = merged.loc[mask, 'new_last']
-            merged = merged.drop(columns=['new_last','player_id','player_id_num'])
-            # reattach original player_id column
-            merged['player_id'] = players['player_id']
-            return merged
-        except Exception:
-            pass
+import numpy as np
 
-    # fallback: no numeric ids -> group by player_id_str if exists
-    if 'player_id_str' in ranks_df:
-        latest = ranks_df.groupby('player_id_str')['date'].max().rename('new_last').reset_index()
-        merged = players.merge(latest, left_on='player_id', right_on='player_id_str', how='left')
-        merged['last_appearance'] = pd.to_datetime(merged['last_appearance'], errors='coerce')
-        mask = merged['new_last'].notna() & (merged['new_last'] > merged['last_appearance'])
-        merged.loc[mask, 'last_appearance'] = merged.loc[mask, 'new_last']
-        return merged.drop(columns=['new_last','player_id_str'])
+def update_last_appearances(players: pd.DataFrame, ranks_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    For existing players, update their last_appearance if they appear
+    in ranks_df with a more recent date, AND update their best_rank if
+    the rankings week contains a better (smaller) rank.
+    Returns the updated players DataFrame (with helper columns removed).
+    """
+    # Compute the latest date per player in the rankings
+    latest = (
+        ranks_df
+        .groupby('player_id')['date']
+        .max()
+        .rename('new_last')
+        .reset_index()
+    )
 
-    return players
+    # Compute the best (minimum) ranking observed in ranks_df for each player
+    best_from_ranks = (
+        ranks_df
+        .groupby('player_id')['ranking']
+        .min()
+        .rename('week_best')
+        .reset_index()
+    )
+
+    # Merge helpers into players
+    merged = players.merge(latest, on='player_id', how='left')
+    merged = merged.merge(best_from_ranks, on='player_id', how='left')
+
+    # Ensure both columns are datetimes for safe comparison
+    merged['last_appearance'] = pd.to_datetime(merged['last_appearance'], errors='coerce')
+    # new_last came from ranks_df.parse_dates so should already be datetime or NaT
+
+    # Update last_appearance where new_last is newer
+    mask_last = merged['new_last'].notna() & (merged['new_last'] > merged['last_appearance'])
+    merged.loc[mask_last, 'last_appearance'] = merged.loc[mask_last, 'new_last']
+
+    # --- Update best_rank ---
+    # Normalize existing best_rank to numeric; if missing -> +inf so comparison "smaller is better" works
+    merged['best_rank'] = pd.to_numeric(merged.get('best_rank', pd.Series(dtype='float')), errors='coerce')
+    merged['best_rank'] = merged['best_rank'].fillna(np.inf)
+
+    # Normalize week_best from ranks
+    merged['week_best'] = pd.to_numeric(merged['week_best'], errors='coerce')
+
+    # If we have a week_best and it's better (smaller) than stored best_rank -> update
+    mask_best = merged['week_best'].notna() & (merged['week_best'] < merged['best_rank'])
+    if mask_best.any():
+        merged.loc[mask_best, 'best_rank'] = merged.loc[mask_best, 'week_best']
+
+    # Optionally: convert best_rank to Int64 (nullable) replacing inf by NA so CSV doesn't contain inf
+    # Uncomment if you prefer integer column with <NA> for unknown:
+    # merged['best_rank'] = merged['best_rank'].replace(np.inf, pd.NA).astype('Int64')
+
+    # Drop helper columns and return
+    merged = merged.drop(columns=['new_last', 'week_best'])
+    return merged
+
 
 def save_players_atp(df: pd.DataFrame, output_path: str) -> None:
     p = Path(output_path)

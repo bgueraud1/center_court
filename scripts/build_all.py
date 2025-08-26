@@ -397,7 +397,7 @@ TEMPLATE = """<!doctype html>
         <div class="card card-wta shadow-sm mb-3">
           <div class="card-body">
             <h4 class="card-title">WTA maps</h4>
-            <p class="card-text text-muted">Maps related to WTA data (violet accent).</p>
+            <p class="card-text text-muted">Maps related to WTA data.</p>
             <div class="list-group">
 __WTA_MAPS__
             </div>
@@ -407,7 +407,7 @@ __WTA_MAPS__
         <div class="card card-atp shadow-sm mb-3">
           <div class="card-body">
             <h4 class="card-title">ATP maps</h4>
-            <p class="card-text text-muted">Maps related to ATP data (blue accent).</p>
+            <p class="card-text text-muted">Maps related to ATP data.</p>
             <div class="list-group">
 __ATP_MAPS__
             </div>
