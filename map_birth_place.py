@@ -129,7 +129,7 @@ def build_and_save_map(all_pts: list, out_html: str):
         '<script>var allPoints = ' + json.dumps(all_pts) + ';</script>'
     ))
 
-    # filter‐UI template (as in your original code)
+    # filter‐UI template
     template = r"""
     {% macro html(this, kwargs) %}
   <style>
@@ -155,87 +155,112 @@ def build_and_save_map(all_pts: list, out_html: str):
     <label>Max Height (m) <input type="number" step="0.01" id="max_h" /></label>
     <label><input type="checkbox" id="chk_HU" checked/> Keep Unknown Heights</label>
     <hr/>
-    <label><input type="checkbox" id="chk_RH" checked/> Right‑Handed</label>
-    <label><input type="checkbox" id="chk_LH" checked/> Left‑Handed</label>
+    <label><input type="checkbox" id="chk_RH" checked/> Right-Handed</label>
+    <label><input type="checkbox" id="chk_LH" checked/> Left-Handed</label>
     <label><input type="checkbox" id="chk_UL" checked/> Unlabelled</label>
   </div>
 
   <script>
-    document.addEventListener("DOMContentLoaded", function() {
-      const mapObj      = window["%MAP_VAR%"];
-      const circleLayer = L.layerGroup().addTo(mapObj);
+  // Debug + safe helpers (single definition)
+  console.log("[center-court] map_birthplace script loaded");
+  // safer SITE_BASE reference: check window/globalThis to avoid TDZ when const/let exist in same scope
+const SITE_BASE = (typeof globalThis !== 'undefined' && globalThis.SITE_BASE !== undefined)
+                   ? globalThis.SITE_BASE
+                   : 'https://www.center-court.net';
 
-      function redraw() {
+  function escapeHtml(s){
+    if (s === null || s === undefined) return '';
+    return String(s)
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;')
+      .replace(/'/g,'&#39;');
+  }
+
+  document.addEventListener("DOMContentLoaded", function() {
+    const mapObj      = window["%MAP_VAR%"];
+    const circleLayer = L.layerGroup().addTo(mapObj);
+
+    function redraw() {
+      circleLayer.clearLayers();
+
+      const nameF = (document.getElementById('name_search') && document.getElementById('name_search').value || '').trim().toLowerCase();
+      const s     = (document.getElementById('start') && document.getElementById('start').value) || '';
+      const e     = (document.getElementById('end') && document.getElementById('end').value) || '';
+      const r     = parseInt(document.getElementById('rank').value) || Infinity;
+      const minH  = parseFloat(document.getElementById('min_h').value);
+      const maxH  = parseFloat(document.getElementById('max_h').value);
+      const keepHU= document.getElementById('chk_HU').checked;
+      const showRH= document.getElementById('chk_RH').checked;
+      const showLH= document.getElementById('chk_LH').checked;
+      const showUL= document.getElementById('chk_UL').checked;
+
+      const pts_all = (typeof allPoints !== 'undefined' ? allPoints : []);
+      if (!Array.isArray(pts_all) || pts_all.length === 0) {
+        console.warn("[center-court] no allPoints available (0 points). Check Python injection of allPoints.");
         circleLayer.clearLayers();
-        const nameF = document.getElementById('name_search').value.trim().toLowerCase();
-        const s     = document.getElementById('start').value;
-        const e     = document.getElementById('end'  ).value;
-        const r     = parseInt(document.getElementById('rank').value) || Infinity;
-        const minH  = parseFloat(document.getElementById('min_h').value);
-        const maxH  = parseFloat(document.getElementById('max_h').value);
-        const keepHU= document.getElementById('chk_HU').checked;
-        const showRH= document.getElementById('chk_RH').checked;
-        const showLH= document.getElementById('chk_LH').checked;
-        const showUL= document.getElementById('chk_UL').checked;
-
-        const pts = allPoints.filter(p => {
-          // 1) Name search: if non-empty, require substring match
-          if(nameF && !p.full_name.toLowerCase().includes(nameF)) return false;
-
-          // 2) Date & rank
-          if((s && p.birth_date < s) || (e && p.birth_date > e) || (p.best_rank > r))
-            return false;
-
-          // 3) Height
-          if(p.height_m === null) {
-            if(!keepHU) return false;
-          } else {
-            if(!isNaN(minH) && p.height_m < minH) return false;
-            if(!isNaN(maxH) && p.height_m > maxH) return false;
-          }
-
-          // 4) Plays—normalized
-          const play = (p.plays || '').toLowerCase().replace(/[^a-z]/g, '');
-          if (play.includes('right') && !showRH) return false;
-          if (play.includes('left')  && !showLH) return false;
-          if (!play && !showUL) return false;
-
-          return true;
-        });
-
-        // aggregate & draw as before…
-        const agg = {};
-        pts.forEach(p => {
-          const key = p.lat.toFixed(5)+','+p.lon.toFixed(5);
-          if(!agg[key]) {
-            agg[key] = {lat:p.lat,lon:p.lon,names:[],births:[],ids:[],birthplace:p.birthplace};
-          }
-          agg[key].names.push(p.full_name);
-          agg[key].births.push(p.birth_date);
-          agg[key].ids.push(p.player_id);
-        });
-        Object.values(agg).forEach(g => {
-          let html = `<div><strong>${g.birthplace} — ${g.names.length} player${g.names.length>1?'s':''}</strong><ul style="padding-left:1em;margin:0;">`;
-          for(let i=0;i<g.names.length;i++){
-            const name=g.names[i], dob=g.births[i], id=g.ids[i],
-                  wiki=`https://www.center-court.net/players/${name.replace(/ /g,'_')-2}`,
-                  slug=name.toLowerCase().replace(/ /g,'-'),
-                  wta=`https://www.wtatennis.com/players/${id}/${slug}`;
-            html+=`<li><a href="${wiki}" target="_blank">${name}</a>, ${dob}, <a href="${wta}" target="_blank">WTA</a></li>`;
-          }
-          html+=`</ul></div>`;
-          L.circleMarker([g.lat,g.lon],{radius:3+g.names.length,color:"crimson",fill:true,fillOpacity:0.6})
-            .bindPopup(html).addTo(circleLayer);
-        });
+        return;
       }
 
-      // attach redraw to every input, including the new text box
-      ['name_search','start','end','rank','min_h','max_h','chk_HU','chk_RH','chk_LH','chk_UL']
-        .forEach(id => document.getElementById(id).addEventListener('input', redraw));
+      const pts = pts_all.filter(p => {
+        if(nameF && !(p.full_name || '').toLowerCase().includes(nameF)) return false;
+        if((s && (p.birth_date || '') < s) || (e && (p.birth_date || '') > e) || ((p.best_rank===undefined?Infinity:p.best_rank) > r)) return false;
 
-      // initial draw
-      redraw();
-    });
+        if(p.height_m === null || p.height_m === undefined) {
+          if(!keepHU) return false;
+        } else {
+          if(!isNaN(minH) && p.height_m < minH) return false;
+          if(!isNaN(maxH) && p.height_m > maxH) return false;
+        }
+
+        const play = (p.plays || '').toLowerCase().replace(/[^a-z]/g, '');
+        if (play.includes('right') && !showRH) return false;
+        if (play.includes('left')  && !showLH) return false;
+        if (!play && !showUL) return false;
+        return true;
+      });
+
+      const agg = {};
+      pts.forEach(p => {
+        if (typeof p.lat === 'undefined' || typeof p.lon === 'undefined') return;
+        const key = Number(p.lat).toFixed(5)+','+Number(p.lon).toFixed(5);
+        if(!agg[key]) {
+          agg[key] = {lat: Number(p.lat), lon: Number(p.lon), names:[], births:[], ids:[], birthplace: p.birthplace || ''};
+        }
+        agg[key].names.push(p.full_name || '');
+        agg[key].births.push(p.birth_date || '');
+        agg[key].ids.push(p.player_id || '');
+      });
+
+      Object.values(agg).forEach(g => {
+        let html = `<div><strong>${escapeHtml(g.birthplace)} — ${g.names.length} player${g.names.length>1?'s':''}</strong><ul style="padding-left:1em;margin:0;">`;
+        for (let i = 0; i < g.names.length; i++) {
+          const name = g.names[i] || '';
+          const dob = g.births[i] || '';
+          const id = g.ids[i] || '';
+          let slug = name.toLowerCase().replace(/[^a-z0-9\u00C0-\u024F]+/g,'-').replace(/(^-|-$)/g,'');
+          slug = encodeURIComponent(slug);
+          const localPath = SITE_BASE + '/players/' + (id && /^\d+$/.test(id) ? (encodeURIComponent(id) + '-' + slug + '.html') : (slug + '.html'));
+          const wta = id ? ("https://www.wtatennis.com/players/" + id + "/" + slug) : '#';
+          html += `<li><a href="${localPath}">${escapeHtml(name)}</a>, ${escapeHtml(dob)}`;
+          if (id) html += ` — <a href="${wta}" target="_blank" rel="noopener">WTA</a>`;
+          html += `</li>`;
+        }
+        html += `</ul></div>`;
+        L.circleMarker([g.lat,g.lon],{radius:3+g.names.length,color:"crimson",fill:true,fillOpacity:0.6})
+          .bindPopup(html).addTo(circleLayer);
+      });
+    }
+
+    ['name_search','start','end','rank','min_h','max_h','chk_HU','chk_RH','chk_LH','chk_UL']
+      .forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('input', redraw);
+      });
+
+    redraw();
+  });
   </script>
 {% endmacro %}
     """
@@ -245,10 +270,10 @@ def build_and_save_map(all_pts: list, out_html: str):
     m.get_root().add_child(macro)
 
     from pathlib import Path
-    
     out_path = Path(out_html)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     m.save(str(out_path))
     print(f"✅ Map saved to {out_path} (exists={out_path.exists()})")
+
     
 

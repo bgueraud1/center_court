@@ -111,6 +111,10 @@ for cand in LOGO_CANDIDATES:
         try:
             shutil.copy2(cand, DOCS / "logo.png")
             logo_path = "logo.png"
+            logo_img_html = ""
+            if logo_path:
+                # Use a small inline <img> so the template can render the logo left of site title
+                logo_img_html = f'<img src="{logo_path}" alt="logo" style="height:28px;margin-right:8px;"/>'
             print("Copied logo -> docs/logo.png")
             break
         except Exception as e:
@@ -305,49 +309,78 @@ for src_dir, dst_dir in [(ROOT / "players", DOCS / "players"), (ROOT / "players_
 # -------------------------
 # 6) Build the nicer index.html with sections, custom names, header logo, footer
 # -------------------------
-# collect maps (exclude index.html)
-# collect maps (exclude index.html and non-map pages like edit.html)
-EXCLUDE_HTML = {"index.html", "edit.html", "404.html", "edit_atp.html", "some_other_file.html"}  # ajoute ici d'autres noms si besoin
+# collect maps (exclude index.html and edit pages)
+EXCLUDE_HTML = {"index.html", "edit.html", "404.html", "edit_atp.html", "some_other_file.html"}
+# -------------------------
+# BUILD MAPS LIST (WTA / ATP buckets)
+# -------------------------
 map_files = [p for p in sorted(DOCS.glob("*.html")) if p.name not in EXCLUDE_HTML]
 
-# build maps HTML list using metadata mapping or pretty name
-maps_entries_html = []
+wta_items = []
+atp_items = []
 for p in map_files:
     stem = p.stem
     display = MAPS_METADATA.get(stem) or MAPS_METADATA.get(p.name) or pretty_name_from_stem(stem)
-    # small hint showing filename in muted text
-    maps_entries_html.append(f'<a class="list-group-item list-group-item-action d-flex justify-content-between align-items-start" href="{p.name}"><div><strong>{display}</strong><div class="small text-muted">{p.name}</div></div><span class="badge bg-secondary rounded-pill">Map</span></a>')
+    item_html = (
+        f'<a class="list-group-item list-group-item-action d-flex justify-content-between align-items-start" '
+        f'href="{p.name}"><div><strong>{display}</strong><div class="small text-muted">{p.name}</div></div>'
+    )
+    # bucket by filename: *_atp.* -> ATP
+    if '_atp' in p.name.lower() or 'atp' in p.name.lower().split('_') :
+        atp_items.append(item_html + '<span class="badge bg-primary rounded-pill">Map</span></a>')
+    else:
+        wta_items.append(item_html + '<span class="badge" style="background:#9b59b6;color:#fff;">Map</span></a>')
 
-# players block (link to players if exists)
-players_link_html = ""
-players_exist = (DOCS / "players" / "index.html").exists()
-if players_exist:
-    # don't duplicate: add a header link card separately
-    players_link_html = f'<a class="list-group-item list-group-item-action d-flex justify-content-between align-items-start" href="players/index.html"><div><strong>Player directory</strong><div class="small text-muted">Individual Profile</div></div><span class="badge bg-primary rounded-pill">Players</span></a>'
+# small helper HTML for empty buckets
+wta_list_html = "\n".join(wta_items) if wta_items else '<div class="text-muted">No WTA maps found</div>'
+atp_list_html = "\n".join(atp_items) if atp_items else '<div class="text-muted">No ATP maps found</div>'
 
-# Construct the final HTML using Bootstrap, with separate sections and footer
-logo_img_html = f'<img src="{logo_path}" alt="logo" height="38" class="me-2"/>' if logo_path else ""
-INDEX_HTML = f"""<!doctype html>
+
+# players block (link to players if exists) — include both WTA and ATP directories
+players_links = []
+if (DOCS / "players" / "index.html").exists():
+    players_links.append(
+        '<a class="list-group-item list-group-item-action d-flex justify-content-between align-items-start" '
+        'href="players/index.html"><div><strong>Player directory (WTA)</strong>'
+        '<div class="small text-muted">Individual Profile</div></div>'
+        '<span class="badge bg-primary rounded-pill">Players</span></a>'
+    )
+if (DOCS / "players_atp" / "index.html").exists():
+    players_links.append(
+        '<a class="list-group-item list-group-item-action d-flex justify-content-between align-items-start" '
+        'href="players_atp/index.html"><div><strong>Player directory (ATP)</strong>'
+        '<div class="small text-muted">Individual Profile</div></div>'
+        '<span class="badge bg-info text-white rounded-pill">Players</span></a>'
+    )
+
+# fallback if none present
+players_link_html = "\n".join(players_links) if players_links else '<div class="small text-muted">Player directory not available.</div>'
+
+
+# New TEMPLATE with two colored cards stacked
+TEMPLATE = """<!doctype html>
 <html lang="fr">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>{SITE_TITLE}</title>
+  <title>__SITE_TITLE__</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
-    /* small custom tweaks */
     .maps-section .card {{ min-height: 200px; }}
     .players-section .card {{ min-height: 120px; }}
     .site-footer {{ background:#f8f9fa; border-top:1px solid #e9ecef; }}
     .map-filename {{ font-family: monospace; font-size: .85rem; }}
+    /* color accents */
+    .card-wta {{ border-left: 6px solid #8e44ad; }}
+    .card-atp {{ border-left: 6px solid #0d6efd; }}
   </style>
 </head>
 <body class="bg-light">
   <nav class="navbar navbar-dark bg-dark">
     <div class="container d-flex align-items-center">
       <a class="navbar-brand d-flex align-items-center" href="#">
-        {logo_img_html}
-        <span>Center Court</span>
+        __LOGO_IMG_HTML__
+        <span>__SITE_TITLE__</span>
       </a>
       <div class="ms-auto text-muted small">Maps and Player Profile</div>
     </div>
@@ -355,30 +388,40 @@ INDEX_HTML = f"""<!doctype html>
 
   <main class="container py-4">
     <header class="mb-4">
-      <h1 class="h3">{SITE_TITLE}</h1>
+      <h1 class="h3">__SITE_TITLE__</h1>
       <p class="lead">Interactive Maps and Player Profile</p>
     </header>
 
     <div class="row g-4">
-      <div class="col-lg-8">
-        <div class="card maps-section shadow-sm">
+      <div class="col-lg-12">
+        <div class="card card-wta shadow-sm mb-3">
           <div class="card-body">
-            <h4 class="card-title">Maps</h4>
-            <p class="card-text text-muted">Click a map to open it.</p>
+            <h4 class="card-title">WTA maps</h4>
+            <p class="card-text text-muted">Maps related to WTA data (violet accent).</p>
             <div class="list-group">
-{chr(10).join(maps_entries_html) if maps_entries_html else '              <div class="text-muted">No map found</div>'}
+__WTA_MAPS__
+            </div>
+          </div>
+        </div>
+
+        <div class="card card-atp shadow-sm mb-3">
+          <div class="card-body">
+            <h4 class="card-title">ATP maps</h4>
+            <p class="card-text text-muted">Maps related to ATP data (blue accent).</p>
+            <div class="list-group">
+__ATP_MAPS__
             </div>
           </div>
         </div>
       </div>
 
-      <div class="col-lg-4">
+      <div class="col-lg-12">
         <div class="card players-section shadow-sm mb-3">
           <div class="card-body">
             <h5 class="card-title">Players</h5>
             <p class="card-text">Access the player directory and individual profiles.</p>
             <div class="list-group">
-{players_link_html if players_link_html else '              <div class="small text-muted">Player directory not available.</div>'}
+__PLAYERS_LINK__
             </div>
           </div>
         </div>
@@ -397,8 +440,8 @@ INDEX_HTML = f"""<!doctype html>
   <footer class="site-footer py-4">
     <div class="container d-flex justify-content-between align-items-center">
       <div>
-        <strong>Contact</strong> — <a href="mailto:{CONTACT_EMAIL}">{CONTACT_EMAIL}</a><br>
-        <small class="text-muted">{COPYRIGHT}</small>
+        <strong>Contact</strong> — <a href="mailto:__CONTACT_EMAIL__">__CONTACT_EMAIL__</a><br>
+        <small class="text-muted">__COPYRIGHT__</small>
       </div>
       <div class="text-end small text-muted">Automatically generated</div>
     </div>
@@ -409,8 +452,15 @@ INDEX_HTML = f"""<!doctype html>
 </html>
 """
 
+INDEX_HTML = TEMPLATE.replace("__SITE_TITLE__", SITE_TITLE)\
+    .replace("__LOGO_IMG_HTML__", logo_img_html or "")\
+    .replace("__WTA_MAPS__", wta_list_html)\
+    .replace("__ATP_MAPS__", atp_list_html)\
+    .replace("__PLAYERS_LINK__", players_link_html if players_link_html else '<div class="small text-muted">Player directory not available.</div>')\
+    .replace("__CONTACT_EMAIL__", CONTACT_EMAIL)\
+    .replace("__COPYRIGHT__", COPYRIGHT)
+
 # write the index (always overwrite with the nicer template)
 index_path = DOCS / "index.html"
 index_path.write_text(INDEX_HTML, encoding="utf-8")
 print(f"✅ index.html créé/écrasé dans {index_path}")
-

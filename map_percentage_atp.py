@@ -345,6 +345,8 @@ def build_and_save_presence_map_atp(players: list, out_html: str, geojson: str):
         const t = total[iso] || 0;
         const h = have[iso] || 0;
         const pct = t === 0 ? 0 : Math.round(100 * h / t);
+        const SITE_BASE = 'https://www.center-court.net';
+
 
         let color;
         if (t === 0) {
@@ -368,13 +370,27 @@ def build_and_save_presence_map_atp(players: list, out_html: str, geojson: str):
           } else {
             html += "<div>Players missing birthplace:</div><ul>";
             miss.forEach(p => {
-              const wiki = "https://en.wikipedia.org/wiki/" + encodeURIComponent(p.name.replace(/ /g,'_'));
-              const slug = (p.name || "").toLowerCase().replace(/[^a-z0-9\u00C0-\u024F]+/g, '-').replace(/(^-|-$)/g,'');
-              const atp = p.id ? ("https://www.atptour.com/en/players/" + encodeURIComponent(p.id)) : '#';
-              html += "<li><a href='"+wiki+"' target='_blank' rel='noopener'>"+escapeHtml(p.name)+"</a>";
-              if (p.id) html += " — <a href='"+atp+"' target='_blank' rel='noopener'>ATP</a>";
+              const name = p.name || '';
+              const id = p.id || '';
+
+              // slug compatible generate_players
+              let slug = name.toLowerCase().replace(/[^a-z0-9\u00C0-\u024F]+/g, '-').replace(/(^-|-$)/g,'');
+              slug = encodeURIComponent(slug);
+
+              // local ATP player page absolute (production)
+              const localPath = SITE_BASE + '/players_atp/' + (id ? (encodeURIComponent(id) + '-' + slug + '.html') : (slug + '.html'));
+
+              // external ATP profile: /en/players/{slug}/{id}/overview
+              const atp = id ? ("https://www.atptour.com/en/players/" + slug + "/" + encodeURIComponent(id.toString().toLowerCase()) + "/overview") : '#';
+
+              html += "<li><a href='" + localPath + "'>" + escapeHtml(name) + "</a>";
+              if (id) html += " — <a href='" + atp + "' target='_blank' rel='noopener'>ATP</a>";
               html += "</li>";
             });
+
+
+            
+            
             html += "</ul>";
           }
           html += "</div>";
