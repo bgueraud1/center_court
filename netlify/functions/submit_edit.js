@@ -6,12 +6,17 @@ const Papa = require('papaparse');
 const OWNER = process.env.GITHUB_OWNER;
 const REPO = process.env.GITHUB_REPO;
 const BRANCH = process.env.GITHUB_BRANCH || 'main';
+
+// TWO CSV path envs: default legacy CSV_PATH for WTA, and CSV_PATH_ATP for ATP CSV.
 const CSV_PATH = process.env.CSV_PATH || 'player_data_wta.csv';
+const CSV_PATH_ATP = process.env.CSV_PATH_ATP || 'player_data_atp.csv';
+
 const GITHUB_PAT = process.env.GITHUB_PAT_FOR_NETLIFY;
 const ADMIN_CODE = process.env.ADMIN_CODE || null;
 const COMMITTER_NAME = process.env.GITHUB_COMMITTER_NAME || 'center-court bot';
 const COMMITTER_EMAIL = process.env.GITHUB_COMMITTER_EMAIL || 'bot@center-court.net';
-const SUGGESTION_LABELS = (process.env.SUGGESTION_LABELS || 'suggestion,from-website').split(',').map(s => s.trim()).filter(Boolean);
+const SUGGESTION_LABELS = (process.env.SUGGESTION_LABELS || 'suggestion,from-website')
+  .split(',').map(s => s.trim()).filter(Boolean);
 const SITE_BASE_URL = process.env.SITE_BASE_URL || 'https://www.center-court.net';
 
 function safeLog(...args) {
@@ -176,7 +181,7 @@ exports.handler = async function(event, context) {
       const q = event.queryStringParameters;
       const fallback = {};
       for (const k of Object.keys(q)) {
-        if (['player','name','admin_code','reported_via'].includes(k)) fallback[k] = q[k];
+        if (['player','name','admin_code','reported_via','dataset'].includes(k)) fallback[k] = q[k];
         else {
           fallback.edits = fallback.edits || {};
           fallback.edits[k] = q[k];
@@ -189,7 +194,8 @@ exports.handler = async function(event, context) {
     const envChecks = {
       ADMIN_CODE_PRESENT: !!ADMIN_CODE,
       GITHUB_PAT_PRESENT: !!GITHUB_PAT,
-      CSV_PATH: !!CSV_PATH
+      CSV_PATH: !!CSV_PATH,
+      CSV_PATH_ATP: !!CSV_PATH_ATP
     };
     safeLog("Env presence:", envChecks);
 
@@ -202,7 +208,7 @@ exports.handler = async function(event, context) {
         else if (body.player_id) body.player = String(body.player_id);
       }
       if (!body.edits || typeof body.edits !== 'object') {
-        const metaKeys = new Set(['player','player_slug','player_id','player_name','name','admin_code','reported_via','source','notes']);
+        const metaKeys = new Set(['player','player_slug','player_id','player_name','name','admin_code','reported_via','source','notes','dataset']);
         const edits = {};
         for (const k of Object.keys(body)) {
           if (!metaKeys.has(k)) edits[k] = body[k];
@@ -210,6 +216,11 @@ exports.handler = async function(event, context) {
         if (Object.keys(edits).length > 0) body.edits = edits;
       }
     }
+
+    // decide dataset early (wta default)
+    const dataset = (body && body.dataset && typeof body.dataset === 'string') ? body.dataset.toString().toLowerCase() : 'wta';
+    const csvPathToUse = (dataset === 'atp') ? CSV_PATH_ATP : CSV_PATH;
+    safeLog("Dataset chosen:", dataset, "->", csvPathToUse);
 
     const player = body.player;
     const editsRaw = body.edits;
@@ -229,7 +240,6 @@ exports.handler = async function(event, context) {
     const providedAdmin = providedAdminRaw.trim();
     const ADMIN_CODE_NORMALIZED = (ADMIN_CODE || '').toString().trim();
     safeLog('Admin provided? ', providedAdmin.length > 0, 'len=', providedAdmin.length);
-    safeLog('Admin hashes (short): provided=', providedAdmin ? require('crypto').createHash('sha256').update(providedAdmin).digest('hex').slice(0,8) : '(none)', 'env=', ADMIN_CODE_NORMALIZED ? require('crypto').createHash('sha256').update(ADMIN_CODE_NORMALIZED).digest('hex').slice(0,8) : '(no-env)');
     const isAdmin = (ADMIN_CODE_NORMALIZED && providedAdmin && providedAdmin === ADMIN_CODE_NORMALIZED && !!GITHUB_PAT);
     if (providedAdmin && !ADMIN_CODE_NORMALIZED) safeLog('ADMIN_CODE not configured but admin_code provided (ignored)');
 
@@ -238,9 +248,9 @@ exports.handler = async function(event, context) {
       if (!OWNER || !REPO || !GITHUB_PAT) {
         return { statusCode: 500, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: 'Server misconfigured: missing GITHUB_OWNER/GITHUB_REPO/GITHUB_PAT_FOR_NETLIFY' }) };
       }
-      // fetch CSV
+
       let fileJson;
-      try { fileJson = await githubGetFile(CSV_PATH); } catch (err) {
+      try { fileJson = await githubGetFile(csvPathToUse); } catch (err) {
         safeLog('Error fetching CSV from GitHub:', err);
         return { statusCode: 502, headers: {'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: 'Failed to fetch CSV from GitHub', detail: err }) };
       }
@@ -256,7 +266,7 @@ exports.handler = async function(event, context) {
       }
 
       // meta keys to ignore for CSV
-      const metaKeys = new Set(['player','player_slug','player_id','player_name','name','admin_code','reported_via','source','notes']);
+      const metaKeys = new Set(['player','player_slug','player_id','player_name','name','admin_code','reported_via','source','notes','dataset']);
 
       // Prepare editsToApply (strip meta keys)
       const editsToApply = (editsRaw && typeof editsRaw === 'object') ? Object.assign({}, editsRaw) : {};
@@ -283,11 +293,11 @@ exports.handler = async function(event, context) {
       });
       const newCsv = Papa.unparse(updatedRows, { header: true });
       const changeSummary = Object.keys(sanitizedEdits).map(k => `${k} -> ${sanitizedEdits[k]}`).join('; ');
-      const message = `Update ${player} via site (admin). ${changeSummary}`;
+      const message = `Update ${player} via site (admin) [${dataset}]. ${changeSummary}`;
       const contentNewB64 = Buffer.from(newCsv, 'utf8').toString('base64');
 
       try {
-        const putRes = await githubPutFile(CSV_PATH, message, contentNewB64, sha);
+        const putRes = await githubPutFile(csvPathToUse, message, contentNewB64, sha);
         const commitUrl = putRes.commit && putRes.commit.html_url ? putRes.commit.html_url : null;
 
         // after successful commit -> trigger Netlify build hook and include its result
@@ -310,7 +320,7 @@ exports.handler = async function(event, context) {
         safeLog('Commit failed, attempting retry if possible:', err);
         if (err && (err.code === 409 || err.code === 422 || String(err.message || '').toLowerCase().includes('sha'))) {
           try {
-            const latest = await githubGetFile(CSV_PATH);
+            const latest = await githubGetFile(csvPathToUse);
             const latestCsv = Buffer.from(latest.content, 'base64').toString('utf8');
             const parsedLatest = Papa.parse(latestCsv, { header: true, skipEmptyLines: false });
             const rowsLatest = parsedLatest.data;
@@ -326,7 +336,7 @@ exports.handler = async function(event, context) {
             });
             const newCsv2 = Papa.unparse(updatedLatestRows, { header: true });
             const contentNewB642 = Buffer.from(newCsv2, 'utf8').toString('base64');
-            const putRes2 = await githubPutFile(CSV_PATH, message + ' (retry)', contentNewB642, latest.sha);
+            const putRes2 = await githubPutFile(csvPathToUse, message + ' (retry)', contentNewB642, latest.sha);
             const commitUrl2 = putRes2.commit && putRes2.commit.html_url ? putRes2.commit.html_url : null;
 
             try {
@@ -358,10 +368,9 @@ exports.handler = async function(event, context) {
     }
 
     // Try to fetch a snapshot of current values (best-effort)
-    // Why not ?
     let currentSnap = null;
     try {
-      const fileJson = await githubGetFile(CSV_PATH);
+      const fileJson = await githubGetFile(csvPathToUse);
       const csvRaw = Buffer.from(fileJson.content, 'base64').toString('utf8');
       const parsed = Papa.parse(csvRaw, { header: true, skipEmptyLines: false });
       const fields = parsed.meta && parsed.meta.fields ? parsed.meta.fields : Object.keys(parsed.data[0] || {});
@@ -381,13 +390,16 @@ exports.handler = async function(event, context) {
       tableRows = Object.keys(body.edits || {}).map(k => `| ${k} |  | ${body.edits[k] || ''} |`).join('\n');
     }
 
-    const pageLink = `${SITE_BASE_URL}/players/${player}`;
+    // page link should point to players or players_atp based on dataset
+    const playersPath = (dataset === 'atp') ? 'players_atp' : 'players';
+    const pageLink = `${SITE_BASE_URL}/${playersPath}/${player}`;
     const ts = (new Date()).toISOString();
-    const issueTitle = `Suggestion: correction pour ${body.name || player} (${player})`;
+    const issueTitle = `Suggestion: correction pour ${body.name || player} (${player}) [${dataset.toUpperCase()}]`;
     const issueBodyLines = [
       'Suggestion envoyée depuis le formulaire d\'édition du site.',
       '',
-      `**Joueuse**: ${body.name || '(nom non fourni)'}`,
+      `**Dataset**: ${dataset}`,
+      `**Player**: ${body.name || '(nom non fourni)'}`,
       `**Slug / clé**: ${player}`,
       `**Page**: ${pageLink}`,
       `**Envoyé le**: ${ts}`,
@@ -418,4 +430,3 @@ exports.handler = async function(event, context) {
     return { statusCode:500, headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ok:false, error: String(err && err.stack ? err.stack : err) }) };
   }
 };
-
