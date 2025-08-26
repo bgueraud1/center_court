@@ -91,7 +91,11 @@
     if (submitBtn) { submitBtn.disabled = true; submitBtn.dataset.origText = submitBtn.textContent; submitBtn.textContent = 'Envoi…'; }
 
     try {
+          // debug: afficher le payload exact envoyé
+      console.log("[edit-submit] payload ready to send:", payload);
+
       const result = await submitEdit(payload);
+
       if (result && result.ok) {
         if (result.suggestion) {
           showMessage('Suggestion envoyée. Merci !', false);
@@ -110,11 +114,14 @@
     }
   };
 
-  // If page has a form with id edit-form, wire it automatically
-  document.addEventListener('DOMContentLoaded', function () {
+    document.addEventListener('DOMContentLoaded', function () {
+    console.log("[edit-submit] script loaded and wiring form...");
     const form = document.querySelector('form#edit-form');
     if (form) {
       form.addEventListener('submit', window.centerCourtHandleEditSubmit);
     }
   });
+
+
+  
 })();
