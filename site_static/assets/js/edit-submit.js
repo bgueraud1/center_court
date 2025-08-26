@@ -63,17 +63,30 @@
     
     // collect editable fields
         // collect editable fields (handle checkboxes correctly)
+    // collect editable fields (handle checkboxes correctly)
+    // only include non-empty string values for text/select/textarea to avoid overwriting with blanks
     document.querySelectorAll('[data-editable]').forEach(el => {
       if (!el.name) return;
-      // checkboxes: use checked state -> send "true" or "false"
-      if (el.type === 'checkbox') {
-        payload.edits[el.name] = el.checked ? (el.value || 'true') : 'false';
-      } else if (el.tagName && el.tagName.toLowerCase() === 'select') {
-        payload.edits[el.name] = el.value || '';
+      const nm = el.name;
+      const tag = el.tagName ? el.tagName.toLowerCase() : '';
+      const type = el.type ? el.type.toLowerCase() : '';
+    
+      if (type === 'checkbox') {
+        // include checkbox always (so admin can set True or False deliberately)
+        payload.edits[nm] = el.checked ? (el.value || 'true') : 'false';
+      } else if (tag === 'select' || tag === 'input' || tag === 'textarea') {
+        const val = (el.value || '').toString().trim();
+        if (val !== '') {
+          payload.edits[nm] = val;
+        } else {
+          // skip empty strings: do not send them to avoid wiping existing CSV values
+        }
       } else {
-        payload.edits[el.name] = el.value || '';
+        const val = (el.value || '').toString().trim();
+        if (val !== '') payload.edits[nm] = val;
       }
     });
+
 
     
     // IMPORTANT: include admin_code trimmed if present
