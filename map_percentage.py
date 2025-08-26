@@ -32,6 +32,13 @@ def prepare_players(df: pd.DataFrame) -> list:
         if isinstance(x, float) and pd.isna(x): return ''
         return str(x)
 
+    def parse_review_flag(v):
+        # robuste : accepte True/False, 'True','False','1','0','yes','no'
+        if v is None: return False
+        if isinstance(v, bool): return v
+        s = str(v).strip().lower()
+        return s in ("true","t","1","yes","y")
+
     for _, r in df.iterrows():
         rc_raw = safe_str(r.get('represented_country')).strip()
         rc = rc_raw.upper() if rc_raw else 'UNK'
@@ -73,6 +80,10 @@ def prepare_players(df: pd.DataFrame) -> list:
         except Exception:
             height_m = None
 
+        # NEW: reviewed_player flag (robust parsing)
+        reviewed_val = r.get('reviewed_player') if 'reviewed_player' in r.index else None
+        reviewed_flag = parse_review_flag(reviewed_val)
+
         players.append({
             "represented_country": rc,
             "full_name": full_name,
@@ -82,9 +93,11 @@ def prepare_players(df: pd.DataFrame) -> list:
             "birth_date": birth_date,
             "best_rank": best_rank,
             "plays": plays,
-            "height_m": height_m
+            "height_m": height_m,
+            "reviewed_player": reviewed_flag
         })
     return players
+
 
 def build_and_save_presence_map(players: list, out_html: str, geojson):
     total_by_country = Counter()
@@ -213,7 +226,12 @@ def build_and_save_presence_map(players: list, out_html: str, geojson):
           have[iso] = (have[iso]||0) + 1;
         } else {
           missingLists[iso] = missingLists[iso] || [];
-          missingLists[iso].push({name: p.full_name, id: p.player_id});
+          missingLists[iso].push({
+          name: p.full_name,
+          id: p.player_id,
+          reviewed_player: p.reviewed_player   // <-- IMPORTANT: prop copiée ici
+        });
+
         }
       });
 
@@ -252,16 +270,25 @@ def build_and_save_presence_map(players: list, out_html: str, geojson):
               let slug = name.toLowerCase().replace(/[^a-z0-9\u00C0-\u024F]+/g, '-').replace(/(^-|-$)/g,'');
               slug = encodeURIComponent(slug);
 
-              // local WTA player page absolute (production)
               const localPath = SITE_BASE + '/players/' + (id ? (encodeURIComponent(id) + '-' + slug + '.html') : (slug + '.html'));
-
-              // external WTA profile
               const wta = id ? ("https://www.wtatennis.com/players/" + id + "/" + slug) : '#';
 
-              html += "<li><a href='" + localPath + "' rel='noopener'>" + escapeHtml(p.name) + "</a>";
+              // reviewed flag (boolean expected from server-side JSON)
+              const reviewed = !!p.reviewed_player; // coerce en boolean
+
+
+              // build name HTML: if reviewed == true -> wrap in <strong>
+              let nameLink = "<a href='" + localPath + "' rel='noopener'>" + escapeHtml(name) + "</a>";
+              if (reviewed === true || String(reviewed).toLowerCase() === 'true') {
+                nameLink = "<strong>" + nameLink + "</strong>";
+              }
+
+              html += "<li>" + nameLink;
               if (p.id) html += " — <a href='" + wta + "' target='_blank' rel='noopener'>WTA</a>";
               html += "</li>";
             });
+
+            
             html += "</ul>";
           }
           html += "</div>";

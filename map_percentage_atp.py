@@ -187,6 +187,15 @@ def prepare_players_atp(df: pd.DataFrame) -> list:
         except Exception:
             height_m = None
 
+                # NEW: reviewed_player boolean
+        rev_raw = r.get('reviewed_player') if 'reviewed_player' in r.index else None
+        def _parse_rev(v):
+            if v is None: return False
+            if isinstance(v, bool): return v
+            s = str(v).strip().lower()
+            return s in ("true","t","1","yes","y")
+        reviewed_flag = _parse_rev(rev_raw)
+
         players.append({
             "represented_country": rc,
             "full_name": full_name,
@@ -196,8 +205,10 @@ def prepare_players_atp(df: pd.DataFrame) -> list:
             "birth_date": birth_date,
             "best_rank": best_rank,
             "plays": plays,
-            "height_m": height_m
+            "height_m": height_m,
+            "reviewed_player": reviewed_flag
         })
+
     return players
 
 
@@ -228,16 +239,36 @@ def build_and_save_presence_map_atp(players: list, out_html: str, geojson: str):
     # add colormap again properly
     colormap.add_to(m)
 
-    # inject data
+    # --- safety: convert non-finite best_rank to None so json.dumps ne plante pas ---
+    safe_players = []
+    for p in players:
+        sp = dict(p)  # shallow copy
+        br = sp.get('best_rank', None)
+        try:
+            if br is None:
+                sp['best_rank'] = None
+            else:
+                brf = float(br)
+                if not math.isfinite(brf):
+                    sp['best_rank'] = None
+                else:
+                    sp['best_rank'] = brf
+        except Exception:
+            sp['best_rank'] = None
+        # ensure boolean for reviewed_player (defensive)
+        sp['reviewed_player'] = bool(sp.get('reviewed_player'))
+        safe_players.append(sp)
+
+    # inject data (use safe_players)
     m.get_root().html.add_child(Element(
         "<script>\n"
-        f"var presencePlayers = {json.dumps(players)};\n"
+        f"var presencePlayers = {json.dumps(safe_players)};\n"
         f"var initialPctByCountry = {json.dumps(initial_pct)};\n"
         f"var pct2color = {json.dumps(pct2color)};\n"
         "</script>"
     ))
 
-    # template (almost identical to your original, but ATP links)
+    # template (almost identical to your original, but include reviewed_player in missingLists and simplify test)
     template = r"""
 {% macro html(this, kwargs) %}
 <style>
@@ -248,6 +279,8 @@ def build_and_save_presence_map_atp(players: list, out_html: str, geojson: str):
   .presence-tooltip { font-size: 12px; padding:6px 8px; background: rgba(255,255,255,0.95); border-radius:4px; border:1px solid rgba(0,0,0,0.12); }
   .presence-popup { max-height: 350px; overflow:auto; font-size:13px; }
   .presence-popup ul { padding-left:1em; margin:0; }
+  /* optional: class to style reviewed names */
+  .reviewed-name { font-weight: 700; }
 </style>
 
 <div id="presence_filters">
@@ -336,7 +369,12 @@ def build_and_save_presence_map_atp(players: list, out_html: str, geojson: str):
           have[iso] = (have[iso]||0) + 1;
         } else {
           missingLists[iso] = missingLists[iso] || [];
-          missingLists[iso].push({name: p.full_name, id: p.player_id});
+          // <<< include reviewed_player so popup can style names accordingly
+          missingLists[iso].push({
+            name: p.full_name,
+            id: p.player_id,
+            reviewed_player: p.reviewed_player
+          });
         }
       });
 
@@ -346,7 +384,6 @@ def build_and_save_presence_map_atp(players: list, out_html: str, geojson: str):
         const h = have[iso] || 0;
         const pct = t === 0 ? 0 : Math.round(100 * h / t);
         const SITE_BASE = 'https://www.center-court.net';
-
 
         let color;
         if (t === 0) {
@@ -373,24 +410,26 @@ def build_and_save_presence_map_atp(players: list, out_html: str, geojson: str):
               const name = p.name || '';
               const id = p.id || '';
 
-              // slug compatible generate_players
               let slug = name.toLowerCase().replace(/[^a-z0-9\u00C0-\u024F]+/g, '-').replace(/(^-|-$)/g,'');
               slug = encodeURIComponent(slug);
 
-              // local ATP player page absolute (production)
               const localPath = SITE_BASE + '/players_atp/' + (id ? (encodeURIComponent(id) + '-' + slug + '.html') : (slug + '.html'));
-
-              // external ATP profile: /en/players/{slug}/{id}/overview
               const atp = id ? ("https://www.atptour.com/en/players/" + slug + "/" + encodeURIComponent(id.toString().toLowerCase()) + "/overview") : '#';
 
-              html += "<li><a href='" + localPath + "'>" + escapeHtml(name) + "</a>";
+              // reviewed flag (coerce to boolean)
+              const reviewed = !!p.reviewed_player;
+
+              let nameLink = "<a href='" + localPath + "'>" + escapeHtml(name) + "</a>";
+              if (reviewed) {
+                // mark visually (bold) and also add class if you want custom CSS
+                nameLink = "<span class='reviewed-name'>" + nameLink + "</span>";
+              }
+
+              html += "<li>" + nameLink;
               if (id) html += " — <a href='" + atp + "' target='_blank' rel='noopener'>ATP</a>";
               html += "</li>";
             });
 
-
-            
-            
             html += "</ul>";
           }
           html += "</div>";
