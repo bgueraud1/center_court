@@ -55,21 +55,31 @@
     });
 
     // build payload (replace existing payload builder)
+        // build payload (replace existing payload builder)
     const payload = {
       player: form.querySelector('[name="player"]').value || '',
       name: form.querySelector('[name="name"]').value || '',
       edits: {}
     };
-    
-    // collect editable fields
-        // collect editable fields (handle checkboxes correctly)
+
+    // include dataset if present (important for ATP)
+    const datasetEl = form.querySelector('[name="dataset"]');
+    if (datasetEl && datasetEl.value) payload.dataset = datasetEl.value;
+
     // collect editable fields (handle checkboxes correctly)
-    // only include non-empty string values for text/select/textarea to avoid overwriting with blanks
     document.querySelectorAll('[data-editable]').forEach(el => {
       if (!el.name) return;
-      const nm = el.name;
-      const tag = el.tagName ? el.tagName.toLowerCase() : '';
-      const type = el.type ? el.type.toLowerCase() : '';
+      if (el.type === 'checkbox') {
+        payload.edits[el.name] = el.checked ? (el.value || 'true') : 'false';
+      } else if (el.tagName && el.tagName.toLowerCase() === 'select') {
+        payload.edits[el.name] = el.value || '';
+      } else {
+        payload.edits[el.name] = el.value || '';
+      }
+    });
+
+    
+
     
       if (type === 'checkbox') {
         // include checkbox always (so admin can set True or False deliberately)
