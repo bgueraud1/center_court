@@ -83,6 +83,7 @@ PLAYER_TMPL = """<!doctype html>
               <dt class="col-sm-4">Birth place</dt><dd class="col-sm-8">{esc_birthplace}</dd>
               <dt class="col-sm-4">Height</dt><dd class="col-sm-8">{height}</dd>
               <dt class="col-sm-4">Hand</dt><dd class="col-sm-8">{plays}</dd>
+              <dt class="col-sm-4">Backhand</dt><dd class="col-sm-8">{backhand}</dd>
               <dt class="col-sm-4">Best rank</dt><dd class="col-sm-8">{best_rank}</dd>
               <dt class="col-sm-4">First appearance</dt><dd class="col-sm-8">{first_appearance}</dd>
               <dt class="col-sm-4">Last appearance</dt><dd class="col-sm-8">{last_appearance}</dd>
@@ -203,6 +204,7 @@ def main():
         birthplace = row.get("birthplace", "") or ""
         birth_date = parse_date_only(row.get("birth_date",""))
         plays = row.get("plays","")
+        backhand = row.get("backhand","") 
         best_rank = row.get("best_rank","")
         first_app = parse_date_only(row.get("first_appearance",""))
         last_app = parse_date_only(row.get("last_appearance",""))
@@ -235,6 +237,7 @@ def main():
           esc_birthplace = esc(birthplace),
           height = esc(htxt),
           plays = esc(plays),
+          backhand = esc(backhand), 
           best_rank = esc(best_rank),
           first_appearance = esc(first_app),
           last_appearance = esc(last_app),

@@ -447,7 +447,7 @@ def build_and_save_map_migration_from_atp(all_pts, migrations, out_html: str):
   </style>
 
   <div id="migfilters">
-    <label>Search Name: <input type="text" id="flt_name" placeholder="e.g. Kasatkina"/></label>
+    <label>Search Name: <input type="text" id="flt_name" placeholder="e.g. Sakharov"/></label>
     <hr/>
     <label>Born From: <input type="date" id="flt_start"/></label>
     <label>Born To:   <input type="date" id="flt_end"/></label>
