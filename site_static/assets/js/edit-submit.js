@@ -41,24 +41,13 @@
     const form = evt ? evt.target : document.querySelector('form#edit-form');
     if (!form) { showMessage('Formulaire introuvable', true); return; }
 
-    // build payload
     const player = form.querySelector('[name="player"]')?.value || getPlayerFromUrl();
     const name = form.querySelector('[name="name"]')?.value || form.querySelector('[name="player_name"]')?.value || '';
     if (!player) { showMessage('Erreur: player non trouvé', true); return; }
 
-    // edits: tous les champs data-editable
-    const edits = {};
-    qAllEditable().forEach(el => {
-      if (!el.name) return;
-      // ignore empty strings (optional)
-      edits[el.name] = el.value;
-    });
-
-    // build payload (replace existing payload builder)
-        // build payload (replace existing payload builder)
     const payload = {
-      player: form.querySelector('[name="player"]').value || '',
-      name: form.querySelector('[name="name"]').value || '',
+      player: player,
+      name: name,
       edits: {}
     };
 
@@ -69,52 +58,30 @@
     // collect editable fields (handle checkboxes correctly)
     document.querySelectorAll('[data-editable]').forEach(el => {
       if (!el.name) return;
-      if (el.type === 'checkbox') {
+      const tag = (el.tagName || '').toLowerCase();
+      const type = (el.type || '').toLowerCase();
+
+      if (type === 'checkbox') {
+        // always include checkbox so admin can explicitly set True/False
         payload.edits[el.name] = el.checked ? (el.value || 'true') : 'false';
-      } else if (el.tagName && el.tagName.toLowerCase() === 'select') {
-        payload.edits[el.name] = el.value || '';
       } else {
-        payload.edits[el.name] = el.value || '';
+        // only include non-empty (trimmed) values for text/select/textarea
+        const val = (el.value || '').toString().trim();
+        if (val !== '') payload.edits[el.name] = val;
       }
     });
 
-    
-
-    
-      if (type === 'checkbox') {
-        // include checkbox always (so admin can set True or False deliberately)
-        payload.edits[nm] = el.checked ? (el.value || 'true') : 'false';
-      } else if (tag === 'select' || tag === 'input' || tag === 'textarea') {
-        const val = (el.value || '').toString().trim();
-        if (val !== '') {
-          payload.edits[nm] = val;
-        } else {
-          // skip empty strings: do not send them to avoid wiping existing CSV values
-        }
-      } else {
-        const val = (el.value || '').toString().trim();
-        if (val !== '') payload.edits[nm] = val;
-      }
-    };
-
-
-    
     // IMPORTANT: include admin_code trimmed if present
     const adminEl = form.querySelector('[name="admin_code"]') || document.getElementById('admin_code');
     const adminVal = adminEl ? (adminEl.value || '').toString().trim() : '';
     if (adminVal) payload.admin_code = adminVal;
-    
-    // optionally include source/notes
-    const notesEl = form.querySelector('[name="notes"]');
-    if (notesEl && notesEl.value) payload.edits.notes = notesEl.value;
-    
 
     // disable submit button
     const submitBtn = form.querySelector('[type="submit"]');
-    if (submitBtn) { submitBtn.disabled = true; submitBtn.dataset.origText = submitBtn.textContent; submitBtn.textContent = 'Envoi…'; }
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.dataset.origText = submitBtn.textContent; submitBtn.textContent = 'Sending…'; }
 
     try {
-          // debug: afficher le payload exact envoyé
+      // debug: afficher le payload exact envoyé
       console.log("[edit-submit] payload ready to send:", payload);
 
       const result = await submitEdit(payload);
@@ -131,13 +98,14 @@
         showMessage('Erreur serveur: ' + (result && result.error ? result.error : 'unknown'), true);
       }
     } catch (err) {
-      showMessage('Erreur réseau / serveur: ' + err.message, true);
+      showMessage('Erreur réseau / serveur: ' + (err && err.message ? err.message : String(err)), true);
     } finally {
-      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = submitBtn.dataset.origText || 'Envoyer'; }
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = submitBtn.dataset.origText || 'Submit'; }
     }
   };
 
-    document.addEventListener('DOMContentLoaded', function () {
+  // If page has a form with id edit-form, wire it automatically
+  document.addEventListener('DOMContentLoaded', function () {
     console.log("[edit-submit] script loaded and wiring form...");
     const form = document.querySelector('form#edit-form');
     if (form) {
@@ -145,6 +113,5 @@
     }
   });
 
-
-  
 })();
+
