@@ -95,7 +95,7 @@
         const val = (el.value || '').toString().trim();
         if (val !== '') payload.edits[nm] = val;
       }
-    });
+    };
 
 
     
