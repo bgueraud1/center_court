@@ -299,7 +299,8 @@ exports.handler = async function(event, context) {
       
 
             // --- Ensure columns for reviewed_player and date_review exist (add if missing) ---
-      const ensureCols = ['reviewed_player','date_review'];
+      // --- Ensure columns for reviewed_player, date_review and biography exist (add if missing) ---
+      const ensureCols = ['reviewed_player','date_review','biography'];
       for (const c of ensureCols) {
         if (!fields.includes(c)) {
           fields.push(c);
@@ -307,6 +308,7 @@ exports.handler = async function(event, context) {
           rows.forEach(r => { if (r[c] === undefined) r[c] = ''; });
         }
       }
+
 
       // meta keys to ignore for CSV
       const metaKeys = new Set(['player','player_slug','player_id','player_name','name','admin_code','reported_via','source','notes','dataset']);
