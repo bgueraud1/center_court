@@ -95,6 +95,9 @@ PLAYER_TMPL = """<!doctype html>
           </div>
         </div>
 
+        <!-- Elements of Biography -->
+        {bio_block}
+
         <!-- Link to propose edits -->
         <p class="mt-3">
         <a class="me-3" href="index.html">&larr; Back to the player index</a>
@@ -205,6 +208,20 @@ def main():
 
         url_name = quote_plus(name)
 
+        biography = row.get("biography", "") or ""
+        esc_bio = esc(biography)
+        if esc_bio.strip():
+            bio_block = (
+                '<div class="card mb-3">'
+                '<div class="card-body">'
+                '<h5 class="card-title">Elements of Biography</h5>'
+                f'<div style="white-space:pre-wrap;">{esc_bio}</div>'
+                '</div></div>'
+            )
+        else:
+            bio_block = ''
+
+
         content = PLAYER_TMPL.format(
           esc_name = esc(name),
           esc_country = esc(country),
@@ -216,7 +233,8 @@ def main():
           highest_ranking = esc(highest_ranking),
           prize_money = esc(prize_money),
           slug = slug,
-          url_name = url_name
+          url_name = url_name,
+          bio_block = bio_block
       )
 
         out_file = OUT_DIR / f"{filename_stem}.html"
