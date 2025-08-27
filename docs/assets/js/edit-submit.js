@@ -55,16 +55,49 @@
     });
 
     // build payload (replace existing payload builder)
+        // build payload (replace existing payload builder)
     const payload = {
       player: form.querySelector('[name="player"]').value || '',
       name: form.querySelector('[name="name"]').value || '',
       edits: {}
     };
-    
-    // collect editable fields
+
+    // include dataset if present (important for ATP)
+    const datasetEl = form.querySelector('[name="dataset"]');
+    if (datasetEl && datasetEl.value) payload.dataset = datasetEl.value;
+
+    // collect editable fields (handle checkboxes correctly)
     document.querySelectorAll('[data-editable]').forEach(el => {
-      if (el.name) payload.edits[el.name] = el.value || '';
+      if (!el.name) return;
+      if (el.type === 'checkbox') {
+        payload.edits[el.name] = el.checked ? (el.value || 'true') : 'false';
+      } else if (el.tagName && el.tagName.toLowerCase() === 'select') {
+        payload.edits[el.name] = el.value || '';
+      } else {
+        payload.edits[el.name] = el.value || '';
+      }
     });
+
+    
+
+    
+      if (type === 'checkbox') {
+        // include checkbox always (so admin can set True or False deliberately)
+        payload.edits[nm] = el.checked ? (el.value || 'true') : 'false';
+      } else if (tag === 'select' || tag === 'input' || tag === 'textarea') {
+        const val = (el.value || '').toString().trim();
+        if (val !== '') {
+          payload.edits[nm] = val;
+        } else {
+          // skip empty strings: do not send them to avoid wiping existing CSV values
+        }
+      } else {
+        const val = (el.value || '').toString().trim();
+        if (val !== '') payload.edits[nm] = val;
+      }
+    };
+
+
     
     // IMPORTANT: include admin_code trimmed if present
     const adminEl = form.querySelector('[name="admin_code"]') || document.getElementById('admin_code');
@@ -81,7 +114,11 @@
     if (submitBtn) { submitBtn.disabled = true; submitBtn.dataset.origText = submitBtn.textContent; submitBtn.textContent = 'Envoi…'; }
 
     try {
+          // debug: afficher le payload exact envoyé
+      console.log("[edit-submit] payload ready to send:", payload);
+
       const result = await submitEdit(payload);
+
       if (result && result.ok) {
         if (result.suggestion) {
           showMessage('Suggestion envoyée. Merci !', false);
@@ -100,11 +137,14 @@
     }
   };
 
-  // If page has a form with id edit-form, wire it automatically
-  document.addEventListener('DOMContentLoaded', function () {
+    document.addEventListener('DOMContentLoaded', function () {
+    console.log("[edit-submit] script loaded and wiring form...");
     const form = document.querySelector('form#edit-form');
     if (form) {
       form.addEventListener('submit', window.centerCourtHandleEditSubmit);
     }
   });
+
+
+  
 })();
