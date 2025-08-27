@@ -220,7 +220,7 @@ def build_and_save_map_atp(all_pts: list, out_html: str):
   </style>
 
   <div id="filters">
-    <label>Search Name <input type="text" id="name_search" placeholder="e.g. Korda"/></label>
+    <label>Search Name <input type="text" id="name_search" placeholder="e.g. Djokovic"/></label>
     <hr/>
     <label>From     <input type="date"   id="start"/></label>
     <label>To       <input type="date"   id="end"  /></label>
