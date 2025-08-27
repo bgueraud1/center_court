@@ -76,8 +76,35 @@ function detectKeyColumn(fields) {
 function tryMatchRow(rows, keyCol, playerVal) {
   if (!playerVal) return null;
   const sPlayer = String(playerVal);
+
+  // 1) exact match on key column
   const exact = rows.find(r => String(r[keyCol]) === sPlayer);
   if (exact) return exact;
+
+  // 2) if playerVal begins with an alnum id followed by a dash (slug like "S0AG-jannik-sinner"),
+  //    extract the prefix and try to match player_id/id/etc.
+  const slugMatch = sPlayer.match(/^([A-Za-z0-9]+)(?:[-_].*)?$/);
+  if (slugMatch) {
+    const prefix = slugMatch[1];
+    // try columns that often contain the canonical id
+    const altCols = ['player_id','id','slug'];
+    for (const col of altCols) {
+      const f = rows.find(r => {
+        if (r[col] === undefined || r[col] === null) return false;
+        return String(r[col]) === prefix || String(r[col]).toLowerCase() === prefix.toLowerCase();
+      });
+      if (f) return f;
+    }
+    // also try matching the keyCol if it *starts* with prefix (covers cases where CSV contains the slug)
+    const starts = rows.find(r => {
+      if (r[keyCol] === undefined || r[keyCol] === null) return false;
+      return (''+r[keyCol]).toLowerCase().startsWith(prefix.toLowerCase() + '-')
+          || (''+r[keyCol]).toLowerCase().startsWith(prefix.toLowerCase());
+    });
+    if (starts) return starts;
+  }
+
+  // 3) numeric-prefix handling (existing logic for numeric slugs like "1234-foo")
   const numeric = sPlayer.match(/^(\d+)/);
   if (numeric) {
     const num = numeric[1];
@@ -93,10 +120,14 @@ function tryMatchRow(rows, keyCol, playerVal) {
     });
     if (found2) return found2;
   }
+
+  // 4) fallback: case-insensitive match on key column value
   const lower = rows.find(r => (''+r[keyCol]).toLowerCase() === sPlayer.toLowerCase());
   if (lower) return lower;
+
   return null;
 }
+
 
 function sanitizeEdits(edits, allowedFields) {
   const keys = Object.keys(edits || {});
