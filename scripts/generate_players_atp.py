@@ -98,7 +98,7 @@ PLAYER_TMPL = """<!doctype html>
         <!-- Link to propose edits -->
         <p class="mt-3">
         <a class="me-3" href="index.html">&larr; Back to the player index</a>
-        <a class="btn btn-sm btn-outline-primary" href="../edit.html?dataset=atp&player={slug}&name={url_name}">Suggérer une modification</a>
+        <a class="btn btn-sm btn-outline-primary" href="../edit_atp.html?player={slug}&name={url_name}">Suggérer une modification</a>
       </p>
 
       </div>
