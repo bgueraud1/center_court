@@ -284,7 +284,7 @@ def build_and_save_presence_map_atp(players: list, out_html: str, geojson: str):
 </style>
 
 <div id="presence_filters">
-  <label>Search Name: <input type="text" id="p_name" placeholder="e.g. Djokovic"/></label>
+  <label>Search Name: <input type="text" id="p_name" placeholder="e.g. Poullain"/></label>
   <hr/>
   <label>Born From: <input type="date" id="p_start"/></label>
   <label>Born To:   <input type="date" id="p_end"/></label>
