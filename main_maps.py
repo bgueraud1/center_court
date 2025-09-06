@@ -97,23 +97,3 @@ build_and_save_presence_map(players, OUTPUT_HTML_PERCENTAGE, GEOJSON_URL)
 
 
 
-# False map birthplace
-#
-#
-
-#from map_birth_place import build_and_save_map  # your existing map builder
-#from false_birthplace_map import apply_cache_coords, create_false_all_pts_from_df#
-
-## 1) load whole CSV (do NOT call load_and_clean because that drops missing birthplace rows)
-#df_all = pd.read_csv(INPUT_CSV)#
-
-## 2) apply your cache (no network)
-#df_with_coords = apply_cache_coords(df_all, CACHE_FILE)#
-
-## 3) create the false all_pts (deterministic with seed)
-#all_pts_false, stats = create_false_all_pts_from_df(df_with_coords, seed=42)#
-
-#print("False-map stats:", stats)#
-
-## 4) render map with your existing map builder
-#build_and_save_map(all_pts_false, OUTPUT_HTML_FALSE)#

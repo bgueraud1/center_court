@@ -85,6 +85,8 @@ PLAYER_TMPL = """<!doctype html>
               <dt class="col-sm-4">Hand</dt><dd class="col-sm-8">{plays}</dd>
               <dt class="col-sm-4">Backhand</dt><dd class="col-sm-8">{backhand}</dd>
               <dt class="col-sm-4">Highest ranking</dt><dd class="col-sm-8">{highest_ranking}</dd>
+              <dt class="col-sm-4">First appearance</dt><dd class="col-sm-8">{first_appearance}</dd>
+              <dt class="col-sm-4">Last appearance</dt><dd class="col-sm-8">{last_appearance}</dd>
               <dt class="col-sm-4">Prize money</dt><dd class="col-sm-8">{prize_money}</dd>
             </dl>
           </div>
@@ -115,6 +117,7 @@ PLAYER_TMPL = """<!doctype html>
 </body>
 </html>
 """
+
 
 INDEX_TOP = """<!doctype html>
 <html lang="fr">
@@ -208,6 +211,7 @@ def main():
 
         url_name = quote_plus(name)
 
+        # biography (existing)
         biography = row.get("biography", "") or ""
         esc_bio = esc(biography)
         if esc_bio.strip():
@@ -221,21 +225,78 @@ def main():
         else:
             bio_block = ''
 
+        # --- NEW: first_appearance / last_appearance parsing and sentinel handling ---
+        # sentinel constants (display-only; CSV values remain unchanged)
+        SENTINEL_DATE = "1870-09-04"
+        SENTINEL_RANK_NUM = 9999999
 
+        # parse date fields (normalized) using helper parse_date_only
+        fa_raw = row.get("first_appearance", "") or row.get("first_appear", "") or ""
+        la_raw = row.get("last_appearance", "") or row.get("last_appear", "") or ""
+        fa_parsed = parse_date_only(fa_raw)
+        la_parsed = parse_date_only(la_raw)
+
+        # hide if sentinel date or empty
+        first_appearance = fa_parsed if (fa_parsed and fa_parsed != SENTINEL_DATE) else ""
+        last_appearance = la_parsed if (la_parsed and la_parsed != SENTINEL_DATE) else ""
+
+        # Highest ranking: hide if sentinel numeric (like 9999999)
+        hr_raw = row.get("highest_ranking", "") or row.get("highest_rank", "") or ""
+        highest_ranking = ""
+        if hr_raw:
+            # extract digits (handles strings like "1", "124", "$124" etc.)
+            digits = re.sub(r"[^\d]", "", str(hr_raw))
+            try:
+                if digits:
+                    nr = int(digits)
+                    if nr >= SENTINEL_RANK_NUM:
+                        highest_ranking = ""
+                    else:
+                        # keep the original representation if it looks numeric, else keep original raw
+                        highest_ranking = str(int(nr)) if digits == str(nr) else str(hr_raw)
+                else:
+                    # no digits -> keep original raw text
+                    highest_ranking = str(hr_raw).strip()
+            except Exception:
+                highest_ranking = str(hr_raw).strip()
+        else:
+            highest_ranking = ""
+
+        # prize money (existing)
+        prize_money = row.get("prize_money","")
+
+        # country already exists
+        country = row.get("represented_country","")
+
+        # parse height as before
+        hcm = parse_height_cm(row)
+        if hcm:
+            htxt = f"{hcm:.1f} cm"
+        else:
+            htxt = row.get("height_inches","") or row.get("height_cm","") or ""
+
+        # plays/backhand already defined earlier in your file; ensure they exist here
+        plays = row.get("plays","")
+        backhand = row.get("backhand","")
+
+        # --- finally build the page content ---
         content = PLAYER_TMPL.format(
           esc_name = esc(name),
           esc_country = esc(country),
-          birth_date = esc(birth_date),
+          birth_date = esc(parse_date_only(row.get("birth_date",""))),
           esc_birthplace = esc(birthplace),
           height = esc(htxt),
           plays = esc(plays),
           backhand = esc(backhand),
           highest_ranking = esc(highest_ranking),
+          first_appearance = esc(first_appearance),
+          last_appearance = esc(last_appearance),
           prize_money = esc(prize_money),
           slug = slug,
           url_name = url_name,
           bio_block = bio_block
       )
+
 
         out_file = OUT_DIR / f"{filename_stem}.html"
         out_file.write_text(content, encoding="utf-8")
