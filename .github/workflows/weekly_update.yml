@@ -6,11 +6,19 @@ permissions:
 on:
   schedule:
     - cron: '0 4 * * 1'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      atp_date:
+        description: 'Optional date to use for ATP scrape (YYYY-MM-DD). If empty, uses current week Monday.'
+        required: false
+        default: ''
 
 jobs:
-  update_players:
+    update_players:
     runs-on: ubuntu-latest
+    # --- safety: stop job if running > 30 minutes (ajuste si nécessaire) ---
+    timeout-minutes: 30
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -18,6 +26,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
           lfs: true
+
 
       - name: Debug workspace contents
         run: |
@@ -183,3 +192,39 @@ jobs:
           curl -s -X POST "$NETLIFY_BUILD_HOOK" -o /tmp/netlify_hook_resp.txt -w "\nHTTP_STATUS:%{http_code}\n"
           echo "Netlify response:"
           cat /tmp/netlify_hook_resp.txt || true
+
+# ---------------------------
+      # NEW: compute this week's Monday and create one-line dates file
+      # ---------------------------
+      - name: Prepare ATP scrape date (only this Monday)
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.atp_date }}" ]; then
+            ISO="${{ github.event.inputs.atp_date }}"
+          else
+            ISO=$(python - <<'PY'
+            from datetime import date, timedelta
+            d = date.today()
+            monday = d - timedelta(days=d.weekday())
+            print(monday.isoformat())
+            PY
+            )
+                      fi
+                      echo "date" > atp_dates_to_fetch.csv
+                      echo "$ISO" >> atp_dates_to_fetch.csv
+                      echo "Wrote atp_dates_to_fetch.csv containing $ISO"
+
+
+      - name: Scrape ATP rankings (single week)
+        run: |
+          # headless mode, single date via atp_dates_to_fetch.csv
+          python scripts/scrape_player_ranking_atp.py --dates-file atp_dates_to_fetch.csv --headless --max-players 5000
+        # optional: if you want to limit risk, set a per-step timeout
+        # (GitHub Actions supports job-level timeout; per-step non-blocking)
+
+      # ---------------------------
+      # EXISTING: Update ATP CSV from atp_rankings (unchanged)
+      # ---------------------------
+      - name: Update ATP CSV from atp_rankings
+        run: |
+          python scripts/update_atp_from_rankings.py --rankings-dir atp_rankings --csv player_data_atp.csv --fuzzy
