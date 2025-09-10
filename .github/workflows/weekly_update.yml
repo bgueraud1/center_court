@@ -16,7 +16,6 @@ on:
 jobs:
   update_players:
     runs-on: ubuntu-latest
-    # --- safety: stop job if running > 30 minutes (ajuste si nécessaire) ---
     timeout-minutes: 30
 
     steps:
@@ -42,7 +41,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements-build.txt ]; then pip install -r requirements-build.txt; fi
-          # ensure geopy & pandas present (for the geocoder script)
           pip install geopy pandas
 
       - name: Run main.py (update CSV)
@@ -50,10 +48,6 @@ jobs:
         working-directory: ${{ github.workspace }}
         env:
           SKIP_GEOCODE: "1"
-
-      - name: Update ATP CSV from atp_rankings (preliminary)
-        run: |
-          python scripts/update_atp_from_rankings.py --rankings-dir atp_rankings --csv player_data_atp.csv --fuzzy
 
       - name: Expire old reviewed flags (WTA)
         run: |
@@ -170,8 +164,15 @@ jobs:
             ISO=$(python3 -c "from datetime import date, timedelta; d=date.today(); monday=d - timedelta(days=d.weekday()); print(monday.isoformat())")
           fi
           printf "date\n%s\n" "$ISO" > atp_dates_to_fetch.csv
+          echo "ISO=$ISO" >> $GITHUB_ENV
           echo "Wrote atp_dates_to_fetch.csv containing $ISO"
 
+      - name: Debug dates and rankings dir
+        run: |
+          echo "atp_dates_to_fetch.csv:"
+          cat atp_dates_to_fetch.csv || true
+          echo "Listing atp_rankings (first 50):"
+          ls -1 atp_rankings | sed -n '1,50p' || true
 
       - name: Scrape ATP rankings (single week)
         env:
@@ -179,7 +180,6 @@ jobs:
         run: |
           python3 scripts/scrape_player_ranking_atp.py --dates-file atp_dates_to_fetch.csv --headless --max-players 5000
 
-
-      - name: Update ATP CSV from atp_rankings (final)
+      - name: Update ATP CSV from atp_rankings (final, only this date)
         run: |
-          python scripts/update_atp_from_rankings.py --rankings-dir atp_rankings --csv player_data_atp.csv --fuzzy
+          python3 scripts/update_atp_from_rankings.py --rankings-dir atp_rankings --csv player_data_atp.csv --date "$ISO" --fuzzy
