@@ -14,7 +14,7 @@ on:
         default: ''
 
 jobs:
-    update_players:
+  update_players:
     runs-on: ubuntu-latest
     # --- safety: stop job if running > 30 minutes (ajuste si nécessaire) ---
     timeout-minutes: 30
@@ -26,7 +26,6 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
           lfs: true
-
 
       - name: Debug workspace contents
         run: |
@@ -52,31 +51,23 @@ jobs:
         env:
           SKIP_GEOCODE: "1"
 
-      - name: Update ATP CSV from atp_rankings
+      - name: Update ATP CSV from atp_rankings (preliminary)
         run: |
           python scripts/update_atp_from_rankings.py --rankings-dir atp_rankings --csv player_data_atp.csv --fuzzy
-
 
       - name: Expire old reviewed flags (WTA)
         run: |
           python scripts/expire_reviews.py --csv player_data_wta.csv --months 6 --active-days 365
 
-      # Optionnel : même traitement pour ATP CSV si tu veux
       - name: Expire old reviewed flags (ATP)
         if: env.CSV_PATH_ATP != ''
         run: |
           python scripts/expire_reviews.py --csv player_data_atp.csv --months 6 --active-days 365
 
-
-
-      # ---------- NEW: geocode only missing places (updates cache) ----------
       - name: Geocode missing places and update cache
         env:
-          # put a contact in the user agent: keeps Nominatim happy
           USER_AGENT: "center-court-bot/1.0 (your-email@example.com)"
         run: |
-          # Only run geocoding if NET SKIP is not set; you may keep SKIP_GEOCODE=1 during main.py,
-          # but here we perform the cache update explicitly.
           python scripts/geocode_new_players.py \
             --csv player_data_wta.csv \
             --cache maps_html/coords_cache.json \
@@ -84,15 +75,13 @@ jobs:
             --delay 1.2 \
             --max 1000
 
-      # ---------- Generate embeddings (if used) ----------
       - name: Generate quick embeddings (optional)
         run: |
           python scripts/make_quick_embeddings.py
 
-      # ---------- Build all (maps + players pages) using the updated cache ----------
       - name: Run build_all (generate maps & docs)
         env:
-          SKIP_GEOCODE: "1"   # build will use the cache written above
+          SKIP_GEOCODE: "1"
         run: |
           python scripts/build_all.py
 
@@ -107,25 +96,18 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # add things we expect
           git add -f player_data_wta.csv || true
           git add -f maps_html/coords_cache.json || true
           git add -f docs || true
-          # debug show exactly what is staged & what's in repo
           echo "---- git status ----"
           git status --porcelain
-          echo "---- git ls-files (matching player_data_wta) ----"
-          git ls-files | grep -i player_data_wta || true
           echo "---- staged diff (if any) ----"
           git --no-pager diff --staged || true
           git commit -m "chore(automated): weekly update player DB + rebuild docs" || echo "No changes to commit"
 
-
       - name: Check for changes
         id: git-check
         run: |
-          # if there are any commits not yet pushed, set no-changes=false
-          # This checks whether HEAD is different from origin/main (best-effort)
           git fetch origin main --quiet || true
           if git rev-parse --verify origin/main >/dev/null 2>&1; then
             if git rev-parse HEAD | grep -q $(git rev-parse origin/main); then
@@ -134,7 +116,6 @@ jobs:
               echo "no-changes=false" >> $GITHUB_OUTPUT
             fi
           else
-            # origin/main not present (first push), assume there are changes to push
             echo "no-changes=false" >> $GITHUB_OUTPUT
           fi
 
@@ -147,36 +128,21 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          # Choose auth token: use PAT when available (preferred for triggering downstream workflows),
-          # otherwise fallback to the GITHUB_TOKEN that Actions provides automatically.
           AUTH="${PAT:-${GITHUB_TOKEN}}"
-
           if [ -z "$AUTH" ]; then
             echo "ERROR: no PAT_FOR_CI or GITHUB_TOKEN available to perform push" >&2
             exit 1
           fi
-
-          # Set remote url to embed auth token (so push uses the token). Use HTTPS remote.
           git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}" || true
-
-          # Fetch remote state and try to rebase local commits on top of origin/main to avoid rejects.
           git fetch origin main --quiet || true
-          # If origin/main exists, rebase; ignore errors (we'll still attempt push)
           if git rev-parse --verify origin/main >/dev/null 2>&1; then
             git rebase origin/main || echo "rebase had conflicts or failed; continuing to push attempt"
           fi
-
-          # Try normal push first
-          echo "Attempting git push origin HEAD:main ..."
           if git push origin HEAD:main; then
             echo "Push succeeded."
           else
-            echo "Push failed; attempt push with --force-with-lease (safer force) ..."
             git push --force-with-lease origin HEAD:main
           fi
-
-          # Show remote HEAD for debugging
           git ls-remote origin HEAD || true
 
       - name: Trigger Netlify deploy via build hook
@@ -188,13 +154,12 @@ jobs:
             echo "No NETLIFY_BUILD_HOOK set — skipping deploy trigger"
             exit 0
           fi
-          echo "Calling Netlify build hook..."
           curl -s -X POST "$NETLIFY_BUILD_HOOK" -o /tmp/netlify_hook_resp.txt -w "\nHTTP_STATUS:%{http_code}\n"
-          echo "Netlify response:"
           cat /tmp/netlify_hook_resp.txt || true
 
-# ---------------------------
+      # ---------------------------
       # NEW: compute this week's Monday and create one-line dates file
+      #       prefer github.event.inputs.atp_date if provided
       # ---------------------------
       - name: Prepare ATP scrape date (only this Monday)
         shell: bash
@@ -202,29 +167,21 @@ jobs:
           if [ -n "${{ github.event.inputs.atp_date }}" ]; then
             ISO="${{ github.event.inputs.atp_date }}"
           else
-            ISO=$(python - <<'PY'
-            from datetime import date, timedelta
-            d = date.today()
-            monday = d - timedelta(days=d.weekday())
-            print(monday.isoformat())
-            PY
-            )
-                      fi
-                      echo "date" > atp_dates_to_fetch.csv
-                      echo "$ISO" >> atp_dates_to_fetch.csv
-                      echo "Wrote atp_dates_to_fetch.csv containing $ISO"
-
+            ISO=$(python3 - <<'PY'
+from datetime import date, timedelta
+d = date.today()
+monday = d - timedelta(days=d.weekday())
+print(monday.isoformat())
+PY
+)
+          fi
+          echo -e "date\n$ISO" > atp_dates_to_fetch.csv
+          echo "Wrote atp_dates_to_fetch.csv containing $ISO"
 
       - name: Scrape ATP rankings (single week)
         run: |
-          # headless mode, single date via atp_dates_to_fetch.csv
-          python scripts/scrape_player_ranking_atp.py --dates-file atp_dates_to_fetch.csv --headless --max-players 5000
-        # optional: if you want to limit risk, set a per-step timeout
-        # (GitHub Actions supports job-level timeout; per-step non-blocking)
+          python scripts/scrape_atp_resilient_logged_restart_run.py --dates-file atp_dates_to_fetch.csv --headless --max-players 5000
 
-      # ---------------------------
-      # EXISTING: Update ATP CSV from atp_rankings (unchanged)
-      # ---------------------------
-      - name: Update ATP CSV from atp_rankings
+      - name: Update ATP CSV from atp_rankings (final)
         run: |
           python scripts/update_atp_from_rankings.py --rankings-dir atp_rankings --csv player_data_atp.csv --fuzzy
