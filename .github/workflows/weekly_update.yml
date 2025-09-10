@@ -167,20 +167,18 @@ jobs:
           if [ -n "${{ github.event.inputs.atp_date }}" ]; then
             ISO="${{ github.event.inputs.atp_date }}"
           else
-            ISO=$(python3 - <<'PY'
-            from datetime import date, timedelta
-            d = date.today()
-            monday = d - timedelta(days=d.weekday())
-            print(monday.isoformat())
-            PY
-            )
-            fi
-            echo -e "date\n$ISO" > atp_dates_to_fetch.csv
-            echo "Wrote atp_dates_to_fetch.csv containing $ISO"
+            ISO=$(python3 -c "from datetime import date, timedelta; d=date.today(); monday=d - timedelta(days=d.weekday()); print(monday.isoformat())")
+          fi
+          printf "date\n%s\n" "$ISO" > atp_dates_to_fetch.csv
+          echo "Wrote atp_dates_to_fetch.csv containing $ISO"
+
 
       - name: Scrape ATP rankings (single week)
+        env:
+          SINGLE_ATP_DATE: "1"
         run: |
-          python scripts/scrape_atp_resilient_logged_restart_run.py --dates-file atp_dates_to_fetch.csv --headless --max-players 5000
+          python3 scripts/scrape_player_ranking_atp.py --dates-file atp_dates_to_fetch.csv --headless --max-players 5000
+
 
       - name: Update ATP CSV from atp_rankings (final)
         run: |

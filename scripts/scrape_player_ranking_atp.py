@@ -668,14 +668,66 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
+    import os, sys
+
+    # debug simple pour tracer ce qui est passé
+    print("DEBUG: CLI args:", args)
+
+    # If a dates_file was passed, read it and optionally force single-date mode
+    if args.dates_file:
+        try:
+            dates_list = read_dates_file(args.dates_file)
+        except Exception as e:
+            print(f"ERROR: failed to read dates file {args.dates_file}: {e}")
+            sys.exit(2)
+
+        print(f"DEBUG: dates read from {args.dates_file}: {dates_list}")
+
+        # If SINGLE_ATP_DATE env var is set, restrict to the first date only.
+        if os.getenv("SINGLE_ATP_DATE", "") in ("1", "true", "True", "yes", "y"):
+            if not dates_list:
+                print("ERROR: SINGLE_ATP_DATE requested but no dates found in file.")
+                sys.exit(3)
+            if len(dates_list) > 1:
+                print("WARNING: SINGLE_ATP_DATE active -> keeping only first date:", dates_list[0])
+                dates_list = [dates_list[0]]
+
+        # Defensive: remove duplicates / empty, keep order
+        cleaned = []
+        for d in dates_list:
+            if not d or not str(d).strip():
+                continue
+            if d not in cleaned:
+                cleaned.append(d)
+        dates_list = cleaned
+
+        if not dates_list:
+            print("No valid dates to process after cleaning -> exiting.")
+            sys.exit(0)
+
+        # call the iterator specifically for the list (this will only process the entries we passed)
+        iterate_dates_from_list(
+            dates_list,
+            headless=args.headless,
+            max_players=args.max_players,
+            rotate_ua=args.rotate_ua,
+            ua_list=DEFAULT_USER_AGENTS,
+            proxy_file=args.proxy_file,
+            restart_run_every=args.restart_run_every,
+            max_retries_captcha=args.max_retries_captcha,
+            backoff_factor=args.backoff_factor
+        )
+        sys.exit(0)
+
+    # fallback: no dates_file passed -> preserve original weekly behavior (unchanged)
     iterate_dates_and_scrape(
         start_date_str=args.start_date or datetime.utcnow().strftime("%Y-%m-%d"),
         end_date_str=args.end_date,
         weeks=args.weeks,
         headless=args.headless,
         max_players=args.max_players,
-        min_delay=args.min_delay,
-        max_delay=args.max_delay,
+        min_delay=5.0,
+        max_delay=10.0,
         rotate_ua=args.rotate_ua,
         ua_list=DEFAULT_USER_AGENTS,
         proxy_file=args.proxy_file,
@@ -683,5 +735,5 @@ if __name__ == "__main__":
         restart_run_every=args.restart_run_every,
         max_retries_captcha=args.max_retries_captcha,
         backoff_factor=args.backoff_factor,
-        dates_file=args.dates_file
+        dates_file=None
     )
