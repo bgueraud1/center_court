@@ -182,7 +182,12 @@ jobs:
         run: |
           python3 scripts/scrape_player_ranking_atp.py --dates-file atp_dates_to_fetch.csv --headless --max-players 5000
 
-      - name: Update ATP CSV from atp_rankings
+      - name: Update ATP CSV from atp_rankings (only this Monday)
         run: |
-          python3 scripts/update_atp_from_rankings.py --rankings-dir atp_rankings --csv player_data_atp.csv --fuzzy
+          if [ -z "${{ env.ISO }}" ]; then
+            echo "ERROR: ISO date not set" >&2
+            exit 1
+          fi
+          python3 scripts/update_atp_from_rankings.py --rankings-dir atp_rankings --csv player_data_atp.csv --fuzzy --date "${ISO}"
+
       

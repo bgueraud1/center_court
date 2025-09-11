@@ -132,7 +132,9 @@ def find_match_fuzzy(df_players, name, cutoff=0.85):
     return None
 
 def main(rankings_dir="atp_rankings", csv_path="player_data_atp.csv",
-         fuzzy=False, fuzzy_cutoff=0.85, dry_run=False, date_filter=None, latest=False):
+         fuzzy=False, fuzzy_cutoff=0.85, dry_run=False, date_filter=None,
+         latest=False, since_csv=False):
+
     rdir = Path(rankings_dir)
     if not rdir.exists():
         raise SystemExit(f"rankings dir {rdir} not found")
@@ -148,6 +150,36 @@ def main(rankings_dir="atp_rankings", csv_path="player_data_atp.csv",
     players_df['__norm_name'] = players_df['full_name'].apply(normalize_name)
 
     files = sorted([p for p in rdir.iterdir() if p.is_file() and re.match(r"data_\d{4}_\d{2}_\d{2}\.csv", p.name)])
+
+
+    # optional: only process files newer than the CSV's max last_appearance
+    if since_csv:
+        try:
+            # parse last_appearance column to datetimes
+            last_dates = pd.to_datetime(players_df['last_appearance'], errors='coerce')
+            if last_dates.notna().any():
+                cutoff_dt = last_dates.max().to_pydatetime().date()
+            else:
+                cutoff_dt = None
+        except Exception:
+            cutoff_dt = None
+
+        if cutoff_dt:
+            filtered = []
+            for pth in files:
+                m = re.search(r"data_(\d{4}_\d{2}_\d{2})\.csv$", pth.name)
+                if not m:
+                    continue
+                fdate = datetime.strptime(m.group(1).replace("_", "-"), "%Y-%m-%d").date()
+                if fdate > cutoff_dt:
+                    filtered.append(pth)
+            files = filtered
+            if not files:
+                print(f"No ranking files newer than last_appearance {cutoff_dt}. Nothing to do.")
+                return
+            print(f"Processing {len(files)} ranking files newer than {cutoff_dt}.")
+
+
     if not files:
         print("No ranking files found (pattern data_YYYY_MM_DD.csv). Nothing to do.")
         return
@@ -254,6 +286,8 @@ def main(rankings_dir="atp_rankings", csv_path="player_data_atp.csv",
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
+    p.add_argument("--since-csv", action="store_true",
+                   help="Process only ranking files whose date is strictly newer than max(last_appearance) in the CSV")
     p.add_argument("--rankings-dir", default="atp_rankings", help="Directory with ranking CSVs (data_YYYY_MM_DD.csv)")
     p.add_argument("--csv", default="player_data_atp.csv", help="player_data_atp.csv path to update")
     p.add_argument("--fuzzy", action="store_true", help="Enable fuzzy name matching (difflib.get_close_matches)")
@@ -262,5 +296,12 @@ if __name__ == "__main__":
     p.add_argument("--date", default=None, help="Optional: only process ranking file for this date (YYYY-MM-DD)")
     p.add_argument("--latest", action="store_true", help="Optional: only process the most recent ranking file")
     args = p.parse_args()
-    main(rankings_dir=args.rankings_dir, csv_path=args.csv, fuzzy=args.fuzzy,
-         fuzzy_cutoff=args.fuzzy_cutoff, dry_run=args.dry_run, date_filter=args.date, latest=args.latest)
+    main(rankings_dir=args.rankings_dir,
+         csv_path=args.csv,
+         fuzzy=args.fuzzy,
+         fuzzy_cutoff=args.fuzzy_cutoff,
+         dry_run=args.dry_run,
+         date_filter=args.date,
+         latest=args.latest,
+         since_csv=args.since_csv)
+
