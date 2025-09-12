@@ -16,6 +16,18 @@
     .no-results { color:#6c757d; padding:1rem 0 }
     @media (max-width:575px){ .form-row { flex-direction:column } .form-row > * { width:100%; margin-bottom:.5rem } }
     pre.attempts { background:#111; color:#0f0; padding:.5rem; border-radius:.25rem; font-size:.85rem; }
+
+    /* Added styles for circuit row backgrounds */
+    .row-wta { background: #f6f0ff; } /* very light violet */
+    .row-atp { background: #f0f8ff; } /* very light blue */
+
+    /* ensure hover remains readable */
+    #results-table tbody tr:hover.row-wta { background:#efe6ff; }
+    #results-table tbody tr:hover.row-atp { background:#e6f3ff; }
+
+    /* link style inside table */
+    .player-link { text-decoration: none; color: inherit; }
+    .player-link:hover { text-decoration: underline; color: inherit; }
   </style>
 </head>
 <body>
@@ -148,7 +160,7 @@
           }
           // success
           players = await resp.json();
-          statusEl.textContent = `Index loaded — ${players.length.toLocaleString()} players.`;
+          statusEl.textContent = `Index loaded — ${players.length.toLocaleString()} players (from ${p}).`;
           debugEl.style.display = 'none';
           showLoading(false);
           return;
@@ -173,14 +185,48 @@
       return p.birth_day === day && p.birth_month === month;
     }
 
+    // Build a safe slug from name (mirror du safe_slug Python)
+    function makeSlug(name){
+      if(!name) return "player";
+      return name.toString().trim().toLowerCase()
+        .replace(/[^\w\s-]/g,'')   // remove non word chars
+        .replace(/\s+/g,'-')       // spaces -> hyphens
+        .replace(/^-+|-+$/g,'');   // trim leading/trailing hyphens
+    }
+
+    // Build the player URL based on circuit and available player_id.
+    // Heuristics:
+    //  - WTA -> /players/{player_id-}{slug}.html  (or /players/{slug}.html if no id)
+    //  - ATP -> /players_atp/{player_id-}{slug}.html (or /players_atp/{slug}.html if no id)
+    // You can adapt to use extensionless URLs if your deploy expects that.
+    function buildPlayerUrl(p){
+      const slug = makeSlug(p.full_name || "");
+      const idPart = (p.player_id && p.player_id.toString().trim()) ? (p.player_id.toString().trim() + "-") : "";
+      if((p.circuit || "").toUpperCase() === "WTA"){
+        return `/players/${idPart}${slug}.html`;
+      }
+      // default to ATP-style path
+      return `/players_atp/${idPart}${slug}.html`;
+    }
+
     function renderResults(list){
       resultsTbody.innerHTML = '';
       list.forEach((r, idx) => {
         const rankDisplay = (r.best_rank && r.best_rank !== SENTINEL) ? r.best_rank : '—';
         const tr = document.createElement('tr');
+
+        // add circuit-specific class for background color
+        const circuit = (r.circuit || "").toUpperCase();
+        if(circuit === "WTA") tr.classList.add('row-wta');
+        else if(circuit === "ATP") tr.classList.add('row-atp');
+
+        // build player url
+        const url = buildPlayerUrl(r);
+
+        // render
         tr.innerHTML = `
           <td class="small text-muted">${idx+1}</td>
-          <td><strong>${escapeHtml(r.full_name)}</strong></td>
+          <td><a class="player-link" href="${escapeHtml(url)}">${escapeHtml(r.full_name)}</a></td>
           <td class="small-muted">${escapeHtml(r.circuit)}</td>
           <td class="small-muted">${escapeHtml(r.birth_date || '')}</td>
           <td><span class="badge bg-light text-dark rank-badge">${rankDisplay}</span></td>
