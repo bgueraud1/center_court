@@ -133,7 +133,7 @@ INDEX_TOP = """<!doctype html>
       <a class="navbar-brand" href="../index.html">Center Court</a>
       <span class="navbar-text text-white">Players (ATP)</span>
       <span class="navbar-text text-white">Players</span>
-      <a class="btn btn-sm btn-outline-light ms-2" href="../tools/birthdate_search.html">Recherche par date</a>
+      <a class="btn btn-sm btn-outline-light ms-2" href="../tools/birthdate_search.html">Search players by birthdate</a>
 
     </div>
   </nav>

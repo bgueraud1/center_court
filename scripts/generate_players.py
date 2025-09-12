@@ -132,7 +132,7 @@ INDEX_TOP = """<!doctype html>
       <span class="navbar-text text-white">Players</span>
 
       <span class="navbar-text text-white">Players</span>
-      <a class="btn btn-sm btn-outline-light ms-2" href="../tools/birthdate_search.html">Recherche par date</a>
+      <a class="btn btn-sm btn-outline-light ms-2" href="../tools/birthdate_search.html">Search player by birthdate</a>
 
     </div>
   </nav>
