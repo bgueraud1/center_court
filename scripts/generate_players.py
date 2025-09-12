@@ -130,6 +130,10 @@ INDEX_TOP = """<!doctype html>
     <div class="container">
       <a class="navbar-brand" href="../index.html">Central Court</a>
       <span class="navbar-text text-white">Players</span>
+
+      <span class="navbar-text text-white">Players</span>
+      <a class="btn btn-sm btn-outline-light ms-2" href="../tools/birthdate_search.html">Recherche par date</a>
+
     </div>
   </nav>
 
@@ -254,6 +258,18 @@ def main():
         players_index_lines.append(entry)
 
     index_html = INDEX_TOP + "\n".join(players_index_lines) + INDEX_BOTTOM
+    import subprocess, sys
+    # --- update birthdate JSON for the client tool (non-fatal) ---
+    try:
+        gen_script = ROOT / "scripts" / "generate_birthdate_index.py"
+        if gen_script.exists():
+            print("Updating docs/tools/players_by_birth.json ...")
+            subprocess.check_call([sys.executable, str(gen_script)])
+        else:
+            print("generate_birthdate_index.py not found; skipping birthdate JSON generation.")
+    except Exception as e:
+        print("Warning: failed to run generate_birthdate_index.py:", e)
+
     (OUT_DIR / "index.html").write_text(index_html, encoding="utf-8")
     print(f"Generated {len(players_index_lines)} player pages to {OUT_DIR}")
 
