@@ -71,15 +71,9 @@ jobs:
             --delay 1.2 \
             --max 1000
 
-      - name: Generate quick embeddings (optional)
+            - name: Generate quick embeddings (optional)
         run: |
           python scripts/make_quick_embeddings.py
-
-      - name: Run build_all (generate maps & docs)
-        env:
-          SKIP_GEOCODE: "1"
-        run: |
-          python scripts/build_all.py
 
       - name: Debug list (optional)
         run: |
@@ -88,11 +82,86 @@ jobs:
           echo "---- docs listing (if any) ----"
           ls -la docs || true
 
+      # ---------------------------
+      # prepare and run the ATP scrape & update step (one-week)
+      # ---------------------------
+      - name: Prepare ATP scrape date (only this Monday)
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.atp_date }}" ]; then
+            ISO="${{ github.event.inputs.atp_date }}"
+          else
+            ISO=$(python3 -c "from datetime import date, timedelta; d=date.today(); monday=d - timedelta(days=d.weekday()); print(monday.isoformat())")
+          fi
+          printf "date\n%s\n" "$ISO" > atp_dates_to_fetch.csv
+          echo "ISO=$ISO" >> $GITHUB_ENV
+          echo "Wrote atp_dates_to_fetch.csv containing $ISO"
+
+      - name: Debug dates and rankings dir
+        run: |
+          echo "atp_dates_to_fetch.csv:"
+          cat atp_dates_to_fetch.csv || true
+          echo "Listing atp_rankings (first 50):"
+          ls -1 atp_rankings | sed -n '1,50p' || true
+
+      - name: Scrape ATP rankings (single week)
+        env:
+          SINGLE_ATP_DATE: "1"
+        run: |
+          python3 scripts/scrape_player_ranking_atp.py --dates-file atp_dates_to_fetch.csv --headless --max-players 5000
+
+      - name: Update ATP CSV from atp_rankings (only this Monday)
+        run: |
+          if [ -z "${{ env.ISO }}" ]; then
+            echo "ERROR: ISO date not set" >&2
+            exit 1
+          fi
+          python3 scripts/update_atp_from_rankings.py --rankings-dir atp_rankings --csv player_data_atp.csv --fuzzy --date "${ISO}"
+
+      # ---------------------------
+      # Recompute best ranks for active players (must run before build_all)
+      # ---------------------------
+      - name: Recompute best rankings (WTA)
+        run: |
+          python3 scripts/recompute_best_rankings.py --rankings-dir wta_rankings --csv player_data_wta.csv
+
+      - name: Recompute best rankings (ATP)
+        run: |
+          python3 scripts/recompute_best_rankings.py --rankings-dir atp_rankings --csv player_data_atp.csv
+
+      # ---------------------------
+      # Build maps & docs now that CSVs are up-to-date
+      # ---------------------------
+      - name: Run build_all (generate maps & docs)
+        env:
+          SKIP_GEOCODE: "1"
+        run: |
+          python scripts/build_all.py
+
+      # ---------------------------
+      # Regenerate the birthdate index JSON used by the date search tool
+      # ---------------------------
+      - name: Generate birthdate index (players_by_birth.json)
+        run: |
+          python3 scripts/generate_birthdate_index.py
+
+      - name: Debug list after build (optional)
+        run: |
+          echo "---- docs listing after build ----"
+          ls -la docs || true
+          echo "---- tools listing ----"
+          ls -la docs/tools || true
+
+      # ---------------------------
+      # COMMIT / PUSH updated CSVs/docs and trigger deploy
+      # (moved here so commit includes freshly generated files)
+      # ---------------------------
       - name: Commit docs, cache and CSV
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -f player_data_wta.csv || true
+          git add -f player_data_atp.csv || true
           git add -f maps_html/coords_cache.json || true
           git add -f docs || true
           echo "---- git status ----"
@@ -152,42 +221,3 @@ jobs:
           fi
           curl -s -X POST "$NETLIFY_BUILD_HOOK" -o /tmp/netlify_hook_resp.txt -w "\nHTTP_STATUS:%{http_code}\n"
           cat /tmp/netlify_hook_resp.txt || true
-
-      # ---------------------------
-      # NEW: compute this week's Monday and create one-line dates file
-      #       prefer github.event.inputs.atp_date if provided
-      # ---------------------------
-      - name: Prepare ATP scrape date (only this Monday)
-        shell: bash
-        run: |
-          if [ -n "${{ github.event.inputs.atp_date }}" ]; then
-            ISO="${{ github.event.inputs.atp_date }}"
-          else
-            ISO=$(python3 -c "from datetime import date, timedelta; d=date.today(); monday=d - timedelta(days=d.weekday()); print(monday.isoformat())")
-          fi
-          printf "date\n%s\n" "$ISO" > atp_dates_to_fetch.csv
-          echo "ISO=$ISO" >> $GITHUB_ENV
-          echo "Wrote atp_dates_to_fetch.csv containing $ISO"
-
-      - name: Debug dates and rankings dir
-        run: |
-          echo "atp_dates_to_fetch.csv:"
-          cat atp_dates_to_fetch.csv || true
-          echo "Listing atp_rankings (first 50):"
-          ls -1 atp_rankings | sed -n '1,50p' || true
-
-      - name: Scrape ATP rankings (single week)
-        env:
-          SINGLE_ATP_DATE: "1"
-        run: |
-          python3 scripts/scrape_player_ranking_atp.py --dates-file atp_dates_to_fetch.csv --headless --max-players 5000
-
-      - name: Update ATP CSV from atp_rankings (only this Monday)
-        run: |
-          if [ -z "${{ env.ISO }}" ]; then
-            echo "ERROR: ISO date not set" >&2
-            exit 1
-          fi
-          python3 scripts/update_atp_from_rankings.py --rankings-dir atp_rankings --csv player_data_atp.csv --fuzzy --date "${ISO}"
-
-      
