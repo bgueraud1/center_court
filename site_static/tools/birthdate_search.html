@@ -10,6 +10,27 @@
     .card { box-shadow: 0 6px 18px rgba(20,30,60,0.06); border: none; }
     .muted { color:#6c757d; }
     .rank-badge { min-width:3.0rem; display:inline-block; text-align:center; }
+    /* petit style pour l'emoji drapeau à côté du nom */
+.flag-emoji {
+  font-size: 1.1rem;
+  margin-right: 0.4rem;
+  vertical-align: middle;
+}
+
+/* si tu veux que le nom et le drapeau restent alignés */
+td.name-cell { display: flex; align-items: center; gap: .5rem; }
+
+    /* couleurs douces pour les lignes WTA / ATP */
+    tr.row-wta { background-color: rgba(255,229,236,0.9); } /* rose très clair */
+    tr.row-atp { background-color: rgba(227,241,255,0.95); } /* bleu très clair */
+
+    /* hover un peu plus marqué tout en restant subtil */
+    .table-hover tbody tr.row-wta:hover { background-color: rgba(255,204,220,0.98); }
+    .table-hover tbody tr.row-atp:hover { background-color: rgba(204,224,255,0.98); }
+
+    /* s'assurer du contraste du texte */
+    tr.row-wta td, tr.row-atp td { color: #212529; }
+
     .small-muted { color:#6c757d; font-size:.9rem }
     .no-results { color:#6c757d; padding:1rem 0 }
     @media (max-width:575px){ .form-row { flex-direction:column } .form-row > * { width:100%; margin-bottom:.5rem } }
@@ -132,20 +153,30 @@
     function escapeHtml(s){ if(!s) return ''; return s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'); }
 
     function renderResults(list){
-      resultsTbody.innerHTML = '';
-      list.forEach((r, idx) => {
-        const rankDisplay = (r.best_rank && r.best_rank !== SENTINEL) ? r.best_rank : '—';
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td class="small text-muted">${idx+1}</td>
-          <td><strong>${escapeHtml(r.full_name)}</strong></td>
-          <td class="small-muted">${escapeHtml(r.circuit)}</td>
-          <td class="small-muted">${escapeHtml(r.birth_date || '')}</td>
-          <td><span class="badge bg-light text-dark rank-badge">${rankDisplay}</span></td>
-        `;
-        resultsTbody.appendChild(tr);
-      });
-    }
+  resultsTbody.innerHTML = '';
+  list.forEach((r, idx) => {
+    const rankDisplay = (r.best_rank && r.best_rank !== SENTINEL) ? r.best_rank : '—';
+    const tr = document.createElement('tr');
+
+    // applique une classe selon le circuit (tolérant à la casse)
+    const circuit = (r.circuit || '').toUpperCase();
+    const circuitClass = circuit === 'WTA' ? 'row-wta' : (circuit === 'ATP' ? 'row-atp' : '');
+    if (circuitClass) tr.classList.add(circuitClass);
+
+    // prepare flag (safe - emojis unaffected by escapeHtml)
+    const flag = r.flag_emoji ? `<span class="flag-emoji" title="${escapeHtml(r.country || '')}">${r.flag_emoji}</span>` : '';
+
+    tr.innerHTML = `
+      <td class="small text-muted">${idx+1}</td>
+      <td class="name-cell"><strong>${flag}${escapeHtml(r.full_name)}</strong></td>
+      <td class="small-muted">${escapeHtml(r.circuit)}</td>
+      <td class="small-muted">${escapeHtml(r.birth_date || '')}</td>
+      <td><span class="badge bg-light text-dark rank-badge">${rankDisplay}</span></td>
+    `;
+    resultsTbody.appendChild(tr);
+  });
+}
+
 
     document.getElementById('search').addEventListener('click', (ev)=>{
       ev.preventDefault();
