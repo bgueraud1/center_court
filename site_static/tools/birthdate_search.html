@@ -10,25 +10,37 @@
     .card { box-shadow: 0 6px 18px rgba(20,30,60,0.06); border: none; }
     .muted { color:#6c757d; }
     .rank-badge { min-width:3.0rem; display:inline-block; text-align:center; }
-    /* petit style pour l'emoji drapeau à côté du nom */
-.flag-emoji {
-  font-size: 1.1rem;
-  margin-right: 0.4rem;
-  vertical-align: middle;
-}
 
-/* si tu veux que le nom et le drapeau restent alignés */
-td.name-cell { display: flex; align-items: center; gap: .5rem; }
+    /* emoji font fallback and spacing */
+    .flag-emoji {
+      font-size: 1.1rem;
+      margin-right: 0.4rem;
+      vertical-align: middle;
+      /* encourage color emoji fonts where available */
+      font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+      line-height: 1;
+    }
 
-    /* couleurs douces pour les lignes WTA / ATP */
-    tr.row-wta { background-color: rgba(255,229,236,0.9); } /* rose très clair */
-    tr.row-atp { background-color: rgba(227,241,255,0.95); } /* bleu très clair */
+    /* alignement nom + drapeau */
+    td.name-cell { display: flex; align-items: center; gap: .5rem; white-space: nowrap; }
 
-    /* hover un peu plus marqué tout en restant subtil */
-    .table-hover tbody tr.row-wta:hover { background-color: rgba(255,204,220,0.98); }
-    .table-hover tbody tr.row-atp:hover { background-color: rgba(204,224,255,0.98); }
+    /* couleurs douces pour les lignes WTA / ATP (appliquées aux <td> pour fiabilité) */
+    .table tbody tr.row-wta td {
+      background-color: rgba(255,229,236,0.9); /* rose très clair */
+    }
+    .table tbody tr.row-atp td {
+      background-color: rgba(227,241,255,0.95); /* bleu très clair */
+    }
 
-    /* s'assurer du contraste du texte */
+    /* hover (appliqué aux cellules) */
+    .table-hover tbody tr.row-wta:hover td {
+      background-color: rgba(255,204,220,0.98);
+    }
+    .table-hover tbody tr.row-atp:hover td {
+      background-color: rgba(204,224,255,0.98);
+    }
+
+    /* contraste texte */
     tr.row-wta td, tr.row-atp td { color: #212529; }
 
     .small-muted { color:#6c757d; font-size:.9rem }
@@ -115,7 +127,7 @@ td.name-cell { display: flex; align-items: center; gap: .5rem; }
   <script>
     // CONFIG
     const SENTINEL = 9999999;
-    const JSON_PATH = './players_by_birth.json'; // relative to this file; file lives in same folder
+    const JSON_PATH = './players_by_birth.json'; // adjust if your JSON lives elsewhere
 
     let players = [];
 
@@ -152,31 +164,64 @@ td.name-cell { display: flex; align-items: center; gap: .5rem; }
 
     function escapeHtml(s){ if(!s) return ''; return s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'); }
 
+    // helper: génère emoji drapeau à partir d'un alpha-2 (ex: "FR" -> "🇫🇷")
+    function emojiFromAlpha2(alpha2){
+      if(!alpha2 || alpha2.length !== 2) return '';
+      try {
+        const A = alpha2.toUpperCase().charCodeAt(0);
+        const B = alpha2.toUpperCase().charCodeAt(1);
+        return String.fromCodePoint(127397 + A, 127397 + B);
+      } catch(e) {
+        return '';
+      }
+    }
+
+    // helper: decode des séquences échappées type "\ud83c\uddfa\ud83c\udde6"
+    function decodeEscapedUnicode(s){
+      if(!s || typeof s !== 'string') return '';
+      if(/\\u[0-9a-fA-F]{4}/.test(s) || /\\x[0-9a-fA-F]{2}/.test(s)){
+        try {
+          return JSON.parse('"' + s.replace(/"/g,'\\"') + '"');
+        } catch(e) {
+          return s;
+        }
+      }
+      return s;
+    }
+
     function renderResults(list){
-  resultsTbody.innerHTML = '';
-  list.forEach((r, idx) => {
-    const rankDisplay = (r.best_rank && r.best_rank !== SENTINEL) ? r.best_rank : '—';
-    const tr = document.createElement('tr');
+      resultsTbody.innerHTML = '';
+      list.forEach((r, idx) => {
+        const rankDisplay = (r.best_rank && r.best_rank !== SENTINEL) ? r.best_rank : '—';
+        const tr = document.createElement('tr');
 
-    // applique une classe selon le circuit (tolérant à la casse)
-    const circuit = (r.circuit || '').toUpperCase();
-    const circuitClass = circuit === 'WTA' ? 'row-wta' : (circuit === 'ATP' ? 'row-atp' : '');
-    if (circuitClass) tr.classList.add(circuitClass);
+        // applique une classe selon le circuit (tolérant à la casse)
+        const circuit = (r.circuit || '').toUpperCase();
+        const circuitClass = circuit === 'WTA' ? 'row-wta' : (circuit === 'ATP' ? 'row-atp' : '');
+        if (circuitClass) tr.classList.add(circuitClass);
 
-    // prepare flag (safe - emojis unaffected by escapeHtml)
-    const flag = r.flag_emoji ? `<span class="flag-emoji" title="${escapeHtml(r.country || '')}">${r.flag_emoji}</span>` : '';
+        // Prépare le drapeau : priorité à country_alpha2 -> génère emoji,
+        // sinon essaie de décoder r.flag_emoji si présent (cas des séquences échappées)
+        let flagChar = '';
+        if (r.country_alpha2) {
+          flagChar = emojiFromAlpha2(r.country_alpha2);
+        }
+        if (!flagChar && r.flag_emoji) {
+          flagChar = decodeEscapedUnicode(r.flag_emoji);
+        }
 
-    tr.innerHTML = `
-      <td class="small text-muted">${idx+1}</td>
-      <td class="name-cell"><strong>${flag}${escapeHtml(r.full_name)}</strong></td>
-      <td class="small-muted">${escapeHtml(r.circuit)}</td>
-      <td class="small-muted">${escapeHtml(r.birth_date || '')}</td>
-      <td><span class="badge bg-light text-dark rank-badge">${rankDisplay}</span></td>
-    `;
-    resultsTbody.appendChild(tr);
-  });
-}
+        const flagHtml = flagChar ? `<span class="flag-emoji" title="${escapeHtml(r.country || r.country_alpha2 || '')}">${flagChar}</span>` : '';
 
+        tr.innerHTML = `
+          <td class="small text-muted">${idx+1}</td>
+          <td class="name-cell"><strong>${flagHtml}${escapeHtml(r.full_name)}</strong></td>
+          <td class="small-muted">${escapeHtml(r.circuit)}</td>
+          <td class="small-muted">${escapeHtml(r.birth_date || '')}</td>
+          <td><span class="badge bg-light text-dark rank-badge">${rankDisplay}</span></td>
+        `;
+        resultsTbody.appendChild(tr);
+      });
+    }
 
     document.getElementById('search').addEventListener('click', (ev)=>{
       ev.preventDefault();
