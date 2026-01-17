@@ -178,20 +178,7 @@ function debugDump() {
 
     function escapeHtml(s){ if(!s) return ''; return s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'); }
 
-    // helper: génère emoji drapeau à partir d'un alpha-2 (ex: "FR" -> "🇫🇷")
-/* ---------- Helper : création emoji à partir d'alpha2 ---------- */
-function emojiFromAlpha2(alpha2){
-  if(!alpha2 || typeof alpha2 !== 'string') return '';
-  const s = alpha2.trim().toUpperCase();
-  if(!/^[A-Z]{2}$/.test(s)) return '';
-  try {
-    const cp1 = 127397 + s.charCodeAt(0);
-    const cp2 = 127397 + s.charCodeAt(1);
-    return String.fromCodePoint(cp1, cp2);
-  } catch(e) {
-    return '';
-  }
-}
+
 
 /* ---------- Helper : test si emoji drapeau s'affiche réellement ---------- */
 /* Méthode : on crée un span invisible, on compare largeur du rendu emoji vs largeur des 2 lettres.
@@ -226,18 +213,6 @@ function emojiDisplaysAsFlag(alpha2){
   return result;
 }
 
-/* ---------- Helper : fallback image HTML (FlagCDN by default) ---------- */
-/* Uses lowercase alpha-2, example FlagCDN URL: https://flagcdn.com/24x18/it.png
-   You may instead point to local ./flags/{cc}.svg by adjusting the `src` variable. */
-function flagImageHtmlFromAlpha2(alpha2, size = 20){
-  if(!alpha2) return '';
-  const code = alpha2.trim().toLowerCase();
-  // Use the SVG file (available for all country codes) — more reliable than requesting specific PNG sizes.
-  const src = `https://flagcdn.com/${code}.svg`;
-  const height = Math.round(size * 0.75);
-  // vertical-align: middle to match text baseline, and small border-radius for nicer look
-  return `<img src="${src}" alt="${code}" width="${size}" height="${height}" style="margin-right:.4rem; border-radius:2px; object-fit:cover; vertical-align:middle">`;
-}
 
 
 /* ---------- decode si JSON contient \u sequences (sécurise) ---------- */
@@ -248,8 +223,69 @@ function decodeEscapedUnicode(s){
   }
   return s;
 }
+/* ---------- Helper : crée une <img> drapeau (SVG) et fallback DOM handler ---------- */
+function createFlagImageElement(alpha2, size = 20, fallbackEmoji = '') {
+  if(!alpha2) {
+    // si pas d'alpha2, essaie d'afficher l'emoji brut si fourni
+    if (fallbackEmoji) {
+      const span = document.createElement('span');
+      span.className = 'flag-emoji';
+      span.textContent = fallbackEmoji;
+      return span;
+    }
+    return document.createTextNode(''); // rien
+  }
 
-/* ---------- renderResults (intègre fallback emoji -> image) ---------- */
+  const code = alpha2.trim().toLowerCase();
+  const src = `https://flagcdn.com/${code}.svg`; // SVG fiable pour toutes les ISO alpha-2
+  const img = document.createElement('img');
+
+  img.src = src;
+  img.alt = code;
+  img.width = size;
+  img.height = Math.round(size * 0.75);
+  img.style.marginRight = '.4rem';
+  img.style.borderRadius = '2px';
+  img.style.objectFit = 'cover';
+  img.style.verticalAlign = 'middle';
+  img.loading = 'lazy';
+
+  // fallback si l'image ne charge pas : remplace par emoji (si disponible) ou par le code majuscule
+  img.onerror = function() {
+    // retire l'image cassée
+    try { this.remove(); } catch(e) { /* ignore */ }
+
+    if (fallbackEmoji) {
+      const span = document.createElement('span');
+      span.className = 'flag-emoji';
+      span.textContent = fallbackEmoji;
+      span.title = alpha2.toUpperCase();
+      // insère le span à la place de l'image (si parent existe)
+      if (this.parentNode) this.parentNode.insertBefore(span, this.nextSibling);
+    } else {
+      const txt = document.createTextNode(alpha2.toUpperCase());
+      if (this.parentNode) this.parentNode.insertBefore(txt, this.nextSibling);
+    }
+  };
+
+  return img;
+}
+
+/* ---------- Helper simple : emoji à partir d'alpha2 (sera utilisé seulement comme fallback) ---------- */
+function emojiFromAlpha2(alpha2){
+  if(!alpha2 || typeof alpha2 !== 'string') return '';
+  const s = alpha2.trim().toUpperCase();
+  if(!/^[A-Z]{2}$/.test(s)) return '';
+  try {
+    const cp1 = 127397 + s.charCodeAt(0);
+    const cp2 = 127397 + s.charCodeAt(1);
+    return String.fromCodePoint(cp1, cp2);
+  } catch(e) {
+    return '';
+  }
+}
+
+/* ---------- renderResults : construit les lignes avec DOM nodes (fallback fiable) ---------- */
 function renderResults(list){
   resultsTbody.innerHTML = '';
   list.forEach((r, idx) => {
@@ -261,30 +297,58 @@ function renderResults(list){
     const circuitClass = circuit === 'WTA' ? 'row-wta' : (circuit === 'ATP' ? 'row-atp' : '');
     if (circuitClass) tr.classList.add(circuitClass);
 
-    // essaye emoji à partir de country_alpha2, sinon décode flag_emoji
-    let flagChar = '';
-    if (r.country_alpha2) flagChar = emojiFromAlpha2(r.country_alpha2);
-    if(!flagChar && r.flag_emoji) flagChar = decodeEscapedUnicode(r.flag_emoji);
+    // prépare fallback emoji (soit depuis country_alpha2, soit depuis flag_emoji dans le JSON)
+    let fallbackEmoji = '';
+    if (r.flag_emoji) fallbackEmoji = decodeEscapedUnicode(r.flag_emoji);
+    if (!fallbackEmoji && r.country_alpha2) fallbackEmoji = emojiFromAlpha2(r.country_alpha2);
 
-    // decide affichage : emoji natif si rendu OK, sinon image CDN/local
-    let flagHtml = '';
-    if (flagChar && r.country_alpha2 && emojiDisplaysAsFlag(r.country_alpha2)) {
-      flagHtml = `<span class="flag-emoji" title="${escapeHtml(r.country || r.country_alpha2 || '')}">${flagChar}</span>`;
-    } else if (r.country_alpha2) {
-      // fallback image (remote CDN). If tu préfères fichiers locaux mets src vers ./flags/${code}.svg
-      flagHtml = flagImageHtmlFromAlpha2(r.country_alpha2, 20);
-    } else if (flagChar) {
-      // si on a un emoji mais pas alpha2 (rare), affiche l'emoji brut
-      flagHtml = `<span class="flag-emoji">${flagChar}</span>`;
+    // colonne # 
+    const tdIndex = document.createElement('td');
+    tdIndex.className = 'small text-muted';
+    tdIndex.textContent = String(idx + 1);
+    tr.appendChild(tdIndex);
+
+    // colonne name (flag + nom)
+    const tdName = document.createElement('td');
+    tdName.className = 'name-cell';
+    const strong = document.createElement('strong');
+
+    // insert either image element (preferred) or emoji text node / code
+    if (r.country_alpha2) {
+      const imgOrSpan = createFlagImageElement(r.country_alpha2, 20, fallbackEmoji);
+      strong.appendChild(imgOrSpan);
+    } else if (fallbackEmoji) {
+      const span = document.createElement('span');
+      span.className = 'flag-emoji';
+      span.textContent = fallbackEmoji;
+      strong.appendChild(span);
     }
 
-    tr.innerHTML = `
-      <td class="small text-muted">${idx+1}</td>
-      <td class="name-cell"><strong>${flagHtml}${escapeHtml(r.full_name)}</strong></td>
-      <td class="small-muted">${escapeHtml(r.circuit)}</td>
-      <td class="small-muted">${escapeHtml(r.birth_date || '')}</td>
-      <td><span class="badge bg-light text-dark rank-badge">${rankDisplay}</span></td>
-    `;
+    // finally the name text
+    strong.appendChild(document.createTextNode(escapeHtml(r.full_name)));
+    tdName.appendChild(strong);
+    tr.appendChild(tdName);
+
+    // colonne tour
+    const tdTour = document.createElement('td');
+    tdTour.className = 'small-muted';
+    tdTour.textContent = r.circuit || '';
+    tr.appendChild(tdTour);
+
+    // colonne birth date
+    const tdBirth = document.createElement('td');
+    tdBirth.className = 'small-muted';
+    tdBirth.textContent = r.birth_date || '';
+    tr.appendChild(tdBirth);
+
+    // colonne rank
+    const tdRank = document.createElement('td');
+    const spanRank = document.createElement('span');
+    spanRank.className = 'badge bg-light text-dark rank-badge';
+    spanRank.textContent = rankDisplay;
+    tdRank.appendChild(spanRank);
+    tr.appendChild(tdRank);
+
     resultsTbody.appendChild(tr);
   });
 }
