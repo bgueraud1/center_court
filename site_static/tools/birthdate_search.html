@@ -155,6 +155,20 @@
         showLoading(false);
       }
     }
+// DEBUG: affiche quelques valeurs pour les premières lignes chargées
+function debugDump() {
+  if (!players || players.length === 0) return;
+  console.log('players sample (first 10):');
+  players.slice(0,10).forEach((p,i) => {
+    console.log(i+1, {
+      full_name: p.full_name,
+      country: p.country,
+      country_alpha2: p.country_alpha2,
+      flag_emoji_raw: p.flag_emoji,
+      birth_date: p.birth_date
+    });
+  });
+}
 
     function matchPlayer(p, day, month, year){
       if(!p.birth_date) return false;
@@ -165,63 +179,65 @@
     function escapeHtml(s){ if(!s) return ''; return s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'); }
 
     // helper: génère emoji drapeau à partir d'un alpha-2 (ex: "FR" -> "🇫🇷")
-    function emojiFromAlpha2(alpha2){
-      if(!alpha2 || alpha2.length !== 2) return '';
-      try {
-        const A = alpha2.toUpperCase().charCodeAt(0);
-        const B = alpha2.toUpperCase().charCodeAt(1);
-        return String.fromCodePoint(127397 + A, 127397 + B);
-      } catch(e) {
-        return '';
-      }
+function emojiFromAlpha2(alpha2){
+  if(!alpha2 || typeof alpha2 !== 'string') return '';
+  const s = alpha2.trim().toUpperCase();
+  if(s.length !== 2 || !/^[A-Z]{2}$/.test(s)) return '';
+  // Regional Indicator Symbol Letter A = U+1F1E6 = 127462
+  // formula: 127397 + letterCode
+  try {
+    const cp1 = 127397 + s.charCodeAt(0);
+    const cp2 = 127397 + s.charCodeAt(1);
+    return String.fromCodePoint(cp1, cp2);
+  } catch(e) {
+    return '';
+  }
+}
+
+// decode \u sequences if present
+function decodeEscapedUnicode(s){
+  if(!s || typeof s !== 'string') return '';
+  if(/\\u[0-9a-fA-F]{4}/.test(s)){
+    try { return JSON.parse('"' + s.replace(/"/g,'\\"') + '"'); } catch(e){ return s; }
+  }
+  return s;
+}
+
+function renderResults(list){
+  resultsTbody.innerHTML = '';
+  list.forEach((r, idx) => {
+    const rankDisplay = (r.best_rank && r.best_rank !== SENTINEL) ? r.best_rank : '—';
+    const tr = document.createElement('tr');
+
+    const circuit = (r.circuit || '').toUpperCase();
+    const circuitClass = circuit === 'WTA' ? 'row-wta' : (circuit === 'ATP' ? 'row-atp' : '');
+    if (circuitClass) tr.classList.add(circuitClass);
+
+    // Génération emoji à partir de country_alpha2 (priorité)
+    let flagChar = '';
+    if (r.country_alpha2) {
+      flagChar = emojiFromAlpha2(r.country_alpha2);
+    }
+    // si toujours vide, essaie de décoder flag_emoji depuis le JSON
+    if (!flagChar && r.flag_emoji) {
+      flagChar = decodeEscapedUnicode(r.flag_emoji);
     }
 
-    // helper: decode des séquences échappées type "\ud83c\uddfa\ud83c\udde6"
-    function decodeEscapedUnicode(s){
-      if(!s || typeof s !== 'string') return '';
-      if(/\\u[0-9a-fA-F]{4}/.test(s) || /\\x[0-9a-fA-F]{2}/.test(s)){
-        try {
-          return JSON.parse('"' + s.replace(/"/g,'\\"') + '"');
-        } catch(e) {
-          return s;
-        }
-      }
-      return s;
-    }
+    // DEBUG pour chaque ligne (décommente si besoin)
+    // console.log('ROW', r.full_name, 'alpha2=', r.country_alpha2, 'flagChar=', flagChar, [...flagChar].map(c=>c.codePointAt(0)));
 
-    function renderResults(list){
-      resultsTbody.innerHTML = '';
-      list.forEach((r, idx) => {
-        const rankDisplay = (r.best_rank && r.best_rank !== SENTINEL) ? r.best_rank : '—';
-        const tr = document.createElement('tr');
+    const flagHtml = flagChar ? `<span class="flag-emoji" title="${escapeHtml(r.country || r.country_alpha2 || '')}">${flagChar}</span>` : '';
 
-        // applique une classe selon le circuit (tolérant à la casse)
-        const circuit = (r.circuit || '').toUpperCase();
-        const circuitClass = circuit === 'WTA' ? 'row-wta' : (circuit === 'ATP' ? 'row-atp' : '');
-        if (circuitClass) tr.classList.add(circuitClass);
-
-        // Prépare le drapeau : priorité à country_alpha2 -> génère emoji,
-        // sinon essaie de décoder r.flag_emoji si présent (cas des séquences échappées)
-        let flagChar = '';
-        if (r.country_alpha2) {
-          flagChar = emojiFromAlpha2(r.country_alpha2);
-        }
-        if (!flagChar && r.flag_emoji) {
-          flagChar = decodeEscapedUnicode(r.flag_emoji);
-        }
-
-        const flagHtml = flagChar ? `<span class="flag-emoji" title="${escapeHtml(r.country || r.country_alpha2 || '')}">${flagChar}</span>` : '';
-
-        tr.innerHTML = `
-          <td class="small text-muted">${idx+1}</td>
-          <td class="name-cell"><strong>${flagHtml}${escapeHtml(r.full_name)}</strong></td>
-          <td class="small-muted">${escapeHtml(r.circuit)}</td>
-          <td class="small-muted">${escapeHtml(r.birth_date || '')}</td>
-          <td><span class="badge bg-light text-dark rank-badge">${rankDisplay}</span></td>
-        `;
-        resultsTbody.appendChild(tr);
-      });
-    }
+    tr.innerHTML = `
+      <td class="small text-muted">${idx+1}</td>
+      <td class="name-cell"><strong>${flagHtml}${escapeHtml(r.full_name)}</strong></td>
+      <td class="small-muted">${escapeHtml(r.circuit)}</td>
+      <td class="small-muted">${escapeHtml(r.birth_date || '')}</td>
+      <td><span class="badge bg-light text-dark rank-badge">${rankDisplay}</span></td>
+    `;
+    resultsTbody.appendChild(tr);
+  });
+}
 
     document.getElementById('search').addEventListener('click', (ev)=>{
       ev.preventDefault();
