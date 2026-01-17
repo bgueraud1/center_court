@@ -283,74 +283,105 @@ function emojiFromAlpha2(alpha2){
   }
 }
 
-/* ---------- renderResults : construit les lignes avec DOM nodes (fallback fiable) ---------- */
-function renderResults(list){
-  resultsTbody.innerHTML = '';
-  list.forEach((r, idx) => {
-    const rankDisplay = (r.best_rank && r.best_rank !== SENTINEL) ? r.best_rank : '—';
-    const tr = document.createElement('tr');
+// normalize + slugify pour produire "pedro-sousa" depuis "Pedro Sousa" ou "Álvaro O'Neil"
+  function slugify(name) {
+    if (!name) return '';
+    // normalize (décompose les caractères accentués), supprime les marques combinées, puis créer le slug
+    const normalized = String(name).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    // remplace tout ce qui n'est pas a-z0-9 par un tiret, compresse les tirets, coupe les bords
+    return normalized.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  }
 
-    // class selon circuit
-    const circuit = (r.circuit || '').toUpperCase();
-    const circuitClass = circuit === 'WTA' ? 'row-wta' : (circuit === 'ATP' ? 'row-atp' : '');
-    if (circuitClass) tr.classList.add(circuitClass);
+  // --- remplacer ENTIEREMENT la fonction renderResults par celle-ci ---
+  function renderResults(list){
+    resultsTbody.innerHTML = '';
+    list.forEach((r, idx) => {
+      const rankDisplay = (r.best_rank && r.best_rank !== SENTINEL) ? r.best_rank : '—';
+      const tr = document.createElement('tr');
 
-    // prépare fallback emoji (soit depuis country_alpha2, soit depuis flag_emoji dans le JSON)
-    let fallbackEmoji = '';
-    if (r.flag_emoji) fallbackEmoji = decodeEscapedUnicode(r.flag_emoji);
-    if (!fallbackEmoji && r.country_alpha2) fallbackEmoji = emojiFromAlpha2(r.country_alpha2);
+      // class selon circuit
+      const circuit = (r.circuit || '').toUpperCase();
+      const circuitClass = circuit === 'WTA' ? 'row-wta' : (circuit === 'ATP' ? 'row-atp' : '');
+      if (circuitClass) tr.classList.add(circuitClass);
 
-    // colonne # 
-    const tdIndex = document.createElement('td');
-    tdIndex.className = 'small text-muted';
-    tdIndex.textContent = String(idx + 1);
-    tr.appendChild(tdIndex);
+      // prépare fallback emoji (soit depuis country_alpha2, soit depuis flag_emoji dans le JSON)
+      let fallbackEmoji = '';
+      if (r.flag_emoji) fallbackEmoji = decodeEscapedUnicode(r.flag_emoji);
+      if (!fallbackEmoji && r.country_alpha2) fallbackEmoji = emojiFromAlpha2(r.country_alpha2);
 
-    // colonne name (flag + nom)
-    const tdName = document.createElement('td');
-    tdName.className = 'name-cell';
-    const strong = document.createElement('strong');
+      // colonne # 
+      const tdIndex = document.createElement('td');
+      tdIndex.className = 'small text-muted';
+      tdIndex.textContent = String(idx + 1);
+      tr.appendChild(tdIndex);
 
-    // insert either image element (preferred) or emoji text node / code
-    if (r.country_alpha2) {
-      const imgOrSpan = createFlagImageElement(r.country_alpha2, 20, fallbackEmoji);
-      strong.appendChild(imgOrSpan);
-    } else if (fallbackEmoji) {
-      const span = document.createElement('span');
-      span.className = 'flag-emoji';
-      span.textContent = fallbackEmoji;
-      strong.appendChild(span);
-    }
+      // colonne name (flag + nom)
+      const tdName = document.createElement('td');
+      tdName.className = 'name-cell';
+      const strong = document.createElement('strong');
 
-    // finally the name text
-    strong.appendChild(document.createTextNode(escapeHtml(r.full_name)));
-    tdName.appendChild(strong);
-    tr.appendChild(tdName);
+      // drapeau (image ou fallback)
+      if (r.country_alpha2) {
+        const imgOrSpan = createFlagImageElement(r.country_alpha2, 20, fallbackEmoji);
+        strong.appendChild(imgOrSpan);
+      } else if (fallbackEmoji) {
+        const span = document.createElement('span');
+        span.className = 'flag-emoji';
+        span.textContent = fallbackEmoji;
+        strong.appendChild(span);
+      }
 
-    // colonne tour
-    const tdTour = document.createElement('td');
-    tdTour.className = 'small-muted';
-    tdTour.textContent = r.circuit || '';
-    tr.appendChild(tdTour);
+      // nom — si player_id présent, on crée un lien vers Center-Court
+      const nameText = r.full_name || '';
+      const pid = (r.player_id || '').toString().trim();
+      if (pid) {
+        // détermine le préfixe selon le circuit (ATP → players_atp, autre → players)
+        const base = (circuit === 'ATP') ? 'https://www.center-court.net/players_atp' : 'https://www.center-court.net/players';
+        // id en minuscules (ex: 'S483' -> 's483') + slug du nom
+        const idPart = pid.toLowerCase();
+        const slug = slugify(nameText) || idPart;
+        const href = `${base}/${idPart}-${slug}`;
 
-    // colonne birth date
-    const tdBirth = document.createElement('td');
-    tdBirth.className = 'small-muted';
-    tdBirth.textContent = r.birth_date || '';
-    tr.appendChild(tdBirth);
+        const a = document.createElement('a');
+        a.href = href;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        // conserve l'apparence du texte (hérite de la couleur), mais tu peux personnaliser via CSS si besoin
+        a.style.color = 'inherit';
+        a.style.textDecoration = 'none';
+        a.appendChild(document.createTextNode(nameText));
+        strong.appendChild(a);
+      } else {
+        // pas d'id : affiche juste le texte (sécurisé via text node)
+        strong.appendChild(document.createTextNode(nameText));
+      }
 
-    // colonne rank
-    const tdRank = document.createElement('td');
-    const spanRank = document.createElement('span');
-    spanRank.className = 'badge bg-light text-dark rank-badge';
-    spanRank.textContent = rankDisplay;
-    tdRank.appendChild(spanRank);
-    tr.appendChild(tdRank);
+      tdName.appendChild(strong);
+      tr.appendChild(tdName);
 
-    resultsTbody.appendChild(tr);
-  });
-}
+      // colonne tour
+      const tdTour = document.createElement('td');
+      tdTour.className = 'small-muted';
+      tdTour.textContent = r.circuit || '';
+      tr.appendChild(tdTour);
 
+      // colonne birth date
+      const tdBirth = document.createElement('td');
+      tdBirth.className = 'small-muted';
+      tdBirth.textContent = r.birth_date || '';
+      tr.appendChild(tdBirth);
+
+      // colonne rank
+      const tdRank = document.createElement('td');
+      const spanRank = document.createElement('span');
+      spanRank.className = 'badge bg-light text-dark rank-badge';
+      spanRank.textContent = rankDisplay;
+      tdRank.appendChild(spanRank);
+      tr.appendChild(tdRank);
+
+      resultsTbody.appendChild(tr);
+    });
+  }
     document.getElementById('search').addEventListener('click', (ev)=>{
       ev.preventDefault();
       noResults.style.display='none';
