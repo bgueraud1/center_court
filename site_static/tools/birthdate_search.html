@@ -179,12 +179,11 @@ function debugDump() {
     function escapeHtml(s){ if(!s) return ''; return s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'); }
 
     // helper: génère emoji drapeau à partir d'un alpha-2 (ex: "FR" -> "🇫🇷")
+/* ---------- Helper : création emoji à partir d'alpha2 ---------- */
 function emojiFromAlpha2(alpha2){
   if(!alpha2 || typeof alpha2 !== 'string') return '';
   const s = alpha2.trim().toUpperCase();
-  if(s.length !== 2 || !/^[A-Z]{2}$/.test(s)) return '';
-  // Regional Indicator Symbol Letter A = U+1F1E6 = 127462
-  // formula: 127397 + letterCode
+  if(!/^[A-Z]{2}$/.test(s)) return '';
   try {
     const cp1 = 127397 + s.charCodeAt(0);
     const cp2 = 127397 + s.charCodeAt(1);
@@ -194,7 +193,51 @@ function emojiFromAlpha2(alpha2){
   }
 }
 
-// decode \u sequences if present
+/* ---------- Helper : test si emoji drapeau s'affiche réellement ---------- */
+/* Méthode : on crée un span invisible, on compare largeur du rendu emoji vs largeur des 2 lettres.
+   Si les largeurs diffèrent, l'emoji est (probablement) rendu comme glyph coloré. */
+const __emojiRenderCache = {};
+function emojiDisplaysAsFlag(alpha2){
+  if(!alpha2) return false;
+  const key = alpha2.trim().toUpperCase();
+  if(__emojiRenderCache[key] !== undefined) return __emojiRenderCache[key];
+
+  // create hidden span
+  const span = document.createElement('span');
+  span.style.position = 'absolute';
+  span.style.visibility = 'hidden';
+  span.style.whiteSpace = 'nowrap';
+  span.style.fontSize = '16px';
+  span.style.lineHeight = '1';
+  document.body.appendChild(span);
+
+  const emoji = emojiFromAlpha2(key);
+  span.textContent = emoji || key; // put emoji (if present)
+  const wEmoji = span.getBoundingClientRect().width;
+
+  span.textContent = key; // put plain letters
+  const wLetters = span.getBoundingClientRect().width;
+
+  document.body.removeChild(span);
+
+  // if emoji width differs from letters width, assume emoji rendered
+  const result = (emoji && Math.abs(wEmoji - wLetters) > 0.5); // tolerance
+  __emojiRenderCache[key] = result;
+  return result;
+}
+
+/* ---------- Helper : fallback image HTML (FlagCDN by default) ---------- */
+/* Uses lowercase alpha-2, example FlagCDN URL: https://flagcdn.com/24x18/it.png
+   You may instead point to local ./flags/{cc}.svg by adjusting the `src` variable. */
+function flagImageHtmlFromAlpha2(alpha2, size = 20){
+  if(!alpha2) return '';
+  const code = alpha2.trim().toLowerCase();
+  // remote CDN PNG (fast & reliable). You can also use svg: https://flagcdn.com/{code}.svg
+  const src = `https://flagcdn.com/${Math.round(size)}x${Math.round(size*0.75)}/${code}.png`;
+  return `<img src="${src}" alt="${code}" width="${size}" height="${Math.round(size*0.75)}" style="margin-right:.4rem; border-radius:2px; object-fit:cover">`;
+}
+
+/* ---------- decode si JSON contient \u sequences (sécurise) ---------- */
 function decodeEscapedUnicode(s){
   if(!s || typeof s !== 'string') return '';
   if(/\\u[0-9a-fA-F]{4}/.test(s)){
@@ -203,30 +246,34 @@ function decodeEscapedUnicode(s){
   return s;
 }
 
+/* ---------- renderResults (intègre fallback emoji -> image) ---------- */
 function renderResults(list){
   resultsTbody.innerHTML = '';
   list.forEach((r, idx) => {
     const rankDisplay = (r.best_rank && r.best_rank !== SENTINEL) ? r.best_rank : '—';
     const tr = document.createElement('tr');
 
+    // class selon circuit
     const circuit = (r.circuit || '').toUpperCase();
     const circuitClass = circuit === 'WTA' ? 'row-wta' : (circuit === 'ATP' ? 'row-atp' : '');
     if (circuitClass) tr.classList.add(circuitClass);
 
-    // Génération emoji à partir de country_alpha2 (priorité)
+    // essaye emoji à partir de country_alpha2, sinon décode flag_emoji
     let flagChar = '';
-    if (r.country_alpha2) {
-      flagChar = emojiFromAlpha2(r.country_alpha2);
-    }
-    // si toujours vide, essaie de décoder flag_emoji depuis le JSON
-    if (!flagChar && r.flag_emoji) {
-      flagChar = decodeEscapedUnicode(r.flag_emoji);
-    }
+    if (r.country_alpha2) flagChar = emojiFromAlpha2(r.country_alpha2);
+    if(!flagChar && r.flag_emoji) flagChar = decodeEscapedUnicode(r.flag_emoji);
 
-    // DEBUG pour chaque ligne (décommente si besoin)
-    // console.log('ROW', r.full_name, 'alpha2=', r.country_alpha2, 'flagChar=', flagChar, [...flagChar].map(c=>c.codePointAt(0)));
-
-    const flagHtml = flagChar ? `<span class="flag-emoji" title="${escapeHtml(r.country || r.country_alpha2 || '')}">${flagChar}</span>` : '';
+    // decide affichage : emoji natif si rendu OK, sinon image CDN/local
+    let flagHtml = '';
+    if (flagChar && r.country_alpha2 && emojiDisplaysAsFlag(r.country_alpha2)) {
+      flagHtml = `<span class="flag-emoji" title="${escapeHtml(r.country || r.country_alpha2 || '')}">${flagChar}</span>`;
+    } else if (r.country_alpha2) {
+      // fallback image (remote CDN). If tu préfères fichiers locaux mets src vers ./flags/${code}.svg
+      flagHtml = flagImageHtmlFromAlpha2(r.country_alpha2, 20);
+    } else if (flagChar) {
+      // si on a un emoji mais pas alpha2 (rare), affiche l'emoji brut
+      flagHtml = `<span class="flag-emoji">${flagChar}</span>`;
+    }
 
     tr.innerHTML = `
       <td class="small text-muted">${idx+1}</td>
