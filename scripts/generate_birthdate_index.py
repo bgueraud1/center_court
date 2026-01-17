@@ -122,32 +122,93 @@ def get_field(row, candidates):
     # final fallback: empty
     return ""
 
+# table d'alias courante (tennis / IOC / vieux codes) — enrichis si besoin
+ALIASES = {
+    "ALG":"DZ","AND":"AD","ANG":"AO","ANT":"AG","ARG":"AR","ARM":"AM","AUS":"AU","AUT":"AT",
+    "AZE":"AZ","BAH":"BS","BAR":"BB","BDI":"BI","BEL":"BE","BEN":"BJ","BER":"BM","BIH":"BA",
+    "BLR":"BY","BOL":"BO","BRA":"BR","BRN":"BN","BUL":"BG","BUR":"BF","CAM":"KH","CAN":"CA",
+    "CHI":"CL","CHN":"CN","CIV":"CI","CMR":"CM","COL":"CO","CRC":"CR","CRO":"HR","CUB":"CU",
+    "CUW":"CW","CYP":"CY","CZE":"CZ","DEN":"DK","DEU":"DE","DOM":"DO","ECU":"EC","EGY":"EG",
+    "ESA":"SV","ESP":"ES","EST":"EE","FIJ":"FJ","FIN":"FI","FRA":"FR","GAB":"GA","GBR":"GB",
+    "GEO":"GE","GER":"DE","GHA":"GH","GRE":"GR","GUA":"GT","GUD":"GP","GUM":"GU","GUY":"GY",
+    "HAI":"HT","HKG":"HK","HUN":"HU","INA":"ID","IND":"IN","IRI":"IR","IRL":"IE","IRN":"IR",
+    "ISL":"IS","ISR":"IL","ITA":"IT","JAM":"JM","JAP":"JP","JOR":"JO","JPN":"JP","KAZ":"KZ",
+    "KEN":"KE","KGZ":"KG","KOR":"KR","KOS":"XK","KSA":"SA","KUW":"KW","LAT":"LV","LBA":"LY",
+    "LBN":"LB","LIE":"LI","LTU":"LT","LUX":"LU","MAD":"MG","MAR":"MA","MAS":"MY","MDA":"MD",
+    "MEX":"MX","MKD":"MK","MLT":"MT","MNE":"ME","MON":"MC","MOZ":"MZ","MRI":"MU","NAM":"NA",
+    "NCA":"NI","NCD":"NC","NED":"NL","NEP":"NP","NGR":"NG","NIG":"NE","NLD":"NL","NMI":"MP",
+    "NOR":"NO","NZL":"NZ","OMA":"OM","OMN":"OM","PAK":"PK","PAN":"PA","PAR":"PY","PER":"PE",
+    "PHI":"PH","PNG":"PG","POL":"PL","POR":"PT","PRI":"PR","PUR":"PR","QAT":"QA","ROM":"RO",
+    "ROU":"RO","RSA":"ZA","RUS":"RU","SAM":"WS","SCG":"RS","SEN":"SN","SGP":"SG","SIN":"SG",
+    "SLO":"SI","SMR":"SM","SOL":"SB","SPA":"ES","SRB":"RS","SRI":"LK","SUD":"SD","SUI":"CH",
+    "SUR":"SR","SVK":"SK","SWE":"SE","SWI":"CH","SYR":"SY","THA":"TH","TJK":"TJ","TKM":"TM",
+    "TOG":"TG","TPE":"TW","TTO":"TT","TUN":"TN","TUR":"TR","UAE":"AE","UGA":"UG","UKR":"UA",
+    "URU":"UY","USA":"US","UZB":"UZ","VAN":"VU","VEN":"VE","VIE":"VN","XKX":"XK","YUG":"RS",
+    "ZAF":"ZA","ZIM":"ZW","POC":"TO","MSH":"MH",
+    "MAS":"MY","INA":"ID","TPE":"TW","RSA":"ZA","POR":"PT","SPA":"ES","GER":"DE","DEU":"DE",
+    # add more known aliases here...
+}
+
+ISO3_FALLBACK = {
+    # add entries if you find frequent ISO3 not covered above
+    # e.g. "CIV":"CI"
+}
+
+_uncatalogued = set()
+
 def iso_to_alpha2(code):
-    """
-    Try to produce an ISO alpha-2 code (e.g. 'FR', 'US') from various inputs:
-    - if already 2 letters -> return uppercased
-    - if 3 letters -> map via ISO3_TO_ALPHA2 (contains common codes and aliases)
-    - otherwise try uppercase direct lookup in mapping
+    """Robuste : tente pycountry (si installé), ensuite ALIASES, ensuite ISO3_FALLBACK.
+       Ne retourne JAMAIS les 2 premières lettres brutes.
     """
     if not code:
         return ""
-    c = code.strip().upper()
+    c = str(code).strip().upper()
+    # already alpha2 ok?
     if len(c) == 2 and c.isalpha():
         return c
-    if len(c) == 3 and c.isalpha():
-        # direct map
-        if c in ISO3_TO_ALPHA2:
-            return ISO3_TO_ALPHA2[c]
-        # sometimes country codes are non-standard like 'GBR' vs 'ENG' etc
-        # last attempt: check first 2 letters
-        cand = c[:2]
-        if cand in ISO3_TO_ALPHA2.values() or cand.isalpha():
-            return cand
-    # try to match mapping keys ignoring non-alpha
+
+    # try pycountry if available (most fiable)
+    try:
+        import pycountry
+        if len(c) == 3:
+            try:
+                country = pycountry.countries.get(alpha_3=c)
+                if country and hasattr(country, 'alpha_2'):
+                    return country.alpha_2.upper()
+            except KeyError:
+                pass
+        # some inputs could be English names or uncommon forms: try lookup by name
+        try:
+            country = pycountry.countries.get(name=c)
+            if country and hasattr(country, 'alpha_2'):
+                return country.alpha_2.upper()
+        except Exception:
+            pass
+    except Exception:
+        # pycountry absent -> fallback below
+        pass
+
+    # aliases table (tennis/IOC/legacy codes)
+    if c in ALIASES:
+        return ALIASES[c]
+
+    # fallback mapping if you populated ISO3_FALLBACK
+    if c in ISO3_FALLBACK:
+        return ISO3_FALLBACK[c]
+
+    # try to remove non-alpha and re-check
     c_alpha = "".join(ch for ch in c if ch.isalpha())
-    if c_alpha in ISO3_TO_ALPHA2:
-        return ISO3_TO_ALPHA2[c_alpha]
+    if c_alpha in ALIASES:
+        return ALIASES[c_alpha]
+    if c_alpha in ISO3_FALLBACK:
+        return ISO3_FALLBACK[c_alpha]
+
+    # not found: log once for manual review and return empty string
+    if c not in _uncatalogued:
+        _uncatalogued.add(c)
+        logging.warning("Unmapped country code seen: %r — please add to ALIASES or install pycountry", c)
     return ""
+
 
 def flag_emoji_from_alpha2(alpha2):
     """Return emoji flag for ISO alpha-2 (e.g. 'FR' -> 🇫🇷)."""
