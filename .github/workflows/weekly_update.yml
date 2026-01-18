@@ -26,6 +26,13 @@ jobs:
           persist-credentials: true
           lfs: true
 
+      - name: Snapshot wta_rankings before this job
+        run: |
+          # take a snapshot of what exists before we run any generators/scrapers
+          mkdir -p /tmp
+          find wta_rankings -type f -name 'data_*.csv' | sort > /tmp/wta_before.txt || true
+          echo "Saved /tmp/wta_before.txt (may be empty)"
+
       - name: Debug workspace contents
         run: |
           echo "PWD: $(pwd)"
@@ -84,7 +91,6 @@ jobs:
             [ -f "$f" ] && echo "---- $f ----" && head -n 5 "$f"
           done || true
 
-
       - name: Expire old reviewed flags (WTA)
         run: |
           python scripts/expire_reviews.py --csv player_data_wta.csv --months 6 --active-days 365
@@ -141,7 +147,7 @@ jobs:
       - name: Debug before ATP scrape (cwd + dates-file + atp_rankings listing)
         run: |
           echo "PWD: $(pwd)"
-          echo "Content of atp_dates_to_fetch.csv:"
+          echo "Content of atp_dates_to_fetch.csv:" 
           cat atp_dates_to_fetch.csv || true
           echo "ls -la atp_rankings (cwd)"
           ls -la atp_rankings || true
@@ -190,7 +196,6 @@ jobs:
             atp_rankings/captcha_*.png
             atp_rankings/captcha_*.html
         if: always()
-
 
       - name: Debug find produced ATP target file anywhere
         run: |
@@ -276,6 +281,59 @@ jobs:
           ls -la docs/tools || true
 
       # ---------------------------
+      # Ensure any new wta_rankings files are persisted into wta_rankings (atomic move + sync)
+      # ---------------------------
+      - name: Ensure wta_rankings files are present & persisted
+        run: |
+          set -euo pipefail
+          mkdir -p wta_rankings
+
+          # snapshot after run
+          find wta_rankings -type f -name 'data_*.csv' | sort > /tmp/wta_after.txt || true
+
+          # compute new files that appeared in wta_rankings
+          comm -13 /tmp/wta_before.txt /tmp/wta_after.txt > /tmp/wta_new_in_place.txt || true
+
+          # If nothing new detected in place, search for any likely files produced by scripts elsewhere (workspace & runner dirs)
+          if [ ! -s /tmp/wta_new_in_place.txt ]; then
+            echo "No new files found already in wta_rankings. Searching workspace and /home/runner for any data_*.csv created during this run..."
+            # look for recently modified files (in last 3 days) as candidates
+            find . -type f -name 'data_*.csv' -mmin -4320 -print >> /tmp/wta_new_candidates.txt || true
+            find /home/runner -type f -name 'data_*.csv' -mmin -4320 -print >> /tmp/wta_new_candidates.txt || true
+          else
+            # use the ones already in place as candidates
+            cp /tmp/wta_new_in_place.txt /tmp/wta_new_candidates.txt || true
+          fi
+
+          # dedupe and process
+          sort -u /tmp/wta_new_candidates.txt > /tmp/wta_new_candidates_sorted.txt || true
+
+          while IFS= read -r src; do
+            [ -z "$src" ] && continue
+            base=$(basename "$src")
+            dest="wta_rankings/$base"
+            if [ -f "$dest" ]; then
+              echo "Destination already exists: $dest"
+              continue
+            fi
+            if [ ! -f "$src" ]; then
+              echo "Candidate missing (skipping): $src"
+              continue
+            fi
+            echo "-> moving $src -> $dest"
+            mkdir -p "$(dirname "$dest")"
+            mv -f "$src" "$dest"
+            # make sure file is actually flushed to disk
+            sync
+          done < /tmp/wta_new_candidates_sorted.txt || true
+
+          # produce final list of files that were added during the run (for commit step)
+          find wta_rankings -type f -name 'data_*.csv' | sort > /tmp/wta_final.txt || true
+          comm -13 /tmp/wta_before.txt /tmp/wta_final.txt > /tmp/wta_added_by_run.txt || true
+          echo "New wta_rankings files to add (if any):"
+          sed -n '1,200p' /tmp/wta_added_by_run.txt || true
+
+      # ---------------------------
       # COMMIT / PUSH updated CSVs/docs and trigger deploy
       # (moved here so commit includes freshly generated files)
 
@@ -292,20 +350,7 @@ jobs:
           ls -la wta_rankings || true
 
 
-
-      - name: Debug find any produced 2026-01-12 ranking files anywhere in workspace
-        run: |
-          echo "PWD: $(pwd)"
-          echo "Finding any 'data_2026_01_12.csv' in workspace (may be nested)..."
-          find . -type f -name "data_2026_01_12.csv" -print -exec ls -l {} \; || true
-          echo "Also show any data_2026_01_12.csv in absolute paths under home:"
-          find /home/runner -type f -name "data_2026_01_12.csv" -print -exec ls -l {} \; || true
-
-
-
-
-      # ---------------------------
-      - name: Commit docs, cache and CSV (robust only new/untracked ranking files)
+      - name: Commit docs, cache and CSV (robust: use snapshot list)
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -316,80 +361,62 @@ jobs:
           echo "==== Debug: ls (repo root) - first 200 entries ===="
           ls -la | sed -n '1,200p' || true
 
-          # direct candidate dirs (relative to cwd)
-          CANDIDATE_DIRS="wta_rankings atp_rankings center_court/wta_rankings center_court/atp_rankings"
-
-          echo "==== Which candidate dirs exist? ===="
-          for d in $CANDIDATE_DIRS; do
-            if [ -d "$d" ]; then
-              echo " - exists: $d"
-            else
-              echo " - missing: $d"
-            fi
-          done
-
-          echo "==== List untracked files under ranking dirs (git ls-files) ===="
-          # find untracked files only (safe): use git ls-files to avoid false positives
-          UNTRACKED=""
-          for d in wta_rankings atp_rankings center_court/wta_rankings center_court/atp_rankings; do
-            if [ -d "$d" ]; then
-              # list untracked files within that dir (only files changed/created in this run)
-              this=$(git ls-files --others --exclude-standard -- "$d" || true)
-              if [ -n "$this" ]; then
-                echo "Untracked in $d:"
-                echo "$this" | sed -n '1,200p'
-                UNTRACKED="$UNTRACKED $this"
+          # Add only files detected in snapshot /tmp/wta_added_by_run.txt (if present)
+          ADDED_COUNT=0
+          if [ -s /tmp/wta_added_by_run.txt ]; then
+            while IFS= read -r f; do
+              [ -z "$f" ] && continue
+              if [ -f "$f" ]; then
+                echo "-> git add -f -- $f"
+                git add -f -- "$f" && ADDED_COUNT=$((ADDED_COUNT+1)) || echo "WARNING: git add failed for $f"
+              else
+                echo "-> skip missing file $f"
               fi
-            fi
-          done
-
-          # If none found, show a hint and exit gracefully (no commit)
-          if [ -z "${UNTRACKED// /}" ]; then
-            echo "No untracked ranking files found to add. Showing git status/ignored for debugging:"
-            git status --porcelain
-            echo "Untracked by git (others --exclude-standard):"
-            git ls-files --others --exclude-standard | sed -n '1,200p' || true
-            exit 0
+            done < /tmp/wta_added_by_run.txt
+          else
+            echo "No wta_added_by_run list found or it's empty — falling back to conservative discovery (recent files)"
+            RECENT_MIN=4320
+            TMP_RECENT=$(mktemp)
+            for d in wta_rankings atp_rankings center_court/wta_rankings center_court/atp_rankings; do
+              if [ -d "$d" ]; then
+                find "$d" -type f -name 'data_*.csv' -mmin -$RECENT_MIN -print >> "$TMP_RECENT" || true
+              fi
+            done
+            sort -u "$TMP_RECENT" | while IFS= read -r f; do
+              [ -z "$f" ] && continue
+              if [ -f "$f" ]; then
+                echo "-> git add -f -- $f"
+                git add -f -- "$f" && ADDED_COUNT=$((ADDED_COUNT+1)) || echo "WARNING: git add failed for $f"
+              fi
+            done
+            rm -f "$TMP_RECENT" || true
           fi
 
-          # Add only those untracked files (handle spaces/newlines safely)
-          added=0
-          for f in $UNTRACKED; do
-            # ensure file still exists
-            if [ -f "$f" ]; then
-              echo "-> git add -f -- $f"
-              git add -f -- "$f" && added=$((added+1)) || echo "WARNING: git add failed for $f"
-            else
-              echo "-> skip missing file $f"
-            fi
-          done
+          echo "Ranking files added to index: $ADDED_COUNT"
 
-          echo "Ranking files added to index: $added"
-
-          # also add CSV player_data + docs as before (no-op if absent)
+          # also add CSV player_data + docs + coords cache as before (no-op if absent)
           git add -f player_data_wta.csv 2>/dev/null || true
           git add -f player_data_atp.csv 2>/dev/null || true
           git add -f maps_html/coords_cache.json 2>/dev/null || true
-          git add -f docs || true
+          git add -f docs 2>/dev/null || true
 
-          echo "---- git status (porcelain) AFTER adding ranking files ----"
-          git status --porcelain
-
-          echo "---- staged file list (name-only) ----"
+          echo "---- staged file list (name-only, capped at 200) ----"
           git diff --name-only --cached | sed -n '1,200p' || true
 
-          echo "---- staged diff (if any) ----"
-          git --no-pager diff --staged || true
+          # only commit if there are staged changes
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
 
           git commit -m "chore(automated): weekly update player DB + rebuild docs" || echo "No changes to commit"
-
 
       - name: Debug find any produced 2026-01-12 ranking files anywhere in workspace ***********
         run: |
           echo "PWD: $(pwd)"
           echo "Finding any 'data_2026_01_12.csv' in workspace (may be nested)..."
           find . -type f -name "data_2026_01_12.csv" -print -exec ls -l {} \; || true
-          echo "Also show any data_2026_01_12.csv in absolute paths under home:"
+          echo "Also show any data_2026_01_12.csv in absolute paths under home:" 
           find /home/runner -type f -name "data_2026_01_12.csv" -print -exec ls -l {} \; || true
 
       - name: Check for changes
@@ -449,5 +476,5 @@ jobs:
           echo "PWD: $(pwd)"
           echo "Finding any 'data_2026_01_12.csv' in workspace (may be nested)..."
           find . -type f -name "data_2026_01_12.csv" -print -exec ls -l {} \; || true
-          echo "Also show any data_2026_01_12.csv in absolute paths under home:"
+          echo "Also show any data_2026_01_12.csv in absolute paths under home:" 
           find /home/runner -type f -name "data_2026_01_12.csv" -print -exec ls -l {} \; || true
