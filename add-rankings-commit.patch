@@ -1,0 +1,23 @@
+*** Begin Patch
+*** Update File: .github/workflows/weekly_update.yml
+@@
+       - name: Commit docs, cache and CSV
+         run: |
+           git config user.name "github-actions[bot]"
+           git config user.email "github-actions[bot]@users.noreply.github.com"
+           git add -f player_data_wta.csv || true
+           git add -f player_data_atp.csv || true
+           git add -f maps_html/coords_cache.json || true
++          # Also add ranking CSVs so weekly scrapes are versioned in the repo
++          git add -f wta_rankings/*.csv || true
++          git add -f atp_rankings/*.csv || true
++          # handle alternate nested location used by some scripts (e.g. center_court/)
++          git add -f center_court/wta_rankings/*.csv || true
++          git add -f center_court/atp_rankings/*.csv || true
+           git add -f docs || true
+           echo "---- git status ----"
+           git status --porcelain
+           echo "---- staged diff (if any) ----"
+           git --no-pager diff --staged || true
+           git commit -m "chore(automated): weekly update player DB + rebuild docs" || echo "No changes to commit"
+*** End Patch
