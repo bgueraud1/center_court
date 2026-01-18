@@ -4,7 +4,7 @@ from pathlib import Path
 import scrape_player_ranking_wta as scraper   # <-- adapte le module si ton fichier a un autre nom/chemin
 
 # Paramètres : plage
-start = date(2025, 8, 18)
+start = date(2026, 1, 12)
 end   = date(2026, 1, 12)
 
 # Générer tous les lundis entre start et end inclus
