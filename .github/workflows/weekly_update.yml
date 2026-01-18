@@ -305,7 +305,7 @@ jobs:
 
 
       # ---------------------------
-      - name: Commit docs, cache and CSV
+            - name: Commit docs, cache and CSV (robust: only new/untracked ranking files)
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -313,45 +313,70 @@ jobs:
 
           echo "==== Debug: cwd ===="
           pwd
-          echo "==== Debug: ls (repo root) ===="
-          ls -la
+          echo "==== Debug: ls (repo root) - first 200 entries ===="
+          ls -la | sed -n '1,200p' || true
 
-          # Candidate ranking dirs (try both root-level and nested 'center_court/')
+          # direct candidate dirs (relative to cwd)
           CANDIDATE_DIRS="wta_rankings atp_rankings center_court/wta_rankings center_court/atp_rankings"
 
-          echo "==== Listing candidate ranking directories ===="
+          echo "==== Which candidate dirs exist? ===="
           for d in $CANDIDATE_DIRS; do
-            echo "DIR: $d"
             if [ -d "$d" ]; then
-              ls -la "$d" | sed -n '1,20p' || true
+              echo " - exists: $d"
             else
-              echo "  (missing)"
+              echo " - missing: $d"
             fi
           done
 
-          # Add ranking CSVs robustly (find + git add -f -- file)
-          added=0
-          for d in $CANDIDATE_DIRS; do
+          echo "==== List untracked files under ranking dirs (git ls-files) ===="
+          # find untracked files only (safe): use git ls-files to avoid false positives
+          UNTRACKED=""
+          for d in wta_rankings atp_rankings center_court/wta_rankings center_court/atp_rankings; do
             if [ -d "$d" ]; then
-              # find files matching data_*.csv (0-terminated to be safe)
-              while IFS= read -r -d '' f; do
-                echo "Adding ranking file -> $f"
-                git add -f -- "$f" && added=$((added+1)) || echo "WARNING: git add failed for $f"
-              done < <(find "$d" -maxdepth 1 -type f -name 'data_*.csv' -print0)
+              # list untracked files within that dir (only files changed/created in this run)
+              this=$(git ls-files --others --exclude-standard -- "$d" || true)
+              if [ -n "$this" ]; then
+                echo "Untracked in $d:"
+                echo "$this" | sed -n '1,200p'
+                UNTRACKED="$UNTRACKED $this"
+              fi
             fi
           done
+
+          # If none found, show a hint and exit gracefully (no commit)
+          if [ -z "${UNTRACKED// /}" ]; then
+            echo "No untracked ranking files found to add. Showing git status/ignored for debugging:"
+            git status --porcelain
+            echo "Untracked by git (others --exclude-standard):"
+            git ls-files --others --exclude-standard | sed -n '1,200p' || true
+            exit 0
+          fi
+
+          # Add only those untracked files (handle spaces/newlines safely)
+          added=0
+          for f in $UNTRACKED; do
+            # ensure file still exists
+            if [ -f "$f" ]; then
+              echo "-> git add -f -- $f"
+              git add -f -- "$f" && added=$((added+1)) || echo "WARNING: git add failed for $f"
+            else
+              echo "-> skip missing file $f"
+            fi
+          done
+
           echo "Ranking files added to index: $added"
 
-          # Also add the usual files (player_data etc.)
+          # also add CSV player_data + docs as before (no-op if absent)
           git add -f player_data_wta.csv 2>/dev/null || true
           git add -f player_data_atp.csv 2>/dev/null || true
           git add -f maps_html/coords_cache.json 2>/dev/null || true
-
-          # Add docs (same as before)
           git add -f docs || true
 
-          echo "---- git status (porcelain) ----"
+          echo "---- git status (porcelain) AFTER adding ranking files ----"
           git status --porcelain
+
+          echo "---- staged file list (name-only) ----"
+          git diff --name-only --cached | sed -n '1,200p' || true
 
           echo "---- staged diff (if any) ----"
           git --no-pager diff --staged || true
