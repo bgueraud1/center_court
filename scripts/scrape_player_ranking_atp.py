@@ -381,7 +381,7 @@ def save_df_for_date(df_to_save, out_dir: Path, date_iso: str):
         out_df = out_df[["full_name","ranking","points","date"]]
 
     out_df.to_csv(csv_path, index=False, encoding="utf-8-sig")
-    print(f"Saved {len(out_df)} rows -> {csv_path}")
+    print(f"Saved {len(out_df)} rows -> {csv_path} (abs: {csv_path.resolve()})")
     return csv_path
 
 def append_missed_date_log(out_dir: Path, date_str: str, reason: str):
@@ -503,6 +503,13 @@ def iterate_dates_from_list(dates_list: List[str], headless=False,
     for inp in dates_list:
         monday = to_monday_iso(inp)
         mapped.append((inp, monday))
+
+        # debug show mapped + existing file check
+    print("DEBUG(ATP): mapped dates (input->monday):", mapped)
+    for inp, monday in mapped:
+        fn = out_dir / f"data_{monday.replace('-', '_')}.csv"
+        print(f"DEBUG(ATP): checking existence for {monday} -> {fn} (exists={fn.exists()})")
+
 
     # filter out monday-dates that already have a CSV
     to_process = []
