@@ -162,8 +162,17 @@ def replace_best_in_html(path: Path, new_val: Optional[int], sentinel: int) -> b
     if nsubs == 0:
         # fallback: try to find explicit labels in html (e.g. '>Best rank<')
         # naive insertion approach: look for 'Best rank' or 'Highest ranking' text and replace following <dd>...
-        pattern = re.compile(r"(<dt[^>]*>\s*(?:Best rank|Highest ranking|best rank|highest ranking)[^<]*</dt>\s*<dd[^>]*>)([^<]*)(</dd>)", re.IGNORECASE)
-        new_txt, nsubs = pattern.subn(lambda m: f"{m.group(1)}{"" if new_val is None or int(new_val) >= sentinel else str(int(new_val))}{m.group(3)}", txt, count=1)
+        pattern = re.compile(
+            r"(<dt[^>]*>\s*(?:Best rank|Highest ranking|best rank|highest ranking)[^<]*</dt>\s*<dd[^>]*>)([^<]*)(</dd>)",
+            re.IGNORECASE,
+        )
+
+        # safe repl function to avoid f-string quoting issues
+        def _fallback_repl(m):
+            val = "" if new_val is None or int(new_val) >= sentinel else str(int(new_val))
+            return f"{m.group(1)}{val}{m.group(3)}"
+
+        new_txt, nsubs = pattern.subn(_fallback_repl, txt, count=1)
     if nsubs == 0:
         logging.warning("No best/highest field found in %s; skipping HTML update", path)
         return False
