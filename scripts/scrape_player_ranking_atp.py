@@ -487,6 +487,14 @@ def iterate_dates_from_list(dates_list: List[str], headless=False,
     out_dir = Path("atp_rankings")
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # DEBUG: print absolute context so CI logs show exactly where we read/write
+    try:
+        print("DEBUG(ATP): current cwd ->", Path.cwd())
+        print("DEBUG(ATP): atp out_dir (resolved) ->", out_dir.resolve())
+    except Exception:
+        pass
+
+
     proxies = read_proxies(proxy_file)
     ua_list = ua_list or DEFAULT_USER_AGENTS
 
