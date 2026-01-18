@@ -86,10 +86,10 @@ def scrape_data(specific_dates, save_dir):
             print(f"Retrying for {current_date} (Attempt {attempt + 1}/{max_retries})")
 
         # Save the data for the specific date if valid
-        if len(date_data) >= 350:
+        if len(date_data) >= 2:
             save_csv(date_data, current_date, save_dir)
         else:
-            print(f"Insufficient data for {current_date} after {max_retries} attempts. Logging as failed.")
+            print(f"{len(date_data)}Insufficient data for {current_date} after {max_retries} attempts. Logging as failed.")
             failed_urls.append(f"Insufficient data for {current_date}")
 
         # Save failed URLs periodically
