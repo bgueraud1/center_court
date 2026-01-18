@@ -137,11 +137,27 @@ jobs:
           echo "Listing atp_rankings (first 50):"
           ls -1 atp_rankings | sed -n '1,50p' || true
 
+      - name: Debug before ATP scrape (cwd + dates-file + atp_rankings listing)
+        run: |
+          echo "PWD: $(pwd)"
+          echo "Content of atp_dates_to_fetch.csv:"
+          cat atp_dates_to_fetch.csv || true
+          echo "ls -la atp_rankings (cwd)"
+          ls -la atp_rankings || true
+
+
       - name: Scrape ATP rankings (single week)
         env:
           SINGLE_ATP_DATE: "1"
         run: |
           python3 scripts/scrape_player_ranking_atp.py --dates-file atp_dates_to_fetch.csv --headless --max-players 5000
+
+      - name: Debug find produced ATP target file anywhere
+        run: |
+          echo "Find any data_2026_01_12*"
+          find . -type f -name "data_2026_01_12*.csv" -print -exec ls -l {} \; || true
+          find /home/runner -type f -name "data_2026_01_12*.csv" -print -exec ls -l {} \; || true
+
 
       - name: Debug find any produced 2026-01-12 ranking files anywhere in workspace
         run: |
