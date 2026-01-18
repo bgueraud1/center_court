@@ -146,13 +146,39 @@ jobs:
           ls -la atp_rankings || true
 
 
-      - name: Scrape ATP rankings (single week)
+      - name: Scrape ATP rankings (single week — Xvfb non-headless + profile)
         env:
           SINGLE_ATP_DATE: "1"
+          SELENIUM_USER_DATA_DIR: ${{ github.workspace }}/selenium_profile
         run: |
-          sudo apt-get update && sudo apt-get install -y xvfb
-          Xvfb :99 -screen 0 1920x1080x24 & export DISPLAY=:99
-          python3 scripts/scrape_player_ranking_atp.py --dates-file atp_dates_to_fetch.csv --no-headless --max-players 5000 --rotate-ua
+          set -euo pipefail
+
+          echo "==> install xvfb"
+          sudo apt-get update -y
+          sudo apt-get install -y xvfb x11-utils
+
+          # prepare persistent profile dir for Chrome (workspace so it's in runner FS)
+          mkdir -p "${SELENIUM_USER_DATA_DIR}"
+          # ensure runner user owns it
+          sudo chown -R $(id -u):$(id -g) "${SELENIUM_USER_DATA_DIR}" || true
+
+          echo "==> start Xvfb on :99"
+          # start a background X server so Chrome runs in a 'real' display
+          Xvfb :99 -screen 0 1920x1080x24 &>/tmp/xvfb.log &
+          export DISPLAY=:99
+          sleep 1
+
+          echo "DISPLAY is $DISPLAY"
+          echo "Profile dir: ${SELENIUM_USER_DATA_DIR}"
+
+          # run scraper non-headless (so Chrome appears 'real' to site); rotate UA helps
+          python3 scripts/scrape_player_ranking_atp.py \
+            --dates-file atp_dates_to_fetch.csv \
+            --no-headless \
+            --max-players 5000 \
+            --rotate-ua \
+            --max-retries-captcha 5 \
+            --backoff-factor 2.5
 
 
       - name: Upload captcha debug artifacts (if any)

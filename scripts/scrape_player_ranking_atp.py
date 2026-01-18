@@ -65,7 +65,7 @@ def read_proxies(proxy_file: Optional[str]) -> List[str]:
 def choose_user_agent(ua_list: List[str]) -> str:
     return random.choice(ua_list)
 
-def make_driver(headless=False, user_agent=None, proxy=None):
+def make_driver(headless=False, user_agent=None, proxy=None, user_data_dir=None):
     opts = webdriver.ChromeOptions()
     if headless:
         opts.add_argument("--headless=new")
@@ -76,9 +76,21 @@ def make_driver(headless=False, user_agent=None, proxy=None):
     if user_agent:
         opts.add_argument(f"user-agent={user_agent}")
 
+    # standard anti-headless / sandbox flags useful in CI
     opts.add_argument("--disable-blink-features=AutomationControlled")
     opts.add_experimental_option("excludeSwitches", ["enable-automation"])
     opts.add_experimental_option('useAutomationExtension', False)
+
+    # helpful on CI containers
+    opts.add_argument("--no-sandbox")
+    opts.add_argument("--disable-dev-shm-usage")
+    # keep disable-gpu only if headless; otherwise depends on container
+    if headless:
+        opts.add_argument("--disable-gpu")
+
+    if user_data_dir:
+        # allow user to persist cookies / localStorage between runs in the workspace
+        opts.add_argument(f"--user-data-dir={user_data_dir}")
 
     if proxy:
         proxy_arg = proxy if "://" in proxy else f"http://{proxy}"
@@ -529,7 +541,8 @@ def iterate_dates_from_list(dates_list: List[str], headless=False,
     # initial driver
     current_ua = choose_user_agent(ua_list) if rotate_ua else ua_list[0]
     current_proxy = random.choice(proxies) if proxies else None
-    driver = make_driver(headless=headless, user_agent=current_ua, proxy=current_proxy)
+    user_data_dir = os.getenv("SELENIUM_USER_DATA_DIR", None)
+    driver = make_driver(headless=headless, user_agent=current_ua, proxy=current_proxy, user_data_dir=user_data_dir)    
     print(f"Started driver (UA={current_ua[:60]}..., proxy={current_proxy})")
 
     previous_df = None
@@ -553,7 +566,7 @@ def iterate_dates_from_list(dates_list: List[str], headless=False,
                 run_count += 1
                 current_ua = choose_user_agent(ua_list) if rotate_ua else ua_list[0]
                 current_proxy = random.choice(proxies) if proxies else None
-                driver = make_driver(headless=headless, user_agent=current_ua, proxy=current_proxy)
+                driver = make_driver(headless=headless, user_agent=current_ua, proxy=current_proxy, user_data_dir=user_data_dir)
                 print(f"[run {run_count}] new driver (UA={current_ua[:60]}..., proxy={current_proxy})")
 
             attempt = 0
@@ -573,7 +586,7 @@ def iterate_dates_from_list(dates_list: List[str], headless=False,
                             pass
                         current_ua = choose_user_agent(ua_list) if rotate_ua else current_ua
                         current_proxy = random.choice(proxies) if proxies else current_proxy
-                        driver = make_driver(headless=headless, user_agent=current_ua, proxy=current_proxy)
+                        driver = make_driver(headless=headless, user_agent=current_ua, proxy=current_proxy, user_data_dir=user_data_dir)
                         print(f"[{monday_date}] Retry {attempt}: restarted driver with UA={current_ua[:60]}..., proxy={current_proxy}")
 
                     df = scrape_for_date(driver, monday_date, max_players=max_players)
