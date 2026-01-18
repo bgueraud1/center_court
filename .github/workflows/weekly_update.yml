@@ -307,21 +307,55 @@ jobs:
       # ---------------------------
       - name: Commit docs, cache and CSV
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -f player_data_wta.csv || true
-          git add -f player_data_atp.csv || true
-          git add -f maps_html/coords_cache.json || true
 
-          git add -f wta_rankings/*.csv || true
-          git add -f atp_rankings/*.csv || true
-          git add -f center_court/wta_rankings/*.csv || true
-          git add -f center_court/atp_rankings/*.csv || true
+          echo "==== Debug: cwd ===="
+          pwd
+          echo "==== Debug: ls (repo root) ===="
+          ls -la
+
+          # Candidate ranking dirs (try both root-level and nested 'center_court/')
+          CANDIDATE_DIRS="wta_rankings atp_rankings center_court/wta_rankings center_court/atp_rankings"
+
+          echo "==== Listing candidate ranking directories ===="
+          for d in $CANDIDATE_DIRS; do
+            echo "DIR: $d"
+            if [ -d "$d" ]; then
+              ls -la "$d" | sed -n '1,20p' || true
+            else
+              echo "  (missing)"
+            fi
+          done
+
+          # Add ranking CSVs robustly (find + git add -f -- file)
+          added=0
+          for d in $CANDIDATE_DIRS; do
+            if [ -d "$d" ]; then
+              # find files matching data_*.csv (0-terminated to be safe)
+              while IFS= read -r -d '' f; do
+                echo "Adding ranking file -> $f"
+                git add -f -- "$f" && added=$((added+1)) || echo "WARNING: git add failed for $f"
+              done < <(find "$d" -maxdepth 1 -type f -name 'data_*.csv' -print0)
+            fi
+          done
+          echo "Ranking files added to index: $added"
+
+          # Also add the usual files (player_data etc.)
+          git add -f player_data_wta.csv 2>/dev/null || true
+          git add -f player_data_atp.csv 2>/dev/null || true
+          git add -f maps_html/coords_cache.json 2>/dev/null || true
+
+          # Add docs (same as before)
           git add -f docs || true
-          echo "---- git status ----"
+
+          echo "---- git status (porcelain) ----"
           git status --porcelain
+
           echo "---- staged diff (if any) ----"
           git --no-pager diff --staged || true
+
           git commit -m "chore(automated): weekly update player DB + rebuild docs" || echo "No changes to commit"
 
 
