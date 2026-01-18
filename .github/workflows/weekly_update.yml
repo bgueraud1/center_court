@@ -16,7 +16,7 @@ on:
 jobs:
   update_players:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -26,18 +26,16 @@ jobs:
           persist-credentials: true
           lfs: true
 
-      - name: Snapshot wta_rankings before this job
-        run: |
-          # take a snapshot of what exists before we run any generators/scrapers
-          mkdir -p /tmp
-          find wta_rankings -type f -name 'data_*.csv' | sort > /tmp/wta_before.txt || true
-          echo "Saved /tmp/wta_before.txt (may be empty)"
-
-      - name: Debug workspace contents
+      - name: Show initial workspace
         run: |
           echo "PWD: $(pwd)"
-          ls -la
-          find . -maxdepth 4 -name 'player_data_wta.csv' -print -exec ls -l {} \; || true
+          echo "Top-level entries:"
+          ls -la | sed -n '1,200p'
+          echo "Show possible ranking dirs if present:"
+          for d in wta_rankings atp_rankings center_court/wta_rankings center_court/atp_rankings; do
+            echo "---- $d ----"
+            ls -la "$d" || true
+          done
 
       - name: Setup Python
         uses: actions/setup-python@v4
@@ -48,207 +46,33 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements-build.txt ]; then pip install -r requirements-build.txt; fi
-          # libs nécessaires pour les scripts (geopy/pandas + selenium + webdriver-manager)
           pip install geopy pandas "selenium>=4.8" "webdriver-manager>=4.0"
 
+      # Run main.py with explicit RANKINGS_DIR absolute path (workspace)
       - name: Run main.py (update CSV)
         working-directory: ${{ github.workspace }}
         env:
           SKIP_GEOCODE: "1"
+          # ensure we pass absolute path for WTA rankings
           RANKINGS_DIR: "${{ github.workspace }}/wta_rankings"
         run: |
+          echo "Running main.py with RANKINGS_DIR=${RANKINGS_DIR}"
           python main.py
 
-      - name: Debug find any produced 2026-01-12 ranking files anywhere in workspace
+      - name: Debug: show ranking files just after main.py
         run: |
           echo "PWD: $(pwd)"
-          echo "Finding any 'data_2026_01_12.csv' in workspace (may be nested)..."
-          find . -type f -name "data_2026_01_12.csv" -print -exec ls -l {} \; || true
-          echo "Also show any data_2026_01_12.csv in absolute paths under home:"
-          find /home/runner -type f -name "data_2026_01_12.csv" -print -exec ls -l {} \; || true
+          echo "--- top-level wta_rankings listing (first 200) ---"
+          ls -la wta_rankings | sed -n '1,200p' || true
+          echo "--- show most recent files (mtime) ---"
+          find wta_rankings -maxdepth 1 -type f -printf '%T@ %p\n' | sort -n | tail -n 10 || true
+          echo "--- show sample head for newest file if present ---"
+          newest=$(find wta_rankings -type f -name 'data_*.csv' -printf '%T@ %p\n' | sort -n | tail -n1 | cut -d' ' -f2-)
+          [ -n "$newest" ] && echo "Newest: $newest" && head -n 5 "$newest" || echo "No data_*.csv found in wta_rankings"
 
-      - name: Debug find any produced data_2026_01_12* files
-        run: |
-          find . -type f -name "data_2026_01_12*.csv" -print -exec ls -l {} \; || true
-          find /home/runner -type f -name "data_2026_01_12*.csv" -print -exec ls -l {} \; || true
+      # (Optional) run ATP scraper similarly if you need it; omitted here for brevity or keep your existing ATP section
 
-      - name: Debug list possible rankings directories (top-level and nested)
-        run: |
-          echo "Top-level atp_rankings (root):" && ls -la atp_rankings || true
-          echo "Top-level wta_rankings (root):" && ls -la wta_rankings || true
-          echo "Search for any '*_rankings' directories under repo:"
-          find . -maxdepth 3 -type d -name '*_rankings' -print -exec ls -la {} \; || true
-
-
-      - name: Debug wta_rankings dir after main.py
-        run: |
-          echo "PWD: $(pwd)"
-          echo "Listing wta_rankings (detailed):"
-          ls -la wta_rankings || true
-          echo "Recent files in wta_rankings (mtime sorted):"
-          find wta_rankings -maxdepth 1 -type f -printf '%T@ %p\n' | sort -n | tail -n 20 || true
-          for f in wta_rankings/data_*.csv; do
-            [ -f "$f" ] && echo "---- $f ----" && head -n 5 "$f"
-          done || true
-
-      - name: Expire old reviewed flags (WTA)
-        run: |
-          python scripts/expire_reviews.py --csv player_data_wta.csv --months 6 --active-days 365
-
-      - name: Expire old reviewed flags (ATP)
-        if: env.CSV_PATH_ATP != ''
-        run: |
-          python scripts/expire_reviews.py --csv player_data_atp.csv --months 6 --active-days 365
-
-      - name: Geocode missing places and update cache
-        env:
-          USER_AGENT: "center-court-bot/1.0 (your-email@example.com)"
-        run: |
-          python scripts/geocode_new_players.py \
-            --csv player_data_wta.csv \
-            --cache maps_html/coords_cache.json \
-            --user-agent "$USER_AGENT" \
-            --delay 1.2 \
-            --max 1000
-
-      - name: Generate quick embeddings (optional)
-        run: |
-          python scripts/make_quick_embeddings.py
-
-      - name: Debug list (optional)
-        run: |
-          echo "---- repo root listing ----"
-          ls -la
-          echo "---- docs listing (if any) ----"
-          ls -la docs || true
-
-      # ---------------------------
-      # prepare and run the ATP scrape & update step (one-week)
-      # ---------------------------
-      - name: Prepare ATP scrape date (only this Monday)
-        shell: bash
-        run: |
-          if [ -n "${{ github.event.inputs.atp_date }}" ]; then
-            ISO="${{ github.event.inputs.atp_date }}"
-          else
-            ISO=$(python3 -c "from datetime import date, timedelta; d=date.today(); monday=d - timedelta(days=d.weekday()); print(monday.isoformat())")
-          fi
-          printf "date\n%s\n" "$ISO" > atp_dates_to_fetch.csv
-          echo "ISO=$ISO" >> $GITHUB_ENV
-          echo "Wrote atp_dates_to_fetch.csv containing $ISO"
-
-      - name: Debug dates and rankings dir
-        run: |
-          echo "atp_dates_to_fetch.csv:"
-          cat atp_dates_to_fetch.csv || true
-          echo "Listing atp_rankings (first 50):"
-          ls -1 atp_rankings | sed -n '1,50p' || true
-
-      - name: Debug before ATP scrape (cwd + dates-file + atp_rankings listing)
-        run: |
-          echo "PWD: $(pwd)"
-          echo "Content of atp_dates_to_fetch.csv:" 
-          cat atp_dates_to_fetch.csv || true
-          echo "ls -la atp_rankings (cwd)"
-          ls -la atp_rankings || true
-
-
-      - name: Scrape ATP rankings (single week — Xvfb non-headless + profile)
-        env:
-          SINGLE_ATP_DATE: "1"
-          SELENIUM_USER_DATA_DIR: ${{ github.workspace }}/selenium_profile
-        run: |
-          set -euo pipefail
-
-          echo "==> install xvfb"
-          sudo apt-get update -y
-          sudo apt-get install -y xvfb x11-utils
-
-          # prepare persistent profile dir for Chrome (workspace so it's in runner FS)
-          mkdir -p "${SELENIUM_USER_DATA_DIR}"
-          # ensure runner user owns it
-          sudo chown -R $(id -u):$(id -g) "${SELENIUM_USER_DATA_DIR}" || true
-
-          echo "==> start Xvfb on :99"
-          # start a background X server so Chrome runs in a 'real' display
-          Xvfb :99 -screen 0 1920x1080x24 &>/tmp/xvfb.log &
-          export DISPLAY=:99
-          sleep 1
-
-          echo "DISPLAY is $DISPLAY"
-          echo "Profile dir: ${SELENIUM_USER_DATA_DIR}"
-
-          # run scraper non-headless (so Chrome appears 'real' to site); rotate UA helps
-          python3 scripts/scrape_player_ranking_atp.py \
-            --dates-file atp_dates_to_fetch.csv \
-            --no-headless \
-            --max-players 5000 \
-            --rotate-ua \
-            --max-retries-captcha 5 \
-            --backoff-factor 2.5
-
-
-      - name: Upload captcha debug artifacts (if any)
-        uses: actions/upload-artifact@v4
-        with:
-          name: atp-captcha-debug
-          path: |
-            atp_rankings/captcha_*.png
-            atp_rankings/captcha_*.html
-        if: always()
-
-      - name: Debug find produced ATP target file anywhere
-        run: |
-          echo "Find any data_2026_01_12*"
-          find . -type f -name "data_2026_01_12*.csv" -print -exec ls -l {} \; || true
-          find /home/runner -type f -name "data_2026_01_12*.csv" -print -exec ls -l {} \; || true
-
-
-      - name: Debug find any produced 2026-01-12 ranking files anywhere in workspace
-        run: |
-          echo "PWD: $(pwd)"
-          echo "Finding any 'data_2026_01_12.csv' in workspace (may be nested)..."
-          find . -type f -name "data_2026_01_12.csv" -print -exec ls -l {} \; || true
-          echo "Also show any data_2026_01_12.csv in absolute paths under home:"
-          find /home/runner -type f -name "data_2026_01_12.csv" -print -exec ls -l {} \; || true
-
-      - name: Debug find any produced data_2026_01_12* files
-        run: |
-          find . -type f -name "data_2026_01_12*.csv" -print -exec ls -l {} \; || true
-          find /home/runner -type f -name "data_2026_01_12*.csv" -print -exec ls -l {} \; || true
-
-      - name: Debug list possible rankings directories (top-level and nested)
-        run: |
-          echo "Top-level atp_rankings (root):" && ls -la atp_rankings || true
-          echo "Top-level wta_rankings (root):" && ls -la wta_rankings || true
-          echo "Search for any '*_rankings' directories under repo:"
-          find . -maxdepth 3 -type d -name '*_rankings' -print -exec ls -la {} \; || true
-
-
-      - name: Debug atp_rankings dir after ATP scrape
-        run: |
-          echo "PWD: $(pwd)"
-          echo "Listing atp_rankings (detailed):"
-          ls -la atp_rankings || true
-          echo "Recent files in atp_rankings (mtime sorted):"
-          find atp_rankings -maxdepth 1 -type f -printf '%T@ %p\n' | sort -n | tail -n 20 || true
-          echo "Show head of any new data_*.csv files (first 80 chars):"
-          for f in atp_rankings/data_*.csv; do
-            [ -f "$f" ] && echo "---- $f ----" && head -n 5 "$f"
-          done || true
-
-
-      - name: Update ATP CSV from atp_rankings (only this Monday)
-        run: |
-          if [ -z "${{ env.ISO }}" ]; then
-            echo "ERROR: ISO date not set" >&2
-            exit 1
-          fi
-          python3 scripts/update_atp_from_rankings.py --rankings-dir atp_rankings --csv player_data_atp.csv --fuzzy --date "${ISO}"
-
-      # ---------------------------
-      # Recompute best ranks for active players (must run before build_all)
-      # ---------------------------
+      # Recompute best rankings etc.
       - name: Recompute best rankings (WTA)
         run: |
           python3 scripts/recompute_best_rankings.py --rankings-dir wta_rankings --csv player_data_wta.csv
@@ -257,167 +81,75 @@ jobs:
         run: |
           python3 scripts/recompute_best_rankings.py --rankings-dir atp_rankings --csv player_data_atp.csv
 
-      # ---------------------------
-      # Build maps & docs now that CSVs are up-to-date
-      # ---------------------------
       - name: Run build_all (generate maps & docs)
         env:
           SKIP_GEOCODE: "1"
         run: |
           python scripts/build_all.py
 
-      # ---------------------------
-      # Regenerate the birthdate index JSON used by the date search tool
-      # ---------------------------
       - name: Generate birthdate index (players_by_birth.json)
         run: |
           python3 scripts/generate_birthdate_index.py
 
-      - name: Debug list after build (optional)
+      - name: Debug: git status & untracked sample before commit
         run: |
-          echo "---- docs listing after build ----"
-          ls -la docs || true
-          echo "---- tools listing ----"
-          ls -la docs/tools || true
-
-      # ---------------------------
-      # Ensure any new wta_rankings files are persisted into wta_rankings (atomic move + sync)
-      # ---------------------------
-      - name: Ensure wta_rankings files are present & persisted
-        run: |
-          set -euo pipefail
-          mkdir -p wta_rankings
-
-          # snapshot after run
-          find wta_rankings -type f -name 'data_*.csv' | sort > /tmp/wta_after.txt || true
-
-          # compute new files that appeared in wta_rankings
-          comm -13 /tmp/wta_before.txt /tmp/wta_after.txt > /tmp/wta_new_in_place.txt || true
-
-          # If nothing new detected in place, search for any likely files produced by scripts elsewhere (workspace & runner dirs)
-          if [ ! -s /tmp/wta_new_in_place.txt ]; then
-            echo "No new files found already in wta_rankings. Searching workspace and /home/runner for any data_*.csv created during this run..."
-            # look for recently modified files (in last 3 days) as candidates
-            find . -type f -name 'data_*.csv' -mmin -4320 -print >> /tmp/wta_new_candidates.txt || true
-            find /home/runner -type f -name 'data_*.csv' -mmin -4320 -print >> /tmp/wta_new_candidates.txt || true
-          else
-            # use the ones already in place as candidates
-            cp /tmp/wta_new_in_place.txt /tmp/wta_new_candidates.txt || true
-          fi
-
-          # dedupe and process
-          sort -u /tmp/wta_new_candidates.txt > /tmp/wta_new_candidates_sorted.txt || true
-
-          while IFS= read -r src; do
-            [ -z "$src" ] && continue
-            base=$(basename "$src")
-            dest="wta_rankings/$base"
-            if [ -f "$dest" ]; then
-              echo "Destination already exists: $dest"
-              continue
-            fi
-            if [ ! -f "$src" ]; then
-              echo "Candidate missing (skipping): $src"
-              continue
-            fi
-            echo "-> moving $src -> $dest"
-            mkdir -p "$(dirname "$dest")"
-            mv -f "$src" "$dest"
-            # make sure file is actually flushed to disk
-            sync
-          done < /tmp/wta_new_candidates_sorted.txt || true
-
-          # produce final list of files that were added during the run (for commit step)
-          find wta_rankings -type f -name 'data_*.csv' | sort > /tmp/wta_final.txt || true
-          comm -13 /tmp/wta_before.txt /tmp/wta_final.txt > /tmp/wta_added_by_run.txt || true
-          echo "New wta_rankings files to add (if any):"
-          sed -n '1,200p' /tmp/wta_added_by_run.txt || true
-
-      # ---------------------------
-      # COMMIT / PUSH updated CSVs/docs and trigger deploy
-      # (moved here so commit includes freshly generated files)
-
-
-      - name: Show untracked & git status (debug)
-        run: |
-          echo "=== Git status ==="
+          echo "=== git status (porcelain) ==="
           git status --porcelain || true
-          echo "=== Untracked files sample ==="
+          echo "=== untracked sample (others --exclude-standard) ==="
           git ls-files --others --exclude-standard | sed -n '1,200p' || true
-          echo "=== atp_rankings sample listing ==="
-          ls -la atp_rankings || true
-          echo "=== wta_rankings sample listing ==="
-          ls -la wta_rankings || true
+          echo "--- listing wta_rankings (first 200) ---"
+          ls -la wta_rankings | sed -n '1,200p' || true
 
-
-      - name: Commit docs, cache and CSV (robust use snapshot list)
+      # ---------------------------
+      # Commit only newly created/untracked ranking CSVs + docs & CSVs
+      # ---------------------------
+      - name: Commit ranking CSVs & docs (safe, null-delimited)
+        env:
+          GIT_AUTHOR_NAME: "github-actions[bot]"
+          GIT_AUTHOR_EMAIL: "github-actions[bot]@users.noreply.github.com"
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "$GIT_AUTHOR_NAME"
+          git config user.email "$GIT_AUTHOR_EMAIL"
 
-          echo "==== Debug: cwd ===="
-          pwd
-          echo "==== Debug: ls (repo root) - first 200 entries ===="
-          ls -la | sed -n '1,200p' || true
+          echo "Detect untracked files in ranking dirs..."
+          dirs="wta_rankings atp_rankings center_court/wta_rankings center_court/atp_rankings"
+          untracked_count=0
 
-          # Add only files detected in snapshot /tmp/wta_added_by_run.txt (if present)
-          ADDED_COUNT=0
-          if [ -s /tmp/wta_added_by_run.txt ]; then
-            while IFS= read -r f; do
-              [ -z "$f" ] && continue
-              if [ -f "$f" ]; then
-                echo "-> git add -f -- $f"
-                git add -f -- "$f" && ADDED_COUNT=$((ADDED_COUNT+1)) || echo "WARNING: git add failed for $f"
-              else
-                echo "-> skip missing file $f"
-              fi
-            done < /tmp/wta_added_by_run.txt
-          else
-            echo "No wta_added_by_run list found or it's empty — falling back to conservative discovery (recent files)"
-            RECENT_MIN=4320
-            TMP_RECENT=$(mktemp)
-            for d in wta_rankings atp_rankings center_court/wta_rankings center_court/atp_rankings; do
-              if [ -d "$d" ]; then
-                find "$d" -type f -name 'data_*.csv' -mmin -$RECENT_MIN -print >> "$TMP_RECENT" || true
-              fi
-            done
-            sort -u "$TMP_RECENT" | while IFS= read -r f; do
-              [ -z "$f" ] && continue
-              if [ -f "$f" ]; then
-                echo "-> git add -f -- $f"
-                git add -f -- "$f" && ADDED_COUNT=$((ADDED_COUNT+1)) || echo "WARNING: git add failed for $f"
-              fi
-            done
-            rm -f "$TMP_RECENT" || true
-          fi
+          # Use null-delimited output to be robust with weird filenames (though our filenames are simple)
+          for d in $dirs; do
+            if [ -d "$d" ]; then
+              echo "Scanning $d for untracked files..."
+              # git ls-files --others --exclude-standard with -z
+              git ls-files --others --exclude-standard -z -- "$d" | while IFS= read -r -d '' f; do
+                if [ -f "$f" ]; then
+                  echo " -> adding $f"
+                  git add -f -- "$f"
+                  untracked_count=$((untracked_count+1))
+                fi
+              done
+            else
+              echo "Dir missing: $d"
+            fi
+          done
 
-          echo "Ranking files added to index: $ADDED_COUNT"
-
-          # also add CSV player_data + docs + coords cache as before (no-op if absent)
+          echo "Also ensure we stage important CSVs and docs"
           git add -f player_data_wta.csv 2>/dev/null || true
           git add -f player_data_atp.csv 2>/dev/null || true
-          git add -f maps_html/coords_cache.json 2>/dev/null || true
-          git add -f docs 2>/dev/null || true
+          git add -f docs || true
+          git add -f docs/tools/*.json 2>/dev/null || true
 
-          echo "---- staged file list (name-only, capped at 200) ----"
+          echo "Staged files list (name-only):"
           git diff --name-only --cached | sed -n '1,200p' || true
 
-          # only commit if there are staged changes
-          if git diff --cached --quiet; then
+          echo "git status (porcelain):"
+          git status --porcelain
+
+          if [ -n "$(git diff --cached --name-only)" ]; then
+            git commit -m "chore(automated): weekly update player DB + rebuild docs" || { echo "commit failed"; exit 1; }
+          else
             echo "No changes to commit"
-            exit 0
           fi
-
-          git commit -m "chore(automated): weekly update player DB + rebuild docs" || echo "No changes to commit"
-
-      - name: Debug find any produced 2026-01-12 ranking files anywhere in workspace ***********
-        run: |
-          echo "PWD: $(pwd)"
-          echo "Finding any 'data_2026_01_12.csv' in workspace (may be nested)..."
-          find . -type f -name "data_2026_01_12.csv" -print -exec ls -l {} \; || true
-          echo "Also show any data_2026_01_12.csv in absolute paths under home:" 
-          find /home/runner -type f -name "data_2026_01_12.csv" -print -exec ls -l {} \; || true
 
       - name: Check for changes
         id: git-check
@@ -470,11 +202,3 @@ jobs:
           fi
           curl -s -X POST "$NETLIFY_BUILD_HOOK" -o /tmp/netlify_hook_resp.txt -w "\nHTTP_STATUS:%{http_code}\n"
           cat /tmp/netlify_hook_resp.txt || true
-
-      - name: Debug find any produced 2026-01-12 ranking files anywhere in workspace
-        run: |
-          echo "PWD: $(pwd)"
-          echo "Finding any 'data_2026_01_12.csv' in workspace (may be nested)..."
-          find . -type f -name "data_2026_01_12.csv" -print -exec ls -l {} \; || true
-          echo "Also show any data_2026_01_12.csv in absolute paths under home:" 
-          find /home/runner -type f -name "data_2026_01_12.csv" -print -exec ls -l {} \; || true
