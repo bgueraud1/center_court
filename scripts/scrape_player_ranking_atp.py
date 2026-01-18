@@ -581,8 +581,22 @@ def iterate_dates_from_list(dates_list: List[str], headless=False,
                 except CaptchaDetected as cex:
                     captcha_flag = True
                     print(f"[{monday_date}] CaptchaDetected: {cex}. Attempt {attempt}/{max_retries_captcha}. Backing off {wait_seconds}s.")
-                    time.sleep(min(wait_seconds + random.uniform(5, 12), 15))
-                    wait_seconds = min(wait_seconds * backoff_factor, 60)
+                    # --- DEBUG: save screenshot + HTML for inspection ---
+                    try:
+                        screenshot_path = out_dir / f"captcha_{monday_date}.png"
+                        html_path = out_dir / f"captcha_{monday_date}.html"
+                        # save screenshot (works aussi en headless if Chrome supports it)
+                        driver.save_screenshot(str(screenshot_path))
+                        with open(html_path, "w", encoding="utf-8") as fh:
+                            fh.write(driver.page_source)
+                        print(f"[{monday_date}] Saved screenshot -> {screenshot_path.resolve()}")
+                        print(f"[{monday_date}] Saved page HTML -> {html_path.resolve()}")
+                    except Exception as e:
+                        print(f"[{monday_date}] Failed to save debug artifacts: {e}")
+                        # ------------------------------------------------------
+                        time.sleep(min(wait_seconds + random.uniform(5, 12), 15))
+                        wait_seconds = min(wait_seconds * backoff_factor, 60)
+
                 except WebDriverException as wex:
                     print(f"[{monday_date}] WebDriverException: {wex}. Attempt {attempt}/{max_retries_captcha}. Retrying after {wait_seconds}s.")
                     time.sleep(min(wait_seconds + random.uniform(5, 12), 15))
