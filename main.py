@@ -21,28 +21,65 @@ from pathlib import Path
 import sys
 import os
 
-# players_path vient de config import (déjà présent plus bas)
-# mais si tu veux tester avant import, tu peux vérifier après l'import config
 
 
-
-# ---- Force working dir to repo root (robust for CI) ----
+# ---- Force working dir to repository root (robust for CI) ----
 from pathlib import Path
 import os, sys
 
-# Force execution from repository root
-from pathlib import Path
-import os
-
-
-REPO_ROOT = Path(__file__).resolve().parent
+# The repo layout is:
+#   <repo root>/
+#     wta_rankings/
+#     atp_rankings/
+#
+# We want to run from the repo root so relative paths in config.py (like "wta_rankings")
+# resolve consistently in local and CI runs.
+REPO_ROOT = Path(__file__).resolve().parents[1]   # one level above this package directory
 os.chdir(str(REPO_ROOT))
 print("DEBUG: forced cwd ->", REPO_ROOT)
 
-# Ensure directories exist
-os.makedirs(rankings_dir, exist_ok=True)
-DATA_DIR = players_path.parent
+# Resolve rankings_dir to an absolute Path (respect absolute settings in config.py)
+orig_rankings_dir = rankings_dir
+rankings_dir = Path(orig_rankings_dir)
+if not rankings_dir.is_absolute():
+    rankings_dir = (REPO_ROOT / orig_rankings_dir).resolve()
+print("DEBUG: rankings_dir ->", rankings_dir)
 
+# Allow explicit override from env (useful in CI/workflow)
+env_rankings = os.getenv("RANKINGS_DIR", "").strip()
+if env_rankings:
+    try:
+        override_path = Path(env_rankings)
+        if not override_path.is_absolute():
+            override_path = (REPO_ROOT / override_path).resolve()
+        rankings_dir = override_path
+        print("DEBUG: Overriding rankings_dir from RANKINGS_DIR env ->", rankings_dir)
+    except Exception as e:
+        print("WARNING: failed to parse RANKINGS_DIR env:", e)
+
+# Ensure the rankings_dir exists (scripts will write into it)
+try:
+    rankings_dir.mkdir(parents=True, exist_ok=True)
+except Exception as e:
+    print("WARNING: could not create rankings_dir:", e)
+
+
+# Ensure the directory exists (creates if missing)
+rankings_dir.mkdir(parents=True, exist_ok=True)
+
+DATA_DIR = Path(players_path).parent
+print("DEBUG: players_path  ->", players_path)
+print("DEBUG: DATA_DIR      ->", DATA_DIR)
+print("DEBUG: REPO_ROOT     ->", REPO_ROOT)
+
+# Helpful debug: list a few ranking files (so CI logs show exactly what was found)
+try:
+    sample = sorted(rankings_dir.glob("data_*.csv"))[:20]
+    print(f"DEBUG: sample ranking files ({len(sample)} shown up to 20):")
+    for p in sample:
+        print(" -", p, p.exists())
+except Exception as e:
+    print("DEBUG: could not list rankings_dir:", e)
 # --- 1) Scrape rankings for the requested dates ---
 
 
@@ -67,7 +104,7 @@ end_date = start_date
 specific_dates = [start_date + datetime.timedelta(weeks=i) for i in range((end_date - start_date).days // 7 + 1)]
 print(f"Will scrape rankings for: {specific_dates}")
 
-scrape_data(specific_dates, rankings_dir)
+scrape_data(specific_dates, str(rankings_dir))
 
 # --- 2) Update player base from rankings (unchanged) ---
 players_df = load_players(players_path)

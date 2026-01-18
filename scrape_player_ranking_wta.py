@@ -17,17 +17,19 @@ USER_AGENT = "Mozilla/5.0 (compatible; wta-scraper/1.0)"
 # --------------------------------------------
 
 def save_csv(data: List[dict], date_obj: datetime.date, save_dir: str) -> None:
+    save_dir = os.fspath(save_dir)
     os.makedirs(save_dir, exist_ok=True)
     date_str = date_obj.strftime("%Y_%m_%d")
-    file_path = os.path.join(save_dir, f"data_{date_str}.csv")
+    file_path = os.path.abspath(os.path.join(save_dir, f"data_{date_str}.csv"))
     pd.DataFrame(data).to_csv(file_path, index=False)
-    print(f"Saved {len(data)} rows to {file_path}")
+    print(f"Saved {len(data)} rows to {file_path} (abs)")
 
 def log_failed_urls(failed_urls: List[str], save_dir: str) -> None:
+    save_dir = os.fspath(save_dir)
     os.makedirs(save_dir, exist_ok=True)
-    failed_path = os.path.join(save_dir, "failed_urls.csv")
+    failed_path = os.path.abspath(os.path.join(save_dir, "failed_urls.csv"))
     pd.DataFrame({"failed_urls": failed_urls}).to_csv(failed_path, index=False)
-    print(f"Logged {len(failed_urls)} failed URLs to {failed_path}")
+    print(f"Logged {len(failed_urls)} failed URLs to {failed_path} (abs)")
 
 def fetch_page_with_retries(session: requests.Session, url: str,
                             retries: int = PER_PAGE_RETRIES,
@@ -166,12 +168,11 @@ def scrape_data(specific_dates: List[datetime.date], save_dir: str) -> None:
             save_csv(accumulated_rows, current_date, save_dir)
         else:
             # Si tu veux sauver partiel pour debug, on le fait (pratique)
-            partial_path_dir = os.path.join(save_dir, "partials")
+            partial_path_dir = os.path.abspath(os.path.join(os.fspath(save_dir), "partials"))
             os.makedirs(partial_path_dir, exist_ok=True)
             partial_file = os.path.join(partial_path_dir, f"data_partial_{current_date.strftime('%Y_%m_%d')}.csv")
             pd.DataFrame(accumulated_rows).to_csv(partial_file, index=False)
-            print(f"Insufficient rows ({len(accumulated_rows)} < {DATE_ACCEPT_THRESHOLD}). Saved partial CSV to {partial_file}")
-            failed_urls.append(f"Insufficient data for {current_date} ({len(accumulated_rows)} rows)")
+            print(f"Insufficient rows ({len(accumulated_rows)} < {DATE_ACCEPT_THRESHOLD}). Saved partial CSV to {partial_file} (abs)")
 
         # Save failed URLs periodically
         log_failed_urls(failed_urls, save_dir)
