@@ -51,6 +51,20 @@ jobs:
         run: |
           python main.py
 
+        
+
+      - name: Debug wta_rankings dir after main.py
+        run: |
+          echo "PWD: $(pwd)"
+          echo "Listing wta_rankings (detailed):"
+          ls -la wta_rankings || true
+          echo "Recent files in wta_rankings (mtime sorted):"
+          find wta_rankings -maxdepth 1 -type f -printf '%T@ %p\n' | sort -n | tail -n 20 || true
+          for f in wta_rankings/data_*.csv; do
+            [ -f "$f" ] && echo "---- $f ----" && head -n 5 "$f"
+          done || true
+
+
       - name: Expire old reviewed flags (WTA)
         run: |
           python scripts/expire_reviews.py --csv player_data_wta.csv --months 6 --active-days 365
@@ -110,6 +124,19 @@ jobs:
         run: |
           python3 scripts/scrape_player_ranking_atp.py --dates-file atp_dates_to_fetch.csv --headless --max-players 5000
 
+      - name: Debug atp_rankings dir after ATP scrape
+        run: |
+          echo "PWD: $(pwd)"
+          echo "Listing atp_rankings (detailed):"
+          ls -la atp_rankings || true
+          echo "Recent files in atp_rankings (mtime sorted):"
+          find atp_rankings -maxdepth 1 -type f -printf '%T@ %p\n' | sort -n | tail -n 20 || true
+          echo "Show head of any new data_*.csv files (first 80 chars):"
+          for f in atp_rankings/data_*.csv; do
+            [ -f "$f" ] && echo "---- $f ----" && head -n 5 "$f"
+          done || true
+
+
       - name: Update ATP CSV from atp_rankings (only this Monday)
         run: |
           if [ -z "${{ env.ISO }}" ]; then
@@ -155,6 +182,22 @@ jobs:
       # ---------------------------
       # COMMIT / PUSH updated CSVs/docs and trigger deploy
       # (moved here so commit includes freshly generated files)
+
+
+      - name: Show untracked & git status (debug)
+        run: |
+          echo "=== Git status ==="
+          git status --porcelain || true
+          echo "=== Untracked files sample ==="
+          git ls-files --others --exclude-standard | sed -n '1,200p' || true
+          echo "=== atp_rankings sample listing ==="
+          ls -la atp_rankings || true
+          echo "=== wta_rankings sample listing ==="
+          ls -la wta_rankings || true
+
+
+
+
       # ---------------------------
       - name: Commit docs, cache and CSV
         run: |
