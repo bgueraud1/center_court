@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ATP Rankings — Center Court</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#f7f9fb;padding:1rem}
+    .rank-badge{min-width:3rem;text-align:center}
+    .flag-emoji{font-size:1.1rem;margin-right:.4rem;vertical-align:middle;font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif;line-height:1}
+    tr.row-atp td{background-color:#fff0f6}
+    tr.row-atp td{background-color:#eef8ff}
+    .highlight-atp{font-weight:700;color:#0d6efd} /* blue */
+    .highlight-atp{font-weight:700;color:#dc3545} /* red */
+    .small-muted{color:#6c757d;font-size:.9rem}
+    .controls{display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.75rem}
+    @media (max-width:575px){ .controls{flex-direction:column} }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <h3 class="mb-0">ATP Rankings</h3>
+      <a href="/index.html">Home</a>
+    </div>
+
+    <div class="card mb-3 p-3">
+      <div class="controls">
+        <div>
+          <label class="form-label small mb-1">Ranking date</label>
+          <select id="date-select" class="form-select"></select>
+        </div>
+        <div>
+          <label class="form-label small mb-1">Age ≤</label>
+          <input id="age-le" type="number" class="form-control" placeholder="Max age">
+        </div>
+        <div>
+          <label class="form-label small mb-1">Age ≥</label>
+          <input id="age-ge" type="number" class="form-control" placeholder="Min age">
+        </div>
+        <div>
+          <label class="form-label small mb-1">Country</label>
+          <select id="country-filter" class="form-select"><option value="">— all —</option></select>
+        </div>
+        <div>
+          <label class="form-label small mb-1">Highlight country</label>
+          <select id="country-highlight" class="form-select"><option value="">— none —</option></select>
+        </div>
+        <div class="align-self-end">
+          <button id="reset" class="btn btn-outline-secondary">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="status" class="mb-2 small-muted">Loading…</div>
+
+    <div class="table-responsive">
+      <table class="table table-sm align-middle" id="ranking-table">
+        <thead class="table-light">
+          <tr>
+            <th style="width:1%">#</th>
+            <th>Player</th>
+            <th>Age</th>
+            <th>Points</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <nav aria-label="pagination">
+      <ul id="pagination" class="pagination"></ul>
+    </nav>
+
+  </main>
+
+<script>
+const PREFIX = "atp";
+const TOOLS_BASE = "/tools"; // docs/tools published at /tools
+const INDEX_URL = `${TOOLS_BASE}/${PREFIX}_index.json`;
+const LATEST_URL = `${TOOLS_BASE}/latest_${PREFIX}_ranking.json`;
+
+let indexList = [];
+let currentRows = [];
+let filteredRows = [];
+let perPage = 50;
+let currentPage = 1;
+
+function emojiFromAlpha2(alpha2){
+  if(!alpha2) return '';
+  const s = alpha2.trim().toUpperCase();
+  if(!/^[A-Z]{2}$/.test(s)) return '';
+  try {
+    const cp1 = 127397 + s.charCodeAt(0);
+    const cp2 = 127397 + s.charCodeAt(1);
+    return String.fromCodePoint(cp1, cp2);
+  } catch(e){ return ''; }
+}
+
+function safeText(s){ return s == null ? '' : s; }
+
+function renderTablePage(rows, page=1){
+  const tbody = document.querySelector('#ranking-table tbody');
+  tbody.innerHTML = '';
+  const start = (page-1)*perPage;
+  const end = Math.min(rows.length, start+perPage);
+  for(let i=start;i<end;i++){
+    const r = rows[i];
+    const tr = document.createElement('tr');
+    tr.classList.add(r.prefix === 'atp' ? 'row-atp' : 'row-atp'); // prefix maybe not set; default handled below
+    // highlight?
+    const highlightCountry = document.getElementById('country-highlight').value;
+    if(highlightCountry && r.country_code && r.country_code.toUpperCase() === highlightCountry.toUpperCase()){
+      tr.classList.add('highlight-atp'); // for ATP page
+    }
+    tr.innerHTML = `
+      <td class="small text-muted">${r.ranking || '—'}</td>
+      <td><strong>${r.flagHtml || ''}${r.full_name}</strong></td>
+      <td class="small-muted">${r.age != null ? r.age : '—'}</td>
+      <td class="small-muted">${r.points != null ? r.points : ''}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+  renderPagination(rows.length, page);
+}
+
+function renderPagination(total, page){
+  const pages = Math.max(1, Math.ceil(total / perPage));
+  const ul = document.getElementById('pagination');
+  ul.innerHTML = '';
+  for(let p=1;p<=pages;p++){
+    const li = document.createElement('li');
+    li.className = 'page-item' + (p===page ? ' active' : '');
+    const a = document.createElement('a');
+    a.className = 'page-link';
+    a.href = '#';
+    a.textContent = p;
+    a.addEventListener('click', (ev)=>{
+      ev.preventDefault();
+      currentPage = p;
+      renderTablePage(filteredRows, currentPage);
+    });
+    li.appendChild(a);
+    ul.appendChild(li);
+  }
+}
+
+function buildFlagHtml(row){
+  if(row.flag_emoji){
+    return `<span class="flag-emoji" title="${row.country_code||''}">${row.flag_emoji}</span>`;
+  }
+  if(row.country_code){
+    const e = emojiFromAlpha2(row.country_code);
+    if(e) return `<span class="flag-emoji" title="${row.country_code}">${e}</span>`;
+    // fallback to code letters
+    return `<span class="flag-emoji" title="${row.country_code}">${row.country_code.toUpperCase()}</span>`;
+  }
+  return '';
+}
+
+async function loadIndexAndInit(){
+  document.getElementById('status').textContent = 'Loading index…';
+  try {
+    const idxR = await fetch(INDEX_URL, {cache: "no-cache"});
+    if(!idxR.ok) throw new Error('index fetch ' + idxR.status);
+    indexList = await idxR.json();
+  } catch(e){
+    console.warn('index fetch failed, fallback to latest', e);
+    // fallback: load latest directly
+    return loadLatestAndInit();
+  }
+  const dateSelect = document.getElementById('date-select');
+  dateSelect.innerHTML = '';
+  indexList.forEach(item => {
+    const opt = document.createElement('option');
+    opt.value = item.json;
+    opt.textContent = item.date;
+    dateSelect.appendChild(opt);
+  });
+  // select last (most recent)
+  if(indexList.length>0){
+    dateSelect.value = indexList[indexList.length-1].json;
+    await loadJsonAndRender(dateSelect.value);
+  } else {
+    // nothing in index, fallback
+    await loadLatestAndInit();
+  }
+  // wire events
+  dateSelect.addEventListener('change', async () => {
+    await loadJsonAndRender(dateSelect.value);
+  });
+  document.getElementById('age-le').addEventListener('input', applyFilters);
+  document.getElementById('age-ge').addEventListener('input', applyFilters);
+  document.getElementById('country-filter').addEventListener('change', applyFilters);
+  document.getElementById('country-highlight').addEventListener('change', ()=>{
+    // re-render page to apply highlight
+    renderTablePage(filteredRows, currentPage);
+  });
+  document.getElementById('reset').addEventListener('click', ()=>{
+    document.getElementById('age-le').value = '';
+    document.getElementById('age-ge').value = '';
+    document.getElementById('country-filter').value = '';
+    document.getElementById('country-highlight').value = '';
+    applyFilters();
+  });
+}
+
+async function loadLatestAndInit(){
+  document.getElementById('status').textContent = 'Loading latest…';
+  const r = await fetch(LATEST_URL, {cache: "no-cache"});
+  if(!r.ok){ document.getElementById('status').textContent = 'No data.'; return; }
+  const payload = await r.json();
+  // payload contains .rows (full data) and .date
+  const rows = payload.rows || payload.data || [];
+  setupRowsAndRender(rows, payload.date || '');
+}
+
+async function loadJsonAndRender(jsonfname){
+  document.getElementById('status').textContent = 'Loading ranking…';
+  const url = `${TOOLS_BASE}/${jsonfname}`;
+  const r = await fetch(url, {cache: "no-cache"});
+  if(!r.ok){ document.getElementById('status').textContent = 'Failed to load ranking'; return; }
+  const rows = await r.json();
+  setupRowsAndRender(rows, jsonfname);
+}
+
+function setupRowsAndRender(rows, label){
+  // normalize rows: add prefix 'atp'
+  currentRows = rows.map(r => {
+    const o = Object.assign({}, r);
+    o.prefix = "atp";
+    o.flagHtml = buildFlagHtml(o);
+    return o;
+  });
+  // populate country select listing unique country codes
+  const countrySet = new Map();
+  currentRows.forEach(r => { if(r.country_code) countrySet.set(r.country_code.toUpperCase(), r.country_code.toUpperCase()); });
+  const countryFilter = document.getElementById('country-filter');
+  const countryHighlight = document.getElementById('country-highlight');
+  countryFilter.innerHTML = '<option value="">— all —</option>';
+  countryHighlight.innerHTML = '<option value="">— none —</option>';
+  Array.from(countrySet.keys()).sort().forEach(code => {
+    const opt1 = document.createElement('option'); opt1.value = code; opt1.textContent = code; countryFilter.appendChild(opt1);
+    const opt2 = document.createElement('option'); opt2.value = code; opt2.textContent = code; countryHighlight.appendChild(opt2);
+  });
+  document.getElementById('status').textContent = `Loaded ${currentRows.length} rows (${label})`;
+  // default filteredRows is currentRows
+  filteredRows = currentRows.slice();
+  currentPage = 1;
+  renderTablePage(filteredRows, currentPage);
+}
+
+function applyFilters(){
+  const le = parseInt(document.getElementById('age-le').value) || null;
+  const ge = parseInt(document.getElementById('age-ge').value) || null;
+  const country = document.getElementById('country-filter').value || null;
+  filteredRows = currentRows.filter(r => {
+    if(ge !== null && (r.age === null || r.age < ge)) return false;
+    if(le !== null && (r.age === null || r.age > le)) return false;
+    if(country && r.country_code && r.country_code.toUpperCase() !== country.toUpperCase()) return false;
+    if(country && !r.country_code && r.country_raw && r.country_raw.toUpperCase() !== country.toUpperCase()) return false;
+    return true;
+  });
+  currentPage = 1;
+  renderTablePage(filteredRows, currentPage);
+}
+
+window.addEventListener('load', ()=>{ loadIndexAndInit(); });
+</script>
+</body>
+</html>
