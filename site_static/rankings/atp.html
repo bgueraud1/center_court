@@ -65,16 +65,227 @@
     </div>
   </main>
 
-  <script src="/js/rankings.js"></script>
   <script>
-    // init page: tell script to load ATP JSON
-    RankingsUI.init({
-      jsonUrl: "docs/tools/latest_atp_ranking.json",
-      circuit: "ATP",
-      rowsPerPage: 50,
-      highlightClass: {default: "highlight-atp"},
-      rowClass: "row-atp"
+/* --- Rankings standalone renderer (no external deps) --- */
+/* Usage: drop into atp.html (circuit = 'ATP') and atp.html (circuit = 'ATP') */
+(async function() {
+  const opts = {
+    circuit: "ATP",            // change to "ATP" in atp.html
+    jsonNames: ["docs/tools/latest_atp_ranking.json", "/docs/tools/latest_atp_ranking.json", "/tools/latest_atp_ranking.json", "../docs/tools/latest_atp_ranking.json", "../../docs/tools/latest_atp_ranking.json", "latest_atp_ranking.json"],
+    rowsPerPage: 50,
+    statusSelector: "#status",
+    tableBodySelector: "#ranking_table tbody",
+    paginationSelector: "#pagination",
+    filterAgeLe: "#age_le",
+    filterAgeGe: "#age_ge",
+    filterCountry: "#filter_country",
+    highlightCountry: "#highlight_country",
+    resetBtn: "#reset_filters",
+    rowClass: "row-atp",
+    highlightClass: "highlight-atp"
+  };
+
+  // Small helpers
+  function escapeHtml(s){ if(s==null) return ""; return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;"); }
+  function emojiFromAlpha2(alpha2){
+    if(!alpha2 || typeof alpha2!=="string") return "";
+    const s = alpha2.trim().toUpperCase();
+    if(!/^[A-Z]{2}$/.test(s)) return "";
+    try { return String.fromCodePoint(127397 + s.charCodeAt(0), 127397 + s.charCodeAt(1)); } catch(e){ return ""; }
+  }
+  async function tryFetchCandidates(list){
+    for(const u of list){
+      try{
+        console.log("[rankings] trying", u);
+        const r = await fetch(u, { cache: "no-store" });
+        if(!r.ok) { console.warn("[rankings] not ok", u, r.status); continue; }
+        const data = await r.json();
+        console.log("[rankings] loaded from", u, "rows=", Array.isArray(data)?data.length:"?");
+        return { data, url: u };
+      }catch(err){
+        console.warn("[rankings] fetch error", u, err);
+      }
+    }
+    throw new Error("No JSON candidate succeeded");
+  }
+
+  // DOM lookup
+  const statusEl = document.querySelector(opts.statusSelector);
+  const tbody = document.querySelector(opts.tableBodySelector);
+  const paginationEl = document.querySelector(opts.paginationSelector);
+  const ageLeEl = document.querySelector(opts.filterAgeLe);
+  const ageGeEl = document.querySelector(opts.filterAgeGe);
+  const countryEl = document.querySelector(opts.filterCountry);
+  const highlightEl = document.querySelector(opts.highlightCountry);
+  const resetBtn = document.querySelector(opts.resetBtn);
+
+  function setStatus(txt){ if(statusEl) statusEl.textContent = txt; }
+
+  // load JSON
+  setStatus("Loading ranking JSON…");
+  let json;
+  try{
+    const res = await tryFetchCandidates(opts.jsonNames);
+    json = res.data || [];
+    setStatus(`Loaded ${json.length} players (source: ${res.url})`);
+  }catch(err){
+    console.error(err);
+    setStatus("Failed to load ranking JSON — open DevTools console");
+    return;
+  }
+
+  // normalize entries
+  json = json.map(r => ({
+    ranking: r.ranking || r.rank || null,
+    full_name: r.full_name || r.fullName || r.fullName || r.full_name || "",
+    player_id: r.player_id || r.playerId || r.player_id || "",
+    player_url: r.player_url || r.playerUrl || (r.player_id ? `/players/${r.player_id}-${(r.player_slug||"")}.html` : (`/players/${r.player_slug||""}.html`)),
+    age: (r.age === null || r.age === undefined) ? null : Number(r.age),
+    points: (r.points === null || r.points === undefined) ? null : Number(r.points),
+    country_code: r.country_code || (r.country_name ? (r.country_name.length===2?r.country_name.toUpperCase():"") : "") || "",
+    flag_emoji: r.flag_emoji || emojiFromAlpha2(r.country_code || "")
+  }));
+
+  // build country list
+  const countries = Array.from(new Map(json.map(x => [ (x.country_code||"").toUpperCase(), x ])).keys()).filter(x=>x);
+  countries.sort();
+  // populate selects
+  countryEl.innerHTML = '<option value="">— all —</option>' + countries.map(c=>`<option value="${c}">${c}</option>`).join("");
+  highlightEl.innerHTML = '<option value="">— none —</option>' + countries.map(c=>`<option value="${c}">${c}</option>`).join("");
+
+  // current filters + pagination state
+  const state = {
+    age_le: null, age_ge: null, country: "", highlight: "", page: 1, perPage: opts.rowsPerPage
+  };
+
+  function applyFilters(data){
+    return data.filter(d=>{
+      if(state.age_le != null && d.age != null && !(d.age <= state.age_le)) return false;
+      if(state.age_le != null && d.age == null) return false;
+      if(state.age_ge != null && d.age != null && !(d.age >= state.age_ge)) return false;
+      if(state.age_ge != null && d.age == null) return false;
+      if(state.country && ((d.country_code||"").toUpperCase() !== state.country.toUpperCase())) return false;
+      return true;
     });
-  </script>
+  }
+
+  function renderTablePage(filtered){
+    tbody.innerHTML = "";
+    const total = filtered.length;
+    const pages = Math.max(1, Math.ceil(total / state.perPage));
+    if(state.page > pages) state.page = pages;
+    const start = (state.page -1) * state.perPage;
+    const slice = filtered.slice(start, start + state.perPage);
+    slice.forEach((r, idx)=>{
+      const tr = document.createElement("tr");
+      if(opts.rowClass) tr.classList.add(opts.rowClass);
+      // ranking cell
+      const tdRank = document.createElement("td"); tdRank.className = "small text-muted"; tdRank.textContent = r.ranking || "—"; tr.appendChild(tdRank);
+      // player (flag + link)
+      const tdName = document.createElement("td");
+      const strong = document.createElement("strong");
+      // flag
+      if(r.flag_emoji){
+        const span = document.createElement("span");
+        span.className = "flag-emoji";
+        span.textContent = r.flag_emoji + " ";
+        span.style.marginRight = ".4rem";
+        strong.appendChild(span);
+      } else if (r.country_code) {
+        // fallback to emoji generation
+        const span = document.createElement("span");
+        span.className = "flag-emoji";
+        span.textContent = emojiFromAlpha2(r.country_code) || r.country_code + " ";
+        span.style.marginRight = ".4rem";
+        strong.appendChild(span);
+      }
+      const a = document.createElement("a");
+      a.href = r.player_url || "#";
+      a.textContent = r.full_name || "(unknown)";
+      a.style.textDecoration = "none";
+      // highlight if selected
+      if(state.highlight && r.country_code && r.country_code.toUpperCase() === state.highlight.toUpperCase()){
+        a.classList.add(opts.highlightClass);
+      }
+      strong.appendChild(a);
+      tdName.appendChild(strong);
+      tr.appendChild(tdName);
+
+      // age
+      const tdAge = document.createElement("td"); tdAge.className="small-muted"; tdAge.textContent = (r.age==null ? "—" : String(r.age)); tr.appendChild(tdAge);
+      // points
+      const tdPoints = document.createElement("td"); tdPoints.className="small-muted"; tdPoints.textContent = (r.points==null ? "—" : String(r.points)); tr.appendChild(tdPoints);
+
+      tbody.appendChild(tr);
+    });
+
+    // pagination UI
+    renderPagination(total, pages);
+    setStatus(`${total} players — page ${state.page}/${pages}`);
+  }
+
+  function renderPagination(total, pages){
+    paginationEl.innerHTML = "";
+    if(pages <= 1) return;
+    const createPageItem = (n, label, active=false) => {
+      const li = document.createElement("li"); li.className = "page-item" + (active ? " active" : "");
+      const a = document.createElement("a"); a.className = "page-link"; a.href="#"; a.textContent = label || String(n);
+      a.addEventListener("click", (ev)=>{ ev.preventDefault(); state.page = n; renderTablePage(applyFilters(json)); });
+      li.appendChild(a);
+      return li;
+    };
+    // prev
+    const prevLi = document.createElement("li"); prevLi.className = "page-item";
+    const prevA = document.createElement("a"); prevA.className = "page-link"; prevA.href="#"; prevA.textContent = "«";
+    prevA.addEventListener("click", ev=>{ ev.preventDefault(); if(state.page>1){ state.page--; renderTablePage(applyFilters(json)); }});
+    prevLi.appendChild(prevA); paginationEl.appendChild(prevLi);
+    // pages (limit window)
+    const windowSize = 7;
+    let start = Math.max(1, state.page - Math.floor(windowSize/2));
+    let end = Math.min(pages, start + windowSize -1);
+    if(end - start < windowSize -1) start = Math.max(1, end - windowSize +1);
+    for(let p=start;p<=end;p++){
+      const li = createPageItem(p, String(p), p===state.page);
+      paginationEl.appendChild(li);
+    }
+    // next
+    const nextLi = document.createElement("li"); nextLi.className = "page-item";
+    const nextA = document.createElement("a"); nextA.className = "page-link"; nextA.href="#"; nextA.textContent = "»";
+    nextA.addEventListener("click", ev=>{ ev.preventDefault(); if(state.page<pages){ state.page++; renderTablePage(applyFilters(json)); }});
+    nextLi.appendChild(nextA); paginationEl.appendChild(nextLi);
+  }
+
+  // event wiring
+  function onFiltersChange(){
+    const le = Number(ageLeEl.value) || null;
+    const ge = Number(ageGeEl.value) || null;
+    state.age_le = (ageLeEl.value.trim()==="") ? null : le;
+    state.age_ge = (ageGeEl.value.trim()==="") ? null : ge;
+    state.country = countryEl.value || "";
+    state.highlight = highlightEl.value || "";
+    state.page = 1;
+    renderTablePage(applyFilters(json));
+  }
+  ageLeEl.addEventListener("input", onFiltersChange);
+  ageGeEl.addEventListener("input", onFiltersChange);
+  countryEl.addEventListener("change", onFiltersChange);
+  highlightEl.addEventListener("change", onFiltersChange);
+  resetBtn.addEventListener("click", ev=>{
+    ev.preventDefault();
+    ageLeEl.value = ""; ageGeEl.value = ""; countryEl.value = ""; highlightEl.value = "";
+    onFiltersChange();
+  });
+
+  // initial sort by ranking numeric asc
+  json.sort((a,b)=> ( (a.ranking||1e9) - (b.ranking||1e9) ));
+
+  // initial render
+  renderTablePage(applyFilters(json));
+
+  // expose for debug
+  window.__CENTER_COURT_RANKINGS = { raw: json, state };
+})();
+</script>
+
 </body>
 </html>
