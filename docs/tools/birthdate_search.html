@@ -10,6 +10,39 @@
     .card { box-shadow: 0 6px 18px rgba(20,30,60,0.06); border: none; }
     .muted { color:#6c757d; }
     .rank-badge { min-width:3.0rem; display:inline-block; text-align:center; }
+
+    /* emoji font fallback and spacing */
+    .flag-emoji {
+      font-size: 1.1rem;
+      margin-right: 0.4rem;
+      vertical-align: middle;
+      /* encourage color emoji fonts where available */
+      font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+      line-height: 1;
+    }
+
+    /* alignement nom + drapeau */
+    td.name-cell { display: flex; align-items: center; gap: .5rem; white-space: nowrap; }
+
+    /* couleurs douces pour les lignes WTA / ATP (appliquées aux <td> pour fiabilité) */
+    .table tbody tr.row-wta td {
+      background-color: rgba(255,229,236,0.9); /* rose très clair */
+    }
+    .table tbody tr.row-atp td {
+      background-color: rgba(227,241,255,0.95); /* bleu très clair */
+    }
+
+    /* hover (appliqué aux cellules) */
+    .table-hover tbody tr.row-wta:hover td {
+      background-color: rgba(255,204,220,0.98);
+    }
+    .table-hover tbody tr.row-atp:hover td {
+      background-color: rgba(204,224,255,0.98);
+    }
+
+    /* contraste texte */
+    tr.row-wta td, tr.row-atp td { color: #212529; }
+
     .small-muted { color:#6c757d; font-size:.9rem }
     .no-results { color:#6c757d; padding:1rem 0 }
     @media (max-width:575px){ .form-row { flex-direction:column } .form-row > * { width:100%; margin-bottom:.5rem } }
@@ -25,7 +58,6 @@
               <h3 class="mb-0">Search players by birth date</h3>
               <small class="ms-3 muted">ATP &amp; WTA</small>
             </div>
-            <p class="small-muted">Search by day and month (year optional). Example: <strong>01</strong> + <strong>January</strong> finds all players born on January 1st (any year).</p>
 
             <form id="search-form" class="row g-2 align-items-end form-row">
               <div class="col-auto">
@@ -84,7 +116,6 @@
 
             <div id="no-results" class="no-results" style="display:none;">No players found for this date.</div>
 
-            <div class="text-muted small mt-3">If nothing loads, make sure your server serves the repo root over HTTP (e.g. <code>python3 -m http.server 8000</code>), and that <code>players_by_birth.json</code> exists next to this file.</div>
           </div>
         </div>
       </div>
@@ -94,7 +125,7 @@
   <script>
     // CONFIG
     const SENTINEL = 9999999;
-    const JSON_PATH = './players_by_birth.json'; // relative to this file; file lives in same folder
+    const JSON_PATH = './players_by_birth.json'; // adjust if your JSON lives elsewhere
 
     let players = [];
 
@@ -122,6 +153,20 @@
         showLoading(false);
       }
     }
+// DEBUG: affiche quelques valeurs pour les premières lignes chargées
+function debugDump() {
+  if (!players || players.length === 0) return;
+  console.log('players sample (first 10):');
+  players.slice(0,10).forEach((p,i) => {
+    console.log(i+1, {
+      full_name: p.full_name,
+      country: p.country,
+      country_alpha2: p.country_alpha2,
+      flag_emoji_raw: p.flag_emoji,
+      birth_date: p.birth_date
+    });
+  });
+}
 
     function matchPlayer(p, day, month, year){
       if(!p.birth_date) return false;
@@ -131,22 +176,212 @@
 
     function escapeHtml(s){ if(!s) return ''; return s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'); }
 
-    function renderResults(list){
-      resultsTbody.innerHTML = '';
-      list.forEach((r, idx) => {
-        const rankDisplay = (r.best_rank && r.best_rank !== SENTINEL) ? r.best_rank : '—';
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td class="small text-muted">${idx+1}</td>
-          <td><strong>${escapeHtml(r.full_name)}</strong></td>
-          <td class="small-muted">${escapeHtml(r.circuit)}</td>
-          <td class="small-muted">${escapeHtml(r.birth_date || '')}</td>
-          <td><span class="badge bg-light text-dark rank-badge">${rankDisplay}</span></td>
-        `;
-        resultsTbody.appendChild(tr);
-      });
-    }
 
+
+/* ---------- Helper : test si emoji drapeau s'affiche réellement ---------- */
+/* Méthode : on crée un span invisible, on compare largeur du rendu emoji vs largeur des 2 lettres.
+   Si les largeurs diffèrent, l'emoji est (probablement) rendu comme glyph coloré. */
+const __emojiRenderCache = {};
+function emojiDisplaysAsFlag(alpha2){
+  if(!alpha2) return false;
+  const key = alpha2.trim().toUpperCase();
+  if(__emojiRenderCache[key] !== undefined) return __emojiRenderCache[key];
+
+  // create hidden span
+  const span = document.createElement('span');
+  span.style.position = 'absolute';
+  span.style.visibility = 'hidden';
+  span.style.whiteSpace = 'nowrap';
+  span.style.fontSize = '16px';
+  span.style.lineHeight = '1';
+  document.body.appendChild(span);
+
+  const emoji = emojiFromAlpha2(key);
+  span.textContent = emoji || key; // put emoji (if present)
+  const wEmoji = span.getBoundingClientRect().width;
+
+  span.textContent = key; // put plain letters
+  const wLetters = span.getBoundingClientRect().width;
+
+  document.body.removeChild(span);
+
+  // if emoji width differs from letters width, assume emoji rendered
+  const result = (emoji && Math.abs(wEmoji - wLetters) > 0.5); // tolerance
+  __emojiRenderCache[key] = result;
+  return result;
+}
+
+
+
+/* ---------- decode si JSON contient \u sequences (sécurise) ---------- */
+function decodeEscapedUnicode(s){
+  if(!s || typeof s !== 'string') return '';
+  if(/\\u[0-9a-fA-F]{4}/.test(s)){
+    try { return JSON.parse('"' + s.replace(/"/g,'\\"') + '"'); } catch(e){ return s; }
+  }
+  return s;
+}
+/* ---------- Helper : crée une <img> drapeau (SVG) et fallback DOM handler ---------- */
+function createFlagImageElement(alpha2, size = 20, fallbackEmoji = '') {
+  if(!alpha2) {
+    // si pas d'alpha2, essaie d'afficher l'emoji brut si fourni
+    if (fallbackEmoji) {
+      const span = document.createElement('span');
+      span.className = 'flag-emoji';
+      span.textContent = fallbackEmoji;
+      return span;
+    }
+    return document.createTextNode(''); // rien
+  }
+
+  const code = alpha2.trim().toLowerCase();
+  const src = `https://flagcdn.com/${code}.svg`; // SVG fiable pour toutes les ISO alpha-2
+  const img = document.createElement('img');
+
+  img.src = src;
+  img.alt = code;
+  img.width = size;
+  img.height = Math.round(size * 0.75);
+  img.style.marginRight = '.4rem';
+  img.style.borderRadius = '2px';
+  img.style.objectFit = 'cover';
+  img.style.verticalAlign = 'middle';
+  img.loading = 'lazy';
+
+  // fallback si l'image ne charge pas : remplace par emoji (si disponible) ou par le code majuscule
+  img.onerror = function() {
+    // retire l'image cassée
+    try { this.remove(); } catch(e) { /* ignore */ }
+
+    if (fallbackEmoji) {
+      const span = document.createElement('span');
+      span.className = 'flag-emoji';
+      span.textContent = fallbackEmoji;
+      span.title = alpha2.toUpperCase();
+      // insère le span à la place de l'image (si parent existe)
+      if (this.parentNode) this.parentNode.insertBefore(span, this.nextSibling);
+    } else {
+      const txt = document.createTextNode(alpha2.toUpperCase());
+      if (this.parentNode) this.parentNode.insertBefore(txt, this.nextSibling);
+    }
+  };
+
+  return img;
+}
+
+/* ---------- Helper simple : emoji à partir d'alpha2 (sera utilisé seulement comme fallback) ---------- */
+function emojiFromAlpha2(alpha2){
+  if(!alpha2 || typeof alpha2 !== 'string') return '';
+  const s = alpha2.trim().toUpperCase();
+  if(!/^[A-Z]{2}$/.test(s)) return '';
+  try {
+    const cp1 = 127397 + s.charCodeAt(0);
+    const cp2 = 127397 + s.charCodeAt(1);
+    return String.fromCodePoint(cp1, cp2);
+  } catch(e) {
+    return '';
+  }
+}
+
+// normalize + slugify pour produire "pedro-sousa" depuis "Pedro Sousa" ou "Álvaro O'Neil"
+  function slugify(name) {
+    if (!name) return '';
+    // normalize (décompose les caractères accentués), supprime les marques combinées, puis créer le slug
+    const normalized = String(name).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    // remplace tout ce qui n'est pas a-z0-9 par un tiret, compresse les tirets, coupe les bords
+    return normalized.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  }
+
+  // --- remplacer ENTIEREMENT la fonction renderResults par celle-ci ---
+  function renderResults(list){
+    resultsTbody.innerHTML = '';
+    list.forEach((r, idx) => {
+      const rankDisplay = (r.best_rank && r.best_rank !== SENTINEL) ? r.best_rank : '—';
+      const tr = document.createElement('tr');
+
+      // class selon circuit
+      const circuit = (r.circuit || '').toUpperCase();
+      const circuitClass = circuit === 'WTA' ? 'row-wta' : (circuit === 'ATP' ? 'row-atp' : '');
+      if (circuitClass) tr.classList.add(circuitClass);
+
+      // prépare fallback emoji (soit depuis country_alpha2, soit depuis flag_emoji dans le JSON)
+      let fallbackEmoji = '';
+      if (r.flag_emoji) fallbackEmoji = decodeEscapedUnicode(r.flag_emoji);
+      if (!fallbackEmoji && r.country_alpha2) fallbackEmoji = emojiFromAlpha2(r.country_alpha2);
+
+      // colonne # 
+      const tdIndex = document.createElement('td');
+      tdIndex.className = 'small text-muted';
+      tdIndex.textContent = String(idx + 1);
+      tr.appendChild(tdIndex);
+
+      // colonne name (flag + nom)
+      const tdName = document.createElement('td');
+      tdName.className = 'name-cell';
+      const strong = document.createElement('strong');
+
+      // drapeau (image ou fallback)
+      if (r.country_alpha2) {
+        const imgOrSpan = createFlagImageElement(r.country_alpha2, 20, fallbackEmoji);
+        strong.appendChild(imgOrSpan);
+      } else if (fallbackEmoji) {
+        const span = document.createElement('span');
+        span.className = 'flag-emoji';
+        span.textContent = fallbackEmoji;
+        strong.appendChild(span);
+      }
+
+      // nom — si player_id présent, on crée un lien vers Center-Court
+      const nameText = r.full_name || '';
+      const pid = (r.player_id || '').toString().trim();
+      if (pid) {
+        // détermine le préfixe selon le circuit (ATP → players_atp, autre → players)
+        const base = (circuit === 'ATP') ? 'https://www.center-court.net/players_atp' : 'https://www.center-court.net/players';
+        // id en minuscules (ex: 'S483' -> 's483') + slug du nom
+        const idPart = pid.toLowerCase();
+        const slug = slugify(nameText) || idPart;
+        const href = `${base}/${idPart}-${slug}`;
+
+        const a = document.createElement('a');
+        a.href = href;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        // conserve l'apparence du texte (hérite de la couleur), mais tu peux personnaliser via CSS si besoin
+        a.style.color = 'inherit';
+        a.style.textDecoration = 'none';
+        a.appendChild(document.createTextNode(nameText));
+        strong.appendChild(a);
+      } else {
+        // pas d'id : affiche juste le texte (sécurisé via text node)
+        strong.appendChild(document.createTextNode(nameText));
+      }
+
+      tdName.appendChild(strong);
+      tr.appendChild(tdName);
+
+      // colonne tour
+      const tdTour = document.createElement('td');
+      tdTour.className = 'small-muted';
+      tdTour.textContent = r.circuit || '';
+      tr.appendChild(tdTour);
+
+      // colonne birth date
+      const tdBirth = document.createElement('td');
+      tdBirth.className = 'small-muted';
+      tdBirth.textContent = r.birth_date || '';
+      tr.appendChild(tdBirth);
+
+      // colonne rank
+      const tdRank = document.createElement('td');
+      const spanRank = document.createElement('span');
+      spanRank.className = 'badge bg-light text-dark rank-badge';
+      spanRank.textContent = rankDisplay;
+      tdRank.appendChild(spanRank);
+      tr.appendChild(tdRank);
+
+      resultsTbody.appendChild(tr);
+    });
+  }
     document.getElementById('search').addEventListener('click', (ev)=>{
       ev.preventDefault();
       noResults.style.display='none';
