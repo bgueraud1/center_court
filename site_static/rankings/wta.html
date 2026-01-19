@@ -65,15 +65,150 @@
     </div>
   </main>
 
-  <script src="/js/rankings.js"></script>
   <script>
-    RankingsUI.init({
-      jsonUrl: "docs/tools/latest_wta_ranking.json",
-      circuit: "WTA",
-      rowsPerPage: 50,
-      highlightClass: {default: "highlight-wta"},
-      rowClass: "row-wta"
-    });
-  </script>
+(async function(){
+  const statusEl = document.getElementById('status');
+  function log(msg){ console.log(msg); if(statusEl){ statusEl.textContent = msg; } }
+  function addNote(txt){
+    const small = document.createElement('div'); small.style.fontSize='.85rem'; small.style.marginTop='.25rem';
+    small.textContent = txt; document.querySelector('main .card')?.appendChild(small);
+  }
+
+  const name = 'latest_wta_ranking.json';
+  // candidate URLs to try (ordered). We'll also try with window.location.origin prefix.
+  const candidates = [
+    `/docs/tools/${name}`,
+    `docs/tools/${name}`,
+    `/tools/${name}`,
+    `tools/${name}`,
+    `../../docs/tools/${name}`,
+    `../docs/tools/${name}`,
+    `../tools/${name}`,
+    `${name}`,
+    `./${name}`
+  ];
+
+  const tried = [];
+  log('Attempting to load ranking JSON — trying candidates (see below)');
+
+  for(const p of candidates){
+    let full = p;
+    // if p is relative w/o leading slash and current page is nested, try relative and origin-prefixed version too
+    if(!p.startsWith('/')){
+      try {
+        // attempt origin-prefixed absolute url as well
+        const abs = window.location.origin + '/' + p.replace(/^\/+/, '');
+        tried.push(abs);
+        try {
+          log(`Trying (abs) ${abs} ...`);
+          const r = await fetch(abs, {cache:'no-store'});
+          tried.push({url:abs, status:r.status});
+          if(r.ok){
+            log(`Success loading JSON from ${abs} (status ${r.status}). Parsing...`);
+            const text = await r.text();
+            try {
+              const data = JSON.parse(text);
+              log(`Parsed JSON from ${abs} — rows: ${Array.isArray(data)?data.length:'?'} — rendering...`);
+              window.__CENTER_COURT_RANKING_JSON = data;
+              addNote(`Loaded from: ${abs}`);
+              renderRankingPage(data);
+              return;
+            } catch(e) {
+              addNote(`JSON parse error from ${abs}: ${String(e)}`);
+              console.error('JSON parse error', e, text.slice(0,500));
+              continue;
+            }
+          } else {
+            addNote(`HTTP ${r.status} from ${abs}`);
+            continue;
+          }
+        } catch(e){
+          addNote(`Fetch error for ${abs}: ${e}`);
+        }
+      } catch(e){}
+    }
+
+    // now try the raw p as-is (relative to current doc)
+    tried.push(p);
+    try {
+      log(`Trying (rel) ${p} ...`);
+      const r2 = await fetch(p, {cache:'no-store'});
+      tried.push({url:p, status: r2.status});
+      if(r2.ok){
+        log(`Success loading JSON from ${p} (status ${r2.status}). Parsing...`);
+        const text = await r2.text();
+        try {
+          const data = JSON.parse(text);
+          window.__CENTER_COURT_RANKING_JSON = data;
+          addNote(`Loaded from: ${p}`);
+          renderRankingPage(data);
+          return;
+        } catch(e) {
+          addNote(`JSON parse error from ${p}: ${String(e)}`);
+          console.error('JSON parse error', e, text.slice(0,500));
+          continue;
+        }
+      } else {
+        addNote(`HTTP ${r2.status} from ${p}`);
+      }
+    } catch(e){
+      addNote(`Fetch error for ${p}: ${e}`);
+    }
+  }
+
+  // none worked
+  log('All candidate URLs failed. See notes appended below.');
+  addNote('Tried candidates (see console for details).');
+  console.log('Candidate attempts:', tried);
+  // helper: show quick manual test snippet to run in console
+  addNote('Run this in Console to further inspect: fetch(\"/docs/tools/latest_wta_ranking.json\").then(r=>{console.log(r.status); return r.text()}).then(t=>console.log(t.slice(0,300))).catch(e=>console.error(e))');
+})();
+
+// minimal renderer fallback (keeps previous UI)
+function renderRankingPage(data){
+  // very small renderer to ensure table displays rows when JSON is available
+  try {
+    const tbody = document.querySelector('#ranking_table tbody');
+    const statusEl = document.getElementById('status');
+    tbody.innerHTML = '';
+    if(!Array.isArray(data) || data.length===0){
+      statusEl.textContent = 'JSON loaded but empty or invalid array.';
+      return;
+    }
+    statusEl.textContent = `Loaded ${data.length} players — rendering first page.`;
+
+    // sort by ranking numeric
+    data.sort((a,b)=> ( (Number(a.ranking)||1e9) - (Number(b.ranking)||1e9) ));
+
+    // render first 50
+    const rows = data.slice(0,50);
+    for(const r of rows){
+      const tr = document.createElement('tr');
+      // rank
+      const td1 = document.createElement('td'); td1.className='small text-muted'; td1.textContent = r.ranking || '—'; tr.appendChild(td1);
+      // name
+      const td2 = document.createElement('td');
+      const strong = document.createElement('strong');
+      const flag = (r.flag_emoji || (r.country_code ? (String.fromCodePoint(127397 + r.country_code.charCodeAt(0), 127397 + r.country_code.charCodeAt(1))) : ''));
+      if(flag){
+        const sp = document.createElement('span'); sp.className='flag-emoji'; sp.textContent = flag+' '; strong.appendChild(sp);
+      }
+      const a = document.createElement('a'); a.href = r.player_url || '#'; a.textContent = r.full_name || '(unknown)'; strong.appendChild(a);
+      td2.appendChild(strong);
+      tr.appendChild(td2);
+      // age
+      const td3 = document.createElement('td'); td3.className='small-muted'; td3.textContent = (r.age==null ? '—' : String(r.age)); tr.appendChild(td3);
+      // points
+      const td4 = document.createElement('td'); td4.className='small-muted'; td4.textContent = (r.points==null ? '—' : String(r.points)); tr.appendChild(td4);
+      tbody.appendChild(tr);
+    }
+  } catch(e){
+    console.error('renderRankingPage error', e);
+    document.getElementById('status').textContent = 'Render error — see console';
+  }
+}
+</script>
+
+
 </body>
 </html>
