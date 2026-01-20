@@ -98,6 +98,32 @@ jobs:
             --prefix atp
 
       
+      - name: Publish ranking JSONs to site_static (copy + stage)
+        run: |
+          set -euo pipefail
+          echo "Ensure site_static/tools exists"
+          mkdir -p site_static/tools
+
+          echo "Copy latest ranking JSONs from docs/tools -> site_static/tools"
+          if [ -f docs/tools/latest_wta_ranking.json ]; then
+            cp -v docs/tools/latest_wta_ranking.json site_static/tools/latest_wta_ranking.json
+          else
+            echo "Warning: docs/tools/latest_wta_ranking.json not found"
+          fi
+
+          if [ -f docs/tools/latest_atp_ranking.json ]; then
+            cp -v docs/tools/latest_atp_ranking.json site_static/tools/latest_atp_ranking.json
+          else
+            echo "Warning: docs/tools/latest_atp_ranking.json not found"
+          fi
+
+          echo "List site_static/tools:"
+          ls -la site_static/tools || true
+
+          # Stage the copied files so commit step can pick them up
+          git add -f site_static/tools/*.json docs/tools/*.json || true
+
+
       
       
       - name: Run build_all (generate maps & docs)
