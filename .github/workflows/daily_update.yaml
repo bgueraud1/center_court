@@ -1,0 +1,84 @@
+
+name: Daily birthday box
+
+on:
+  schedule:
+    - cron: '0 6 * * *' # run daily at 06:00 UTC (adjust as desired)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  update_birthday:
+    env:
+      BUILD_DIR: ${{ github.workspace }}/docs_build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install deps (none required but keep pip up-to-date)
+        run: |
+          python -m pip install --upgrade pip
+
+      - name: Ensure build tools dir exists
+        run: |
+          mkdir -p "${{ env.BUILD_DIR }}"/tools
+
+      - name: Generate birthday JSON
+        run: |
+          python scripts/generate_birthday_box.py \
+            --players-by-birth docs/tools/players_by_birth.json \
+            --latest-atp docs/tools/latest_atp_ranking.json \
+            --latest-wta docs/tools/latest_wta_ranking.json \
+            --out "${{ env.BUILD_DIR }}"/tools/birthday_today.json
+
+      - name: Copy into site_static/tools for serving
+        run: |
+          mkdir -p site_static/tools
+          cp -v "${{ env.BUILD_DIR }}"/tools/birthday_today.json site_static/tools/ || true
+          ls -la site_static/tools || true
+
+      - name: Commit birthday JSON
+        env:
+          GIT_AUTHOR_NAME: "github-actions[bot]"
+          GIT_AUTHOR_EMAIL: "github-actions[bot]@users.noreply.github.com"
+          PAT: ${{ secrets.PAT_FOR_CI }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "$GIT_AUTHOR_NAME"
+          git config user.email "$GIT_AUTHOR_EMAIL"
+
+          git add -f site_static/tools/birthday_today.json || true
+          if [ -n "$(git diff --cached --name-only)" ]; then
+            git commit -m "chore(automated): daily birthday box" || true
+            AUTH="${PAT:-${GITHUB_TOKEN}}"
+            if [ -z "$AUTH" ]; then
+              echo "No auth available to push, skipping push"; exit 0
+            fi
+            git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}"
+            git push origin HEAD:main || git push --force-with-lease origin HEAD:main || true
+          else
+            echo "No changes to commit"
+          fi
+
+      - name: Trigger Netlify deploy via build hook
+        if: ${{ success() }}
+        env:
+          NETLIFY_BUILD_HOOK: ${{ secrets.NETLIFY_BUILD_HOOK }}
+        run: |
+          if [ -z "$NETLIFY_BUILD_HOOK" ]; then
+            echo "No NETLIFY_BUILD_HOOK set — skipping deploy trigger"
+            exit 0
+          fi
+          curl -s -X POST "$NETLIFY_BUILD_HOOK" -o /tmp/netlify_hook_resp.txt -w "\nHTTP_STATUS:%{http_code}\n"
+          cat /tmp/netlify_hook_resp.txt || true
