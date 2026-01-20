@@ -215,7 +215,7 @@ def main():
     if args.out:
         out_path = Path(args.out)
     else:
-        out_path = Path('docs_build') / 'tools' / 'birthday_today.json'
+        out_path = Path('docs') / 'tools' / 'birthday_today.json'
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     with out_path.open('w', encoding='utf-8') as fh:
