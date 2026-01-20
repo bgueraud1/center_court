@@ -1,7 +1,7 @@
 // site_static/js/birthday_box.js
 // Robust birthday box loader + renderer
 (async function(){
-  const_PLACEHOLDER_ID = 'birthday-box-placeholder';
+  const PLACEHOLDER_ID = 'birthday-box-placeholder';
   const WRAPPER_ID = 'birthday-box-wrapper'; // earlier code used this too
 
   // Candidate JSON paths (ordered: prefer root /tools/ when site_static is publish dir)
@@ -75,11 +75,13 @@
       const left = document.createElement('div'); left.style.display='flex'; left.style.alignItems='center'; left.style.gap='0.6rem';
       const flag = document.createElement('span'); flag.textContent = e.flag_emoji || '';
       flag.style.fontSize = '1.05rem';
-      const name = document.createElement('div'); 
+      const name = document.createElement('div');
       // add link to player page if player_id present
       if(e.player_id){
         const a = document.createElement('a');
-        a.href = (e.circuit || '').toUpperCase() === 'ATP' ? `/players_atp/${e.player_id}-${(e.full_name||'').toLowerCase().replace(/\\s+/g,'-')}.html` : `/players/${e.player_id}-${(e.full_name||'').toLowerCase().replace(/\\s+/g,'-')}.html`;
+        // build a slug-ish filename (simple; mirrors generator logic)
+        const slug = (e.full_name||'').toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9\-]/g,'');
+        a.href = (e.circuit || '').toUpperCase() === 'ATP' ? `/players_atp/${e.player_id}-${slug}.html` : `/players/${e.player_id}-${slug}.html`;
         a.textContent = e.full_name || '(unknown)';
         a.style.textDecoration = 'none';
         name.appendChild(a);
@@ -105,7 +107,7 @@
     loadingCard.className = 'card shadow-sm';
     loadingCard.style.padding = '.6rem';
     loadingCard.style.borderLeft = '6px solid #ffc107';
-    loadingCard.innerHTML = '<div class="d-flex justify-content-between align-items-center"><div><strong>Birthday</strong> <small class=\"text-muted\">— Today</small></div><div class=\"small text-muted\">Loading…</div></div>';
+    loadingCard.innerHTML = '<div class="d-flex justify-content-between align-items-center"><div><strong>Birthday</strong> <small class="text-muted">— Today</small></div><div class="small text-muted">Loading…</div></div>';
     container.appendChild(loadingCard);
   }
 
