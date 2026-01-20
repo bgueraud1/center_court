@@ -15,6 +15,8 @@ on:
 
 jobs:
   update_players:
+    env:
+      BUILD_DIR: ${{ github.workspace }}/docs_build
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -86,7 +88,7 @@ jobs:
           python3 scripts/generate_rankings_site_json.py \
             --rankings-dir wta_rankings \
             --players-csv player_data_wta.csv \
-            --out-dir docs/tools \
+            --out-dir ${BUILD_DIR}/tools \
             --prefix wta
 
       - name: Generate ATP ranking JSONs (per-date + latest)
@@ -94,14 +96,15 @@ jobs:
           python3 scripts/generate_rankings_site_json.py \
             --rankings-dir atp_rankings \
             --players-csv player_data_atp.csv \
-            --out-dir docs/tools \
+            --out-dir ${BUILD_DIR}/tools \
             --prefix atp
 
       
       - name: Copy generated JSONs into site_static/tools
         run: |
           mkdir -p site_static/tools
-          cp -v docs/tools/*.json site_static/tools/ || true
+          mkdir -p "${BUILD_DIR}/tools"
+          cp -v "${BUILD_DIR}/tools/"*.json site_static/tools/ || true
           ls -la site_static/tools || true
 
       
@@ -110,7 +113,15 @@ jobs:
         env:
           SKIP_GEOCODE: "1"
         run: |
-          python scripts/build_all.py
+          python scripts/build_all.py --out-dir "${BUILD_DIR}"
+
+
+      - name: Show build_dir contents (debug)
+        run: |
+          echo "BUILD_DIR = ${BUILD_DIR}"
+          ls -la "${BUILD_DIR}" || true
+          ls -la "${BUILD_DIR}/tools" || true
+          find "${BUILD_DIR}" -maxdepth 2 -type f | sed -n '1,200p' || true
 
       - name: Generate birthdate index (players_by_birth.json)
         run: |
@@ -131,7 +142,7 @@ jobs:
           python3 scripts/generate_latest_rankings_json.py \
             --rankings-dir atp_rankings \
             --players-csv player_data_atp.csv \
-            --out docs/tools/latest_atp_ranking.json \
+            --out ${BUILD_DIR}/tools/latest_atp_ranking.json \
             --latest \
             --circuit ATP \
             --base-url "https://www.center-court.net"
@@ -141,7 +152,7 @@ jobs:
           python3 scripts/generate_latest_rankings_json.py \
             --rankings-dir wta_rankings \
             --players-csv player_data_wta.csv \
-            --out docs/tools/latest_wta_ranking.json \
+            --out ${BUILD_DIR}/tools/latest_wta_ranking.json \
             --latest \
             --circuit WTA \
             --base-url "https://www.center-court.net"
@@ -150,7 +161,7 @@ jobs:
       # ---------------------------
       # Commit only newly created/untracked ranking CSVs + docs & CSVs
       # ---------------------------
-      - name: Commit ranking CSVs & docs (safe, null-delimited)
+      - name: Commit ranking CSVs & docs (safe, selective)
         env:
           GIT_AUTHOR_NAME: "github-actions[bot]"
           GIT_AUTHOR_EMAIL: "github-actions[bot]@users.noreply.github.com"
@@ -163,11 +174,9 @@ jobs:
           dirs="wta_rankings atp_rankings center_court/wta_rankings center_court/atp_rankings"
           untracked_count=0
 
-          # Use null-delimited output to be robust with weird filenames (though our filenames are simple)
           for d in $dirs; do
             if [ -d "$d" ]; then
               echo "Scanning $d for untracked files..."
-              # git ls-files --others --exclude-standard with -z
               git ls-files --others --exclude-standard -z -- "$d" | while IFS= read -r -d '' f; do
                 if [ -f "$f" ]; then
                   echo " -> adding $f"
@@ -180,14 +189,26 @@ jobs:
             fi
           done
 
-          echo "Also ensure we stage important CSVs and docs"
+          echo "Also stage only specific generated artifacts (whitelist)"
+          # Whitelist: only these patterns will be staged for commit
+          git add -f ${BUILD_DIR}/tools/*.json 2>/dev/null || true
+          git add -f site_static/tools/*.json 2>/dev/null || true
+          git add -f site_static/rankings/*.html 2>/dev/null || true
+          git add -f site_static/js/*.js 2>/dev/null || true
+          git add -f site_static/css/*.css 2>/dev/null || true
           git add -f player_data_wta.csv 2>/dev/null || true
           git add -f player_data_atp.csv 2>/dev/null || true
-          git add -f docs || true
-          git add -f docs/tools/*.json 2>/dev/null || true
 
-          echo "Staged files list (name-only):"
+          echo "Staged files (preview):"
           git diff --name-only --cached | sed -n '1,200p' || true
+
+          # Safety: abort if index.html or other manual files would be staged
+          if git diff --name-only --cached | grep -Eiq '(^|/)index\.html$'; then
+            echo "ERROR: index.html is staged by the workflow — aborting to avoid overwriting manual changes."
+            echo "Staged list:"
+            git diff --name-only --cached || true
+            exit 1
+          fi
 
           echo "git status (porcelain):"
           git status --porcelain
@@ -195,8 +216,9 @@ jobs:
           if [ -n "$(git diff --cached --name-only)" ]; then
             git commit -m "chore(automated): weekly update player DB + rebuild docs" || { echo "commit failed"; exit 1; }
           else
-            echo "No changes to commit"
+            echo "No generated changes to commit"
           fi
+
 
       - name: Check for changes
         id: git-check
