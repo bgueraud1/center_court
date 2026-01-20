@@ -5,7 +5,69 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>ATP Ranking — Center Court</title>
   <link href="/node_modules/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" />
-  <link href="/css/rankings.css" rel="stylesheet">
+  <style>
+    :root{
+      --red: #d63333;          /* ATP highlight color */
+      --red-soft: rgba(214,51,51,0.08);
+      --blue: #0d6efd;        /* filter color (kept blue) */
+      --muted: #6c757d;
+      --tile-bg: #ffffff;
+      --tile-border: #e9eef7;
+      --rounded: .6rem;
+    }
+    body { font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, Arial; background:#f7f9fc; color:#111827; }
+    header { background: transparent; }
+    .panel { background:#fff; border-radius:1rem; padding:1rem; box-shadow:0 10px 30px rgba(23,31,50,0.04); margin-bottom:1rem; }
+    .controls { display:flex; gap:1rem; flex-wrap:wrap; align-items:center; }
+    .control { min-width:140px; }
+    .modes { display:flex; gap:.5rem; align-items:center; }
+    .mode-btn { border-radius:.5rem; padding:.35rem .6rem; cursor:pointer; border:1px solid transparent; font-size:0.85rem; }
+    .mode-btn.inactive { background:transparent; color:#6b7280; border-color:#e6e9f2; }
+    .mode-btn.country-active { background:var(--blue); color:white; }
+    .mode-btn.highlight-active { background:var(--red); color:white; }
+
+    /* Compact Tile grid */
+    .tiles { display:flex; flex-wrap:wrap; gap:.4rem; margin-top:.45rem; margin-bottom:.45rem; }
+    .tile {
+      display:flex;
+      align-items:center;
+      gap:.45rem;
+      background:var(--tile-bg);
+      border:1px solid var(--tile-border);
+      padding:.28rem .4rem;
+      border-radius:.5rem;
+      min-width:86px;
+      max-width:140px;
+      cursor:pointer;
+      transition: box-shadow .12s, transform .06s;
+      user-select:none;
+      font-size:0.88rem;
+    }
+    .tile:hover { transform: translateY(-2px); box-shadow: 0 8px 18px rgba(16,24,40,0.06); }
+    .tile .left { display:flex; align-items:center; gap:.45rem; flex:1; }
+    .tile .code { font-weight:700; min-width:28px; text-align:left; font-size:0.9rem; }
+    .flag-img { width:16px; height:12px; object-fit:cover; border-radius:2px; }
+    .tile .badges { display:flex; gap:.25rem; align-items:center; margin-left:6px; }
+    .badge-filter { background:var(--blue); color:white; font-size:10px; padding:.08rem .28rem; border-radius:.35rem; display:none; }
+    .badge-highlight { background:var(--red); color:white; font-size:10px; padding:.08rem .28rem; border-radius:.35rem; display:none; }
+
+    /* Visual selection borders */
+    .tile.filter-selected { box-shadow: 0 0 0 2px rgba(13,110,253,0.10); border-color: rgba(13,110,253,0.28); }
+    .tile.highlight-selected { box-shadow: 0 0 0 2px rgba(214,51,51,0.10); border-color: rgba(214,51,51,0.28); }
+    .tile.both-selected { box-shadow: 0 0 0 2px rgba(0,0,0,0.04), 0 0 0 3px rgba(214,51,51,0.06); border-color: rgba(214,51,51,0.30); }
+
+    .small-muted { color:var(--muted); font-size:.86rem; }
+
+    /* table */
+    .row-highlight { background: var(--red-soft) !important; }
+    .name-cell a.highlight-atp { color: var(--red); font-weight:700; text-decoration:none; }
+    .text-end { text-align:right; }
+
+    @media (max-width:900px){
+      .tile { min-width: 40%; }
+      .tiles { gap:.35rem; }
+    }
+  </style>
 </head>
 <body>
   <header class="p-3 border-bottom">
@@ -13,279 +75,418 @@
       <h1 class="h4 mb-0">ATP Ranking</h1>
       <nav>
         <a href="/" class="me-3">Home</a>
-        <a href="/rankings/wta.html">WTA Ranking</a>
+        <a href="/site_static/rankings/wta.html">WTA Ranking</a>
       </nav>
     </div>
   </header>
 
   <main class="container py-4">
-    <div class="card p-3">
-      <div class="d-flex gap-3 align-items-center mb-3">
-        <div>
-          <label>Age ≤</label>
-          <input id="age_le" class="form-control form-control-sm" type="number" placeholder="e.g. 25" />
+    <!-- Controls & Tiles -->
+    <div class="panel container-fluid">
+      <div class="controls mb-2">
+        <div class="control">
+          <label class="form-label small mb-1">Age ≤</label>
+          <input id="age_le" class="form-control form-control-sm" type="number" min="0" placeholder="e.g. 25" />
         </div>
-        <div>
-          <label>Age ≥</label>
-          <input id="age_ge" class="form-control form-control-sm" type="number" placeholder="e.g. 20" />
+
+        <div class="control">
+          <label class="form-label small mb-1">Age ≥</label>
+          <input id="age_ge" class="form-control form-control-sm" type="number" min="0" placeholder="e.g. 20" />
         </div>
-        <div>
-          <label>Country</label>
-          <select id="filter_country" class="form-select form-select-sm"><option value="">— all —</option></select>
-        </div>
-        <div>
-          <label>Highlight country</label>
-          <select id="highlight_country" class="form-select form-select-sm"><option value="">— none —</option></select>
-        </div>
-        <div class="ms-auto">
-          <label>&nbsp;</label>
-          <button id="reset_filters" class="btn btn-outline-secondary btn-sm w-100">Reset filters</button>
+
+        <div style="margin-left:auto; display:flex; gap:.6rem; align-items:center;">
+          <div style="display:flex; flex-direction:column; align-items:flex-end;">
+            <div class="small-muted">Mode</div>
+            <div class="modes" role="tablist" aria-label="Mode selection">
+              <button id="mode_country" class="mode-btn">Country</button>
+              <button id="mode_highlight" class="mode-btn inactive">Highlight</button>
+            </div>
+          </div>
+
+          <div style="display:flex; flex-direction:column; align-items:flex-end;">
+            <div class="small-muted">Actions</div>
+            <div>
+              <button id="clear_all" class="btn btn-outline-secondary btn-sm">Reset</button>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div id="status" class="mb-2 small text-muted">Loading…</div>
+      <div>
+        <div class="small-muted">Click tiles to toggle selection for the active mode. Tiles show code + flag (country name in tooltip).</div>
+        <div id="tiles" class="tiles" aria-live="polite" aria-atomic="true"></div>
+        <div class="d-flex gap-3 mt-2">
+          <div class="small-muted">Selected (filter): <strong id="selected_filter_label">— all —</strong></div>
+          <div class="small-muted">Selected (highlight): <strong id="selected_highlight_label">— none —</strong></div>
+        </div>
+      </div>
+    </div>
 
+    <!-- Ranking table -->
+    <div class="card p-3 mt-3">
+      <div id="status" class="mb-2 small-muted">Loading…</div>
       <div class="table-responsive">
-        <table class="table table-sm align-middle" id="ranking_table">
-          <thead class="table-light">
-            <tr>
-              <th style="width:5%;">#</th>
-              <th>Player</th>
-              <th style="width:10%;">Age</th>
-              <th style="width:15%;">Points</th>
-            </tr>
-          </thead>
+        <table class="table table-sm align-middle" id="ranking_table" aria-live="polite">
+          <thead class="table-light"></thead>
           <tbody></tbody>
         </table>
       </div>
-
-      <nav>
-        <ul id="pagination" class="pagination pagination-sm"></ul>
-      </nav>
     </div>
   </main>
 
-  <script>
-/* --- Rankings standalone renderer (no external deps) --- */
-/* Usage: drop into atp.html (circuit = 'ATP') and atp.html (circuit = 'ATP') */
-(async function() {
-  const opts = {
-    circuit: "ATP",            // change to "ATP" in atp.html
-    jsonNames: ["docs/tools/latest_atp_ranking.json", "/docs/tools/latest_atp_ranking.json", "/tools/latest_atp_ranking.json", "../docs/tools/latest_atp_ranking.json", "../../docs/tools/latest_atp_ranking.json", "latest_atp_ranking.json"],
-    rowsPerPage: 50,
-    statusSelector: "#status",
-    tableBodySelector: "#ranking_table tbody",
-    paginationSelector: "#pagination",
-    filterAgeLe: "#age_le",
-    filterAgeGe: "#age_ge",
-    filterCountry: "#filter_country",
-    highlightCountry: "#highlight_country",
-    resetBtn: "#reset_filters",
-    rowClass: "row-atp",
-    highlightClass: "highlight-atp"
+<script>
+/* ATP tile-based selector + normalization + ALIASES (same logic as WTA version but ATP colors)
+   - multi-country filter & multi highlight
+   - tiles show "FR [flag]" and tooltip contains full country name
+*/
+
+(async function(){
+  const baseName = "latest_atp_ranking.json";
+  const candidates = [
+    `/docs/tools/${baseName}`,
+    `/tools/${baseName}`,
+    `/site_static/docs/tools/${baseName}`,
+    `/site_static/tools/${baseName}`,
+    `../docs/tools/${baseName}`,
+    `../tools/${baseName}`,
+    `docs/tools/${baseName}`,
+    `tools/${baseName}`,
+    `${baseName}`
+  ];
+
+  const ALIASES = {
+    "ALG":"DZ","AND":"AD","ANG":"AO","ANT":"AG","ARG":"AR","ARM":"AM","AUS":"AU","AUT":"AT",
+    "AZE":"AZ","BAH":"BS","BAR":"BB","BDI":"BI","BEL":"BE","BEN":"BJ","BER":"BM","BIH":"BA",
+    "BLR":"BY","BOL":"BO","BRA":"BR","BRN":"BN","BUL":"BG","BUR":"BF","CAM":"KH","CAN":"CA",
+    "CHI":"CL","CHN":"CN","CIV":"CI","CMR":"CM","COL":"CO","CRC":"CR","CRO":"HR","CUB":"CU",
+    "CUW":"CW","CYP":"CY","CZE":"CZ","DEN":"DK","DEU":"DE","DOM":"DO","ECU":"EC","EGY":"EG",
+    "ESA":"SV","ESP":"ES","EST":"EE","FIJ":"FJ","FIN":"FI","FRA":"FR","GAB":"GA","GBR":"GB",
+    "GEO":"GE","GER":"DE","GHA":"GH","GRE":"GR","GUA":"GT","GUD":"GP","GUM":"GU","GUY":"GY",
+    "HAI":"HT","HKG":"HK","HUN":"HU","INA":"ID","IND":"IN","IRI":"IR","IRL":"IE","IRN":"IR",
+    "ISL":"IS","ISR":"IL","ITA":"IT","JAM":"JM","JAP":"JP","JOR":"JO","JPN":"JP","KAZ":"KZ",
+    "KEN":"KE","KGZ":"KG","KOR":"KR","KOS":"XK","KSA":"SA","KUW":"KW","LAT":"LV","LBA":"LY",
+    "LBN":"LB","LIE":"LI","LTU":"LT","LUX":"LU","MAD":"MG","MAR":"MA","MAS":"MY","MDA":"MD",
+    "MEX":"MX","MKD":"MK","MLT":"MT","MNE":"ME","MON":"MC","MOZ":"MZ","MRI":"MU","NAM":"NA",
+    "NCA":"NI","NCD":"NC","NED":"NL","NEP":"NP","NGR":"NG","NIG":"NE","NLD":"NL","NMI":"MP",
+    "NOR":"NO","NZL":"NZ","OMA":"OM","OMN":"OM","PAK":"PK","PAN":"PA","PAR":"PY","PER":"PE",
+    "PHI":"PH","PNG":"PG","POL":"PL","POR":"PT","PRI":"PR","PUR":"PR","QAT":"QA","ROM":"RO",
+    "ROU":"RO","RSA":"ZA","RUS":"RU","SAM":"WS","SCG":"RS","SEN":"SN","SGP":"SG","SIN":"SG",
+    "SLO":"SI","SMR":"SM","SOL":"SB","SPA":"ES","SRB":"RS","SRI":"LK","SUD":"SD","SUI":"CH",
+    "SUR":"SR","SVK":"SK","SWE":"SE","SWI":"CH","SYR":"SY","THA":"TH","TJK":"TJ","TKM":"TM",
+    "TOG":"TG","TPE":"TW","TTO":"TT","TUN":"TN","TUR":"TR","UAE":"AE","UGA":"UG","UKR":"UA",
+    "URU":"UY","USA":"US","UZB":"UZ","VAN":"VU","VEN":"VE","VIE":"VN","XKX":"XK","YUG":"RS",
+    "ZAF":"ZA","ZIM":"ZW","POC":"TO","MSH":"MH",
+    "MAS":"MY","INA":"ID","TPE":"TW","RSA":"ZA","POR":"PT","SPA":"ES","GER":"DE","DEU":"DE"
   };
 
-  // Small helpers
-  function escapeHtml(s){ if(s==null) return ""; return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;"); }
-  function emojiFromAlpha2(alpha2){
-    if(!alpha2 || typeof alpha2!=="string") return "";
-    const s = alpha2.trim().toUpperCase();
-    if(!/^[A-Z]{2}$/.test(s)) return "";
-    try { return String.fromCodePoint(127397 + s.charCodeAt(0), 127397 + s.charCodeAt(1)); } catch(e){ return ""; }
-  }
-  async function tryFetchCandidates(list){
-    for(const u of list){
+  // DOM refs
+  const statusEl = document.getElementById('status');
+  const tilesEl = document.getElementById('tiles');
+  const selectedFilterLabel = document.getElementById('selected_filter_label');
+  const selectedHighlightLabel = document.getElementById('selected_highlight_label');
+
+  const ageLeEl = document.getElementById('age_le');
+  const ageGeEl = document.getElementById('age_ge');
+
+  const modeCountryBtn = document.getElementById('mode_country');
+  const modeHighlightBtn = document.getElementById('mode_highlight');
+  const clearAllBtn = document.getElementById('clear_all');
+
+  const thead = document.querySelector('#ranking_table thead');
+  const tbody = document.querySelector('#ranking_table tbody');
+
+  function setStatus(txt){ statusEl.textContent = txt; console.debug('[rankings] status:', txt); }
+  function emojiFromAlpha2(alpha2){ if(!alpha2) return ''; const s=alpha2.trim().toUpperCase(); if(!/^[A-Z]{2}$/.test(s)) return ''; try{return String.fromCodePoint(127397 + s.charCodeAt(0), 127397 + s.charCodeAt(1));}catch(e){return '';} }
+  function flagImg(alpha2){ if(!alpha2) return null; const code = alpha2.trim().toLowerCase(); const img = document.createElement('img'); img.src = `https://flagcdn.com/24x18/${code}.png`; img.alt = alpha2; img.width = 16; img.height = 12; img.className='flag-img'; img.onerror=function(){ try{ this.replaceWith(document.createTextNode(emojiFromAlpha2(alpha2)+' ')); }catch(e){} }; return img; }
+
+  async function fetchFirstCandidate(list){
+    for(const url of list){
       try{
-        console.log("[rankings] trying", u);
-        const r = await fetch(u, { cache: "no-store" });
-        if(!r.ok) { console.warn("[rankings] not ok", u, r.status); continue; }
+        console.debug('[rankings] trying', url);
+        const r = await fetch(url, {cache:'no-store'});
+        if(!r.ok){ console.debug('[rankings] not ok', url, r.status); continue; }
         const data = await r.json();
-        console.log("[rankings] loaded from", u, "rows=", Array.isArray(data)?data.length:"?");
-        return { data, url: u };
+        return {data, url};
       }catch(err){
-        console.warn("[rankings] fetch error", u, err);
+        console.debug('[rankings] fetch fail', url, err);
       }
     }
-    throw new Error("No JSON candidate succeeded");
+    throw new Error('No JSON candidate succeeded');
   }
 
-  // DOM lookup
-  const statusEl = document.querySelector(opts.statusSelector);
-  const tbody = document.querySelector(opts.tableBodySelector);
-  const paginationEl = document.querySelector(opts.paginationSelector);
-  const ageLeEl = document.querySelector(opts.filterAgeLe);
-  const ageGeEl = document.querySelector(opts.filterAgeGe);
-  const countryEl = document.querySelector(opts.filterCountry);
-  const highlightEl = document.querySelector(opts.highlightCountry);
-  const resetBtn = document.querySelector(opts.resetBtn);
-
-  function setStatus(txt){ if(statusEl) statusEl.textContent = txt; }
-
-  // load JSON
-  setStatus("Loading ranking JSON…");
-  let json;
-  try{
-    const res = await tryFetchCandidates(opts.jsonNames);
-    json = res.data || [];
-    setStatus(`Loaded ${json.length} players (source: ${res.url})`);
-  }catch(err){
-    console.error(err);
-    setStatus("Failed to load ranking JSON — open DevTools console");
-    return;
-  }
-
-  // normalize entries
-  json = json.map(r => ({
-    ranking: r.ranking || r.rank || null,
-    full_name: r.full_name || r.fullName || r.fullName || r.full_name || "",
-    player_id: r.player_id || r.playerId || r.player_id || "",
-    player_url: r.player_url || r.playerUrl || (r.player_id ? `/players/${r.player_id}-${(r.player_slug||"")}.html` : (`/players/${r.player_slug||""}.html`)),
-    age: (r.age === null || r.age === undefined) ? null : Number(r.age),
-    points: (r.points === null || r.points === undefined) ? null : Number(r.points),
-    country_code: r.country_code || (r.country_name ? (r.country_name.length===2?r.country_name.toUpperCase():"") : "") || "",
-    flag_emoji: r.flag_emoji || emojiFromAlpha2(r.country_code || "")
-  }));
-
-  // build country list
-  const countries = Array.from(new Map(json.map(x => [ (x.country_code||"").toUpperCase(), x ])).keys()).filter(x=>x);
-  countries.sort();
-  // populate selects
-  countryEl.innerHTML = '<option value="">— all —</option>' + countries.map(c=>`<option value="${c}">${c}</option>`).join("");
-  highlightEl.innerHTML = '<option value="">— none —</option>' + countries.map(c=>`<option value="${c}">${c}</option>`).join("");
-
-  // current filters + pagination state
-  const state = {
-    age_le: null, age_ge: null, country: "", highlight: "", page: 1, perPage: opts.rowsPerPage
-  };
-
-  function applyFilters(data){
-    return data.filter(d=>{
-      if(state.age_le != null && d.age != null && !(d.age <= state.age_le)) return false;
-      if(state.age_le != null && d.age == null) return false;
-      if(state.age_ge != null && d.age != null && !(d.age >= state.age_ge)) return false;
-      if(state.age_ge != null && d.age == null) return false;
-      if(state.country && ((d.country_code||"").toUpperCase() !== state.country.toUpperCase())) return false;
-      return true;
-    });
-  }
-
-  function renderTablePage(filtered){
-    tbody.innerHTML = "";
-    const total = filtered.length;
-    const pages = Math.max(1, Math.ceil(total / state.perPage));
-    if(state.page > pages) state.page = pages;
-    const start = (state.page -1) * state.perPage;
-    const slice = filtered.slice(start, start + state.perPage);
-    slice.forEach((r, idx)=>{
-      const tr = document.createElement("tr");
-      if(opts.rowClass) tr.classList.add(opts.rowClass);
-      // ranking cell
-      const tdRank = document.createElement("td"); tdRank.className = "small text-muted"; tdRank.textContent = r.ranking || "—"; tr.appendChild(tdRank);
-      // player (flag + link)
-      const tdName = document.createElement("td");
-      const strong = document.createElement("strong");
-      // flag
-      if(r.flag_emoji){
-        const span = document.createElement("span");
-        span.className = "flag-emoji";
-        span.textContent = r.flag_emoji + " ";
-        span.style.marginRight = ".4rem";
-        strong.appendChild(span);
-      } else if (r.country_code) {
-        // fallback to emoji generation
-        const span = document.createElement("span");
-        span.className = "flag-emoji";
-        span.textContent = emojiFromAlpha2(r.country_code) || r.country_code + " ";
-        span.style.marginRight = ".4rem";
-        strong.appendChild(span);
-      }
-      const a = document.createElement("a");
-      a.href = r.player_url || "#";
-      a.textContent = r.full_name || "(unknown)";
-      a.style.textDecoration = "none";
-      // highlight if selected
-      if(state.highlight && r.country_code && r.country_code.toUpperCase() === state.highlight.toUpperCase()){
-        a.classList.add(opts.highlightClass);
-      }
-      strong.appendChild(a);
-      tdName.appendChild(strong);
-      tr.appendChild(tdName);
-
-      // age
-      const tdAge = document.createElement("td"); tdAge.className="small-muted"; tdAge.textContent = (r.age==null ? "—" : String(r.age)); tr.appendChild(tdAge);
-      // points
-      const tdPoints = document.createElement("td"); tdPoints.className="small-muted"; tdPoints.textContent = (r.points==null ? "—" : String(r.points)); tr.appendChild(tdPoints);
-
-      tbody.appendChild(tr);
-    });
-
-    // pagination UI
-    renderPagination(total, pages);
-    setStatus(`${total} players — page ${state.page}/${pages}`);
-  }
-
-  function renderPagination(total, pages){
-    paginationEl.innerHTML = "";
-    if(pages <= 1) return;
-    const createPageItem = (n, label, active=false) => {
-      const li = document.createElement("li"); li.className = "page-item" + (active ? " active" : "");
-      const a = document.createElement("a"); a.className = "page-link"; a.href="#"; a.textContent = label || String(n);
-      a.addEventListener("click", (ev)=>{ ev.preventDefault(); state.page = n; renderTablePage(applyFilters(json)); });
-      li.appendChild(a);
-      return li;
+  function computeAgeFromBirthDate(birth_date_str, ranking_date_str){
+    if(!birth_date_str) return null;
+    const tryParse = s => {
+      if(!s) return null;
+      const d1 = new Date(s);
+      if(!isNaN(d1.getTime())) return d1;
+      const d2 = new Date(s.replace(/\b(\w+)\s+(\d{1,2})\s+(\d{4})\b/, (m,mon,day,yr)=>`${mon} ${day} ${yr}`));
+      if(!isNaN(d2.getTime())) return d2;
+      return null;
     };
-    // prev
-    const prevLi = document.createElement("li"); prevLi.className = "page-item";
-    const prevA = document.createElement("a"); prevA.className = "page-link"; prevA.href="#"; prevA.textContent = "«";
-    prevA.addEventListener("click", ev=>{ ev.preventDefault(); if(state.page>1){ state.page--; renderTablePage(applyFilters(json)); }});
-    prevLi.appendChild(prevA); paginationEl.appendChild(prevLi);
-    // pages (limit window)
-    const windowSize = 7;
-    let start = Math.max(1, state.page - Math.floor(windowSize/2));
-    let end = Math.min(pages, start + windowSize -1);
-    if(end - start < windowSize -1) start = Math.max(1, end - windowSize +1);
-    for(let p=start;p<=end;p++){
-      const li = createPageItem(p, String(p), p===state.page);
-      paginationEl.appendChild(li);
+    try{
+      const bd = tryParse(String(birth_date_str));
+      if(!bd) return null;
+      const rd = ranking_date_str ? new Date(ranking_date_str) : new Date();
+      if(isNaN(rd.getTime())) return null;
+      const diffDays = Math.floor((rd - bd) / (1000*60*60*24));
+      if(!Number.isFinite(diffDays) || diffDays < 0) return null;
+      return Math.floor(diffDays / 365.25);
+    }catch(e){ return null; }
+  }
+
+  function normalizeAlpha2FromRow(row){
+    const fields = ['country_code','country','country_code3','country_iso3','country_alpha3','country_alpha2','country_iso2','country_name','alpha2','alpha3','iso2','iso3'];
+    let token = '';
+    for(const f of fields){
+      if(row[f]){
+        token = String(row[f]).trim().toUpperCase();
+        if(token) break;
+      }
     }
-    // next
-    const nextLi = document.createElement("li"); nextLi.className = "page-item";
-    const nextA = document.createElement("a"); nextA.className = "page-link"; nextA.href="#"; nextA.textContent = "»";
-    nextA.addEventListener("click", ev=>{ ev.preventDefault(); if(state.page<pages){ state.page++; renderTablePage(applyFilters(json)); }});
-    nextLi.appendChild(nextA); paginationEl.appendChild(nextLi);
+    if(!token) return null;
+    const m2 = token.match(/\b([A-Z]{2})\b/);
+    if(m2) return m2[1];
+    if(/^[A-Z]{2}$/.test(token)) return token;
+    if(/^[A-Z]{3}$/.test(token)){
+      return ALIASES[token] || null;
+    }
+    return null;
   }
 
-  // event wiring
-  function onFiltersChange(){
-    const le = Number(ageLeEl.value) || null;
-    const ge = Number(ageGeEl.value) || null;
-    state.age_le = (ageLeEl.value.trim()==="") ? null : le;
-    state.age_ge = (ageGeEl.value.trim()==="") ? null : ge;
-    state.country = countryEl.value || "";
-    state.highlight = highlightEl.value || "";
-    state.page = 1;
-    renderTablePage(applyFilters(json));
+  function renderHeader(filterActive){
+    thead.innerHTML = '';
+    const tr = document.createElement('tr');
+    const thRank = document.createElement('th'); thRank.style.width='5%'; thRank.textContent = '#'; tr.appendChild(thRank);
+    const thPlayer = document.createElement('th'); thPlayer.textContent = 'Player'; tr.appendChild(thPlayer);
+    const thAge = document.createElement('th'); thAge.style.width='10%'; thAge.textContent = 'Age'; tr.appendChild(thAge);
+    const thPts = document.createElement('th'); thPts.style.width='15%'; thPts.textContent = 'Points'; tr.appendChild(thPts);
+    if(filterActive){
+      const thFilter = document.createElement('th'); thFilter.style.width='6%'; thFilter.className='text-end'; thFilter.textContent = 'Rank (filtered)'; tr.appendChild(thFilter);
+    }
+    thead.appendChild(tr);
   }
-  ageLeEl.addEventListener("input", onFiltersChange);
-  ageGeEl.addEventListener("input", onFiltersChange);
-  countryEl.addEventListener("change", onFiltersChange);
-  highlightEl.addEventListener("change", onFiltersChange);
-  resetBtn.addEventListener("click", ev=>{
-    ev.preventDefault();
-    ageLeEl.value = ""; ageGeEl.value = ""; countryEl.value = ""; highlightEl.value = "";
-    onFiltersChange();
-  });
 
-  // initial sort by ranking numeric asc
-  json.sort((a,b)=> ( (a.ranking||1e9) - (b.ranking||1e9) ));
+  function renderRow(entry, highlightSet, filterRank){
+    const tr = document.createElement('tr');
+    const cc = (entry.country_code || '').toString().trim().toUpperCase();
+    if(highlightSet && cc && highlightSet.has(cc)) tr.classList.add('row-highlight');
 
-  // initial render
-  renderTablePage(applyFilters(json));
+    const tdRank = document.createElement('td'); tdRank.className='small text-muted'; tdRank.textContent = (entry.ranking!=null?entry.ranking:'—'); tr.appendChild(tdRank);
+    const tdName = document.createElement('td'); tdName.className='name-cell';
+    const strong = document.createElement('strong');
 
-  // expose for debug
-  window.__CENTER_COURT_RANKINGS = { raw: json, state };
+    let flagNode = null;
+    if(cc && cc.length===2) flagNode = flagImg(cc);
+    else if(entry.flag_emoji){
+      const sp = document.createElement('span'); sp.className='flag-emoji'; sp.textContent = entry.flag_emoji + ' '; flagNode = sp;
+    }
+    if(flagNode) strong.appendChild(flagNode);
+
+    const a = document.createElement('a');
+    a.href = entry.player_url || '#';
+    a.textContent = entry.full_name || '(unknown)';
+    a.style.textDecoration = 'none';
+    if(highlightSet && cc && highlightSet.has(cc)){
+      a.classList.add('highlight-atp'); a.style.color = 'var(--red)';
+    }
+    strong.appendChild(a);
+    tdName.appendChild(strong);
+    tr.appendChild(tdName);
+
+    const tdAge = document.createElement('td'); tdAge.className='small-muted';
+    let age = (entry.age!==undefined && entry.age!==null) ? entry.age : computeAgeFromBirthDate(entry.birth_date || entry.birthDate || '', entry.date || null);
+    tdAge.textContent = (age==null ? '—' : String(age));
+    tr.appendChild(tdAge);
+
+    const tdPts = document.createElement('td'); tdPts.className='small-muted'; tdPts.textContent = (entry.points==null ? '—' : String(entry.points)); tr.appendChild(tdPts);
+
+    if(filterRank !== undefined){
+      const tdFilter = document.createElement('td'); tdFilter.className='small text-muted text-end';
+      tdFilter.textContent = (filterRank==null ? '—' : String(filterRank));
+      tr.appendChild(tdFilter);
+    }
+    return tr;
+  }
+
+  try{
+    setStatus('Loading ranking JSON…');
+    const res = await fetchFirstCandidate(candidates);
+    const raw = Array.isArray(res.data) ? res.data : (res.data && res.data.rows ? res.data.rows : []);
+    setStatus(`Loaded ${raw.length} players (source: ${res.url})`);
+
+    // Build normalized countryInfo map
+    const countryInfo = new Map();
+    for(const row of raw){
+      const cc = normalizeAlpha2FromRow(row);
+      if(!cc) continue;
+      const name = (row.country_name || row.country || '').toString().trim() || cc;
+      if(!countryInfo.has(cc)) countryInfo.set(cc, { alpha2: cc, name });
+      else {
+        const cur = countryInfo.get(cc);
+        if(!cur.name && name) cur.name = name;
+      }
+    }
+    // ensure countries that appear only as 3-letter tokens are included
+    for(const row of raw){
+      const candKeys = ['country_name','country','country_code3','country_iso3','country_alpha3','alpha3','iso3'];
+      for(const k of candKeys){
+        if(!row[k]) continue;
+        const tok = String(row[k]).trim().toUpperCase();
+        if(/^[A-Z]{3}$/.test(tok) && ALIASES[tok]){
+          const mapped = ALIASES[tok];
+          if(!countryInfo.has(mapped)){
+            const name = (row.country_name || row.country || '').toString().trim() || mapped;
+            countryInfo.set(mapped, { alpha2: mapped, name });
+          }
+        }
+      }
+    }
+
+    const countryCodes = Array.from(countryInfo.keys()).sort((a,b)=> countryInfo.get(a).name.localeCompare(countryInfo.get(b).name));
+
+    // selection sets
+    const filterSet = new Set();
+    const highlightSet = new Set();
+
+    // mode
+    let mode = 'country';
+    function setMode(m){
+      mode = m;
+      if(m === 'country'){
+        modeCountryBtn.classList.add('country-active'); modeCountryBtn.classList.remove('inactive', 'highlight-active');
+        modeHighlightBtn.classList.remove('highlight-active'); modeHighlightBtn.classList.add('inactive');
+      } else {
+        modeHighlightBtn.classList.add('highlight-active'); modeHighlightBtn.classList.remove('inactive', 'country-active');
+        modeCountryBtn.classList.remove('country-active'); modeCountryBtn.classList.add('inactive');
+      }
+    }
+    modeCountryBtn.addEventListener('click', ()=> setMode('country'));
+    modeHighlightBtn.addEventListener('click', ()=> setMode('highlight'));
+    setMode('country');
+
+    // Build tiles
+    function buildTiles(){
+      tilesEl.innerHTML = '';
+      for(const a2 of countryCodes){
+        const info = countryInfo.get(a2);
+        const tile = document.createElement('div');
+        tile.className = 'tile';
+        tile.dataset.value = a2;
+        tile.title = info.name;
+
+        const left = document.createElement('div'); left.className = 'left';
+        const codeSpan = document.createElement('div'); codeSpan.className = 'code'; codeSpan.textContent = a2;
+        left.appendChild(codeSpan);
+        const f = flagImg(a2);
+        if(f) left.appendChild(f);
+        tile.appendChild(left);
+
+        const badges = document.createElement('div'); badges.className = 'badges';
+        const bf = document.createElement('span'); bf.className = 'badge-filter'; bf.textContent = 'F';
+        const bh = document.createElement('span'); bh.className = 'badge-highlight'; bh.textContent = 'H';
+        if(filterSet.has(a2)) bf.style.display = ''; else bf.style.display = 'none';
+        if(highlightSet.has(a2)) bh.style.display = ''; else bh.style.display = 'none';
+        badges.appendChild(bf); badges.appendChild(bh);
+        tile.appendChild(badges);
+
+        function refreshTileVisual(){
+          tile.classList.remove('filter-selected','highlight-selected','both-selected');
+          if(filterSet.has(a2) && highlightSet.has(a2)) tile.classList.add('both-selected');
+          else if(filterSet.has(a2)) tile.classList.add('filter-selected');
+          else if(highlightSet.has(a2)) tile.classList.add('highlight-selected');
+          bf.style.display = filterSet.has(a2) ? '' : 'none';
+          bh.style.display = highlightSet.has(a2) ? '' : 'none';
+        }
+        refreshTileVisual();
+
+        tile.addEventListener('click', ()=>{
+          if(mode === 'country'){
+            if(filterSet.has(a2)) filterSet.delete(a2); else filterSet.add(a2);
+            refreshTileVisual();
+            updateLabels();
+            applyAndRender();
+          } else {
+            if(highlightSet.has(a2)) highlightSet.delete(a2); else highlightSet.add(a2);
+            refreshTileVisual();
+            updateLabels();
+            applyAndRender();
+          }
+        });
+
+        tilesEl.appendChild(tile);
+      }
+    }
+
+    function updateLabels(){
+      if(filterSet.size === 0) selectedFilterLabel.textContent = '— all —';
+      else if(filterSet.size <= 4) selectedFilterLabel.textContent = Array.from(filterSet).map(s => (emojiFromAlpha2(s)?emojiFromAlpha2(s)+' ':'') + s).join(', ');
+      else selectedFilterLabel.textContent = `${filterSet.size} selected`;
+
+      if(highlightSet.size === 0) selectedHighlightLabel.textContent = '— none —';
+      else if(highlightSet.size <= 4) selectedHighlightLabel.textContent = Array.from(highlightSet).map(s => (emojiFromAlpha2(s)?emojiFromAlpha2(s)+' ':'') + s).join(', ');
+      else selectedHighlightLabel.textContent = `${highlightSet.size} highlighted`;
+    }
+
+    function applyAndRender(){
+      const le = ageLeEl.value.trim() === '' ? null : Number(ageLeEl.value);
+      const ge = ageGeEl.value.trim() === '' ? null : Number(ageGeEl.value);
+      const filterActive = (le != null) || (ge != null) || (filterSet.size > 0);
+
+      const filtered = raw.filter(row=>{
+        const ccNorm = normalizeAlpha2FromRow(row);
+        let age = (row.age!==undefined && row.age!==null) ? row.age : computeAgeFromBirthDate(row.birth_date || row.birthDate || '', row.date || null);
+        if(le != null){
+          if(age == null) return false;
+          if(!(age <= le)) return false;
+        }
+        if(ge != null){
+          if(age == null) return false;
+          if(!(age >= ge)) return false;
+        }
+        if(filterSet.size > 0){
+          if(!ccNorm) return false;
+          if(!filterSet.has(ccNorm)) return false;
+        }
+        row.country_code = ccNorm || '';
+        return true;
+      });
+
+      filtered.sort((a,b)=>{
+        const ra = (a.ranking==null ? 1e9 : Number(a.ranking));
+        const rb = (b.ranking==null ? 1e9 : Number(b.ranking));
+        return ra - rb;
+      });
+
+      renderHeader(filterActive);
+      tbody.innerHTML = '';
+      for(let i=0;i<filtered.length;i++){
+        const row = filtered[i];
+        const filterRank = filterActive ? (i+1) : undefined;
+        tbody.appendChild(renderRow(row, highlightSet, filterRank));
+      }
+      setStatus(`Displaying ${filtered.length} players (source: ${res.url})`);
+    }
+
+    clearAllBtn.addEventListener('click', ()=>{
+      filterSet.clear(); highlightSet.clear();
+      buildTiles(); updateLabels(); applyAndRender();
+    });
+
+    [ageLeEl, ageGeEl].forEach(el => el && el.addEventListener('input', applyAndRender));
+
+    // initial build & render
+    buildTiles();
+    updateLabels();
+    applyAndRender();
+
+  }catch(err){
+    console.error('Rankings load error:', err);
+    statusEl.textContent = 'All JSON candidates failed. See console for details.';
+  }
 })();
 </script>
 
+<script src="/node_modules/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
