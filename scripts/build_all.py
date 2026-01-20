@@ -6,8 +6,11 @@ import shutil
 import os
 import json
 
+import argparse
+
 ROOT = Path(__file__).resolve().parents[1]
-DOCS = ROOT / "docs"
+
+#DOCS = ROOT / "docs"
 
 
 
@@ -70,9 +73,18 @@ def pretty_name_from_stem(stem: str) -> str:
 # -------------------------
 # 0) ensure docs dir is fresh
 # -------------------------
-if DOCS.exists():
-    shutil.rmtree(DOCS)
-DOCS.mkdir(parents=True, exist_ok=True)
+# parse optional --out-dir, fallback to env BUILD_OUT_DIR, or to ROOT/"docs_build"
+parser = argparse.ArgumentParser(description="Build static site outputs into an output directory")
+parser.add_argument("--out-dir", default=os.getenv("BUILD_OUT_DIR", str(ROOT / "docs_build")), help="Directory to write generated site files into (default: docs_build)")
+args = parser.parse_args()
+BUILD_DIR = Path(args.out_dir).resolve()
+
+# Don't touch source `docs/` — instead ensure a fresh build dir
+DOCS_SRC = ROOT / "docs"
+if BUILD_DIR.exists():
+    shutil.rmtree(BUILD_DIR)
+BUILD_DIR.mkdir(parents=True, exist_ok=True)
+print(f"Using build output directory: {BUILD_DIR} (source docs if present: {DOCS_SRC})")
 # -------------------------
 # Copy repo-provided static site assets (durable files)
 # -------------------------
@@ -83,7 +95,7 @@ if STATIC_DIR.exists() and STATIC_DIR.is_dir():
         # instead of shutil.copytree(STATIC_DIR, DOCS, dirs_exist_ok=True)
         for root, dirs, files in os.walk(STATIC_DIR):
             rel = os.path.relpath(root, STATIC_DIR)
-            target_dir = DOCS / rel
+            target_dir = BUILD_DIR / rel
             target_dir.mkdir(parents=True, exist_ok=True)
             for fn in files:
                 src = Path(root) / fn
@@ -91,7 +103,7 @@ if STATIC_DIR.exists() and STATIC_DIR.is_dir():
                 shutil.copy2(src, dst)
         
 
-        print(f"Copied durable static files from {STATIC_DIR} -> {DOCS}")
+        print(f"Copied durable static files from {STATIC_DIR} -> {BUILD_DIR}")
     except Exception as e:
         print(f"Could not copy static dir {STATIC_DIR} into docs/: {e}")
 else:
@@ -109,7 +121,7 @@ logo_path = None
 for cand in LOGO_CANDIDATES:
     if cand.exists():
         try:
-            shutil.copy2(cand, DOCS / "logo.png")
+            shutil.copy2(cand, BUILD_DIR / "logo.png")
             logo_path = "logo.png"
             logo_img_html = ""
             if logo_path:
@@ -186,13 +198,13 @@ candidates += list(ROOT.glob("*map*.html"))
 moved = 0
 for p in sorted(set(candidates)):
     try:
-        dest = DOCS / p.name
+        dest = BUILD_DIR / p.name
         shutil.copy2(p, dest)
         moved += 1
         print(f"Copied {p} -> {dest}")
     except Exception as e:
         print("Could not copy", p, e)
-print(f"✅ {moved} fichier(s) HTML copiés dans {DOCS}")
+print(f"✅ {moved} fichier(s) HTML copiés dans {BUILD_DIR}")
 
 # -------------------------
 # 4) Generate neighbors FIRST so generate_players can embed them
@@ -230,8 +242,8 @@ except Exception as e:
 for pattern in ("node_knn_top10.csv","graphsage_knn_top10.csv","node_embeddings*.csv","players_graphsage_embeddings.csv"):
     for f in ROOT.glob(pattern):
         try:
-            shutil.copy2(f, DOCS / f.name)
-            print(f"Copied data file {f} -> {DOCS / f.name}")
+            shutil.copy2(f, BUILD_DIR / f.name)
+            print(f"Copied data file {f} -> {BUILD_DIR / f.name}")
         except Exception as e:
             print("Could not copy data file", f, e)
 
@@ -296,7 +308,7 @@ else:
     print("No generate_players_atp.py found — skipping ATP player pages.")
 
 # copy players directories into docs (if present)
-for src_dir, dst_dir in [(ROOT / "players", DOCS / "players"), (ROOT / "players_atp", DOCS / "players_atp")]:
+for src_dir, dst_dir in [(ROOT / "players", BUILD_DIR / "players"), (ROOT / "players_atp", BUILD_DIR / "players_atp")]:
     if src_dir.exists() and src_dir.is_dir():
         try:
             shutil.copytree(src_dir, dst_dir, dirs_exist_ok=True)
@@ -314,7 +326,7 @@ EXCLUDE_HTML = {"index.html", "edit.html", "404.html", "edit_atp.html", "some_ot
 # -------------------------
 # BUILD MAPS LIST (WTA / ATP buckets)
 # -------------------------
-map_files = [p for p in sorted(DOCS.glob("*.html")) if p.name not in EXCLUDE_HTML]
+map_files = [p for p in sorted(BUILD_DIR.glob("*.html")) if p.name not in EXCLUDE_HTML]
 
 wta_items = []
 atp_items = []
@@ -338,14 +350,14 @@ atp_list_html = "\n".join(atp_items) if atp_items else '<div class="text-muted">
 
 # players block (link to players if exists) — include both WTA and ATP directories
 players_links = []
-if (DOCS / "players" / "index.html").exists():
+if (BUILD_DIR / "players" / "index.html").exists():
     players_links.append(
         '<a class="list-group-item list-group-item-action d-flex justify-content-between align-items-start" '
         'href="players/index.html"><div><strong>Player directory (WTA)</strong>'
         '<div class="small text-muted">Individual Profile</div></div>'
         '<span class="badge bg-primary rounded-pill">Players</span></a>'
     )
-if (DOCS / "players_atp" / "index.html").exists():
+if (BUILD_DIR / "players_atp" / "index.html").exists():
     players_links.append(
         '<a class="list-group-item list-group-item-action d-flex justify-content-between align-items-start" '
         'href="players_atp/index.html"><div><strong>Player directory (ATP)</strong>'
@@ -461,6 +473,6 @@ INDEX_HTML = TEMPLATE.replace("__SITE_TITLE__", SITE_TITLE)\
     .replace("__COPYRIGHT__", COPYRIGHT)
 
 # write the index (always overwrite with the nicer template)
-index_path = DOCS / "index.html"
+index_path = BUILD_DIR / "index.html"
 index_path.write_text(INDEX_HTML, encoding="utf-8")
 print(f"✅ index.html créé/écrasé dans {index_path}")
