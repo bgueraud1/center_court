@@ -1,84 +1,137 @@
-
-name: Daily birthday box
-
-on:
-  schedule:
-    - cron: '0 6 * * *' # run daily at 06:00 UTC (adjust as desired)
-  workflow_dispatch: {}
+name: Daily birthday update
 
 permissions:
   contents: write
 
+on:
+  schedule:
+    # run at minute 0 every hour (we'll guard to run real work only at Europe/Paris 01:00)
+    - cron: '0 * * * *'
+  workflow_dispatch: {}
+
 jobs:
   update_birthday:
+    runs-on: ubuntu-latest
     env:
       BUILD_DIR: ${{ github.workspace }}/docs_build
-    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: true
+          lfs: true
+
+      - name: Show workspace (debug)
+        run: |
+          echo "Workspace: $GITHUB_WORKSPACE"
+          ls -la | sed -n '1,200p'
+
+      - name: Skip unless Europe/Paris hour == 01
+        id: check_time
+        run: |
+          python - <<'PY'
+          from datetime import datetime
+          try:
+              from zoneinfo import ZoneInfo
+              tz = ZoneInfo("Europe/Paris")
+              now = datetime.now(tz)
+          except Exception:
+              # Fallback to UTC if zoneinfo unavailable (should not happen on runner)
+              now = datetime.utcnow()
+          print("Europe/Paris now:", now.isoformat())
+          # continue only at 01:00
+          if now.hour != 1:
+              print("Not Europe/Paris 01:00 — exiting early (OK).")
+              # Exit 0 to mark workflow success but avoid doing the work
+              exit(0)
+          print("Europe/Paris 01:00 => proceed with daily update.")
+          PY
 
       - name: Setup Python
+        if: always()  # run only when we didn't exit early; safe because earlier step exits job with code 0
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      - name: Install deps (none required but keep pip up-to-date)
+      - name: Install minimal deps (if required)
+        if: always()
         run: |
           python -m pip install --upgrade pip
+          # add any deps if your generator needs them; by default generate_birthday_box.py uses only stdlib
 
-      - name: Ensure build tools dir exists
+      - name: Generate birthday_today.json
+        if: always()
         run: |
-          mkdir -p "${{ env.BUILD_DIR }}"/tools
-
-      - name: Generate birthday JSON
-        run: |
+          mkdir -p "${BUILD_DIR}/tools"
           python scripts/generate_birthday_box.py \
             --players-by-birth docs/tools/players_by_birth.json \
             --latest-atp docs/tools/latest_atp_ranking.json \
             --latest-wta docs/tools/latest_wta_ranking.json \
-            --out "${{ env.BUILD_DIR }}"/tools/birthday_today.json
+            --out "${BUILD_DIR}/tools/birthday_today.json"
 
-      - name: Copy into site_static/tools for serving
+      - name: Copy into site_static/tools (for site serving)
+        if: always()
         run: |
           mkdir -p site_static/tools
-          cp -v "${{ env.BUILD_DIR }}"/tools/birthday_today.json site_static/tools/ || true
+          cp -v "${BUILD_DIR}/tools/birthday_today.json" site_static/tools/ || true
           ls -la site_static/tools || true
 
-      - name: Commit birthday JSON
+      - name: Commit new birthday JSON (whitelist safe commit)
+        if: always()
         env:
           GIT_AUTHOR_NAME: "github-actions[bot]"
           GIT_AUTHOR_EMAIL: "github-actions[bot]@users.noreply.github.com"
-          PAT: ${{ secrets.PAT_FOR_CI }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           git config user.name "$GIT_AUTHOR_NAME"
           git config user.email "$GIT_AUTHOR_EMAIL"
 
+          # stage only the generated birthday JSON in site_static
           git add -f site_static/tools/birthday_today.json || true
-          if [ -n "$(git diff --cached --name-only)" ]; then
-            git commit -m "chore(automated): daily birthday box" || true
-            AUTH="${PAT:-${GITHUB_TOKEN}}"
-            if [ -z "$AUTH" ]; then
-              echo "No auth available to push, skipping push"; exit 0
-            fi
-            git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}"
-            git push origin HEAD:main || git push --force-with-lease origin HEAD:main || true
-          else
-            echo "No changes to commit"
+
+          # safety abort if any manual files are staged unexpectedly
+          if git diff --cached --name-only | grep -Eiq '(^|/)index\.html$'; then
+            echo "ERROR: index.html would be staged — aborting to avoid overwrite."
+            git diff --cached --name-only || true
+            exit 1
           fi
 
-      - name: Trigger Netlify deploy via build hook
-        if: ${{ success() }}
+          if [ -n "$(git diff --cached --name-only)" ]; then
+            git commit -m "ci(daily): update birthday_today.json" || true
+          else
+            echo "No generated changes to commit"
+          fi
+
+      - name: Push changes (use PAT if available, else GITHUB_TOKEN)
+        if: always()
         env:
-          NETLIFY_BUILD_HOOK: ${{ secrets.NETLIFY_BUILD_HOOK }}
+          PAT: ${{ secrets.PAT_FOR_CI }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ -z "$NETLIFY_BUILD_HOOK" ]; then
-            echo "No NETLIFY_BUILD_HOOK set — skipping deploy trigger"
+          set -euo pipefail
+          AUTH="${PAT:-${GITHUB_TOKEN}}"
+          if [ -z "$AUTH" ]; then
+            echo "No auth token available — skipping push"
             exit 0
           fi
-          curl -s -X POST "$NETLIFY_BUILD_HOOK" -o /tmp/netlify_hook_resp.txt -w "\nHTTP_STATUS:%{http_code}\n"
+          git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}" || true
+          git fetch origin main --quiet || true
+          # rebase to reduce conflicts
+          if git rev-parse --verify origin/main >/dev/null 2>&1; then
+            git rebase origin/main || echo "rebase failed or had conflicts"
+          fi
+          # attempt push
+          git push origin HEAD:main || git push --force-with-lease origin HEAD:main || true
+
+      - name: Trigger Netlify deploy via build hook
+        if: always()
+        env:
+          NETLIFY_BUILD_HOOK_DAILY: ${{ secrets.NETLIFY_BUILD_HOOK_DAILY }}
+        run: |
+          if [ -z "$NETLIFY_BUILD_HOOK_DAILY" ]; then
+            echo "No NETLIFY_BUILD_HOOK_DAILY — skipping deploy trigger"
+            exit 0
+          fi
+          curl -s -X POST "$NETLIFY_BUILD_HOOK_DAILY" -o /tmp/netlify_hook_resp.txt -w "\nHTTP_STATUS:%{http_code}\n"
           cat /tmp/netlify_hook_resp.txt || true
