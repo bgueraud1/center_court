@@ -7,15 +7,15 @@ on:
   schedule:
     # Deux crons UTC pour couvrir l'alternance CET/CEST.
     # L'un des deux tombera dans l'intervalle 00:00–01:00 Europe/Paris selon DST.
-    - cron: '30 22 * * *'  # 22:30 UTC => 00:30 CET (hiver) / 23:30 CET (été)
-    - cron: '30 23 * * *'  # 23:30 UTC => 00:30 CEST (été) / 23:30 CET (hiver)
+    - cron: '30 22 * * *'  # 22:30 UTC => ~00:30 Europe/Paris (hiver/été selon DST)
+    - cron: '30 23 * * *'  # 23:30 UTC => ~00:30 Europe/Paris (hiver/été selon DST)
   workflow_dispatch: {}
 
 jobs:
   update_birthday:
     runs-on: ubuntu-latest
     env:
-      BUILD_DIR: ${{ github.workspace }}/docs
+      BUILD_DIR: ${{ github.workspace }}/docs_build
 
     steps:
       - name: Checkout
@@ -32,33 +32,26 @@ jobs:
 
       - name: Decide whether to proceed (Europe/Paris hour in [00:00..00:59])
         id: check_time
-        # toujours exécuter cette étape (pour les runs planifiés et pour info)
         run: |
           python - <<'PY'
           import os
           from datetime import datetime, timezone
           try:
-              # zoneinfo doit être disponible sur ubuntu-latest / python3.10
               from zoneinfo import ZoneInfo
               tz = ZoneInfo("Europe/Paris")
               now = datetime.now(tz)
           except Exception:
-              # fallback en UTC si zoneinfo indisponible (très improbable)
+              # Fallback to UTC (extremely unlikely on ubuntu-latest)
               now = datetime.now(timezone.utc)
-          # debug
           print("Europe/Paris now:", now.isoformat())
-          proceed = (now.hour == 0)  # true si on est bien dans l'heure minuit-1
-          # écrire la sortie pour GitHub Actions
+          proceed = (now.hour == 0)
+          # expose outputs for subsequent steps
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
               fh.write(f"proceed={str(proceed).lower()}\n")
-          # optionnel : exposer date pour debug
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
               fh.write(f"local_time_iso={now.isoformat()}\n")
           PY
 
-      # Toutes les étapes qui font du vrai travail ne s'exécutent que :
-      # - si le workflow a été lancé manuellement (workflow_dispatch), OU
-      # - si la sortie check_time.proceed == 'true'
+      # Les étapes réelles s'exécutent soit si run manuel, soit si check_time.proceed == true
       - name: Setup Python
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         uses: actions/setup-python@v4
@@ -71,11 +64,12 @@ jobs:
           python -m pip install --upgrade pip
           # ajouter d'autres dépendances si nécessaires
 
-            - name: Generate birthday_today.json
+      - name: Generate birthday_today.json
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
           set -euxo pipefail
           mkdir -p "${BUILD_DIR}/tools"
+          # On tente d'écrire dans BUILD_DIR via --out; si le script écrit ailleurs, on le détectera ensuite.
           python scripts/generate_birthday_box.py \
             --players-by-birth docs/tools/players_by_birth.json \
             --latest-atp docs/tools/latest_atp_ranking.json \
@@ -95,12 +89,16 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p site_static/tools
-          # prefer BUILD_DIR output if present; else use docs/tools
+
+          # Prioritize BUILD_DIR output if présent; else fallback à docs/tools (si le script a écrit directement dedans)
           if [ -f "${BUILD_DIR}/tools/birthday_today.json" ]; then
             cp -v "${BUILD_DIR}/tools/birthday_today.json" site_static/tools/ || true
           elif [ -f "docs/tools/birthday_today.json" ]; then
             cp -v "docs/tools/birthday_today.json" site_static/tools/ || true
+          else
+            echo "Aucun fichier généré trouvé dans BUILD_DIR ni docs/tools"
           fi
+
           ls -la site_static/tools || true
 
       - name: Commit new birthday JSON (whitelist safe commit)
@@ -113,22 +111,25 @@ jobs:
           git config user.name "$GIT_AUTHOR_NAME"
           git config user.email "$GIT_AUTHOR_EMAIL"
 
-          # Decide canonical source and copy into canonical repo locations
+          # Copier le canonical généré vers docs/tools (source de vérité) et site_static
           if [ -f "${BUILD_DIR}/tools/birthday_today.json" ]; then
             echo "Using ${BUILD_DIR}/tools/birthday_today.json as canonical generated file"
+            mkdir -p docs/tools
             cp -v "${BUILD_DIR}/tools/birthday_today.json" docs/tools/birthday_today.json || true
+            mkdir -p site_static/tools
             cp -v "${BUILD_DIR}/tools/birthday_today.json" site_static/tools/birthday_today.json || true
           elif [ -f "docs/tools/birthday_today.json" ]; then
             echo "Generator wrote directly into docs/tools; copying into site_static"
+            mkdir -p site_static/tools
             cp -v "docs/tools/birthday_today.json" site_static/tools/birthday_today.json || true
           else
             echo "No generated file found in BUILD_DIR nor docs/tools - nothing to commit"
           fi
 
-          # Stage both known locations (force to ensure tracked)
+          # Stage known locations explicitement pour éviter les modifications non-stagées
           git add -f docs/tools/birthday_today.json site_static/tools/birthday_today.json || true
 
-          # safety abort if any manual files are staged unexpectedly
+          # Safety: abort if index.html or other manual files would be staged
           if git diff --cached --name-only | grep -Eiq '(^|/)index\.html$'; then
             echo "ERROR: index.html would be staged — aborting to avoid overwrite."
             git diff --cached --name-only || true
@@ -160,18 +161,17 @@ jobs:
           # Fetch remote main
           git fetch origin main --quiet || true
 
-          # Ensure working tree clean regarding generated files (avoid rebase error)
+          # Show working tree status for debug
           echo "Working tree status before rebase:"
           git status --porcelain || true
 
+          # Rebase local HEAD onto origin/main to reduce conflicts (si origin/main existe)
           if git rev-parse --verify origin/main >/dev/null 2>&1; then
-            # Try rebase; since we staged+committed the generated files, this should not fail for unstaged changes
-            git rebase origin/main || (echo "rebase failed: showing status and aborting rebase attempt" && git status --porcelain && git rebase --abort || true)
+            git rebase origin/main || (echo "rebase failed: aborting rebase attempt" && git rebase --abort || true)
           fi
 
           # attempt push (normal then force-with-lease fallback)
           git push origin HEAD:main || git push --force-with-lease origin HEAD:main || true
-
 
       - name: Trigger Netlify deploy via build hook
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
