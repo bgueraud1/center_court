@@ -5,8 +5,10 @@ permissions:
 
 on:
   schedule:
-    # run at minute 0 every hour (we'll guard to run real work only at Europe/Paris 01:00)
-    - cron: '0 * * * *'
+    # Deux crons UTC pour couvrir l'alternance CET/CEST.
+    # L'un des deux tombera dans l'intervalle 00:00–01:00 Europe/Paris selon DST.
+    - cron: '30 22 * * *'  # 22:30 UTC => 00:30 CET (hiver) / 23:30 CET (été)
+    - cron: '30 23 * * *'  # 23:30 UTC => 00:30 CEST (été) / 23:30 CET (hiver)
   workflow_dispatch: {}
 
 jobs:
@@ -14,6 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       BUILD_DIR: ${{ github.workspace }}/docs_build
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,41 +30,49 @@ jobs:
           echo "Workspace: $GITHUB_WORKSPACE"
           ls -la | sed -n '1,200p'
 
-      - name: Skip unless Europe/Paris hour == 01
+      - name: Decide whether to proceed (Europe/Paris hour in [00:00..00:59])
         id: check_time
+        # toujours exécuter cette étape (pour les runs planifiés et pour info)
         run: |
           python - <<'PY'
-          from datetime import datetime
+          import os
+          from datetime import datetime, timezone
           try:
+              # zoneinfo doit être disponible sur ubuntu-latest / python3.10
               from zoneinfo import ZoneInfo
               tz = ZoneInfo("Europe/Paris")
               now = datetime.now(tz)
           except Exception:
-              # Fallback to UTC if zoneinfo unavailable (should not happen on runner)
-              now = datetime.utcnow()
+              # fallback en UTC si zoneinfo indisponible (très improbable)
+              now = datetime.now(timezone.utc)
+          # debug
           print("Europe/Paris now:", now.isoformat())
-          # continue only at 01:00
-          if now.hour != 1:
-              print("Not Europe/Paris 01:00 — exiting early (OK).")
-              # Exit 0 to mark workflow success but avoid doing the work
-              exit(0)
-          print("Europe/Paris 01:00 => proceed with daily update.")
+          proceed = (now.hour == 0)  # true si on est bien dans l'heure minuit-1
+          # écrire la sortie pour GitHub Actions
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
+              fh.write(f"proceed={str(proceed).lower()}\n")
+          # optionnel : exposer date pour debug
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
+              fh.write(f"local_time_iso={now.isoformat()}\n")
           PY
 
+      # Toutes les étapes qui font du vrai travail ne s'exécutent que :
+      # - si le workflow a été lancé manuellement (workflow_dispatch), OU
+      # - si la sortie check_time.proceed == 'true'
       - name: Setup Python
-        if: always()  # run only when we didn't exit early; safe because earlier step exits job with code 0
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
       - name: Install minimal deps (if required)
-        if: always()
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
           python -m pip install --upgrade pip
-          # add any deps if your generator needs them; by default generate_birthday_box.py uses only stdlib
+          # ajouter d'autres dépendances si nécessaires
 
       - name: Generate birthday_today.json
-        if: always()
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
           mkdir -p "${BUILD_DIR}/tools"
           python scripts/generate_birthday_box.py \
@@ -71,14 +82,14 @@ jobs:
             --out "${BUILD_DIR}/tools/birthday_today.json"
 
       - name: Copy into site_static/tools (for site serving)
-        if: always()
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
           mkdir -p site_static/tools
           cp -v "${BUILD_DIR}/tools/birthday_today.json" site_static/tools/ || true
           ls -la site_static/tools || true
 
       - name: Commit new birthday JSON (whitelist safe commit)
-        if: always()
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         env:
           GIT_AUTHOR_NAME: "github-actions[bot]"
           GIT_AUTHOR_EMAIL: "github-actions[bot]@users.noreply.github.com"
@@ -104,7 +115,7 @@ jobs:
           fi
 
       - name: Push changes (use PAT if available, else GITHUB_TOKEN)
-        if: always()
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         env:
           PAT: ${{ secrets.PAT_FOR_CI }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -125,7 +136,7 @@ jobs:
           git push origin HEAD:main || git push --force-with-lease origin HEAD:main || true
 
       - name: Trigger Netlify deploy via build hook
-        if: always()
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         env:
           NETLIFY_BUILD_HOOK_DAILY: ${{ secrets.NETLIFY_BUILD_HOOK_DAILY }}
         run: |
