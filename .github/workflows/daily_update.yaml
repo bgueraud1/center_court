@@ -71,21 +71,36 @@ jobs:
           python -m pip install --upgrade pip
           # ajouter d'autres dépendances si nécessaires
 
-      - name: Generate birthday_today.json
+            - name: Generate birthday_today.json
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
+          set -euxo pipefail
           mkdir -p "${BUILD_DIR}/tools"
           python scripts/generate_birthday_box.py \
             --players-by-birth docs/tools/players_by_birth.json \
             --latest-atp docs/tools/latest_atp_ranking.json \
             --latest-wta docs/tools/latest_wta_ranking.json \
-            --out "${BUILD_DIR}/tools/birthday_today.json"
+            --out "${BUILD_DIR}/tools/birthday_today.json" || true
+
+          echo ">>> After generation: listing possible locations"
+          echo "BUILD_DIR/tools:"
+          ls -la "${BUILD_DIR}/tools" || true
+          echo "docs/tools:"
+          ls -la docs/tools || true
+          echo "site_static/tools:"
+          ls -la site_static/tools || true
 
       - name: Copy into site_static/tools (for site serving)
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
+          set -euxo pipefail
           mkdir -p site_static/tools
-          cp -v "${BUILD_DIR}/tools/birthday_today.json" site_static/tools/ || true
+          # prefer BUILD_DIR output if present; else use docs/tools
+          if [ -f "${BUILD_DIR}/tools/birthday_today.json" ]; then
+            cp -v "${BUILD_DIR}/tools/birthday_today.json" site_static/tools/ || true
+          elif [ -f "docs/tools/birthday_today.json" ]; then
+            cp -v "docs/tools/birthday_today.json" site_static/tools/ || true
+          fi
           ls -la site_static/tools || true
 
       - name: Commit new birthday JSON (whitelist safe commit)
@@ -98,8 +113,20 @@ jobs:
           git config user.name "$GIT_AUTHOR_NAME"
           git config user.email "$GIT_AUTHOR_EMAIL"
 
-          # stage only the generated birthday JSON in site_static
-          git add -f site_static/tools/birthday_today.json || true
+          # Decide canonical source and copy into canonical repo locations
+          if [ -f "${BUILD_DIR}/tools/birthday_today.json" ]; then
+            echo "Using ${BUILD_DIR}/tools/birthday_today.json as canonical generated file"
+            cp -v "${BUILD_DIR}/tools/birthday_today.json" docs/tools/birthday_today.json || true
+            cp -v "${BUILD_DIR}/tools/birthday_today.json" site_static/tools/birthday_today.json || true
+          elif [ -f "docs/tools/birthday_today.json" ]; then
+            echo "Generator wrote directly into docs/tools; copying into site_static"
+            cp -v "docs/tools/birthday_today.json" site_static/tools/birthday_today.json || true
+          else
+            echo "No generated file found in BUILD_DIR nor docs/tools - nothing to commit"
+          fi
+
+          # Stage both known locations (force to ensure tracked)
+          git add -f docs/tools/birthday_today.json site_static/tools/birthday_today.json || true
 
           # safety abort if any manual files are staged unexpectedly
           if git diff --cached --name-only | grep -Eiq '(^|/)index\.html$'; then
@@ -109,6 +136,8 @@ jobs:
           fi
 
           if [ -n "$(git diff --cached --name-only)" ]; then
+            echo "Files staged to commit:"
+            git diff --cached --name-only || true
             git commit -m "ci(daily): update birthday_today.json" || true
           else
             echo "No generated changes to commit"
@@ -127,13 +156,22 @@ jobs:
             exit 0
           fi
           git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}" || true
+
+          # Fetch remote main
           git fetch origin main --quiet || true
-          # rebase to reduce conflicts
+
+          # Ensure working tree clean regarding generated files (avoid rebase error)
+          echo "Working tree status before rebase:"
+          git status --porcelain || true
+
           if git rev-parse --verify origin/main >/dev/null 2>&1; then
-            git rebase origin/main || echo "rebase failed or had conflicts"
+            # Try rebase; since we staged+committed the generated files, this should not fail for unstaged changes
+            git rebase origin/main || (echo "rebase failed: showing status and aborting rebase attempt" && git status --porcelain && git rebase --abort || true)
           fi
-          # attempt push
+
+          # attempt push (normal then force-with-lease fallback)
           git push origin HEAD:main || git push --force-with-lease origin HEAD:main || true
+
 
       - name: Trigger Netlify deploy via build hook
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
