@@ -302,9 +302,20 @@ def main():
         if public_id in cloud_public_ids and cloudinary:
             # build responsive Cloudinary URLs (format auto, quality auto)
             try:
-                url300, _ = cloudinary.utils.cloudinary_url(public_id, width=300, crop='fill', gravity='face', format='auto', quality='auto')
-                url600, _ = cloudinary.utils.cloudinary_url(public_id, width=600, crop='fill', gravity='face', format='auto', quality='auto')
-                url1200, _ = cloudinary.utils.cloudinary_url(public_id, width=1200, crop='fill', gravity='face', format='auto', quality='auto')
+                # --- Build Cloudinary URLs manually (stable & avoids .auto suffix problems) ---
+                # cloud_name doit déjà être défini plus haut (env CLOUDINARY_CLOUD_NAME)
+                base = f"https://res.cloudinary.com/{cloud_name}/image/upload"
+                
+                # transformation string: format auto (f_auto) and quality auto (q_auto)
+                # crop fill + gravity face for portraits
+                t300  = "f_auto,q_auto,w_300,c_fill,g_face"
+                t600  = "f_auto,q_auto,w_600,c_fill,g_face"
+                t1200 = "f_auto,q_auto,w_1200,c_fill,g_face"
+                
+                url300  = f"{base}/{t300}/{public_id}"
+                url600  = f"{base}/{t600}/{public_id}"
+                url1200 = f"{base}/{t1200}/{public_id}"
+
                 image_block = f'''
                 <picture>
                   <source srcset="{url1200} 1200w, {url600} 600w, {url300} 300w" sizes="(max-width:768px) 90vw, 300px">
