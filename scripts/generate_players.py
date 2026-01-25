@@ -3,6 +3,10 @@
 Generate one HTML page per player from player_data_wta.csv
 Outputs to docs/players/<player_id>-<slug>.html and docs/players/index.html
 Overwrites existing pages (clean build).
+
+This version checks Cloudinary for existing images under public_id "players/<slug>"
+and embeds responsive Cloudinary URLs if present. Requires CLOUDINARY_CLOUD_NAME,
+CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET to be set in env.
 """
 from pathlib import Path
 import pandas as pd
@@ -11,6 +15,17 @@ import re
 from datetime import datetime
 import shutil
 from urllib.parse import quote_plus
+import os
+import sys
+
+# Cloudinary SDK
+try:
+    import cloudinary
+    import cloudinary.api
+    import cloudinary.utils
+    import cloudinary.exceptions
+except Exception:
+    cloudinary = None
 
 ROOT = Path(__file__).resolve().parents[1]
 CSV = ROOT / "player_data_wta.csv"
@@ -90,9 +105,7 @@ PLAYER_TMPL = """<!doctype html>
             </dl>
           </div>
           <div class="col-md-4">
-            <div class="border rounded p-3 text-center">
-              <p class="mb-0"><small>Picture non available</small></p>
-            </div>
+            {image_block}
           </div>
         </div>
 
@@ -172,6 +185,39 @@ def esc(s):
         return ""
     return html.escape(str(s))
 
+def fetch_cloudinary_player_public_ids(prefix="players/"):
+    """
+    Fetch all Cloudinary public_ids under given prefix.
+    Returns a set of public_id strings (without file extension).
+    Uses pagination with next_cursor.
+    """
+    if not cloudinary:
+        return set()
+    try:
+        found = set()
+        next_cursor = None
+        while True:
+            # max_results can be up to 500
+            if next_cursor:
+                resp = cloudinary.api.resources(type='upload', prefix=prefix, max_results=500, next_cursor=next_cursor)
+            else:
+                resp = cloudinary.api.resources(type='upload', prefix=prefix, max_results=500)
+            resources = resp.get("resources", [])
+            for r in resources:
+                pid = r.get("public_id")
+                if pid:
+                    found.add(pid)
+            next_cursor = resp.get("next_cursor")
+            if not next_cursor:
+                break
+        return found
+    except cloudinary.exceptions.Error as e:
+        print("Warning: failed to list Cloudinary resources:", e, file=sys.stderr)
+        return set()
+    except Exception as e:
+        print("Warning: unexpected error listing Cloudinary resources:", e, file=sys.stderr)
+        return set()
+
 def main():
     if not CSV.exists():
         print(f"CSV not found at {CSV}. Run script from repository root.")
@@ -184,6 +230,23 @@ def main():
 
     df = pd.read_csv(CSV, dtype=str).fillna("")
     players_index_lines = []
+
+    # Configure cloudinary from env (if available)
+    cloud_name = os.environ.get("CLOUDINARY_CLOUD_NAME", "").strip()
+    api_key = os.environ.get("CLOUDINARY_API_KEY", "").strip()
+    api_secret = os.environ.get("CLOUDINARY_API_SECRET", "").strip()
+
+    if cloud_name and api_key and api_secret and cloudinary:
+        cloudinary.config(cloud_name=cloud_name, api_key=api_key, api_secret=api_secret, secure=True)
+        print("Cloudinary configured. Fetching list of player images (prefix 'players/') ...")
+        cloud_public_ids = fetch_cloudinary_player_public_ids(prefix="players/")
+        print(f"Found {len(cloud_public_ids)} images on Cloudinary under 'players/'.")
+    else:
+        cloud_public_ids = set()
+        if not cloudinary:
+            print("cloudinary SDK not installed; skipping Cloudinary checks.")
+        else:
+            print("Cloudinary credentials missing; skipping Cloudinary checks.")
 
     for _, row in df.iterrows():
         name = (row.get("full_name","") or "").strip()
@@ -234,6 +297,29 @@ def main():
         else:
             bio_block = ''
 
+        # ===== Cloudinary image handling =====
+        public_id = f"players/{slug}"   # convention: players/<slug>
+        if public_id in cloud_public_ids and cloudinary:
+            # build responsive Cloudinary URLs (format auto, quality auto)
+            try:
+                url300, _ = cloudinary.utils.cloudinary_url(public_id, width=300, crop='fill', gravity='face', format='auto', quality='auto')
+                url600, _ = cloudinary.utils.cloudinary_url(public_id, width=600, crop='fill', gravity='face', format='auto', quality='auto')
+                url1200, _ = cloudinary.utils.cloudinary_url(public_id, width=1200, crop='fill', gravity='face', format='auto', quality='auto')
+                image_block = f'''
+                <picture>
+                  <source srcset="{url1200} 1200w, {url600} 600w, {url300} 300w" sizes="(max-width:768px) 90vw, 300px">
+                  <img src="{url300}" srcset="{url300} 300w, {url600} 600w, {url1200} 1200w"
+                       sizes="(max-width:768px) 90vw, 300px"
+                       alt="{esc(name)} — portrait" loading="lazy" class="img-fluid rounded"/>
+                </picture>
+                '''
+            except Exception as e:
+                print(f"Warning: failed to build Cloudinary URLs for {public_id}: {e}", file=sys.stderr)
+                image_block = '<div class="border rounded p-3 text-center"><p class="mb-0"><small>Picture non available</small></p></div>'
+        else:
+            # No image found -> placeholder
+            image_block = '<div class="border rounded p-3 text-center"><p class="mb-0"><small>Picture non available</small></p></div>'
+
         content = PLAYER_TMPL.format(
           esc_name = esc(name),
           esc_country = esc(country),
@@ -247,9 +333,9 @@ def main():
           last_appearance = esc(last_app),
           slug = slug,
           url_name = url_name,
-          bio_block = bio_block
+          bio_block = bio_block,
+          image_block = image_block
       )
-
 
         out_file = OUT_DIR / f"{filename_stem}.html"
         out_file.write_text(content, encoding="utf-8")
@@ -258,7 +344,7 @@ def main():
         players_index_lines.append(entry)
 
     index_html = INDEX_TOP + "\n".join(players_index_lines) + INDEX_BOTTOM
-    import subprocess, sys
+    import subprocess
     # --- update birthdate JSON for the client tool (non-fatal) ---
     try:
         gen_script = ROOT / "scripts" / "generate_birthdate_index.py"
@@ -271,19 +357,6 @@ def main():
         print("Warning: failed to run generate_birthdate_index.py:", e)
 
     (OUT_DIR / "index.html").write_text(index_html, encoding="utf-8")
-
-    import subprocess, sys
-    # --- update birthdate JSON for the client tool (non-fatal) ---
-    try:
-        gen_script = ROOT / "scripts" / "generate_birthdate_index.py"
-        if gen_script.exists():
-            print("Updating docs/tools/players_by_birth.json ...")
-            subprocess.check_call([sys.executable, str(gen_script)])
-        else:
-            print("generate_birthdate_index.py not found; skipping birthdate JSON generation.")
-    except Exception as e:
-        print("Warning: failed to run generate_birthdate_index.py:", e)
-
 
     print(f"Generated {len(players_index_lines)} player pages to {OUT_DIR}")
 
