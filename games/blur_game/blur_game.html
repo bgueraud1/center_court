@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Tennis Player Guess — Game</title>
+<!-- PapaParse for CSV parsing -->
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<style>
+  body { font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; padding: 18px; }
+  .container { max-width: 900px; margin: 0 auto; }
+  h1 { margin-bottom: 8px; }
+  #controls { display:flex; gap:12px; align-items:center; margin-bottom:12px; }
+  select, button, input[type=text] { padding:8px; font-size:14px; }
+  .game-area { display:flex; gap:20px; flex-wrap:wrap; }
+  .left { width: 420px; }
+  canvas { width: 100%; height: auto; background: #eee; border-radius: 6px; display:block; }
+  .question-box { flex:1; min-width: 300px; }
+  .option { display:block; margin:6px 0; }
+  .progress { margin-top:12px; height:10px; background:#eee; border-radius:6px; overflow:hidden; }
+  .progress > div { height:100%; background: linear-gradient(90deg,#3b82f6,#06b6d4); width:0%; }
+  .meta { margin-top:8px; color:#555; font-size:14px; }
+  .small { font-size:13px; color:#666; }
+  .btn { padding:8px 12px; border-radius:6px; border:0; cursor:pointer; }
+  .btn-primary { background:#2563eb; color:white; }
+  .btn-ghost { background:#f3f4f6; }
+  .correct { color: green; }
+  .wrong { color: red; }
+  .tags-list { margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; }
+  .tag { padding:6px 8px; background:#f3f4f6; border-radius:999px; cursor:pointer; font-size:13px; }
+  .tag.selected { background:#2563eb; color:white; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Tennis Guess Game</h1>
+  <div id="controls">
+    <label>Theme / Tag:
+      <select id="tagSelect"><option>Loading...</option></select>
+    </label>
+    <button id="startBtn" class="btn btn-primary">Start Game</button>
+    <div style="margin-left:auto" class="small">Images via Cloudinary (public)</div>
+  </div>
+
+  <div class="game-area">
+    <div class="left">
+      <canvas id="playerCanvas" width="600" height="600"></canvas>
+      <div class="progress" title="Progress">
+        <div id="progressFill"></div>
+      </div>
+      <div class="meta small" id="blurMeta">Blur: --%</div>
+    </div>
+
+    <div class="question-box">
+      <div id="questionArea">
+        <div class="small">Select a tag and press Start to begin.</div>
+      </div>
+
+      <div id="feedback" class="small"></div>
+      <div style="margin-top:12px;">
+        <button id="nextBtn" class="btn btn-primary" style="display:none">Next Question</button>
+        <button id="restartBtn" class="btn btn-ghost" style="display:none">Restart</button>
+      </div>
+
+    </div>
+  </div>
+
+  <div style="margin-top:18px;">
+    <strong>Data debug:</strong> <span id="debug" class="small"></span>
+  </div>
+</div>
+
+<script>
+/* ====== Configuration - EDIT THESE ====== */
+// Paths to CSV (relative to site root or repo)
+const QUESTIONS_CSV = '/games/blur_game/questions.csv';
+const IMAGES_MANIFEST_JSON = '/games/blur_game/images_manifest.json';
+
+// Visuals: mapping percent -> pixelation/blur
+const START_PCT = 100;   // 100% blurred/pixelated initially
+const MIN_PCT = 33;      // cannot go below 33%
+const DIFFICULTY_SUM = 1+2+3+4; // 10 (for difficulties 1..4)
+const TOTAL_DEBLUR = START_PCT - MIN_PCT; // 67
+
+const publicId = row.id;
+const result = await cloudinary.api.resource(publicId);
+
+/* ====== State ====== */
+let questions = []; // parsed questions.csv rows
+let images = []; // parsed images.csv rows
+let availableTags = [];
+let currentTag = 'All';
+let gameState = null; // will hold current game object
+
+/* ====== Utils ====== */
+function normalizeTagsString(s) {
+  if (!s) return [];
+  // split on commas, trim, remove empty, lowercase (for matching)
+  return s.split(',').map(x=>x.trim()).filter(x=>x.length>0);
+}
+function containsTag(tagsArray, wantedTag) {
+  if (!wantedTag || wantedTag === 'All') return true;
+  const wt = wantedTag.toLowerCase();
+  return tagsArray.some(t => t.toLowerCase() === wt || t.toLowerCase().includes(wt) );
+}
+// simple fuzzy compare for open answers: allow small typos
+function openAnswerMatches(correct, given) {
+  if (!correct) return false;
+  const a = (correct||'').trim().toLowerCase();
+  const b = (given||'').trim().toLowerCase();
+  if (!b) return false;
+  if (a === b) return true;
+  // substring match
+  if (a.includes(b) || b.includes(a)) return true;
+  // small edit distance (Levenshtein) threshold
+  const maxLen = Math.max(a.length, b.length);
+  const threshold = Math.max(1, Math.floor(maxLen * 0.2)); // allow 20% edits
+  return levenshtein(a, b) <= threshold;
+}
+function levenshtein(a,b){
+  // small DP levinstein
+  const m=a.length, n=b.length;
+  if(m===0) return n;
+  if(n===0) return m;
+  const dp = Array(m+1).fill().map(()=>Array(n+1).fill(0));
+  for(let i=0;i<=m;i++) dp[i][0]=i;
+  for(let j=0;j<=n;j++) dp[0][j]=j;
+  for(let i=1;i<=m;i++){
+    for(let j=1;j<=n;j++){
+      if(a[i-1]===b[j-1]) dp[i][j]=dp[i-1][j-1];
+      else dp[i][j]=1+Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+    }
+  }
+  return dp[m][n];
+}
+
+/* ====== CSV Loading ====== */
+async function loadData() {
+  const qtxt = await fetch(QUESTIONS_CSV).then(r => r.ok ? r.text() : Promise.reject('questions.csv not found'));
+  const qres = Papa.parse(qtxt, { header: true, skipEmptyLines: true });
+  questions = qres.data.map(r => ({
+    id: (r.id||'').trim(),
+    question_type: (r.question_type||'').trim().toLowerCase(),
+    question_corps: (r.question_corps||'').trim(),
+    qcm_a: (r.qcm_a||'').trim(),
+    qcm_b: (r.qcm_b||'').trim(),
+    qcm_c: (r.qcm_c||'').trim(),
+    qcm_d: (r.qcm_d||'').trim(),
+    qcm_answer: (r.qcm_answer||'').trim(),
+    answer: (r.answer||'').trim(),
+    true_false: (r.true_false||'').trim(),
+    difficulty: Number(r.difficulty) || 1,
+    tags: normalizeTagsString(r.tags || r.tag || '')
+  }));
+
+  // load images manifest json (generated at build time)
+  const imtxt = await fetch(IMAGES_MANIFEST_JSON).then(r => r.ok ? r.json() : Promise.reject('images_manifest.json not found'));
+  images = imtxt.map(it => ({ id: it.id, url: it.url, tags: it.tags || [] }));
+
+  // build tags from both questions and images (as before)
+  const tagSet = new Set();
+  images.forEach(img => img.tags.forEach(t => tagSet.add(t)));
+  questions.forEach(q => q.tags.forEach(t => tagSet.add(t)));
+  availableTags = ['All', ...Array.from(tagSet).sort((a,b)=>a.localeCompare(b))];
+}
+
+/* ====== UI Init ====== */
+function fillTagSelect() {
+  const sel = document.getElementById('tagSelect');
+  sel.innerHTML = '';
+  availableTags.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t;
+    opt.textContent = t;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener('change', () => currentTag = sel.value);
+  currentTag = availableTags[0] || 'All';
+}
+
+/* ====== Game flow ====== */
+function startGame() {
+  // choose image & 4 questions
+  const tag = currentTag;
+  // choose candidate images that contain the tag
+  let candImgs = images.filter(img => containsTag(img.tags, tag));
+  if (candImgs.length === 0) candImgs = images.slice(); // fallback
+  const chosenImage = candImgs[Math.floor(Math.random()*candImgs.length)];
+
+  // choose one question per difficulty 1..4, preferring those matching tag
+  const chosenQuestions = [];
+  for (let d=1; d<=4; d++){
+    let pool = questions.filter(q => q.difficulty === d && containsTag(q.tags, tag));
+    if (pool.length === 0) pool = questions.filter(q => q.difficulty === d);
+    if (pool.length === 0) {
+      // fallback: any question
+      pool = questions.slice();
+    }
+    // choose random
+    const pick = pool[Math.floor(Math.random()*pool.length)];
+    chosenQuestions.push(Object.assign({}, pick)); // clone
+  }
+
+  // initialize game state
+  gameState = {
+    image: chosenImage,
+    questions: chosenQuestions,
+    currentIndex: 0,
+    blurPct: START_PCT, // percent
+    score: 0,
+    totalQuestions: chosenQuestions.length
+  };
+
+  // set up UI
+  document.getElementById('debug').textContent = `image=${chosenImage.id}, questions=${chosenQuestions.map(q=>q.id).join(',')}`;
+  document.getElementById('startBtn').style.display = 'none';
+  document.getElementById('nextBtn').style.display = 'none';
+  document.getElementById('restartBtn').style.display = 'none';
+  document.getElementById('feedback').textContent = '';
+  renderImage();
+  renderCurrentQuestion();
+  updateProgress();
+}
+
+/* ====== Image rendering with pixelation + blur ====== */
+const canvas = document.getElementById('playerCanvas');
+const ctx = canvas.getContext('2d');
+
+function cloudinaryURL(publicId) {
+  // try to support both id.jpg and id formats
+  return `${CLOUDINARY_BASE}/${publicId}.jpg`;
+}
+
+function renderImage() {
+  if (!gameState) return;
+  const entry = gameState.image; // {id, url, tags}
+  const url = entry.url;
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => { drawImageWithEffects(img, gameState.blurPct); document.getElementById('blurMeta').textContent = `Blur: ${Math.round(gameState.blurPct)}%`; };
+  img.onerror = () => { /* placeholder */ };
+  img.src = url;
+}
+
+function drawImageWithEffects(img, blurPct) {
+  // Canvas size: fit the canvas while preserving aspect ratio
+  const cw = canvas.width = 600;
+  const ch = canvas.height = 600;
+  // draw background
+  ctx.clearRect(0,0,cw,ch);
+  // compute target draw size (cover style)
+  let iw = img.width, ih = img.height;
+  const imgRatio = iw / ih;
+  const canvasRatio = cw / ch;
+  let dw, dh, dx, dy;
+  if (imgRatio > canvasRatio) {
+    // image wider -> height fit
+    dh = ch;
+    dw = dh * imgRatio;
+    dx = -(dw - cw) / 2;
+    dy = 0;
+  } else {
+    dw = cw;
+    dh = dw / imgRatio;
+    dx = 0;
+    dy = -(dh - ch) / 2;
+  }
+
+  // Pixelation level: map blurPct (100..33) to pixelSize (big..small)
+  // pixelSize between 24px (very pixelated) down to 1px
+  const pixelSize = Math.max(1, Math.round(1 + (24 * (blurPct - MIN_PCT) / (START_PCT - MIN_PCT))));
+  // CSS-like blur (px) map
+  const blurPx = Math.max(0.5, (8 * (blurPct / START_PCT)));
+
+  // Pixelate technique: draw small version on temporary canvas then draw scaled up
+  const tmp = document.createElement('canvas');
+  const tw = Math.max(1, Math.round(dw / pixelSize));
+  const th = Math.max(1, Math.round(dh / pixelSize));
+  tmp.width = tw;
+  tmp.height = th;
+  const tctx = tmp.getContext('2d');
+  // draw scaled-down image into tmp
+  tctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, tw, th);
+  // disable smoothing when scaling up to get blocky pixels
+  ctx.imageSmoothingEnabled = false;
+  // optionally add blur by drawing into an offscreen canvas and using ctx.filter
+  // We'll use ctx.filter for a soft blur on top
+  try {
+    ctx.save();
+    ctx.filter = `blur(${blurPx}px)`;
+    // draw scaled-up temporary canvas onto main canvas (blocky)
+    ctx.drawImage(tmp, 0, 0, tw, th, dx, dy, dw, dh);
+    ctx.restore();
+  } catch (e) {
+    // older browsers might not support ctx.filter - fall back to non-blurred pixelation
+    ctx.drawImage(tmp, 0, 0, tw, th, dx, dy, dw, dh);
+  }
+}
+
+/* ====== Question rendering / checking ====== */
+function renderCurrentQuestion() {
+  const area = document.getElementById('questionArea');
+  area.innerHTML = '';
+  if (!gameState) { area.innerHTML = '<div class="small">No game running.</div>'; return; }
+  const i = gameState.currentIndex;
+  if (i >= gameState.totalQuestions) {
+    // End
+    area.innerHTML = `<h3>Finished!</h3>
+      <div class="small">Score: ${gameState.score} / ${gameState.totalQuestions}</div>
+      <div class="small">Player: <strong>${gameState.image.id}</strong></div>
+      <div style="margin-top:10px;"><button id="restartBtn2" class="btn btn-primary">Play Again</button></div>`;
+    document.getElementById('restartBtn2').addEventListener('click', () => startGame());
+    document.getElementById('nextBtn').style.display = 'none';
+    document.getElementById('restartBtn').style.display = 'none';
+    return;
+  }
+  const q = gameState.questions[i];
+  const qHtml = document.createElement('div');
+  qHtml.innerHTML = `<div class="small">Question ${i+1} / ${gameState.totalQuestions} — difficulty: ${q.difficulty}</div>
+                     <h3 style="margin-top:8px">${escapeHtml(q.question_corps)}</h3>`;
+  area.appendChild(qHtml);
+
+  const inputArea = document.createElement('div');
+  inputArea.style.marginTop = '10px';
+
+  if (q.question_type === 'qcm') {
+    // show options. qcm_a..d may include commas; show only non-empty ones
+    ['a','b','c','d'].forEach(letter => {
+      const text = q['qcm_'+letter];
+      if (!text || text.length === 0) return;
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-ghost option';
+      btn.textContent = `${letter.toUpperCase()}. ${text}`;
+      btn.addEventListener('click', () => {
+        evaluateAnswer(letter, q);
+      });
+      inputArea.appendChild(btn);
+    });
+  } else if (q.question_type === 'tf' || q.true_false.toLowerCase()==='true' || q.true_false.toLowerCase()==='false') {
+    const tBtn = document.createElement('button');
+    tBtn.className = 'btn btn-ghost option';
+    tBtn.textContent = 'True';
+    tBtn.addEventListener('click', () => evaluateAnswer('true', q));
+    inputArea.appendChild(tBtn);
+    const fBtn = document.createElement('button');
+    fBtn.className = 'btn btn-ghost option';
+    fBtn.textContent = 'False';
+    fBtn.addEventListener('click', () => evaluateAnswer('false', q));
+    inputArea.appendChild(fBtn);
+  } else { // open
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.placeholder = 'Type your answer and press Enter';
+    inp.style.width = '100%';
+    inp.addEventListener('keydown', (e)=> {
+      if (e.key === 'Enter') evaluateAnswer(inp.value, q);
+    });
+    inputArea.appendChild(inp);
+    const submit = document.createElement('button');
+    submit.className = 'btn btn-primary';
+    submit.textContent = 'Submit';
+    submit.style.marginTop = '8px';
+    submit.addEventListener('click', ()=> evaluateAnswer(inputArea.querySelector('input').value, q));
+    inputArea.appendChild(submit);
+  }
+
+  area.appendChild(inputArea);
+  document.getElementById('nextBtn').style.display = 'none';
+  document.getElementById('restartBtn').style.display = 'none';
+  document.getElementById('feedback').textContent = '';
+}
+
+function evaluateAnswer(given, q) {
+  given = (given||'').toString().trim();
+  let ok = false;
+  if (q.question_type === 'qcm') {
+    // qcm_answer accepted as letter (a/b/c/d) or numeric (1..4) or text
+    const correct = (q.qcm_answer || '').toString().trim().toLowerCase();
+    const lettre = (given||'').toString().trim().toLowerCase();
+    if (!correct) {
+      // fallback: try to match by text equality between given option text and answer column
+      const givenText = q['qcm_' + lettre];
+      if (givenText && q.answer && givenText.trim().toLowerCase() === q.answer.trim().toLowerCase()) ok = true;
+      else ok = false;
+    } else {
+      // allow 'b' or '2' or 'B' etc
+      if (correct === lettre) ok = true;
+      if (!ok && ['1','2','3','4'].includes(correct) && ['a','b','c','d'].includes(lettre)) {
+        // map 1->a, 2->b ...
+        const map = {1:'a',2:'b',3:'c',4:'d'};
+        if (map[Number(correct)] === lettre) ok = true;
+      }
+    }
+  } else if (q.question_type === 'tf' || q.true_false) {
+    const corr = (q.true_false || q.answer || '').toString().trim().toLowerCase();
+    const g = given.toString().trim().toLowerCase();
+    if (g === 'true' || g === 't' || g === '1') {
+      ok = (corr === 'true' || corr === '1' || corr === 't');
+    } else if (g === 'false' || g === 'f' || g === '0') {
+      ok = (corr === 'false' || corr === '0' || corr === 'f');
+    } else {
+      ok = (g === corr);
+    }
+  } else { // open
+    ok = openAnswerMatches(q.answer, given);
+  }
+
+  // show feedback and update blur if correct
+  const fb = document.getElementById('feedback');
+  if (ok) {
+    fb.innerHTML = `<span class="correct">Correct!</span> — Answer: <strong>${escapeHtml(q.answer || q.qcm_answer || '')}</strong>`;
+    gameState.score += 1;
+    // compute reduction proportional to difficulty:
+    const reduction = TOTAL_DEBLUR * (q.difficulty / DIFFICULTY_SUM);
+    gameState.blurPct = Math.max(MIN_PCT, gameState.blurPct - reduction);
+    renderImage();
+    updateProgress();
+  } else {
+    fb.innerHTML = `<span class="wrong">Wrong</span> — Correct: <strong>${escapeHtml(q.answer || q.qcm_answer || '')}</strong>`;
+  }
+
+  // move to next question after user clicks next
+  document.getElementById('nextBtn').style.display = 'inline-block';
+  document.getElementById('nextBtn').onclick = () => {
+    gameState.currentIndex++;
+    renderCurrentQuestion();
+    renderImage();
+    updateProgress();
+  };
+  // show restart
+  document.getElementById('restartBtn').style.display = 'inline-block';
+  document.getElementById('restartBtn').onclick = startGame;
+
+  // lock inputs: simple approach is to renderNext only when clicked
+}
+
+function updateProgress() {
+  const fill = document.getElementById('progressFill');
+  if (!gameState) { fill.style.width = '0%'; return; }
+  const percentDone = (gameState.currentIndex / gameState.totalQuestions) * 100;
+  fill.style.width = percentDone + '%';
+  document.getElementById('blurMeta').textContent = `Blur: ${Math.round(gameState.blurPct)}%`;
+}
+
+/* ====== Small helpers ====== */
+function escapeHtml(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+/* ====== Setup on load ====== */
+/* ====== Setup on load ====== */
+(async function init() {
+  try {
+    await loadData();                      // <-- appeler loadData() (et non loadCSVs)
+    fillTagSelect();
+    document.getElementById('startBtn').addEventListener('click', startGame);
+    document.getElementById('restartBtn').addEventListener('click', startGame);
+    document.getElementById('debug').textContent = `Loaded ${questions.length} questions, ${images.length} images.`;
+    // draw placeholder
+    ctx.fillStyle = '#f7fafc';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  } catch (err) {
+    document.getElementById('debug').textContent = 'Error loading data: ' + String(err);
+    console.error(err);
+  }
+})();
+
+</script>
+</body>
+</html>
