@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Suggest an edit — Center Court</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+  <nav class="navbar navbar-dark bg-dark">
+    <div class="container">
+      <a class="navbar-brand" href="./index.html">Center Court</a>
+      <a class="navbar-text text-white" href="./players/index.html">Players</a>
+    </div>
+  </nav>
+
+  <main class="container py-4">
+    <h1>Suggest an edit</h1>
+    <p class="text-muted">Fill in the fields below. If you have an admin code, enter it to automatically apply the edit.</p>
+
+    <form id="edit-form" class="card p-3">
+      <input type="hidden" id="player" name="player" value="">
+      <div class="mb-3">
+        <label class="form-label">Player (pre-filled)</label>
+        <input id="player_name" name="name" class="form-control" readonly>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Birth date (YYYY-MM-DD)</label>
+        <input id="birth_date" name="birth_date" data-editable class="form-control" placeholder="1999-01-01">
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Place of birth</label>
+        <input id="birthplace" name="birthplace" data-editable class="form-control" placeholder="Paris, France">
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Height (cm)</label>
+        <input id="height_cm" name="height_cm" data-editable class="form-control" placeholder="170">
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Handedness</label>
+        <select id="plays" name="plays" data-editable class="form-select">
+          <option value=""></option>
+          <option value="Right-Handed">Right-Handed</option>
+          <option value="Left-Handed">Left-Handed</option>
+          <option value="Ambidextrous">Ambidextrous</option>
+        </select>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Backhand</label>
+        <select id="backhand" name="backhand" data-editable class="form-select">
+          <option value=""></option>
+          <option value="One-Handed">One-Handed</option>
+          <option value="Two-Handed">Two-Handed</option>
+          <option value="Unknown">Unknown</option>
+        </select>
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Country represented (ISO3 or name)</label>
+        <input id="represented_country" name="represented_country" data-editable class="form-control" placeholder="FRA">
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Elements of Biography</label>
+        <textarea id="biography" name="biography" data-editable class="form-control" rows="6" placeholder="Short biography, sources, notes..."></textarea>
+      </div>
+
+
+      <div class="mb-3">
+        <label class="form-label">Administrator code (if you have one)</label>
+        <input id="admin_code" name="admin_code" class="form-control" placeholder="(optional)">
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">Comments / source</label>
+        <textarea id="notes" name="notes" data-editable class="form-control" rows="3"></textarea>
+      </div>
+
+      <div class="form-check mb-3">
+        <input class="form-check-input" type="checkbox" value="true" id="reviewed_player" name="reviewed_player" data-editable>
+        <label class="form-check-label" for="reviewed_player">Reviewed Player (admin only)</label>
+      </div>
+
+      <button id="submit-btn" type="submit" class="btn btn-primary">Submit suggestion</button>
+      <div id="status" class="mt-3"></div>
+    </form>
+
+    <hr>
+    <p class="small text-muted">Note: if you provide the correct admin code, the edit may be applied automatically; otherwise the suggestion will be stored for review.</p>
+  </main>
+
+  <script src="/assets/js/edit-submit.js" defer></script>
+
+  <script>
+    // prefill canonical player & name from query string
+    function qParam(name){ const p = new URLSearchParams(window.location.search); return p.get(name) || ""; }
+    document.addEventListener('DOMContentLoaded', function () {
+      const playerVal = qParam('player') || '';
+      document.getElementById('player').value = playerVal;
+      const rawName = qParam('name') || '';
+      document.getElementById('player_name').value = decodeURIComponent(rawName);
+      // optional: prefill other fields if query params present
+          const maybe = ['birth_date','birthplace','height_cm','represented_country','plays', 'biography', 'backhand'];
+    maybe.forEach(k => { const v = qParam(k); if (v) {
+       const el = document.getElementById(k);
+       if (el && el.tagName.toLowerCase()==='select') el.value = v;
+       else if (el) el.value = v;
+    }});
+
+    // prefill reviewed_player checkbox if query param present and truthy
+    const rv = (qParam('reviewed_player') || '').toLowerCase();
+    if (['1','true','on','yes','y'].includes(rv)) {
+      const el = document.getElementById('reviewed_player');
+      if (el) el.checked = true;
+    }
+
+    });
+  </script>
+</body>
+</html>
