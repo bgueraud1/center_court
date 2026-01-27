@@ -4,7 +4,6 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Tennis Player Guess — Game</title>
-<!-- PapaParse for CSV parsing -->
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <style>
   body { font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; padding: 18px; }
@@ -26,9 +25,8 @@
   .btn-ghost { background:#f3f4f6; }
   .correct { color: green; }
   .wrong { color: red; }
-  .tags-list { margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; }
-  .tag { padding:6px 8px; background:#f3f4f6; border-radius:999px; cursor:pointer; font-size:13px; }
-  .tag.selected { background:#2563eb; color:white; }
+  em.addinfo { display:block; margin-top:8px; color:#444; font-style:italic; }
+  #timer { font-weight:bold; margin-left:10px; }
 </style>
 </head>
 <body>
@@ -39,7 +37,8 @@
       <select id="tagSelect"><option>Loading...</option></select>
     </label>
     <button id="startBtn" class="btn btn-primary">Start Game</button>
-    <div style="margin-left:auto" class="small">Images via Cloudinary (manifest)</div>
+    <div style="margin-left:auto" class="small">Images via manifest Cloudinary</div>
+    <div id="timer" class="small" aria-live="polite"></div>
   </div>
 
   <div class="game-area">
@@ -53,12 +52,12 @@
 
     <div class="question-box">
       <div id="questionArea">
-        <div class="small">Select a tag and press Start to begin.</div>
+        <div class="small">Sélectionne un tag et appuie sur Start.</div>
       </div>
 
       <div id="feedback" class="small"></div>
       <div style="margin-top:12px;">
-        <button id="nextBtn" class="btn btn-primary" style="display:none">Next Question</button>
+        <button id="nextBtn" class="btn btn-primary" style="display:none">Next question</button>
         <button id="restartBtn" class="btn btn-ghost" style="display:none">Restart</button>
       </div>
 
@@ -66,30 +65,35 @@
   </div>
 
   <div style="margin-top:18px;">
-    <strong>Data debug:</strong> <span id="debug" class="small"></span>
+    <strong>Debug données:</strong> <span id="debug" class="small"></span>
   </div>
 </div>
 
 <script>
-/* ====== Configuration ====== */
-// Paths to CSV / manifest (relatifs au site publié)
+/* CONFIGURATION */
+// chemins
 const QUESTIONS_CSV = '/games/blur_game/questions.csv';
 const IMAGES_MANIFEST_JSON = '/games/blur_game/images_manifest.json';
 
-// Visuals: mapping percent -> pixelation/blur
-const START_PCT = 100;
-const MIN_PCT = 33;
+// blur / pixelation tuning
+const START_PCT = 200;   // plus élevé = plus flou au départ (tu peux augmenter)
+const MIN_PCT = 33;      // blur minimal
 const DIFFICULTY_SUM = 1+2+3+4;
 const TOTAL_DEBLUR = START_PCT - MIN_PCT;
+// Pixelation: maximum block size (px) when fully blurred
+const PIXEL_MAX = 48;    // augmente pour plus de pixelation (48 = fort)
 
-/* ====== State ====== */
+// Tags autorisés (liste restreinte demandée)
+const ALLOWED_TAGS = ['All','ATP','WTA'];
+
+/* ÉTAT */
 let questions = [];
 let images = [];
 let availableTags = [];
 let currentTag = 'All';
-let gameState = null;
+let gameState = null; // { image, questions, currentIndex, blurPct, score, totalQuestions, timers: {revealTimer, answerTimerInterval, answerTimeout} }
 
-/* ====== Utils ====== */
+/* UTILITAIRES */
 function normalizeTagsString(s) {
   if (!s) return [];
   return s.split(',').map(x=>x.trim()).filter(x=>x.length>0);
@@ -97,18 +101,7 @@ function normalizeTagsString(s) {
 function containsTag(tagsArray, wantedTag) {
   if (!wantedTag || wantedTag === 'All') return true;
   const wt = wantedTag.toLowerCase();
-  return tagsArray.some(t => t.toLowerCase() === wt || t.toLowerCase().includes(wt) );
-}
-function openAnswerMatches(correct, given) {
-  if (!correct) return false;
-  const a = (correct||'').trim().toLowerCase();
-  const b = (given||'').trim().toLowerCase();
-  if (!b) return false;
-  if (a === b) return true;
-  if (a.includes(b) || b.includes(a)) return true;
-  const maxLen = Math.max(a.length, b.length);
-  const threshold = Math.max(1, Math.floor(maxLen * 0.2));
-  return levenshtein(a, b) <= threshold;
+  return tagsArray.some(t => t.toLowerCase() === wt || t.toLowerCase().includes(wt));
 }
 function levenshtein(a,b){
   const m=a.length, n=b.length;
@@ -125,10 +118,27 @@ function levenshtein(a,b){
   }
   return dp[m][n];
 }
+function openAnswerMatches(correct, given, acceptNameVariants=false) {
+  if (!correct) return false;
+  const a = (correct||'').trim().toLowerCase();
+  const b = (given||'').trim().toLowerCase();
+  if (!b) return false;
+  if (a === b) return true;
+  if (a.includes(b) || b.includes(a)) return true;
+  // if acceptNameVariants true -> allow last name only
+  if (acceptNameVariants) {
+    const last = a.split(' ').slice(-1)[0];
+    if (last && last === b) return true;
+  }
+  const maxLen = Math.max(a.length, b.length);
+  const threshold = Math.max(1, Math.floor(maxLen * 0.2));
+  return levenshtein(a, b) <= threshold;
+}
 
-/* ====== Data loading ====== */
+/* CHARGEMENT DONNÉES */
 async function loadData() {
-  const qtxt = await fetch(QUESTIONS_CSV).then(r => r.ok ? r.text() : Promise.reject('questions.csv not found'));
+  // questions
+  const qtxt = await fetch(QUESTIONS_CSV).then(r => r.ok ? r.text() : Promise.reject('questions.csv introuvable'));
   const qres = Papa.parse(qtxt, { header: true, skipEmptyLines: true });
   questions = qres.data.map(r => ({
     id: (r.id||'').trim(),
@@ -142,40 +152,52 @@ async function loadData() {
     answer: (r.answer||'').trim(),
     true_false: (r.true_false||'').trim(),
     difficulty: Number(r.difficulty) || 1,
+    open_player: String((r.open_player||'')).toLowerCase() === 'true',
+    true_false_additional: (r.true_false_additional||'').trim(),
     tags: normalizeTagsString(r.tags || r.tag || '')
   }));
 
-  const imtxt = await fetch(IMAGES_MANIFEST_JSON).then(r => r.ok ? r.json() : Promise.reject('images_manifest.json not found'));
-  // expected format: [{ id: "...", url: "...", tags: ["a","b"] }, ...]
-  images = imtxt.map(it => ({ id: it.id, url: it.url, tags: it.tags || [] }));
+  // images manifest (généré côté build)
+  const imtxt = await fetch(IMAGES_MANIFEST_JSON).then(r => r.ok ? r.json() : Promise.reject('images_manifest.json introuvable'));
+  images = imtxt.map(it => ({
+    id: it.id,
+    url: it.url,
+    player: it.player || it.name || '', // si manifest contient player, on l'utilise
+    tags: it.tags || []
+  }));
 
+  // construire set de tags (mais on restreint l'affichage ensuite)
   const tagSet = new Set();
   images.forEach(img => img.tags.forEach(t => tagSet.add(t)));
   questions.forEach(q => q.tags.forEach(t => tagSet.add(t)));
-  availableTags = ['All', ...Array.from(tagSet).sort((a,b)=>a.localeCompare(b))];
+  availableTags = Array.from(tagSet).sort((a,b)=>a.localeCompare(b));
 }
 
-/* ====== UI Init ====== */
+/* UI: sélection des tags (restreinte) */
 function fillTagSelect() {
   const sel = document.getElementById('tagSelect');
   sel.innerHTML = '';
-  availableTags.forEach(t => {
+  // On propose uniquement ALLOWED_TAGS présents (et 'All' toujours disponible)
+  const liveAllowed = ALLOWED_TAGS.filter(t => t === 'All' || availableTags.some(at => at.toLowerCase() === t.toLowerCase() || at.toLowerCase().includes(t.toLowerCase())));
+  liveAllowed.forEach(t => {
     const opt = document.createElement('option');
     opt.value = t;
     opt.textContent = t;
     sel.appendChild(opt);
   });
   sel.addEventListener('change', () => currentTag = sel.value);
-  currentTag = availableTags[0] || 'All';
+  currentTag = liveAllowed[0] || 'All';
 }
 
-/* ====== Game flow ====== */
+/* GAME FLOW */
 function startGame() {
+  clearTimers();
   const tag = currentTag;
   let candImgs = images.filter(img => containsTag(img.tags, tag));
   if (candImgs.length === 0) candImgs = images.slice();
   const chosenImage = candImgs[Math.floor(Math.random()*candImgs.length)];
 
+  // choisir 4 questions, 1 par difficulté 1..4 (préférence tag)
   const chosenQuestions = [];
   for (let d=1; d<=4; d++){
     let pool = questions.filter(q => q.difficulty === d && containsTag(q.tags, tag));
@@ -191,10 +213,10 @@ function startGame() {
     currentIndex: 0,
     blurPct: START_PCT,
     score: 0,
-    totalQuestions: chosenQuestions.length
+    totalQuestions: chosenQuestions.length,
+    timers: {}
   };
-
-  document.getElementById('debug').textContent = `image=${chosenImage.id}, questions=${chosenQuestions.map(q=>q.id).join(',')}`;
+  document.getElementById('debug').textContent = `image=${chosenImage.id} player=${chosenImage.player || ''}, q=${chosenQuestions.map(q=>q.id).join(',')}`;
   document.getElementById('startBtn').style.display = 'none';
   document.getElementById('nextBtn').style.display = 'none';
   document.getElementById('restartBtn').style.display = 'none';
@@ -204,32 +226,20 @@ function startGame() {
   updateProgress();
 }
 
-/* ====== Image rendering ====== */
+/* IMAGE RENDERING (pixel + blur) */
 const canvas = document.getElementById('playerCanvas');
 const ctx = canvas.getContext('2d');
-
-function renderImage() {
-  if (!gameState) return;
-  const entry = gameState.image; // {id, url, tags}
-  const url = entry.url;
-  const img = new Image();
-  img.crossOrigin = 'anonymous';
-  img.onload = () => { drawImageWithEffects(img, gameState.blurPct); document.getElementById('blurMeta').textContent = `Blur: ${Math.round(gameState.blurPct)}%`; };
-  img.onerror = () => {
-    // placeholder
-    ctx.fillStyle = '#ddd';
-    ctx.fillRect(0,0,canvas.width,canvas.height);
-    ctx.fillStyle = '#888';
-    ctx.fillText('Image not reachable', 20, 40);
-  };
-  img.src = url;
-}
 
 function drawImageWithEffects(img, blurPct) {
   const cw = canvas.width = 600;
   const ch = canvas.height = 600;
   ctx.clearRect(0,0,cw,ch);
   let iw = img.width, ih = img.height;
+  if (!iw || !ih) {
+    ctx.fillStyle = '#ddd';
+    ctx.fillRect(0,0,cw,ch);
+    return;
+  }
   const imgRatio = iw / ih;
   const canvasRatio = cw / ch;
   let dw, dh, dx, dy;
@@ -245,8 +255,9 @@ function drawImageWithEffects(img, blurPct) {
     dy = -(dh - ch) / 2;
   }
 
-  const pixelSize = Math.max(1, Math.round(1 + (24 * (blurPct - MIN_PCT) / (START_PCT - MIN_PCT))));
-  const blurPx = Math.max(0.5, (8 * (blurPct / START_PCT)));
+  // map blurPct to pixelSize and blurPx
+  const pixelSize = Math.max(1, Math.round(1 + (PIXEL_MAX * (blurPct - MIN_PCT) / (START_PCT - MIN_PCT))));
+  const blurPx = Math.max(0.5, (20 * (blurPct / START_PCT))); // plus fort -> blurPx jusqu'à ~20px
 
   const tmp = document.createElement('canvas');
   const tw = Math.max(1, Math.round(dw / pixelSize));
@@ -254,6 +265,7 @@ function drawImageWithEffects(img, blurPct) {
   tmp.width = tw;
   tmp.height = th;
   const tctx = tmp.getContext('2d');
+  // draw scaled-down
   tctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, tw, th);
   ctx.imageSmoothingEnabled = false;
   try {
@@ -261,35 +273,80 @@ function drawImageWithEffects(img, blurPct) {
     ctx.filter = `blur(${blurPx}px)`;
     ctx.drawImage(tmp, 0, 0, tw, th, dx, dy, dw, dh);
     ctx.restore();
-  } catch (e) {
+  } catch(e) {
     ctx.drawImage(tmp, 0, 0, tw, th, dx, dy, dw, dh);
   }
 }
 
-/* ====== Question rendering / checking ====== */
+function renderImage() {
+  if (!gameState) return;
+  const entry = gameState.image;
+  const url = entry.url;
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => { drawImageWithEffects(img, gameState.blurPct); document.getElementById('blurMeta').textContent = `Blur: ${Math.round(gameState.blurPct)}%`; };
+  img.onerror = () => {
+    ctx.fillStyle = '#ddd';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle = '#888';
+    ctx.fillText('Image non accessible', 20, 40);
+  };
+  img.src = url;
+}
+
+/* QUESTION RENDER / TIMER */
+
+function clearTimers() {
+  if (!gameState || !gameState.timers) return;
+  const t = gameState.timers;
+  if (t.revealTimer) { clearTimeout(t.revealTimer); t.revealTimer = null; }
+  if (t.answerTimeout) { clearTimeout(t.answerTimeout); t.answerTimeout = null; }
+  if (t.answerInterval) { clearInterval(t.answerInterval); t.answerInterval = null; }
+  document.getElementById('timer').textContent = '';
+}
+
 function renderCurrentQuestion() {
+  clearTimers();
   const area = document.getElementById('questionArea');
   area.innerHTML = '';
   if (!gameState) { area.innerHTML = '<div class="small">No game running.</div>'; return; }
   const i = gameState.currentIndex;
+
+  // if we've shown all 4 -> go to final guess stage
   if (i >= gameState.totalQuestions) {
-    area.innerHTML = `<h3>Finished!</h3>
-      <div class="small">Score: ${gameState.score} / ${gameState.totalQuestions}</div>
-      <div class="small">Player: <strong>${gameState.image.id}</strong></div>
-      <div style="margin-top:10px;"><button id="restartBtn2" class="btn btn-primary">Play Again</button></div>`;
-    document.getElementById('restartBtn2').addEventListener('click', () => startGame());
-    document.getElementById('nextBtn').style.display = 'none';
-    document.getElementById('restartBtn').style.display = 'none';
+    renderFinalGuessStage();
     return;
   }
+
   const q = gameState.questions[i];
+
+  // Show question corps only for first 5s
   const qHtml = document.createElement('div');
-  qHtml.innerHTML = `<div class="small">Question ${i+1} / ${gameState.totalQuestions} — difficulty: ${q.difficulty}</div>
-                     <h3 style="margin-top:8px">${escapeHtml(q.question_corps)}</h3>`;
+  qHtml.innerHTML = `<div class="small">Question ${i+1}/${gameState.totalQuestions} — difficulty: ${q.difficulty}</div>
+                     <h3 style="margin-top:8px">${escapeHtml(q.question_corps)}</h3>
+                     <div class="small" id="preparingArea">Les réponses apparaîtront bientôt...</div>`;
   area.appendChild(qHtml);
+
+  // hide inputs initially
+  document.getElementById('nextBtn').style.display = 'none';
+  document.getElementById('restartBtn').style.display = 'none';
+  document.getElementById('feedback').textContent = '';
+  document.getElementById('timer').textContent = 'Question: affichage (5s)';
+  // reveal answers after 5s
+  gameState.timers.revealTimer = setTimeout(()=> {
+    showAnswerInputs(q);
+  }, 5000);
+}
+
+function showAnswerInputs(q) {
+  const area = document.getElementById('questionArea');
+  // remove preparing text if present
+  const prep = area.querySelector('#preparingArea');
+  if (prep) prep.remove();
 
   const inputArea = document.createElement('div');
   inputArea.style.marginTop = '10px';
+  inputArea.id = 'inputs';
 
   if (q.question_type === 'qcm') {
     ['a','b','c','d'].forEach(letter => {
@@ -299,45 +356,73 @@ function renderCurrentQuestion() {
       btn.className = 'btn btn-ghost option';
       btn.textContent = `${letter.toUpperCase()}. ${text}`;
       btn.addEventListener('click', () => {
+        lockInputs();
         evaluateAnswer(letter, q);
       });
       inputArea.appendChild(btn);
     });
-  } else if (q.question_type === 'tf' || q.true_false && (q.true_false.toLowerCase()==='true' || q.true_false.toLowerCase()==='false')) {
+  } else if (q.question_type === 'tf' || (q.true_false && (q.true_false.toLowerCase()==='true' || q.true_false.toLowerCase()==='false'))) {
     const tBtn = document.createElement('button');
     tBtn.className = 'btn btn-ghost option';
     tBtn.textContent = 'True';
-    tBtn.addEventListener('click', () => evaluateAnswer('true', q));
+    tBtn.addEventListener('click', () => { lockInputs(); evaluateAnswer('true', q); });
     inputArea.appendChild(tBtn);
     const fBtn = document.createElement('button');
     fBtn.className = 'btn btn-ghost option';
     fBtn.textContent = 'False';
-    fBtn.addEventListener('click', () => evaluateAnswer('false', q));
+    fBtn.addEventListener('click', () => { lockInputs(); evaluateAnswer('false', q); });
     inputArea.appendChild(fBtn);
-  } else {
+  } else { // open
     const inp = document.createElement('input');
     inp.type = 'text';
-    inp.placeholder = 'Type your answer and press Enter';
+    inp.placeholder = 'Tape ta réponse et appuie Entrée';
     inp.style.width = '100%';
+    inp.id = 'openInput';
     inp.addEventListener('keydown', (e)=> {
-      if (e.key === 'Enter') evaluateAnswer(inp.value, q);
+      if (e.key === 'Enter') { lockInputs(); evaluateAnswer(inp.value, q); }
     });
     inputArea.appendChild(inp);
     const submit = document.createElement('button');
     submit.className = 'btn btn-primary';
     submit.textContent = 'Submit';
     submit.style.marginTop = '8px';
-    submit.addEventListener('click', ()=> evaluateAnswer(inputArea.querySelector('input').value, q));
+    submit.addEventListener('click', ()=> { lockInputs(); evaluateAnswer(inputArea.querySelector('input').value, q); });
     inputArea.appendChild(submit);
   }
 
+  // replace any leftover children (so both question and inputs visible)
   area.appendChild(inputArea);
-  document.getElementById('nextBtn').style.display = 'none';
-  document.getElementById('restartBtn').style.display = 'none';
-  document.getElementById('feedback').textContent = '';
+
+  // start answer timer (10s)
+  let sec = 10;
+  document.getElementById('timer').textContent = `Répondez : ${sec}s`;
+  if (!gameState.timers) gameState.timers = {};
+  gameState.timers.answerInterval = setInterval(() => {
+    sec--;
+    document.getElementById('timer').textContent = `Répondez : ${sec}s`;
+    if (sec <= 0) clearInterval(gameState.timers.answerInterval);
+  }, 1000);
+  gameState.timers.answerTimeout = setTimeout(() => {
+    // time out -> automatic wrong, lock inputs
+    lockInputs();
+    evaluateAnswer('', q);
+  }, 10000);
 }
 
+function lockInputs() {
+  const inputs = document.querySelectorAll('#inputs button, #inputs input');
+  inputs.forEach(el => el.disabled = true);
+  // stop timers
+  if (gameState && gameState.timers) {
+    if (gameState.timers.answerInterval) { clearInterval(gameState.timers.answerInterval); gameState.timers.answerInterval = null; }
+    if (gameState.timers.answerTimeout) { clearTimeout(gameState.timers.answerTimeout); gameState.timers.answerTimeout = null; }
+    document.getElementById('timer').textContent = '';
+  }
+}
+
+/* EVALUATION DES RÉPONSES */
 function evaluateAnswer(given, q) {
+  // given: '' when timeout
   given = (given||'').toString().trim();
   let ok = false;
   if (q.question_type === 'qcm') {
@@ -364,33 +449,137 @@ function evaluateAnswer(given, q) {
     } else {
       ok = (g === corr);
     }
-  } else {
-    ok = openAnswerMatches(q.answer, given);
+  } else { // open
+    // if question expects a player name, allow last name only
+    ok = openAnswerMatches(q.answer, given, q.open_player);
   }
 
+  // feedback & blur reduction
   const fb = document.getElementById('feedback');
   if (ok) {
-    fb.innerHTML = `<span class="correct">Correct!</span> — Answer: <strong>${escapeHtml(q.answer || q.qcm_answer || '')}</strong>`;
+    fb.innerHTML = `<span class="correct">Correct!</span> — Réponse: <strong>${escapeHtml(q.answer || q.qcm_answer || '')}</strong>`;
     gameState.score += 1;
     const reduction = TOTAL_DEBLUR * (q.difficulty / DIFFICULTY_SUM);
     gameState.blurPct = Math.max(MIN_PCT, gameState.blurPct - reduction);
     renderImage();
     updateProgress();
   } else {
-    fb.innerHTML = `<span class="wrong">Wrong</span> — Correct: <strong>${escapeHtml(q.answer || q.qcm_answer || '')}</strong>`;
+    fb.innerHTML = `<span class="wrong">Wrong</span> — Réponse: <strong>${escapeHtml(q.answer || q.qcm_answer || '')}</strong>`;
   }
 
+  // show additional info if any (true_false_additional)
+  if (q.true_false_additional && q.true_false_additional.trim().length > 0) {
+    const add = document.createElement('em');
+    add.className = 'addinfo';
+    add.textContent = q.true_false_additional;
+    fb.appendChild(add);
+  }
+
+  // next / restart
   document.getElementById('nextBtn').style.display = 'inline-block';
   document.getElementById('nextBtn').onclick = () => {
+    clearTimers();
     gameState.currentIndex++;
     renderCurrentQuestion();
     renderImage();
     updateProgress();
   };
   document.getElementById('restartBtn').style.display = 'inline-block';
-  document.getElementById('restartBtn').onclick = startGame;
+  document.getElementById('restartBtn').onclick = () => {
+    clearTimers();
+    startGame();
+  };
 }
 
+/* FINAL GUESS STAGE */
+function renderFinalGuessStage() {
+  clearTimers();
+  const area = document.getElementById('questionArea');
+  area.innerHTML = '';
+  const title = document.createElement('div');
+  title.innerHTML = `<h3>Dernière étape — Devine le joueur</h3>
+                     <div class="small">Tape le nom complet ou le nom de famille. Vous avez 12s pour deviner.</div>`;
+  area.appendChild(title);
+
+  const inputArea = document.createElement('div');
+  inputArea.style.marginTop = '10px';
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.placeholder = 'Nom du joueur (ex: Djokovic ou Novak Djokovic)';
+  inp.style.width = '100%';
+  inputArea.appendChild(inp);
+  const guessBtn = document.createElement('button');
+  guessBtn.className = 'btn btn-primary';
+  guessBtn.textContent = 'Guess';
+  guessBtn.style.marginTop = '8px';
+  inputArea.appendChild(guessBtn);
+  area.appendChild(inputArea);
+
+  // start 12s timer
+  let sec = 12;
+  document.getElementById('timer').textContent = `Devinez : ${sec}s`;
+  gameState.timers.answerInterval = setInterval(()=> {
+    sec--;
+    document.getElementById('timer').textContent = `Devinez : ${sec}s`;
+    if (sec <= 0) clearInterval(gameState.timers.answerInterval);
+  }, 1000);
+  gameState.timers.answerTimeout = setTimeout(()=> {
+    clearInterval(gameState.timers.answerInterval);
+    document.getElementById('timer').textContent = '';
+    // timeout -> treat as wrong guess
+    evaluateFinalGuess('', false);
+  }, 12000);
+
+  guessBtn.onclick = () => {
+    clearInterval(gameState.timers.answerInterval);
+    clearTimeout(gameState.timers.answerTimeout);
+    document.getElementById('timer').textContent = '';
+    evaluateFinalGuess(inp.value, true);
+  };
+}
+
+function evaluateFinalGuess(given, userTriggered) {
+  const fb = document.getElementById('feedback');
+  const playerName = (gameState.image.player || '').trim();
+  const idFallback = gameState.image.id || '';
+  let ok = false;
+  if (!playerName) {
+    // fallback try to match id
+    ok = (given && idFallback.toLowerCase().includes(given.trim().toLowerCase()));
+  } else {
+    const givenNorm = (given||'').trim().toLowerCase();
+    if (!givenNorm) ok = false;
+    else {
+      // accept full name or last name
+      const last = playerName.split(' ').slice(-1)[0].toLowerCase();
+      if (givenNorm === playerName.toLowerCase() || givenNorm === last) ok = true;
+      else {
+        // fuzzy
+        ok = openAnswerMatches(playerName, given, true);
+      }
+    }
+  }
+
+  if (ok) {
+    fb.innerHTML = `<span class="correct">Bravo !</span> — C'était bien <strong>${escapeHtml(playerName || idFallback)}</strong>.`;
+    // fully reveal (set to MIN_PCT)
+    gameState.blurPct = MIN_PCT;
+    renderImage();
+  } else {
+    fb.innerHTML = `<span class="wrong">Dommage</span> — C'était <strong>${escapeHtml(playerName || idFallback)}</strong>.`;
+    // reveal image fully anyway
+    gameState.blurPct = MIN_PCT;
+    renderImage();
+  }
+
+  // show restart
+  document.getElementById('restartBtn').style.display = 'inline-block';
+  document.getElementById('restartBtn').onclick = () => startGame();
+  document.getElementById('nextBtn').style.display = 'none';
+  document.getElementById('timer').textContent = '';
+}
+
+/* PROGRESS + HELPERS */
 function updateProgress() {
   const fill = document.getElementById('progressFill');
   if (!gameState) { fill.style.width = '0%'; return; }
@@ -403,7 +592,7 @@ function escapeHtml(s) {
   return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-/* ====== Setup on load ====== */
+/* INIT */
 (async function init() {
   try {
     await loadData();
@@ -414,7 +603,7 @@ function escapeHtml(s) {
     ctx.fillStyle = '#f7fafc';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   } catch (err) {
-    document.getElementById('debug').textContent = 'Error loading data: ' + String(err);
+    document.getElementById('debug').textContent = 'Erreur chargement: ' + String(err);
     console.error(err);
   }
 })();
