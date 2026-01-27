@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Tennis Guess — Blur Game</title>
+<title>Tennis Guess — Blur Game (révisé)</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <style>
@@ -73,6 +73,8 @@
   table.summary{width:100%; border-collapse:collapse; margin-top:12px;}
   table.summary th, table.summary td{padding:8px 6px; border-bottom:1px solid rgba(255,255,255,0.03); font-size:13px; color:var(--muted);}
   table.summary th{color:#e6eef6; text-align:left;}
+  table.summary td .ok{color:#1b8f36; font-weight:700;}
+  table.summary td .bad{color:#c53030; font-weight:700;}
   @media (max-width:920px){ .grid{grid-template-columns:1fr;} .left-col{order:0} .card{padding:12px;} }
 </style>
 </head>
@@ -140,7 +142,7 @@
 
 <script>
 /* ========== CONFIG ========== */
-const QUESTIONS_CSV = './questions.csv'; // relative to page (adjust if necessary)
+const QUESTIONS_CSV = './questions.csv';
 const IMAGES_MANIFEST_JSON = './images_manifest.json';
 const IMAGES_CSV = './images.csv';
 
@@ -150,7 +152,9 @@ const FINAL_REVEAL_PCT = 0;
 const DIFFICULTY_SUM = 10;
 const TOTAL_DEBLUR = START_PCT - MIN_GAME_PCT;
 const PIXEL_MAX = 60;
-const ALLOWED_TAGS = ['All','ATP','WTA'];
+
+// include Player name option (singular as requested)
+const ALLOWED_TAGS = ['All','ATP','WTA','Player name'];
 
 /* ========== STATE ========== */
 let questions = [];
@@ -158,21 +162,14 @@ let images = [];
 let imagesCsvMap = {};
 let availableTags = [];
 let currentTag = 'All';
-let gameState = null; // will include answers list
+let gameState = null;
 
-// players files (must be in same folder as this HTML)
 const PLAYERS_CSV = './players_list.csv';
 const PLAYERS_RANKS_JSON = './players_ranks.json';
+let players = [];
 
-// global players array used for generated questions
-let players = []; // {player_id, full_name, circuit, rank}
-
-// helper slugify
-function slugify(s){
-  return (s||'').toString().trim().toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9\-_]/g,'');
-}
-
-/* ========== UTILS ========== */
+/* ========== HELPERS ========== */
+function slugify(s){ return (s||'').toString().trim().toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9\-_]/g,''); }
 function normalizeTagsString(s) { if(!s) return []; return s.split(',').map(x=>x.trim()).filter(Boolean); }
 function containsTag(tagsArray, wantedTag) {
   if (!wantedTag || wantedTag === 'All') return true;
@@ -204,9 +201,16 @@ function openAnswerMatches(correct,given,acceptNameVariants=false){
   return levenshtein(a,b) <= threshold;
 }
 
+/* Validate player full name contains only letters and spaces (accents allowed) */
+function isAlphaOnlyName(name){
+  if(!name) return false;
+  // allow letters (including accents) and spaces only
+  return /^[A-Za-zÀ-ÖØ-öø-ÿ\s]+$/u.test(name.trim());
+}
+
 /* ========== DATA LOAD ========== */
 async function loadData(){
-  // load questions
+  // questions
   const qtxt = await fetch(QUESTIONS_CSV).then(r=>r.ok? r.text(): Promise.reject('questions.csv not found'));
   const qres = Papa.parse(qtxt,{header:true,skipEmptyLines:true});
   questions = qres.data.map(r=>({
@@ -240,18 +244,12 @@ async function loadData(){
     return { id:id, url: it.url, player: it.player || fallback.player || '', tags: it.tags || fallback.tags || [] };
   });
 
-  // --- load players_list.csv + players_ranks.json (if present) for generated questions ---
+  // players list (optional)
   try {
     const playersCsvText = await fetch(PLAYERS_CSV).then(r => r.ok ? r.text() : Promise.reject('players_list.csv not found'));
     const playersParsed = Papa.parse(playersCsvText, { header: true, skipEmptyLines: true }).data || [];
-
     let ranksMap = {};
-    try {
-      ranksMap = await fetch(PLAYERS_RANKS_JSON).then(r => r.ok ? r.json() : {});
-    } catch(e) {
-      ranksMap = {};
-    }
-
+    try { ranksMap = await fetch(PLAYERS_RANKS_JSON).then(r => r.ok ? r.json() : {}); } catch(e){ ranksMap = {}; }
     players = playersParsed.map(row => {
       const id = (row.id || row.player_id || '').toString().trim();
       return {
@@ -260,14 +258,14 @@ async function loadData(){
         circuit: (row.circuit || '').toString().trim(),
         rank: (ranksMap && ranksMap[id] !== undefined) ? ranksMap[id] : null
       };
-    });
+    }).filter(p => p.full_name && p.full_name.length>0 && isAlphaOnlyName(p.full_name));
+    // note: we filter players to only keep those with alpha-only valid names
   } catch (err) {
-    // no players CSV available — that's okay, generated questions will simply be disabled
     console.warn('Could not load players CSV/JSON:', String(err));
     players = [];
   }
 
-  // collect tags from questions + images
+  // tags
   const tagSet = new Set();
   images.forEach(img=> img.tags.forEach(t=> tagSet.add(t)));
   questions.forEach(q=> q.tags.forEach(t=> tagSet.add(t)));
@@ -277,19 +275,22 @@ async function loadData(){
 /* ========== UI: tags restricted ========== */
 function fillTagSelect(){
   const sel=document.getElementById('tagSelect'); sel.innerHTML='';
+  // ensure Player name option appears even if not present in availableTags
   const live = ALLOWED_TAGS.filter(t=> t==='All' || availableTags.some(at => at.toLowerCase()===t.toLowerCase() || at.toLowerCase().includes(t.toLowerCase())));
   live.forEach(t=>{ const opt=document.createElement('option'); opt.value=t; opt.textContent=t; sel.appendChild(opt); });
   sel.addEventListener('change', ()=> currentTag = sel.value);
   currentTag = live[0] || 'All';
 }
 
-/* ========== GENERATED QUESTIONS HELPERS (ANAGRAM / MASKED) ========== */
+/* ========== GENERATED QUESTIONS HELPERS (ANAGRAM / MASKED-alt) ========== */
 function pickRandomPlayerForTag(tag){
   let pool = [];
   if(tag === 'WTA') pool = players.filter(p => p.circuit && p.circuit.toUpperCase() === 'WTA');
   else if(tag === 'ATP') pool = players.filter(p => p.circuit && p.circuit.toUpperCase() === 'ATP');
   else pool = players.slice();
-  if(pool.length === 0) pool = players.slice();
+  // ensure full_name exists and is alpha-only
+  pool = pool.filter(p => p && p.full_name && p.full_name.trim().length>0 && isAlphaOnlyName(p.full_name));
+  if(pool.length === 0) pool = players.filter(p => p && p.full_name && p.full_name.trim().length>0 && isAlphaOnlyName(p.full_name));
   if(pool.length === 0) return null;
   return pool[Math.floor(Math.random()*pool.length)];
 }
@@ -322,22 +323,21 @@ function shuffleWord(word){
 }
 
 function generateAnagram(fullName){
-  const words = fullName.split(' ').filter(Boolean);
+  // produce lowercase anagram (no uppercase preserved)
+  const words = fullName.toLowerCase().split(' ').filter(Boolean);
   const an = words.map(w => shuffleWord(w));
   if(words.length >= 2 && Math.random() < 0.25) an.reverse();
   return an.join(' ');
 }
 
-function generateMasked(fullName, difficulty){
-  const revealByLevel = {1:0.6,2:0.5,3:0.4,4:0.32};
-  const revealFrac = revealByLevel[difficulty] || 0.35;
-  return fullName.split(' ').map(word => {
+// alternate mask: replace one letter out of two by '-' (keep first char), result in lowercase
+function generateMaskedAlternate(fullName){
+  return fullName.toLowerCase().split(' ').map(word => {
     const letters = word.split('');
     return letters.map((ch, idx) => {
-      if(idx === 0) return ch;
-      if(!/[A-Za-zÀ-ÿ]/.test(ch)) return ch;
-      if(Math.random() < revealFrac) return ch;
-      return '_';
+      if(!/[a-zà-ÿ]/i.test(ch)) return ch;
+      if(idx === 0) return ch; // keep first char
+      return (idx % 2 === 1) ? '-' : ch;
     }).join('');
   }).join(' ');
 }
@@ -348,6 +348,7 @@ function makeGeneratedQuestion(tag){
   if(!player) return null;
   const full = player.full_name;
   const difficulty = difficultyFromRank(player);
+  // pick type: anagram or masked-alternate
   if(Math.random() < 0.5){
     const an = generateAnagram(full);
     return {
@@ -358,10 +359,11 @@ function makeGeneratedQuestion(tag){
       answer: full,
       true_false: '',
       difficulty: difficulty,
+      open_player: true,
       tags: [player.circuit || 'All']
     };
   } else {
-    const masked = generateMasked(full, difficulty);
+    const masked = generateMaskedAlternate(full);
     return {
       id: `gen-masked-${player.player_id || Math.random().toString(36).slice(2,8)}`,
       question_type: 'open',
@@ -370,37 +372,51 @@ function makeGeneratedQuestion(tag){
       answer: full,
       true_false: '',
       difficulty: difficulty,
+      open_player: true,
       tags: [player.circuit || 'All']
     };
   }
 }
 
-/* ========== GAME FLOW (with generated question probability) ========== */
+/* ========== GAME FLOW (Player name => 4 generated questions) ========== */
 function startGame(){
   clearTimers();
   const tag = currentTag;
   let candImgs = images.filter(img => containsTag(img.tags, tag));
   if(candImgs.length===0) candImgs = images.slice();
   if(candImgs.length === 0){
-    // no images: abort gracefully
     document.getElementById('dataDebug').textContent = 'No images available in manifest.';
     return;
   }
   const chosenImage = candImgs[Math.floor(Math.random()*candImgs.length)];
 
-  const chosenQuestions=[];
-  for(let d=1; d<=4; d++){
-    let pool = questions.filter(q=> q.difficulty===d && containsTag(q.tags, tag));
-    if(pool.length===0) pool = questions.filter(q=> q.difficulty===d);
-    if(pool.length===0) pool = questions.slice();
-    chosenQuestions.push(Object.assign({}, pool[Math.floor(Math.random()*pool.length)]));
-  }
+  const chosenQuestions = [];
 
-  if(Math.random() < 0.25){
-    const gen = makeGeneratedQuestion(tag);
-    if(gen){
-      const idx = Math.floor(Math.random()*chosenQuestions.length);
-      chosenQuestions[idx] = gen;
+  // If Player name tag selected => generate 4 questions (only anagram / masked-alt)
+  if(tag === 'Player name' && players.length > 0){
+    for(let i=0;i<4;i++){
+      const gen = makeGeneratedQuestion(tag);
+      if(gen) chosenQuestions.push(gen);
+      else {
+        // fallback to stored questions if generation fails
+        const rand = questions[Math.floor(Math.random()*questions.length)];
+        chosenQuestions.push(Object.assign({}, rand));
+      }
+    }
+  } else {
+    for(let d=1; d<=4; d++){
+      let pool = questions.filter(q=> q.difficulty===d && containsTag(q.tags, tag));
+      if(pool.length===0) pool = questions.filter(q=> q.difficulty===d);
+      if(pool.length===0) pool = questions.slice();
+      chosenQuestions.push(Object.assign({}, pool[Math.floor(Math.random()*pool.length)]));
+    }
+    // with prob 1/4 replace one by a generated one if players available
+    if(Math.random() < 0.25 && players.length > 0){
+      const gen = makeGeneratedQuestion(tag);
+      if(gen){
+        const idx = Math.floor(Math.random()*chosenQuestions.length);
+        chosenQuestions[idx] = gen;
+      }
     }
   }
 
@@ -423,7 +439,7 @@ function startGame(){
   updateProgress();
 }
 
-/* ========== IMAGE RENDER ========== */
+/* ========== remainder of script (image render, timers, question flow, evaluation, final guess, summary, helpers, init) ========== */
 const canvas = document.getElementById('playerCanvas'), ctx = canvas.getContext('2d');
 function drawImageWithEffects(img, blurPct){
   const cw = canvas.width = 600, ch = canvas.height = 600;
@@ -450,7 +466,6 @@ function renderImage(){
   img.src = url;
 }
 
-/* ========== RING TIMER ========== */
 const MAIN_ARC = document.getElementById('mainArc'), TOP_ARC = document.getElementById('topArc'), TIMER_LABEL = document.getElementById('timerLabel');
 const RING_CIRC = 2 * Math.PI * 18;
 let ringAnim = null;
@@ -478,7 +493,6 @@ function startRing(durationMs, mainColorGradientId='g1', topDurationFraction=0.6
 }
 function cancelRing(){ if(ringAnim) cancelAnimationFrame(ringAnim); ringAnim=null; MAIN_ARC.setAttribute('stroke-dashoffset','0'); TOP_ARC.setAttribute('stroke-dashoffset','0'); TIMER_LABEL.textContent='—'; }
 
-/* ========== TIMERS + QUESTION LOGIC ========== */
 function clearTimers(){
   if(!gameState) return;
   const t = gameState.timers || {};
@@ -529,7 +543,6 @@ function showAnswerInputs(q){
   } else {
     const inp = document.createElement('input'); inp.type='text'; inp.placeholder='Write your answer'; inp.style.width='100%'; inp.id='openInput';
     inp.addEventListener('keydown', (e)=> { if(e.key==='Enter'){ lockInputs(); evaluateAnswer(inp.value, q); }});
-    // autofocus
     setTimeout(()=> inp.focus(), 20);
     inputArea.appendChild(inp);
     const submit = document.createElement('button'); submit.className='btn btn-primary'; submit.textContent='Submit';
@@ -538,7 +551,6 @@ function showAnswerInputs(q){
   }
   area.appendChild(inputArea);
 
-  // start 10s ring
   startRing(10000,'g2',0.5);
   if(!gameState.timers) gameState.timers = {};
   gameState.timers.answerTimeout = setTimeout(()=> { lockInputs(); evaluateAnswer('', q); }, 10000);
@@ -555,7 +567,6 @@ function lockInputs(){
   cancelRing();
 }
 
-/* ========== EVALUATION ========== */
 function evaluateAnswer(given, q){
   clearTimers();
   given = (given||'').toString().trim();
@@ -643,11 +654,12 @@ function deriveCorrectAnswerLabel(q){
   }
 }
 
+/* Highlighting: correctly handle qcm vs tf vs open */
 function highlightOptionsAfterAnswer(q, userAnswerLabel){
   const container = document.getElementById('inputs');
   if(!container) return;
-  const buttons = container.querySelectorAll('button.option');
-  if(buttons.length>0){
+  if(q.question_type === 'qcm'){
+    const buttons = container.querySelectorAll('button.option');
     const correctLetterRaw = (q.qcm_answer||'').toString().trim().toLowerCase();
     let correctLetter = '';
     if(['a','b','c','d'].includes(correctLetterRaw)) correctLetter = correctLetterRaw;
@@ -659,12 +671,9 @@ function highlightOptionsAfterAnswer(q, userAnswerLabel){
       } else {
         btn.classList.add('wrong-opt');
       }
-      if(btn.dataset.letter && userAnswerLabel && q['qcm_'+btn.dataset.letter] && q['qcm_'+btn.dataset.letter].toLowerCase() === (userAnswerLabel||'').toLowerCase()){
-        // no extra change
-      }
       btn.disabled = true;
     });
-  } else {
+  } else if (q.question_type === 'tf' || q.true_false){
     const tfButtons = container.querySelectorAll('button.option');
     if(tfButtons.length>0){
       const corr = (q.true_false || q.answer || '').toString().trim().toLowerCase();
@@ -674,10 +683,13 @@ function highlightOptionsAfterAnswer(q, userAnswerLabel){
         btn.disabled = true;
       });
     }
+  } else {
+    // open question: nothing to highlight except optionally show correct / wrong on submit (handled by feedback)
+    const inp = container.querySelector('input');
+    if(inp) inp.disabled = true;
   }
 }
 
-/* ========== FINAL GUESS + SUMMARY ========== */
 function renderFinalGuessStage(){
   clearTimers();
   const area = document.getElementById('questionArea'); area.innerHTML = '';
@@ -686,8 +698,13 @@ function renderFinalGuessStage(){
 
   const box = document.createElement('div'); box.className='final-guess';
   const inp = document.createElement('input'); inp.type='text'; inp.placeholder='Ex: Novak Djokovic or Djokovic'; inp.style.flex='1';
+  inp.id = 'finalGuessInput';
   const btn = document.createElement('button'); btn.className='btn btn-primary'; btn.textContent='Guess';
   box.appendChild(inp); box.appendChild(btn); area.appendChild(box);
+
+  // autofocus and allow Enter key to submit (user requested)
+  setTimeout(()=> inp.focus(), 20);
+  inp.addEventListener('keydown', (e)=> { if(e.key === 'Enter'){ e.preventDefault(); clearTimers(); evaluateFinalGuess(inp.value, true); }});
 
   startRing(12000,'g2',0.5);
   if(!gameState.timers) gameState.timers = {};
@@ -741,16 +758,19 @@ function showSummary(){
     weightedTotal += a.difficulty;
     if(a.correct) weightedCorrect += a.difficulty;
     const tr = document.createElement('tr');
+    const userCell = escapeHtml(a.userAnswer);
+    const corrCell = escapeHtml(a.correctAnswer);
+    const correctnessMarkup = a.correct ? `<span class="ok">OK</span>` : `<span class="bad">NO</span>`;
     tr.innerHTML = `<td>${escapeHtml(a.question)}</td>
-                    <td>${escapeHtml(a.userAnswer)}</td>
-                    <td>${escapeHtml(a.correctAnswer)}</td>
+                    <td>${userCell}</td>
+                    <td>${corrCell} — ${correctnessMarkup}</td>
                     <td>${a.difficulty}</td>`;
     tbody.appendChild(tr);
   });
   tbl.appendChild(tbody);
   area.appendChild(tbl);
 
-  const percent = Math.round((weightedCorrect/weightedTotal)*100);
+  const percent = weightedTotal ? Math.round((weightedCorrect/weightedTotal)*100) : 0;
   const scoreDiv = document.createElement('div'); scoreDiv.style.marginTop='12px';
   scoreDiv.innerHTML = `<div class="small">Weighted score: <strong>${weightedCorrect} / ${weightedTotal}</strong> (${percent}%)</div>
                         <div class="small">Final guess: <strong>${escapeHtml(gameState.finalGuess.player)}</strong> — ${gameState.finalGuess.correct ? 'Correct' : 'Wrong'}</div>`;
@@ -761,7 +781,6 @@ function showSummary(){
   document.getElementById('nextBtn').style.display='none';
 }
 
-/* ========== HELPERS ========== */
 function updateProgress(){ const fill=document.getElementById('progressFill'); if(!gameState){ fill.style.width='0%'; return;} const percentDone = (gameState.currentIndex / gameState.totalQuestions) * 100; fill.style.width = percentDone + '%'; document.getElementById('blurMeta').textContent = `Blur: ${Math.round(gameState.blurPct)}%`; }
 function escapeHtml(s){ return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
