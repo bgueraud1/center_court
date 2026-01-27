@@ -73,8 +73,8 @@
   table.summary{width:100%; border-collapse:collapse; margin-top:12px;}
   table.summary th, table.summary td{padding:8px 6px; border-bottom:1px solid rgba(255,255,255,0.03); font-size:13px; color:var(--muted);}
   table.summary th{color:#e6eef6; text-align:left;}
-  table.summary td .ok{color:#1b8f36; font-weight:700;}
-  table.summary td .bad{color:#c53030; font-weight:700;}
+  .ok-text{color:#1b8f36; font-weight:700;}
+  .bad-text{color:#c53030; font-weight:700;}
   @media (max-width:920px){ .grid{grid-template-columns:1fr;} .left-col{order:0} .card{padding:12px;} }
 </style>
 </head>
@@ -153,8 +153,8 @@ const DIFFICULTY_SUM = 10;
 const TOTAL_DEBLUR = START_PCT - MIN_GAME_PCT;
 const PIXEL_MAX = 60;
 
-// include Player name option (singular as requested)
-const ALLOWED_TAGS = ['All','ATP','WTA','Player name'];
+// static options (Player name added explicitly)
+const STATIC_TAGS = ['All','ATP','WTA','Player name'];
 
 /* ========== STATE ========== */
 let questions = [];
@@ -204,7 +204,6 @@ function openAnswerMatches(correct,given,acceptNameVariants=false){
 /* Validate player full name contains only letters and spaces (accents allowed) */
 function isAlphaOnlyName(name){
   if(!name) return false;
-  // allow letters (including accents) and spaces only
   return /^[A-Za-zÀ-ÖØ-öø-ÿ\s]+$/u.test(name.trim());
 }
 
@@ -244,7 +243,7 @@ async function loadData(){
     return { id:id, url: it.url, player: it.player || fallback.player || '', tags: it.tags || fallback.tags || [] };
   });
 
-  // players list (optional)
+  // players list (optional) — filter to alpha-only names
   try {
     const playersCsvText = await fetch(PLAYERS_CSV).then(r => r.ok ? r.text() : Promise.reject('players_list.csv not found'));
     const playersParsed = Papa.parse(playersCsvText, { header: true, skipEmptyLines: true }).data || [];
@@ -259,36 +258,50 @@ async function loadData(){
         rank: (ranksMap && ranksMap[id] !== undefined) ? ranksMap[id] : null
       };
     }).filter(p => p.full_name && p.full_name.length>0 && isAlphaOnlyName(p.full_name));
-    // note: we filter players to only keep those with alpha-only valid names
   } catch (err) {
     console.warn('Could not load players CSV/JSON:', String(err));
     players = [];
   }
 
-  // tags
+  // collect tags from images & questions
   const tagSet = new Set();
   images.forEach(img=> img.tags.forEach(t=> tagSet.add(t)));
   questions.forEach(q=> q.tags.forEach(t=> tagSet.add(t)));
   availableTags = Array.from(tagSet).sort((a,b)=>a.localeCompare(b));
 }
 
-/* ========== UI: tags restricted ========== */
+/* ========== UI: fill select including static Player name option ========== */
 function fillTagSelect(){
   const sel=document.getElementById('tagSelect'); sel.innerHTML='';
-  // ensure Player name option appears even if not present in availableTags
-  const live = ALLOWED_TAGS.filter(t=> t==='All' || availableTags.some(at => at.toLowerCase()===t.toLowerCase() || at.toLowerCase().includes(t.toLowerCase())));
-  live.forEach(t=>{ const opt=document.createElement('option'); opt.value=t; opt.textContent=t; sel.appendChild(opt); });
+  // add static tags first (ensures Player name present)
+  STATIC_TAGS.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t;
+    opt.textContent = t;
+    sel.appendChild(opt);
+  });
+  // append other available tags (avoid duplicates)
+  const lowerStatic = new Set(STATIC_TAGS.map(s=>s.toLowerCase()));
+  availableTags.forEach(t => {
+    if(!lowerStatic.has(t.toLowerCase())){
+      const opt = document.createElement('option');
+      opt.value = t;
+      opt.textContent = t;
+      sel.appendChild(opt);
+    }
+  });
   sel.addEventListener('change', ()=> currentTag = sel.value);
-  currentTag = live[0] || 'All';
+  currentTag = sel.value || 'All';
 }
 
 /* ========== GENERATED QUESTIONS HELPERS (ANAGRAM / MASKED-alt) ========== */
 function pickRandomPlayerForTag(tag){
   let pool = [];
-  if(tag === 'WTA') pool = players.filter(p => p.circuit && p.circuit.toUpperCase() === 'WTA');
-  else if(tag === 'ATP') pool = players.filter(p => p.circuit && p.circuit.toUpperCase() === 'ATP');
+  const lt = (tag||'').toLowerCase();
+  if(lt.includes('wta')) pool = players.filter(p => p.circuit && p.circuit.toUpperCase() === 'WTA');
+  else if(lt.includes('atp')) pool = players.filter(p => p.circuit && p.circuit.toUpperCase() === 'ATP');
   else pool = players.slice();
-  // ensure full_name exists and is alpha-only
+  // ensure full_name exists and is alpha-only (already filtered at load)
   pool = pool.filter(p => p && p.full_name && p.full_name.trim().length>0 && isAlphaOnlyName(p.full_name));
   if(pool.length === 0) pool = players.filter(p => p && p.full_name && p.full_name.trim().length>0 && isAlphaOnlyName(p.full_name));
   if(pool.length === 0) return null;
@@ -323,20 +336,20 @@ function shuffleWord(word){
 }
 
 function generateAnagram(fullName){
-  // produce lowercase anagram (no uppercase preserved)
+  // lowercase as requested
   const words = fullName.toLowerCase().split(' ').filter(Boolean);
   const an = words.map(w => shuffleWord(w));
   if(words.length >= 2 && Math.random() < 0.25) an.reverse();
   return an.join(' ');
 }
 
-// alternate mask: replace one letter out of two by '-' (keep first char), result in lowercase
 function generateMaskedAlternate(fullName){
+  // lowercase and mask every second letter (keep first char)
   return fullName.toLowerCase().split(' ').map(word => {
     const letters = word.split('');
     return letters.map((ch, idx) => {
       if(!/[a-zà-ÿ]/i.test(ch)) return ch;
-      if(idx === 0) return ch; // keep first char
+      if(idx === 0) return ch;
       return (idx % 2 === 1) ? '-' : ch;
     }).join('');
   }).join(' ');
@@ -348,7 +361,6 @@ function makeGeneratedQuestion(tag){
   if(!player) return null;
   const full = player.full_name;
   const difficulty = difficultyFromRank(player);
-  // pick type: anagram or masked-alternate
   if(Math.random() < 0.5){
     const an = generateAnagram(full);
     return {
@@ -378,10 +390,10 @@ function makeGeneratedQuestion(tag){
   }
 }
 
-/* ========== GAME FLOW (Player name => 4 generated questions) ========== */
+/* ========== GAME FLOW ========== */
 function startGame(){
   clearTimers();
-  const tag = currentTag;
+  const tag = currentTag || 'All';
   let candImgs = images.filter(img => containsTag(img.tags, tag));
   if(candImgs.length===0) candImgs = images.slice();
   if(candImgs.length === 0){
@@ -391,14 +403,14 @@ function startGame(){
   const chosenImage = candImgs[Math.floor(Math.random()*candImgs.length)];
 
   const chosenQuestions = [];
+  const isPlayerTheme = (tag || '').toLowerCase().includes('player');
 
-  // If Player name tag selected => generate 4 questions (only anagram / masked-alt)
-  if(tag === 'Player name' && players.length > 0){
+  if(isPlayerTheme && players.length > 0){
+    // generate exactly 4 generated questions (anagram/masked)
     for(let i=0;i<4;i++){
       const gen = makeGeneratedQuestion(tag);
       if(gen) chosenQuestions.push(gen);
       else {
-        // fallback to stored questions if generation fails
         const rand = questions[Math.floor(Math.random()*questions.length)];
         chosenQuestions.push(Object.assign({}, rand));
       }
@@ -420,6 +432,7 @@ function startGame(){
     }
   }
 
+  // build game state and preload image to avoid race/change between questions
   gameState = {
     image: chosenImage,
     questions: chosenQuestions,
@@ -428,23 +441,41 @@ function startGame(){
     score:0,
     totalQuestions: chosenQuestions.length,
     timers:{},
-    answers: []
+    answers: [],
+    preloadedImg: null
   };
+
+  // preload image and draw when ready (keeps image stable for whole game)
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    gameState.preloadedImg = img;
+    drawImageWithEffects(img, gameState.blurPct);
+    document.getElementById('blurMeta').textContent = `Blur: ${Math.round(gameState.blurPct)}%`;
+  };
+  img.onerror = () => {
+    // fallback: still set preloadedImg to null and draw placeholder
+    gameState.preloadedImg = null;
+    const canvas = document.getElementById('playerCanvas'), ctx = canvas.getContext('2d');
+    ctx.fillStyle='#111'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle='#999'; ctx.fillText('Image not reachable',20,40);
+  };
+  img.src = chosenImage.url;
+
   document.getElementById('startBtn').style.display='none';
   document.getElementById('nextBtn').style.display='none';
   document.getElementById('restartBtn').style.display='none';
   document.getElementById('feedback').textContent='';
-  renderImage();
-  renderCurrentQuestion();
+  renderCurrentQuestion(); // it will call renderImage which will use preloadedImg if present
   updateProgress();
 }
 
-/* ========== remainder of script (image render, timers, question flow, evaluation, final guess, summary, helpers, init) ========== */
+/* ========== remainder: image render, timers, question flow, evaluation, final guess, summary, helpers, init ========== */
 const canvas = document.getElementById('playerCanvas'), ctx = canvas.getContext('2d');
 function drawImageWithEffects(img, blurPct){
   const cw = canvas.width = 600, ch = canvas.height = 600;
   ctx.clearRect(0,0,cw,ch);
-  if(!img.width || !img.height){ ctx.fillStyle='#222'; ctx.fillRect(0,0,cw,ch); return; }
+  if(!img || !img.width || !img.height){ ctx.fillStyle='#222'; ctx.fillRect(0,0,cw,ch); return; }
   const iw=img.width, ih=img.height; const imgRatio=iw/ih, canvasRatio=cw/ch;
   let dw,dh,dx,dy;
   if(imgRatio>canvasRatio){ dh=ch; dw=dh*imgRatio; dx=-(dw-cw)/2; dy=0; } else { dw=cw; dh=dw/imgRatio; dx=0; dy=-(dh-ch)/2; }
@@ -459,7 +490,15 @@ function drawImageWithEffects(img, blurPct){
 }
 function renderImage(){
   if(!gameState) return;
-  const entry = gameState.image; const url = entry.url;
+  const entry = gameState.image;
+  // prefer preloaded
+  if(gameState.preloadedImg){
+    drawImageWithEffects(gameState.preloadedImg, gameState.blurPct);
+    document.getElementById('blurMeta').textContent = `Blur: ${Math.round(gameState.blurPct)}%`;
+    return;
+  }
+  // fallback: create image (shouldn't normally happen because we preload)
+  const url = entry.url;
   const img = new Image(); img.crossOrigin='anonymous';
   img.onload = ()=> { drawImageWithEffects(img, gameState.blurPct); document.getElementById('blurMeta').textContent = `Blur: ${Math.round(gameState.blurPct)}%`; };
   img.onerror = ()=> { ctx.fillStyle='#111'; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.fillStyle='#999'; ctx.fillText('Image not reachable',20,40); };
@@ -518,6 +557,9 @@ function renderCurrentQuestion(){
   document.getElementById('nextBtn').style.display='none';
   document.getElementById('restartBtn').style.display='none';
   document.getElementById('feedback').textContent='';
+
+  // ensure image remains visible (re-draw with current blur)
+  renderImage();
 
   startRing(5000,'g1',0.55);
   gameState.timers.revealTimer = setTimeout(()=> { showAnswerInputs(q); }, 5000);
@@ -589,10 +631,11 @@ function evaluateAnswer(given, q){
     if(lettre) { userAnswerLabel = q['qcm_'+lettre] || lettre; }
   } else if (q.question_type === 'tf' || q.true_false) {
     const corr = (q.true_false || q.answer || '').toString().trim().toLowerCase();
+    const corrNormalized = (corr === '1' || corr === 'true' || corr === 't') ? 'true' : 'false';
     const g = given.toString().trim().toLowerCase();
-    if(g === 'true' || g === 't' || g === '1') ok = (corr === 'true' || corr === '1' || corr === 't');
-    else if(g === 'false' || g === 'f' || g === '0') ok = (corr === 'false' || corr === '0' || corr === 'f');
-    else ok = (g === corr);
+    if(g === 'true' || g === 't' || g === '1') ok = (corrNormalized === 'true');
+    else if(g === 'false' || g === 'f' || g === '0') ok = (corrNormalized === 'false');
+    else ok = (g === corrNormalized);
     userAnswerLabel = given || '(no answer)';
   } else {
     ok = openAnswerMatches(q.answer, given, q.open_player);
@@ -648,13 +691,14 @@ function deriveCorrectAnswerLabel(q){
     }
     return q.answer || '';
   } else if(q.question_type==='tf' || q.true_false) {
-    return (q.true_false || q.answer || '').toString();
+    // normalize to readable True/False
+    const cand = (q.true_false || q.answer || '').toString().trim().toLowerCase();
+    return (cand === '1' || cand === 'true' || cand === 't') ? 'True' : 'False';
   } else {
     return q.answer || '';
   }
 }
 
-/* Highlighting: correctly handle qcm vs tf vs open */
 function highlightOptionsAfterAnswer(q, userAnswerLabel){
   const container = document.getElementById('inputs');
   if(!container) return;
@@ -677,14 +721,14 @@ function highlightOptionsAfterAnswer(q, userAnswerLabel){
     const tfButtons = container.querySelectorAll('button.option');
     if(tfButtons.length>0){
       const corr = (q.true_false || q.answer || '').toString().trim().toLowerCase();
+      const corrNormalized = (corr === '1' || corr === 'true' || corr === 't') ? 'true' : 'false';
       tfButtons.forEach(btn=> {
         const val = (btn.dataset.value || btn.textContent || '').toString().trim().toLowerCase();
-        if(val === corr) btn.classList.add('correct-opt'); else btn.classList.add('wrong-opt');
+        if(val === corrNormalized) btn.classList.add('correct-opt'); else btn.classList.add('wrong-opt');
         btn.disabled = true;
       });
     }
   } else {
-    // open question: nothing to highlight except optionally show correct / wrong on submit (handled by feedback)
     const inp = container.querySelector('input');
     if(inp) inp.disabled = true;
   }
@@ -702,7 +746,7 @@ function renderFinalGuessStage(){
   const btn = document.createElement('button'); btn.className='btn btn-primary'; btn.textContent='Guess';
   box.appendChild(inp); box.appendChild(btn); area.appendChild(box);
 
-  // autofocus and allow Enter key to submit (user requested)
+  // autofocus and Enter key = submit
   setTimeout(()=> inp.focus(), 20);
   inp.addEventListener('keydown', (e)=> { if(e.key === 'Enter'){ e.preventDefault(); clearTimers(); evaluateFinalGuess(inp.value, true); }});
 
@@ -758,12 +802,11 @@ function showSummary(){
     weightedTotal += a.difficulty;
     if(a.correct) weightedCorrect += a.difficulty;
     const tr = document.createElement('tr');
-    const userCell = escapeHtml(a.userAnswer);
+    const userCell = `<span class="${a.correct ? 'ok-text' : 'bad-text'}">${escapeHtml(a.userAnswer)}</span>`;
     const corrCell = escapeHtml(a.correctAnswer);
-    const correctnessMarkup = a.correct ? `<span class="ok">OK</span>` : `<span class="bad">NO</span>`;
     tr.innerHTML = `<td>${escapeHtml(a.question)}</td>
                     <td>${userCell}</td>
-                    <td>${corrCell} — ${correctnessMarkup}</td>
+                    <td>${corrCell}</td>
                     <td>${a.difficulty}</td>`;
     tbody.appendChild(tr);
   });
