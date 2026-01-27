@@ -16,6 +16,11 @@
     --glass: rgba(255,255,255,0.04);
     --card-shadow: 0 6px 20px rgba(2,6,23,0.6);
     --radius:14px;
+    --option-bg: #f7fafc; /* clair pour options */
+    --option-text: #0b1220; /* texte noir sur options */
+    --correct-bg: #b7f5c1;
+    --wrong-bg: #ffb4b4;
+    --btn-color: #2563eb; /* bouton principal monocolor */
   }
   html,body{height:100%; margin:0; background: linear-gradient(180deg,#071028 0%, #081427 60%); color:#e6eef6; font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;}
   .wrap{max-width:1100px; margin:36px auto; padding:20px;}
@@ -28,7 +33,7 @@
   select, button, input[type=text]{font-family:inherit; font-size:14px;}
   select{background:var(--glass); color:var(--muted); border:1px solid rgba(255,255,255,0.04); padding:8px 10px; border-radius:10px;}
   .btn{background:transparent; color:#e6eef6; padding:8px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.05); cursor:pointer;}
-  .btn-primary{background:linear-gradient(90deg,var(--accent),var(--accent-2)); color:white; border:none; box-shadow:0 6px 18px rgba(12,74,110,0.15);}
+  .btn-primary{background:var(--btn-color); color:white; border:none; box-shadow:0 6px 18px rgba(10,40,90,0.18);}
   .btn-ghost{background:transparent; color:var(--muted); border:1px solid rgba(255,255,255,0.04);}
   .left-col{display:flex; flex-direction:column; gap:12px;}
   canvas{width:100%; height:auto; border-radius:10px; background:linear-gradient(180deg,#111827,#0b1220); display:block; border:1px solid rgba(255,255,255,0.02);}
@@ -37,13 +42,29 @@
   .meta{display:flex; justify-content:space-between; align-items:center; color:var(--muted); font-size:13px;}
   .question-area{min-height:220px;}
   h3{margin:6px 0 8px 0;}
-  .option{display:block; margin:8px 0; padding:10px; border-radius:10px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.02); cursor:pointer; text-align:left;}
-  .option:disabled{opacity:0.5; cursor:not-allowed;}
+  /* option style: fond clair + texte noir */
+  .option{
+    display:block;
+    margin:8px 0;
+    padding:12px;
+    border-radius:10px;
+    background:var(--option-bg);
+    color:var(--option-text);
+    border:1px solid rgba(12,18,28,0.06);
+    cursor:pointer;
+    text-align:left;
+    font-weight:600;
+  }
+  .option:hover{transform:translateY(-2px); transition:transform .15s;}
+  .option:disabled{opacity:0.7; cursor:not-allowed; transform:none;}
+  .option.correct-opt{ background: var(--correct-bg); color: var(--option-text); border-color: rgba(0,0,0,0.06); }
+  .option.wrong-opt{ background: var(--wrong-bg); color: var(--option-text); border-color: rgba(0,0,0,0.06); }
+
   .small{font-size:13px; color:var(--muted);}
   .feedback{margin-top:10px; font-size:14px;}
   .correct{color:#8ef69c;}
   .wrong{color:#ffb4b4;}
-  em.addinfo{display:block; margin-top:8px; color:#d1e8ff; font-style:italic;}
+  em.addinfo{display:block; margin-top:8px; color:#0b1220; font-style:italic; background:#dbeafe; padding:8px; border-radius:8px;}
   .footer-debug{margin-top:14px; color:var(--muted); font-size:13px;}
   /* timer circle */
   .timer-wrap{display:flex; align-items:center; gap:12px; margin-left:12px;}
@@ -52,8 +73,10 @@
   .ring .label{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:12px; color:var(--muted);}
   /* final guess box */
   .final-guess{display:flex; gap:8px; margin-top:8px; align-items:center;}
-  .fancy{display:flex; gap:8px; align-items:center;}
-  @media (max-width:920px){ .grid{grid-template-columns:1fr; } .left-col{order:0} .card{padding:12px;} }
+  table.summary{width:100%; border-collapse:collapse; margin-top:12px;}
+  table.summary th, table.summary td{padding:8px 6px; border-bottom:1px solid rgba(255,255,255,0.03); font-size:13px; color:var(--muted);}
+  table.summary th{color:#e6eef6; text-align:left;}
+  @media (max-width:920px){ .grid{grid-template-columns:1fr;} .left-col{order:0} .card{padding:12px;} }
 </style>
 </head>
 <body>
@@ -84,23 +107,20 @@
           <button id="startBtn" class="btn btn-primary">Start Game</button>
           <div style="width:6px"></div>
           <div class="timer-wrap" title="Timer">
-            <!-- timer we animate via JS -->
             <div id="timerRing" class="ring" aria-hidden="true">
               <svg width="44" height="44" viewBox="0 0 44 44">
-                <defs><linearGradient id="g1" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff6b6b"/><stop offset="1" stop-color="#facc15"/></linearGradient>
-                         <linearGradient id="g2" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#60a5fa"/><stop offset="1" stop-color="#facc15"/></linearGradient></defs>
+                <defs>
+                  <linearGradient id="g1" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff6b6b"/><stop offset="1" stop-color="#facc15"/></linearGradient>
+                  <linearGradient id="g2" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#60a5fa"/><stop offset="1" stop-color="#facc15"/></linearGradient>
+                </defs>
                 <circle r="18" cx="22" cy="22" stroke="rgba(255,255,255,0.06)" stroke-width="6" fill="none"></circle>
-                <!-- main color (red/blue) -->
                 <circle id="mainArc" r="18" cx="22" cy="22" stroke="url(#g1)" stroke-width="6" fill="none" stroke-linecap="round" stroke-dasharray="113.097" stroke-dashoffset="0"></circle>
-                <!-- yellow top arc -->
                 <circle id="topArc" r="18" cx="22" cy="22" stroke="#facc15" stroke-width="6" fill="none" stroke-linecap="round" stroke-dasharray="113.097" stroke-dashoffset="0"></circle>
               </svg>
               <div class="label" id="timerLabel">—</div>
             </div>
           </div>
         </div>
-
-
       </div>
 
       <hr style="border:none; height:1px; background:rgba(255,255,255,0.02); margin:12px 0;">
@@ -125,135 +145,101 @@
 /* ========== CONFIG ========== */
 const QUESTIONS_CSV = '/games/blur_game/questions.csv';
 const IMAGES_MANIFEST_JSON = '/games/blur_game/images_manifest.json';
-const IMAGES_CSV = '/games/blur_game/images.csv'; // used for player mapping fallback
+const IMAGES_CSV = '/games/blur_game/images.csv';
 
-// blur tuning
-const START_PCT = 220; // initial blur "intensity"
-const MIN_GAME_PCT = 33; // min during question steps
-const FINAL_REVEAL_PCT = 0; // reveal to 0% when correct final guess
+const START_PCT = 220;
+const MIN_GAME_PCT = 33;
+const FINAL_REVEAL_PCT = 0;
 const DIFFICULTY_SUM = 10;
 const TOTAL_DEBLUR = START_PCT - MIN_GAME_PCT;
-const PIXEL_MAX = 60; // big pixel blocks when blurred
-
-// tags allowed
+const PIXEL_MAX = 60;
 const ALLOWED_TAGS = ['All','ATP','WTA'];
 
 /* ========== STATE ========== */
 let questions = [];
-let images = []; // manifest entries {id,url,player,tags}
-let imagesCsvMap = {}; // id -> {player, tags}
+let images = [];
+let imagesCsvMap = {};
 let availableTags = [];
 let currentTag = 'All';
-let gameState = null; // {image, questions, currentIndex, blurPct, score, totalQuestions, timers}
+let gameState = null; // will include answers list
 
 /* ========== UTILS ========== */
-function normalizeTagsString(s) {
-  if (!s) return [];
-  return s.split(',').map(x=>x.trim()).filter(Boolean);
-}
+function normalizeTagsString(s) { if(!s) return []; return s.split(',').map(x=>x.trim()).filter(Boolean); }
 function containsTag(tagsArray, wantedTag) {
   if (!wantedTag || wantedTag === 'All') return true;
   const wt = wantedTag.toLowerCase();
   return tagsArray.some(t => t.toLowerCase() === wt || t.toLowerCase().includes(wt));
 }
 function levenshtein(a,b){
-  const m=a.length, n=b.length;
-  if(m===0) return n; if(n===0) return m;
-  const dp = Array(m+1).fill().map(()=>Array(n+1).fill(0));
+  const m=a.length,n=b.length; if(m===0) return n; if(n===0) return m;
+  const dp=Array(m+1).fill().map(()=>Array(n+1).fill(0));
   for(let i=0;i<=m;i++) dp[i][0]=i;
   for(let j=0;j<=n;j++) dp[0][j]=j;
-  for(let i=1;i<=m;i++){
-    for(let j=1;j<=n;j++){
-      if(a[i-1]===b[j-1]) dp[i][j]=dp[i-1][j-1];
-      else dp[i][j]=1+Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
-    }
+  for(let i=1;i<=m;i++) for(let j=1;j<=n;j++){
+    if(a[i-1]===b[j-1]) dp[i][j]=dp[i-1][j-1];
+    else dp[i][j]=1+Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
   }
   return dp[m][n];
 }
-function openAnswerMatches(correct, given, acceptNameVariants=false){
-  if (!correct) return false;
-  const a = (correct||'').trim().toLowerCase();
-  const b = (given||'').trim().toLowerCase();
-  if (!b) return false;
-  if (a === b) return true;
-  if (a.includes(b) || b.includes(a)) return true;
-  if (acceptNameVariants) {
-    const last = a.split(' ').slice(-1)[0];
-    if (last && last === b) return true;
+function openAnswerMatches(correct,given,acceptNameVariants=false){
+  if(!correct) return false;
+  const a=(correct||'').trim().toLowerCase(), b=(given||'').trim().toLowerCase();
+  if(!b) return false;
+  if(a===b) return true;
+  if(a.includes(b) || b.includes(a)) return true;
+  if(acceptNameVariants){
+    const last=a.split(' ').slice(-1)[0];
+    if(last && last===b) return true;
   }
-  const maxLen = Math.max(a.length, b.length);
-  const threshold = Math.max(1, Math.floor(maxLen * 0.2));
+  const maxLen=Math.max(a.length,b.length), threshold=Math.max(1, Math.floor(maxLen*0.2));
   return levenshtein(a,b) <= threshold;
 }
 
-/* ========== DATA LOADING: manifest + images.csv fallback ========== */
+/* ========== DATA LOAD ========== */
 async function loadData(){
-  // load questions
   const qtxt = await fetch(QUESTIONS_CSV).then(r=>r.ok? r.text(): Promise.reject('questions.csv not found'));
-  const qres = Papa.parse(qtxt, { header: true, skipEmptyLines: true });
-  questions = qres.data.map(r => ({
-    id: (r.id||'').trim(),
-    question_type: (r.question_type||'').trim().toLowerCase(),
-    question_corps: (r.question_corps||'').trim(),
-    qcm_a: (r.qcm_a||'').trim(),
-    qcm_b: (r.qcm_b||'').trim(),
-    qcm_c: (r.qcm_c||'').trim(),
-    qcm_d: (r.qcm_d||'').trim(),
-    qcm_answer: (r.qcm_answer||'').trim(),
-    answer: (r.answer||'').trim(),
-    true_false: (r.true_false||'').trim(),
-    difficulty: Number(r.difficulty) || 1,
-    open_player: String((r.open_player||'')).toLowerCase() === 'true',
-    true_false_additional: (r.true_false_additional||'').trim(),
+  const qres = Papa.parse(qtxt,{header:true,skipEmptyLines:true});
+  questions = qres.data.map(r=>({
+    id:(r.id||'').trim(),
+    question_type:(r.question_type||'').trim().toLowerCase(),
+    question_corps:(r.question_corps||'').trim(),
+    qcm_a:(r.qcm_a||'').trim(),
+    qcm_b:(r.qcm_b||'').trim(),
+    qcm_c:(r.qcm_c||'').trim(),
+    qcm_d:(r.qcm_d||'').trim(),
+    qcm_answer:(r.qcm_answer||'').trim(),
+    answer:(r.answer||'').trim(),
+    true_false:(r.true_false||'').trim(),
+    difficulty:Number(r.difficulty)||1,
+    open_player:String((r.open_player||'')).toLowerCase()==='true',
+    true_false_additional:(r.true_false_additional||'').trim(),
     tags: normalizeTagsString(r.tags || r.tag || '')
   }));
 
-  // load manifest
   const imtxt = await fetch(IMAGES_MANIFEST_JSON).then(r=> r.ok? r.json(): Promise.reject('images_manifest.json not found'));
-  // load images.csv as fallback for player names
-  const csvtxt = await fetch(IMAGES_CSV).then(r => r.ok? r.text(): '');
+  const csvtxt = await fetch(IMAGES_CSV).then(r=> r.ok? r.text(): '');
   imagesCsvMap = {};
-  if (csvtxt) {
-    const imcsv = Papa.parse(csvtxt, { header:true, skipEmptyLines:true }).data;
-    imcsv.forEach(row => {
-      const id = (row.id||'').trim();
-      imagesCsvMap[id] = {
-        player: (row.player||'').trim(),
-        tags: normalizeTagsString(row.tags || '')
-      };
-    });
+  if(csvtxt){
+    const imcsv = Papa.parse(csvtxt, {header:true, skipEmptyLines:true}).data;
+    imcsv.forEach(row => { const id=(row.id||'').trim(); imagesCsvMap[id]={player:(row.player||'').trim(), tags:normalizeTagsString(row.tags||'')}; });
   }
-
   images = imtxt.map(it => {
     const id = it.id || it.public_id || '';
     const fallback = imagesCsvMap[id] || {};
-    return {
-      id: id,
-      url: it.url,
-      player: it.player || fallback.player || '',
-      tags: it.tags || fallback.tags || []
-    };
+    return { id:id, url: it.url, player: it.player || fallback.player || '', tags: it.tags || fallback.tags || [] };
   });
 
-  // collect tags
   const tagSet = new Set();
-  images.forEach(img => img.tags.forEach(t => tagSet.add(t)));
-  questions.forEach(q => q.tags.forEach(t => tagSet.add(t)));
+  images.forEach(img=> img.tags.forEach(t=> tagSet.add(t)));
+  questions.forEach(q=> q.tags.forEach(t=> tagSet.add(t)));
   availableTags = Array.from(tagSet).sort((a,b)=>a.localeCompare(b));
 }
 
-/* ========== UI: tags restricted ========== */
+/* ========== TAG UI ========== */
 function fillTagSelect(){
-  const sel = document.getElementById('tagSelect');
-  sel.innerHTML = '';
-  // keep allowed tags only if present in availableTags (or All)
-  const live = ALLOWED_TAGS.filter(t => t === 'All' || availableTags.some(at => at.toLowerCase() === t.toLowerCase() || at.toLowerCase().includes(t.toLowerCase())));
-  live.forEach(t => {
-    const opt = document.createElement('option');
-    opt.value = t;
-    opt.textContent = t;
-    sel.appendChild(opt);
-  });
+  const sel=document.getElementById('tagSelect'); sel.innerHTML='';
+  const live = ALLOWED_TAGS.filter(t=> t==='All' || availableTags.some(at => at.toLowerCase()===t.toLowerCase() || at.toLowerCase().includes(t.toLowerCase())));
+  live.forEach(t=>{ const opt=document.createElement('option'); opt.value=t; opt.textContent=t; sel.appendChild(opt); });
   sel.addEventListener('change', ()=> currentTag = sel.value);
   currentTag = live[0] || 'All';
 }
@@ -263,26 +249,25 @@ function startGame(){
   clearTimers();
   const tag = currentTag;
   let candImgs = images.filter(img => containsTag(img.tags, tag));
-  if (candImgs.length === 0) candImgs = images.slice();
+  if(candImgs.length===0) candImgs = images.slice();
   const chosenImage = candImgs[Math.floor(Math.random()*candImgs.length)];
-  const chosenQuestions = [];
+  const chosenQuestions=[];
   for(let d=1; d<=4; d++){
     let pool = questions.filter(q=> q.difficulty===d && containsTag(q.tags, tag));
-    if (pool.length===0) pool = questions.filter(q=>q.difficulty===d);
-    if (pool.length===0) pool = questions.slice();
+    if(pool.length===0) pool = questions.filter(q=> q.difficulty===d);
+    if(pool.length===0) pool = questions.slice();
     chosenQuestions.push(Object.assign({}, pool[Math.floor(Math.random()*pool.length)]));
   }
-
   gameState = {
     image: chosenImage,
     questions: chosenQuestions,
-    currentIndex: 0,
+    currentIndex:0,
     blurPct: START_PCT,
-    score: 0,
+    score:0,
     totalQuestions: chosenQuestions.length,
-    timers: {}
+    timers:{},
+    answers: [] // keep user's answers for summary
   };
-  document.getElementById('debug').textContent = `image=${chosenImage.id} player=${chosenImage.player || ''}`;
   document.getElementById('startBtn').style.display='none';
   document.getElementById('nextBtn').style.display='none';
   document.getElementById('restartBtn').style.display='none';
@@ -292,171 +277,114 @@ function startGame(){
   updateProgress();
 }
 
-/* ========== RENDER IMAGE ========== */
-const canvas = document.getElementById('playerCanvas');
-const ctx = canvas.getContext('2d');
-
+/* ========== IMAGE RENDER ========== */
+const canvas = document.getElementById('playerCanvas'), ctx = canvas.getContext('2d');
 function drawImageWithEffects(img, blurPct){
   const cw = canvas.width = 600, ch = canvas.height = 600;
   ctx.clearRect(0,0,cw,ch);
-  if (!img.width || !img.height) {
-    ctx.fillStyle='#222'; ctx.fillRect(0,0,cw,ch); return;
-  }
-  const iw = img.width, ih = img.height;
-  const imgRatio = iw/ih, canvasRatio = cw/ch;
-  let dw, dh, dx, dy;
-  if (imgRatio > canvasRatio) { dh = ch; dw = dh*imgRatio; dx = -(dw-cw)/2; dy = 0; }
-  else { dw = cw; dh = dw/imgRatio; dx = 0; dy = -(dh-ch)/2; }
-
+  if(!img.width || !img.height){ ctx.fillStyle='#222'; ctx.fillRect(0,0,cw,ch); return; }
+  const iw=img.width, ih=img.height; const imgRatio=iw/ih, canvasRatio=cw/ch;
+  let dw,dh,dx,dy;
+  if(imgRatio>canvasRatio){ dh=ch; dw=dh*imgRatio; dx=-(dw-cw)/2; dy=0; } else { dw=cw; dh=dw/imgRatio; dx=0; dy=-(dh-ch)/2; }
   const pixelSize = Math.max(1, Math.round(1 + (PIXEL_MAX * (blurPct - MIN_GAME_PCT) / (START_PCT - MIN_GAME_PCT))));
-  const blurPx = Math.max(0, (28 * (blurPct / START_PCT))); // strong blur up to ~28px
-
-  const tmp = document.createElement('canvas');
-  const tw = Math.max(1, Math.round(dw / pixelSize));
-  const th = Math.max(1, Math.round(dh / pixelSize));
-  tmp.width = tw; tmp.height = th;
-  const tctx = tmp.getContext('2d');
+  const blurPx = Math.max(0, (28 * (blurPct / START_PCT)));
+  const tmp = document.createElement('canvas'); const tw=Math.max(1,Math.round(dw/pixelSize)), th=Math.max(1, Math.round(dh/pixelSize));
+  tmp.width=tw; tmp.height=th; const tctx=tmp.getContext('2d');
   tctx.drawImage(img, 0,0, img.width, img.height, 0,0, tw, th);
-  ctx.imageSmoothingEnabled = false;
-  try {
-    ctx.save();
-    ctx.filter = `blur(${blurPx}px)`;
-    ctx.drawImage(tmp, 0,0, tw, th, dx, dy, dw, dh);
-    ctx.restore();
-  } catch(e){
-    ctx.drawImage(tmp, 0,0, tw, th, dx, dy, dw, dh);
-  }
+  ctx.imageSmoothingEnabled=false;
+  try { ctx.save(); ctx.filter=`blur(${blurPx}px)`; ctx.drawImage(tmp,0,0,tw,th,dx,dy,dw,dh); ctx.restore(); }
+  catch(e){ ctx.drawImage(tmp,0,0,tw,th,dx,dy,dw,dh); }
 }
-
 function renderImage(){
-  if (!gameState) return;
-  const entry = gameState.image;
-  const url = entry.url;
-  const img = new Image();
-  img.crossOrigin = 'anonymous';
+  if(!gameState) return;
+  const entry = gameState.image; const url = entry.url;
+  const img = new Image(); img.crossOrigin='anonymous';
   img.onload = ()=> { drawImageWithEffects(img, gameState.blurPct); document.getElementById('blurMeta').textContent = `Blur: ${Math.round(gameState.blurPct)}%`; };
-  img.onerror = ()=> {
-    ctx.fillStyle='#111'; ctx.fillRect(0,0,canvas.width,canvas.height);
-    ctx.fillStyle='#999'; ctx.fillText('Image not reachable', 20, 40);
-  };
+  img.onerror = ()=> { ctx.fillStyle='#111'; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.fillStyle='#999'; ctx.fillText('Image not reachable',20,40); };
   img.src = url;
 }
 
-/* ========== TIMER CIRCLE (double-arc) ========== */
-/* We animate two concentric arcs (top yellow, bottom main color).
-   The JS updates stroke-dashoffset to simulate disappearance.
-*/
-const MAIN_ARC = document.getElementById('mainArc');
-const TOP_ARC  = document.getElementById('topArc');
-const TIMER_LABEL = document.getElementById('timerLabel');
-const RING_CIRC = 2 * Math.PI * 18; // r=18 => circumference ~113.097
-
-// helper to set ring colors and animate over duration
+/* ========== RING TIMER ========== */
+const MAIN_ARC = document.getElementById('mainArc'), TOP_ARC = document.getElementById('topArc'), TIMER_LABEL = document.getElementById('timerLabel');
+const RING_CIRC = 2 * Math.PI * 18;
 let ringAnim = null;
-function startRing(durationMs, mainColorGradientId='g1', topDurationFraction=0.6, mainColor='g1') {
+function startRing(durationMs, mainColorGradientId='g1', topDurationFraction=0.6) {
   cancelRing();
-  // set stroke gradients/classes
-  // mainArc uses gradient g1 or g2 depending on mode
   MAIN_ARC.setAttribute('stroke','url(#'+mainColorGradientId+')');
-  TOP_ARC.setAttribute('stroke','#facc15'); // yellow stays
-  // reset offsets
-  MAIN_ARC.style.transition = 'none';
-  TOP_ARC.style.transition = 'none';
+  TOP_ARC.setAttribute('stroke','#facc15');
+  MAIN_ARC.style.transition='none'; TOP_ARC.style.transition='none';
   MAIN_ARC.setAttribute('stroke-dasharray', String(RING_CIRC));
   TOP_ARC.setAttribute('stroke-dasharray', String(RING_CIRC));
-  MAIN_ARC.setAttribute('stroke-dashoffset', '0');
-  TOP_ARC.setAttribute('stroke-dashoffset', '0');
-
+  MAIN_ARC.setAttribute('stroke-dashoffset','0'); TOP_ARC.setAttribute('stroke-dashoffset','0');
   const start = performance.now();
-  const topDur = durationMs * (topDurationFraction); // yellow disappears faster
-  const mainDur = durationMs;
-
+  const topDur = durationMs * topDurationFraction;
   function step(now){
     const elapsed = now - start;
-    // top arc progress
-    const topProgress = Math.min(1, Math.max(0, elapsed / topDur));
-    const mainProgress = Math.min(1, Math.max(0, elapsed / mainDur));
-    const topOffset = RING_CIRC * topProgress;
-    const mainOffset = RING_CIRC * mainProgress;
-    TOP_ARC.setAttribute('stroke-dashoffset', String(topOffset));
-    MAIN_ARC.setAttribute('stroke-dashoffset', String(mainOffset));
+    const topP = Math.min(1, Math.max(0, elapsed / topDur));
+    const mainP = Math.min(1, Math.max(0, elapsed / durationMs));
+    TOP_ARC.setAttribute('stroke-dashoffset', String(RING_CIRC * topP));
+    MAIN_ARC.setAttribute('stroke-dashoffset', String(RING_CIRC * mainP));
     const remaining = Math.max(0, Math.ceil((durationMs - elapsed)/1000));
     TIMER_LABEL.textContent = remaining>0? `${remaining}s` : '—';
-    if (elapsed < durationMs) {
-      ringAnim = requestAnimationFrame(step);
-    } else {
-      TIMER_LABEL.textContent = '—';
-      ringAnim = null;
-    }
+    if (elapsed < durationMs) { ringAnim = requestAnimationFrame(step); } else { TIMER_LABEL.textContent='—'; ringAnim=null; }
   }
   ringAnim = requestAnimationFrame(step);
 }
-function cancelRing(){ if (ringAnim) cancelAnimationFrame(ringAnim); ringAnim = null; MAIN_ARC.setAttribute('stroke-dashoffset','0'); TOP_ARC.setAttribute('stroke-dashoffset','0'); TIMER_LABEL.textContent='—'; }
+function cancelRing(){ if(ringAnim) cancelAnimationFrame(ringAnim); ringAnim=null; MAIN_ARC.setAttribute('stroke-dashoffset','0'); TOP_ARC.setAttribute('stroke-dashoffset','0'); TIMER_LABEL.textContent='—'; }
 
-/* ========== Question render + timers (5s reveal, 10s answer) ========== */
+/* ========== TIMERS + QUESTION LOGIC ========== */
 function clearTimers(){
   if(!gameState) return;
   const t = gameState.timers;
-  if (t.revealTimer) { clearTimeout(t.revealTimer); t.revealTimer=null; }
-  if (t.answerTimeout) { clearTimeout(t.answerTimeout); t.answerTimeout=null; }
-  if (t.answerInterval) { clearInterval(t.answerInterval); t.answerInterval=null; }
+  if(t.revealTimer){ clearTimeout(t.revealTimer); t.revealTimer=null; }
+  if(t.answerTimeout){ clearTimeout(t.answerTimeout); t.answerTimeout=null; }
+  if(t.answerInterval){ clearInterval(t.answerInterval); t.answerInterval=null; }
   cancelRing();
-  document.getElementById('timerLabel').textContent='—';
+  TIMER_LABEL.textContent='—';
 }
 
 function renderCurrentQuestion(){
   clearTimers();
-  const area = document.getElementById('questionArea');
-  area.innerHTML = '';
-  if (!gameState) { area.innerHTML = '<div class="small">No game running.</div>'; return; }
+  const area = document.getElementById('questionArea'); area.innerHTML='';
+  if(!gameState){ area.innerHTML='<div class="small">No game running.</div>'; return; }
   const i = gameState.currentIndex;
-  if (i >= gameState.totalQuestions) { renderFinalGuessStage(); return; }
-
+  if(i >= gameState.totalQuestions){ renderFinalGuessStage(); return; }
   const q = gameState.questions[i];
   const qdiv = document.createElement('div');
   qdiv.innerHTML = `<div class="small">Question ${i+1}/${gameState.totalQuestions} • difficulty ${q.difficulty}</div>
                     <h3>${escapeHtml(q.question_corps)}</h3>
-                    <div class="small" id="preHint">Les réponses arrivent...</div>`;
+                    <div class="small" id="preHint">Answers are coming...</div>`;
   area.appendChild(qdiv);
-
   document.getElementById('nextBtn').style.display='none';
   document.getElementById('restartBtn').style.display='none';
   document.getElementById('feedback').textContent='';
 
-  // start 5s reveal timer ring (red main, yellow top disappears faster)
-  // set gradient g1 (red->yellow)
-  startRing(5000, 'g1', 0.55, 'g1');
-  gameState.timers.revealTimer = setTimeout(()=> {
-    // reveal inputs and start 10s answer ring (blue main, yellow top disappears first)
-    showAnswerInputs(q);
-  }, 5000);
+  startRing(5000,'g1',0.55);
+  gameState.timers.revealTimer = setTimeout(()=> { showAnswerInputs(q); }, 5000);
 }
 
 function showAnswerInputs(q){
-  const area = document.getElementById('questionArea');
-  const pre = area.querySelector('#preHint'); if (pre) pre.remove();
+  const area = document.getElementById('questionArea'); const pre = area.querySelector('#preHint'); if(pre) pre.remove();
+  const inputArea = document.createElement('div'); inputArea.style.marginTop='10px'; inputArea.id='inputs';
 
-  const inputArea = document.createElement('div');
-  inputArea.style.marginTop='10px';
-  inputArea.id='inputs';
-
-  if (q.question_type === 'qcm'){
+  if(q.question_type === 'qcm'){
     ['a','b','c','d'].forEach(letter=>{
       const text = q['qcm_'+letter];
-      if (!text) return;
-      const btn = document.createElement('button');
-      btn.className='option';
-      btn.textContent = `${letter.toUpperCase()}. ${text}`;
-      btn.addEventListener('click', ()=> { lockInputs(); evaluateAnswer(letter,q); });
+      if(!text) return;
+      const btn = document.createElement('button'); btn.className='option'; btn.textContent = `${letter.toUpperCase()}. ${text}`;
+      btn.dataset.letter = letter;
+      btn.addEventListener('click', ()=> { lockInputs(); evaluateAnswer(letter, q); });
       inputArea.appendChild(btn);
     });
   } else if (q.question_type === 'tf' || (q.true_false && (q.true_false.toLowerCase()==='true' || q.true_false.toLowerCase()==='false'))){
-    const t = document.createElement('button'); t.className='option'; t.textContent='True'; t.addEventListener('click', ()=> { lockInputs(); evaluateAnswer('true',q); });
-    const f = document.createElement('button'); f.className='option'; f.textContent='False'; f.addEventListener('click', ()=> { lockInputs(); evaluateAnswer('false',q); });
+    const t = document.createElement('button'); t.className='option'; t.textContent='True'; t.dataset.value='true'; t.addEventListener('click', ()=> { lockInputs(); evaluateAnswer('true', q); });
+    const f = document.createElement('button'); f.className='option'; f.textContent='False'; f.dataset.value='false'; f.addEventListener('click', ()=> { lockInputs(); evaluateAnswer('false', q); });
     inputArea.appendChild(t); inputArea.appendChild(f);
   } else {
-    const inp = document.createElement('input'); inp.type='text'; inp.placeholder='Write your answer'; inp.style.width='100%';
-    inp.addEventListener('keydown', (e)=> { if (e.key === 'Enter') { lockInputs(); evaluateAnswer(inp.value,q); }});
+    const inp = document.createElement('input'); inp.type='text'; inp.placeholder='Write your answer'; inp.style.width='100%'; inp.id='openInput';
+    inp.addEventListener('keydown', (e)=> { if(e.key==='Enter'){ lockInputs(); evaluateAnswer(inp.value, q); }});
+    // autofocus so user can type immediately:
+    setTimeout(()=> inp.focus(), 20);
     inputArea.appendChild(inp);
     const submit = document.createElement('button'); submit.className='btn btn-primary'; submit.textContent='Submit';
     submit.style.marginTop='8px'; submit.addEventListener('click', ()=> { lockInputs(); evaluateAnswer(inputArea.querySelector('input').value, q); });
@@ -464,64 +392,92 @@ function showAnswerInputs(q){
   }
   area.appendChild(inputArea);
 
-  // start answer ring: 10s, main blue (g2), yellow disappears faster
-  startRing(10000, 'g2', 0.5, 'g2');
-  // answer timeout
+  // start 10s ring
+  startRing(10000,'g2',0.5);
+  if(!gameState.timers) gameState.timers = {};
   gameState.timers.answerTimeout = setTimeout(()=> { lockInputs(); evaluateAnswer('', q); }, 10000);
 }
 
 function lockInputs(){
   const inputs = document.querySelectorAll('#inputs button, #inputs input');
   inputs.forEach(el => el.disabled = true);
-  // stop ring animation (we'll keep it static)
-  // but we don't cancel it to keep visual state; instead we freeze by canceling animation and leaving dashoffset as-is
+  // clear answer timers so no late callback flips answer
+  if(gameState && gameState.timers){
+    if(gameState.timers.answerTimeout){ clearTimeout(gameState.timers.answerTimeout); gameState.timers.answerTimeout=null; }
+    if(gameState.timers.answerInterval){ clearInterval(gameState.timers.answerInterval); gameState.timers.answerInterval=null; }
+    if(gameState.timers.revealTimer){ clearTimeout(gameState.timers.revealTimer); gameState.timers.revealTimer=null; }
+  }
   cancelRing();
 }
 
+/* ========== EVALUATION ========== */
 function evaluateAnswer(given, q){
+  // immediately clear timers to avoid later timeout
+  clearTimers();
+
   given = (given||'').toString().trim();
   let ok = false;
-  if (q.question_type === 'qcm'){
+  let userAnswerLabel = given;
+  if(q.question_type === 'qcm'){
     const correct = (q.qcm_answer || '').toString().trim().toLowerCase();
     const lettre = (given||'').toString().trim().toLowerCase();
-    if (!correct) {
+    if(!correct){
       const givenText = q['qcm_'+lettre];
-      if (givenText && q.answer && givenText.trim().toLowerCase() === q.answer.trim().toLowerCase()) ok = true;
-      else ok = false;
+      if(givenText && q.answer && givenText.trim().toLowerCase() === q.answer.trim().toLowerCase()) ok=true;
+      else ok=false;
     } else {
-      if (correct === lettre) ok = true;
-      if (!ok && ['1','2','3','4'].includes(correct) && ['a','b','c','d'].includes(lettre)) {
-        const map = {1:'a',2:'b',3:'c',4:'d'};
-        if (map[Number(correct)] === lettre) ok = true;
+      if(correct === lettre) ok=true;
+      if(!ok && ['1','2','3','4'].includes(correct) && ['a','b','c','d'].includes(lettre)){
+        const map={1:'a',2:'b',3:'c',4:'d'};
+        if(map[Number(correct)]===lettre) ok=true;
       }
     }
+    // userAnswerLabel -> full text if letter provided
+    if(lettre) { userAnswerLabel = q['qcm_'+lettre] || lettre; }
   } else if (q.question_type === 'tf' || q.true_false) {
     const corr = (q.true_false || q.answer || '').toString().trim().toLowerCase();
     const g = given.toString().trim().toLowerCase();
-    if (g === 'true' || g === 't' || g === '1') ok = (corr === 'true' || corr === '1' || corr === 't');
-    else if (g === 'false' || g === 'f' || g === '0') ok = (corr === 'false' || corr === '0' || corr === 'f');
+    if(g === 'true' || g === 't' || g === '1') ok = (corr === 'true' || corr === '1' || corr === 't');
+    else if(g === 'false' || g === 'f' || g === '0') ok = (corr === 'false' || corr === '0' || corr === 'f');
     else ok = (g === corr);
+    userAnswerLabel = given || '(no answer)';
   } else {
     ok = openAnswerMatches(q.answer, given, q.open_player);
+    userAnswerLabel = given || '(no answer)';
   }
 
+  // store answer in gameState.answers
+  gameState.answers.push({
+    id: q.id,
+    question: q.question_corps,
+    difficulty: q.difficulty,
+    userAnswer: userAnswerLabel,
+    correctAnswer: deriveCorrectAnswerLabel(q),
+    correct: ok
+  });
+
+  // feedback and blur
   const fb = document.getElementById('feedback');
-  if (ok){
-    fb.innerHTML = `<span class="correct">Correct!</span> — Réponse: <strong>${escapeHtml(q.answer || q.qcm_answer || '')}</strong>`;
+  if(ok){
+    fb.innerHTML = `<span class="correct">Correct!</span> — Answer: <strong>${escapeHtml(deriveCorrectAnswerLabel(q))}</strong>`;
     gameState.score += 1;
     const reduction = TOTAL_DEBLUR * (q.difficulty / DIFFICULTY_SUM);
     gameState.blurPct = Math.max(MIN_GAME_PCT, gameState.blurPct - reduction);
     renderImage();
     updateProgress();
   } else {
-    fb.innerHTML = `<span class="wrong">Dommage</span> — Réponse: <strong>${escapeHtml(q.answer || q.qcm_answer || '')}</strong>`;
+    fb.innerHTML = `<span class="wrong">Too bad!</span> — Answer: <strong>${escapeHtml(deriveCorrectAnswerLabel(q))}</strong>`;
   }
 
-  if (q.true_false_additional && q.true_false_additional.trim()){
+  if(q.true_false_additional && q.true_false_additional.trim()){
     const add = document.createElement('em'); add.className='addinfo'; add.textContent = q.true_false_additional;
     fb.appendChild(add);
   }
 
+  // highlight options for qcm/tf
+  highlightOptionsAfterAnswer(q, userAnswerLabel);
+
+  // show next/restart buttons
   document.getElementById('nextBtn').style.display='inline-block';
   document.getElementById('nextBtn').onclick = ()=> {
     clearTimers();
@@ -534,50 +490,103 @@ function evaluateAnswer(given, q){
   document.getElementById('restartBtn').onclick = ()=> { clearTimers(); startGame(); };
 }
 
-/* ========== FINAL GUESS ========== */
+function deriveCorrectAnswerLabel(q){
+  if(q.question_type==='qcm'){
+    const correct = (q.qcm_answer || '').toString().trim().toLowerCase();
+    if(['a','b','c','d'].includes(correct)) return q['qcm_'+correct] || correct;
+    if(['1','2','3','4'].includes(correct)){
+      const map={1:'a',2:'b',3:'c',4:'d'}; return q['qcm_'+map[Number(correct)]] || correct;
+    }
+    return q.answer || '';
+  } else if(q.question_type==='tf' || q.true_false) {
+    return (q.true_false || q.answer || '').toString();
+  } else {
+    return q.answer || '';
+  }
+}
+
+function highlightOptionsAfterAnswer(q, userAnswerLabel){
+  const container = document.getElementById('inputs');
+  if(!container) return;
+  const buttons = container.querySelectorAll('button.option');
+  if(buttons.length>0){
+    // for qcm we compare dataset.letter to correct.
+    const correctLetterRaw = (q.qcm_answer||'').toString().trim().toLowerCase();
+    let correctLetter = '';
+    if(['a','b','c','d'].includes(correctLetterRaw)) correctLetter = correctLetterRaw;
+    else if(['1','2','3','4'].includes(correctLetterRaw)){ const map={1:'a',2:'b',3:'c',4:'d'}; correctLetter = map[Number(correctLetterRaw)]; }
+    buttons.forEach(btn=>{
+      const letter = btn.dataset.letter || '';
+      if(letter && letter === correctLetter){
+        btn.classList.add('correct-opt');
+      } else {
+        // mark wrongs red
+        btn.classList.add('wrong-opt');
+      }
+      // mark user's selection differently (if present)
+      if(btn.dataset.letter && userAnswerLabel && q['qcm_'+btn.dataset.letter] && q['qcm_'+btn.dataset.letter].toLowerCase() === (userAnswerLabel||'').toLowerCase()){
+        // keep class - no change
+      }
+      btn.disabled = true;
+    });
+  } else {
+    // TF case: two buttons
+    const tfButtons = container.querySelectorAll('button.option');
+    if(tfButtons.length>0){
+      const corr = (q.true_false || q.answer || '').toString().trim().toLowerCase();
+      tfButtons.forEach(btn=> {
+        const val = (btn.dataset.value || btn.textContent || '').toString().trim().toLowerCase();
+        if(val === corr) btn.classList.add('correct-opt'); else btn.classList.add('wrong-opt');
+        btn.disabled = true;
+      });
+    }
+  }
+}
+
+/* ========== FINAL GUESS + SUMMARY ========== */
 function renderFinalGuessStage(){
   clearTimers();
-  const area = document.getElementById('questionArea');
-  area.innerHTML = '';
-  const title = document.createElement('div');
-  title.innerHTML = `<h3>Last step — Guess the blurred player</h3>`;
+  const area = document.getElementById('questionArea'); area.innerHTML='';
+  const title = document.createElement('div'); title.innerHTML = `<h3>Last step — Guess the blurred player</h3><div class="small">Type full name or last name (12s).</div>`;
   area.appendChild(title);
 
   const box = document.createElement('div'); box.className='final-guess';
-  const inp = document.createElement('input'); inp.type='text'; inp.placeholder=''; inp.style.flex='1';
+  const inp = document.createElement('input'); inp.type='text'; inp.placeholder='Ex: Novak Djokovic or Djokovic'; inp.style.flex='1';
   const btn = document.createElement('button'); btn.className='btn btn-primary'; btn.textContent='Guess';
-  box.appendChild(inp); box.appendChild(btn);
-  area.appendChild(box);
+  box.appendChild(inp); box.appendChild(btn); area.appendChild(box);
 
-  // timer ring 12s (use g1 orange/blue choice but let's use g2 color)
-  startRing(12000, 'g2', 0.5, 'g2');
+  startRing(12000,'g2',0.5);
+  if(!gameState.timers) gameState.timers = {};
   gameState.timers.answerTimeout = setTimeout(()=> { evaluateFinalGuess('', false); }, 12000);
 
   btn.onclick = ()=> { clearTimers(); evaluateFinalGuess(inp.value, true); };
 }
 
 function evaluateFinalGuess(given, userTriggered){
-  const fb = document.getElementById('feedback');
+  clearTimers();
+  const fb=document.getElementById('feedback');
   const imageEntry = gameState.image;
-  // get player name from manifest first, else from images.csv mapping
   const playerName = (imageEntry.player || imagesCsvMap[imageEntry.id] && imagesCsvMap[imageEntry.id].player || '').trim();
   const idFallback = imageEntry.id || '';
-  let ok = false;
-  if (!playerName) {
+  let ok=false;
+  if(!playerName){
     ok = given && idFallback.toLowerCase().includes(given.trim().toLowerCase());
   } else {
-    const gn = (given||'').trim().toLowerCase();
-    if (!gn) ok = false;
+    const gn=(given||'').trim().toLowerCase();
+    if(!gn) ok=false;
     else {
       const last = playerName.split(' ').slice(-1)[0].toLowerCase();
-      if (gn === playerName.toLowerCase() || gn === last) ok = true;
+      if(gn === playerName.toLowerCase() || gn === last) ok=true;
       else ok = openAnswerMatches(playerName, given, true);
     }
   }
 
-  if (ok){
+  // store final guess in answers list with special flag
+  gameState.finalGuess = { given: given || '(no answer)', player: playerName || idFallback, correct: ok };
+
+  if(ok){
     fb.innerHTML = `<span class="correct">Congrats !</span> — It was <strong>${escapeHtml(playerName || idFallback)}</strong>.`;
-    gameState.blurPct = FINAL_REVEAL_PCT; // show fully revealed
+    gameState.blurPct = FINAL_REVEAL_PCT;
     renderImage();
   } else {
     fb.innerHTML = `<span class="wrong">No!</span> — It was <strong>${escapeHtml(playerName || idFallback)}</strong>.`;
@@ -585,21 +594,46 @@ function evaluateFinalGuess(given, userTriggered){
     renderImage();
   }
 
+  // show summary after a short delay so user sees feedback
+  setTimeout(()=> { showSummary(); }, 400);
+}
+
+/* build and display summary (weighted by difficulty) */
+function showSummary(){
+  const area = document.getElementById('questionArea'); area.innerHTML = '<h3>Résumé / Score</h3>';
+  const tbl = document.createElement('table'); tbl.className='summary';
+  const thead = document.createElement('thead'); thead.innerHTML = '<tr><th>Question</th><th>Your answer</th><th>Correct</th><th>Diff</th></tr>'; tbl.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  let weightedCorrect = 0;
+  let weightedTotal = 0;
+  gameState.answers.forEach(a=>{
+    weightedTotal += a.difficulty;
+    if(a.correct) weightedCorrect += a.difficulty;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${escapeHtml(a.question)}</td>
+                    <td>${escapeHtml(a.userAnswer)}</td>
+                    <td>${escapeHtml(a.correctAnswer)}</td>
+                    <td>${a.difficulty}</td>`;
+    tbody.appendChild(tr);
+  });
+  tbl.appendChild(tbody);
+  area.appendChild(tbl);
+
+  const percent = Math.round((weightedCorrect/weightedTotal)*100);
+  const scoreDiv = document.createElement('div'); scoreDiv.style.marginTop='12px';
+  scoreDiv.innerHTML = `<div class="small">Weighted score: <strong>${weightedCorrect} / ${weightedTotal}</strong> (${percent}%)</div>
+                        <div class="small">Final guess: <strong>${escapeHtml(gameState.finalGuess.player)}</strong> — ${gameState.finalGuess.correct ? 'Correct' : 'Wrong'}</div>`;
+  area.appendChild(scoreDiv);
+
+  // show restart button
   document.getElementById('restartBtn').style.display='inline-block';
   document.getElementById('restartBtn').onclick = ()=> startGame();
   document.getElementById('nextBtn').style.display='none';
-  document.getElementById('timerLabel').textContent = '—';
 }
 
-/* ========== PROGRESS + HELPERS ========== */
-function updateProgress(){
-  const fill = document.getElementById('progressFill');
-  if (!gameState) { fill.style.width='0%'; return; }
-  const percentDone = (gameState.currentIndex / gameState.totalQuestions) * 100;
-  fill.style.width = percentDone + '%';
-  document.getElementById('blurMeta').textContent = `Blur: ${Math.round(gameState.blurPct)}%`;
-}
-function escapeHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+/* ========== HELPERS ========== */
+function updateProgress(){ const fill=document.getElementById('progressFill'); if(!gameState){ fill.style.width='0%'; return;} const percentDone = (gameState.currentIndex / gameState.totalQuestions) * 100; fill.style.width = percentDone + '%'; document.getElementById('blurMeta').textContent = `Blur: ${Math.round(gameState.blurPct)}%`; }
+function escapeHtml(s){ return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 /* ========== INIT ========== */
 (async function init(){
@@ -609,11 +643,10 @@ function escapeHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'
     document.getElementById('startBtn').addEventListener('click', startGame);
     document.getElementById('restartBtn').addEventListener('click', startGame);
     document.getElementById('dataDebug').textContent = `Questions: ${questions.length} • Images: ${images.length}`;
-    // initial placeholder canvas
     ctx.fillStyle = '#071026'; ctx.fillRect(0,0,canvas.width,canvas.height);
-  } catch (err){
+  } catch(err){
     console.error(err);
-    document.getElementById('dataDebug').textContent = 'Loading failure: '+ String(err);
+    document.getElementById('dataDebug').textContent = 'Loading failure: ' + String(err);
   }
 })();
 </script>
