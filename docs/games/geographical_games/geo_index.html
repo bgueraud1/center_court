@@ -21,6 +21,8 @@
     --correct-bg: #b7f5c1;
     --wrong-bg: #ffb4b4;
     --btn-color: #2563eb;
+    --row-correct: rgba(23,163,72,0.14);
+    --row-wrong: rgba(220,38,38,0.09);
   }
   html,body{height:100%; margin:0; background: linear-gradient(180deg,#071028 0%, #081427 60%); color:#e6eef6; font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;}
   .wrap{max-width:1100px; margin:36px auto; padding:20px;}
@@ -73,6 +75,8 @@
   table.summary{width:100%; border-collapse:collapse; margin-top:12px;}
   table.summary th, table.summary td{padding:8px 6px; border-bottom:1px solid rgba(255,255,255,0.03); font-size:13px; color:var(--muted);}
   table.summary th{color:#e6eef6; text-align:left;}
+  tr.row-correct td{ background: var(--row-correct); color:inherit; }
+  tr.row-wrong td{ background: var(--row-wrong); color:inherit; }
   @media (max-width:920px){ .grid{grid-template-columns:1fr;} .left-col{order:0} .card{padding:12px;} }
 </style>
 </head>
@@ -151,8 +155,8 @@ const DIFFICULTY_SUM = 10;
 const TOTAL_DEBLUR = START_PCT - MIN_GAME_PCT;
 const PIXEL_MAX = 60;
 
-// include Player names option
-const ALLOWED_TAGS = ['All','ATP','WTA','Player names'];
+// include both variants so user can't miss the option
+const ALLOWED_TAGS = ['All','ATP','WTA','Player names','Player name'];
 
 /* ========== STATE ========== */
 let questions = [];
@@ -176,7 +180,7 @@ function containsTag(tagsArray, wantedTag) {
   return tagsArray.some(t => t.toLowerCase() === wt || t.toLowerCase().includes(wt));
 }
 function levenshtein(a,b){
-  const m=a.length,n=b.length; if(m===0) return n; if(n===0) return m;
+  const m=(a||'').length,n=(b||'').length; if(m===0) return n; if(n===0) return m;
   const dp=Array(m+1).fill().map(()=>Array(n+1).fill(0));
   for(let i=0;i<=m;i++) dp[i][0]=i;
   for(let j=0;j<=n;j++) dp[0][j]=j;
@@ -250,7 +254,7 @@ async function loadData(){
         circuit: (row.circuit || '').toString().trim(),
         rank: (ranksMap && ranksMap[id] !== undefined) ? ranksMap[id] : null
       };
-    }).filter(p => p.full_name && p.full_name.length>0);
+    }).filter(p => p.full_name && p.full_name.match(/[A-Za-zÀ-ÿ]/) && p.full_name.length > 2);
   } catch (err) {
     console.warn('Could not load players CSV/JSON:', String(err));
     players = [];
@@ -267,6 +271,8 @@ async function loadData(){
 function fillTagSelect(){
   const sel=document.getElementById('tagSelect'); sel.innerHTML='';
   const live = ALLOWED_TAGS.filter(t=> t==='All' || availableTags.some(at => at.toLowerCase()===t.toLowerCase() || at.toLowerCase().includes(t.toLowerCase())));
+  // ensure at least All present
+  if(!live.includes('All')) live.unshift('All');
   live.forEach(t=>{ const opt=document.createElement('option'); opt.value=t; opt.textContent=t; sel.appendChild(opt); });
   sel.addEventListener('change', ()=> currentTag = sel.value);
   currentTag = live[0] || 'All';
@@ -275,12 +281,14 @@ function fillTagSelect(){
 /* ========== GENERATED QUESTIONS HELPERS (ANAGRAM / MASKED-alt) ========== */
 function pickRandomPlayerForTag(tag){
   let pool = [];
-  if(tag === 'WTA') pool = players.filter(p => p.circuit && p.circuit.toUpperCase() === 'WTA');
-  else if(tag === 'ATP') pool = players.filter(p => p.circuit && p.circuit.toUpperCase() === 'ATP');
+  const wanted = (tag === 'Player name' || tag === 'Player names') ? null : tag;
+  if(wanted === 'WTA') pool = players.filter(p => p.circuit && p.circuit.toUpperCase() === 'WTA');
+  else if(wanted === 'ATP') pool = players.filter(p => p.circuit && p.circuit.toUpperCase() === 'ATP');
   else pool = players.slice();
-  // ensure full_name exists
-  pool = pool.filter(p => p && p.full_name && p.full_name.trim().length>0);
-  if(pool.length === 0) pool = players.filter(p => p && p.full_name && p.full_name.trim().length>0);
+
+  // only players with reasonable names (letters + spaces)
+  pool = pool.filter(p => p && p.full_name && /[A-Za-zÀ-ÿ]/.test(p.full_name) && p.full_name.length > 2);
+  if(pool.length === 0) pool = players.filter(p => p && p.full_name && /[A-Za-zÀ-ÿ]/.test(p.full_name));
   if(pool.length === 0) return null;
   return pool[Math.floor(Math.random()*pool.length)];
 }
@@ -313,34 +321,35 @@ function shuffleWord(word){
 }
 
 function generateAnagram(fullName){
+  if(!fullName || !/[A-Za-zÀ-ÿ]/.test(fullName)) return null;
   const words = fullName.split(' ').filter(Boolean);
   const an = words.map(w => shuffleWord(w));
   if(words.length >= 2 && Math.random() < 0.25) an.reverse();
   return an.join(' ');
 }
 
-// NEW: alternate mask: replace one letter out of two by '-' (keep first char)
+// NEW: alternate mask: replace every 2nd letter by '-' (keep first char)
 function generateMaskedAlternate(fullName){
+  if(!fullName || !/[A-Za-zÀ-ÿ]/.test(fullName)) return null;
   return fullName.split(' ').map(word => {
     const letters = word.split('');
     return letters.map((ch, idx) => {
       if(!/[A-Za-zÀ-ÿ]/.test(ch)) return ch;
-      if(idx === 0) return ch; // keep first char
-      // replace every second letter: replace when idx is odd (1-based even positions)
+      if(idx === 0) return ch;
       return (idx % 2 === 1) ? '-' : ch;
     }).join('');
   }).join(' ');
 }
 
 function makeGeneratedQuestion(tag){
-  if(!players || players.length === 0) return null;
   const player = pickRandomPlayerForTag(tag);
-  if(!player) return null;
+  if(!player || !player.full_name) return null;
   const full = player.full_name;
   const difficulty = difficultyFromRank(player);
-  // pick type: anagram or masked-alternate
+  // pick type randomly
   if(Math.random() < 0.5){
     const an = generateAnagram(full);
+    if(!an) return null;
     return {
       id: `gen-anagram-${player.player_id || Math.random().toString(36).slice(2,8)}`,
       question_type: 'open',
@@ -354,6 +363,7 @@ function makeGeneratedQuestion(tag){
     };
   } else {
     const masked = generateMaskedAlternate(full);
+    if(!masked) return null;
     return {
       id: `gen-masked-${player.player_id || Math.random().toString(36).slice(2,8)}`,
       question_type: 'open',
@@ -368,7 +378,7 @@ function makeGeneratedQuestion(tag){
   }
 }
 
-/* ========== GAME FLOW (Player names => 4 generated questions) ========== */
+/* ========== GAME FLOW ========== */
 function startGame(){
   clearTimers();
   const tag = currentTag;
@@ -383,12 +393,11 @@ function startGame(){
   const chosenQuestions = [];
 
   // If Player names tag selected => generate 4 questions
-  if(tag === 'Player names' && players.length > 0){
+  if((tag === 'Player names' || tag === 'Player name') && players.length > 0){
     for(let i=0;i<4;i++){
       const gen = makeGeneratedQuestion(tag);
       if(gen) chosenQuestions.push(gen);
       else {
-        // fallback to stored questions if generation fails
         const rand = questions[Math.floor(Math.random()*questions.length)];
         chosenQuestions.push(Object.assign({}, rand));
       }
@@ -429,9 +438,7 @@ function startGame(){
   updateProgress();
 }
 
-/* ========== remainder of script (unchanged) ========== */
-// image rendering, ring timer, question flow, evaluation, final guess, summary, helpers, init
-// (copy the implementations exactly as previously provided — they are unchanged from your working version)
+/* ========== IMAGE RENDER ========== */
 const canvas = document.getElementById('playerCanvas'), ctx = canvas.getContext('2d');
 function drawImageWithEffects(img, blurPct){
   const cw = canvas.width = 600, ch = canvas.height = 600;
@@ -458,6 +465,7 @@ function renderImage(){
   img.src = url;
 }
 
+/* ========== RING TIMER ========== */
 const MAIN_ARC = document.getElementById('mainArc'), TOP_ARC = document.getElementById('topArc'), TIMER_LABEL = document.getElementById('timerLabel');
 const RING_CIRC = 2 * Math.PI * 18;
 let ringAnim = null;
@@ -483,7 +491,7 @@ function startRing(durationMs, mainColorGradientId='g1', topDurationFraction=0.6
   }
   ringAnim = requestAnimationFrame(step);
 }
-function cancelRing(){ if(ringAnim) cancelAnimationFrame(ringAnim); ringAnim=null; MAIN_ARC.setAttribute('stroke-dashoffset','0'); TOP_ARC.setAttribute('stroke-dashoffset','0'); TIMER_LABEL.textContent='—'; }
+function cancelRing(){ if(ringAnim) cancelAnimationFrame(ringAnim); ringAnim=null; try{ MAIN_ARC.setAttribute('stroke-dashoffset','0'); TOP_ARC.setAttribute('stroke-dashoffset','0'); }catch(e){} TIMER_LABEL.textContent='—'; }
 
 function clearTimers(){
   if(!gameState) return;
@@ -495,6 +503,7 @@ function clearTimers(){
   TIMER_LABEL.textContent='—';
 }
 
+/* ========== QUESTIONS FLOW ========== */
 function renderCurrentQuestion(){
   clearTimers();
   const area = document.getElementById('questionArea'); area.innerHTML='';
@@ -512,6 +521,7 @@ function renderCurrentQuestion(){
   document.getElementById('feedback').textContent='';
 
   startRing(5000,'g1',0.55);
+  if(!gameState.timers) gameState.timers = {};
   gameState.timers.revealTimer = setTimeout(()=> { showAnswerInputs(q); }, 5000);
 }
 
@@ -535,7 +545,8 @@ function showAnswerInputs(q){
   } else {
     const inp = document.createElement('input'); inp.type='text'; inp.placeholder='Write your answer'; inp.style.width='100%'; inp.id='openInput';
     inp.addEventListener('keydown', (e)=> { if(e.key==='Enter'){ lockInputs(); evaluateAnswer(inp.value, q); }});
-    setTimeout(()=> inp.focus(), 20);
+    // autofocus so user can type immediately:
+    setTimeout(()=> { try{ inp.focus(); inp.select(); }catch(e){} }, 20);
     inputArea.appendChild(inp);
     const submit = document.createElement('button'); submit.className='btn btn-primary'; submit.textContent='Submit';
     submit.style.marginTop='8px'; submit.addEventListener('click', ()=> { lockInputs(); evaluateAnswer(inputArea.querySelector('input').value, q); });
@@ -543,6 +554,7 @@ function showAnswerInputs(q){
   }
   area.appendChild(inputArea);
 
+  // start 10s ring
   startRing(10000,'g2',0.5);
   if(!gameState.timers) gameState.timers = {};
   gameState.timers.answerTimeout = setTimeout(()=> { lockInputs(); evaluateAnswer('', q); }, 10000);
@@ -559,8 +571,11 @@ function lockInputs(){
   cancelRing();
 }
 
+/* ========== EVALUATION ========== */
 function evaluateAnswer(given, q){
+  // immediately clear timers to avoid later timeout
   clearTimers();
+
   given = (given||'').toString().trim();
   let ok = false;
   let userAnswerLabel = given;
@@ -580,10 +595,11 @@ function evaluateAnswer(given, q){
     }
     if(lettre) { userAnswerLabel = q['qcm_'+lettre] || lettre; }
   } else if (q.question_type === 'tf' || q.true_false) {
-    const corr = (q.true_false || q.answer || '').toString().trim().toLowerCase();
+    const corrRaw = (q.true_false || q.answer || '').toString().trim().toLowerCase();
+    const corr = (corrRaw==='1' || corrRaw==='t') ? 'true' : (corrRaw==='0' || corrRaw==='f' ? 'false' : corrRaw);
     const g = given.toString().trim().toLowerCase();
-    if(g === 'true' || g === 't' || g === '1') ok = (corr === 'true' || corr === '1' || corr === 't');
-    else if(g === 'false' || g === 'f' || g === '0') ok = (corr === 'false' || corr === '0' || corr === 'f');
+    const gnorm = (g==='1' || g==='t') ? 'true' : (g==='0' || g==='f' ? 'false' : g);
+    if(gnorm === 'true' || gnorm === 'false') ok = (gnorm === corr);
     else ok = (g === corr);
     userAnswerLabel = given || '(no answer)';
   } else {
@@ -617,8 +633,10 @@ function evaluateAnswer(given, q){
     fb.appendChild(add);
   }
 
+  // highlight options for qcm/tf
   highlightOptionsAfterAnswer(q, userAnswerLabel);
 
+  // show next/restart buttons
   document.getElementById('nextBtn').style.display='inline-block';
   document.getElementById('nextBtn').onclick = ()=> {
     clearTimers();
@@ -651,32 +669,38 @@ function highlightOptionsAfterAnswer(q, userAnswerLabel){
   if(!container) return;
   const buttons = container.querySelectorAll('button.option');
   if(buttons.length>0){
-    const correctLetterRaw = (q.qcm_answer||'').toString().trim().toLowerCase();
-    let correctLetter = '';
-    if(['a','b','c','d'].includes(correctLetterRaw)) correctLetter = correctLetterRaw;
-    else if(['1','2','3','4'].includes(correctLetterRaw)){ const map={1:'a',2:'b',3:'c',4:'d'}; correctLetter = map[Number(correctLetterRaw)]; }
-    buttons.forEach(btn=>{
-      const letter = btn.dataset.letter || '';
-      if(letter && letter === correctLetter){
-        btn.classList.add('correct-opt');
-      } else {
-        btn.classList.add('wrong-opt');
-      }
-      btn.disabled = true;
-    });
-  } else {
-    const tfButtons = container.querySelectorAll('button.option');
-    if(tfButtons.length>0){
-      const corr = (q.true_false || q.answer || '').toString().trim().toLowerCase();
-      tfButtons.forEach(btn=> {
-        const val = (btn.dataset.value || btn.textContent || '').toString().trim().toLowerCase();
-        if(val === corr) btn.classList.add('correct-opt'); else btn.classList.add('wrong-opt');
+    if(q.question_type === 'qcm'){
+      const correctLetterRaw = (q.qcm_answer||'').toString().trim().toLowerCase();
+      let correctLetter = '';
+      if(['a','b','c','d'].includes(correctLetterRaw)) correctLetter = correctLetterRaw;
+      else if(['1','2','3','4'].includes(correctLetterRaw)){ const map={1:'a',2:'b',3:'c',4:'d'}; correctLetter = map[Number(correctLetterRaw)]; }
+      buttons.forEach(btn=>{
+        const letter = btn.dataset.letter || '';
+        if(letter && letter === correctLetter){
+          btn.classList.add('correct-opt');
+        } else {
+          btn.classList.add('wrong-opt');
+        }
         btn.disabled = true;
       });
+    } else if(q.question_type === 'tf' || q.true_false){
+      // TF: determine canonical correct value (true/false) then mark accordingly
+      const corrRaw = (q.true_false || q.answer || '').toString().trim().toLowerCase();
+      const corr = (corrRaw==='1' || corrRaw==='t') ? 'true' : (corrRaw==='0' || corrRaw==='f' ? 'false' : corrRaw);
+      buttons.forEach(btn=>{
+        const val = (btn.dataset.value || btn.textContent || '').toString().trim().toLowerCase();
+        const vnorm = (val==='1' || val==='t') ? 'true' : (val==='0' || val==='f' ? 'false' : val);
+        if(corr && vnorm === corr) btn.classList.add('correct-opt'); else btn.classList.add('wrong-opt');
+        btn.disabled = true;
+      });
+    } else {
+      // fallback: color nothing special
+      buttons.forEach(btn => btn.disabled = true);
     }
   }
 }
 
+/* ========== FINAL GUESS + SUMMARY ========== */
 function renderFinalGuessStage(){
   clearTimers();
   const area = document.getElementById('questionArea'); area.innerHTML = '';
@@ -687,6 +711,10 @@ function renderFinalGuessStage(){
   const inp = document.createElement('input'); inp.type='text'; inp.placeholder='Ex: Novak Djokovic or Djokovic'; inp.style.flex='1';
   const btn = document.createElement('button'); btn.className='btn btn-primary'; btn.textContent='Guess';
   box.appendChild(inp); box.appendChild(btn); area.appendChild(box);
+
+  // autofocus + Enter = submit
+  setTimeout(()=> { try{ inp.focus(); inp.select(); }catch(e){} }, 20);
+  inp.addEventListener('keydown', (e)=> { if(e.key === 'Enter') { e.preventDefault(); btn.click(); } });
 
   startRing(12000,'g2',0.5);
   if(!gameState.timers) gameState.timers = {};
@@ -699,7 +727,7 @@ function evaluateFinalGuess(given, userTriggered){
   clearTimers();
   const fb=document.getElementById('feedback');
   const imageEntry = gameState.image;
-  const playerName = (imageEntry.player || imagesCsvMap[imageEntry.id] && imagesCsvMap[imageEntry.id].player || '').trim();
+  const playerName = (imageEntry.player || (imagesCsvMap[imageEntry.id] && imagesCsvMap[imageEntry.id].player) || '').trim();
   const idFallback = imageEntry.id || '';
   let ok=false;
   if(!playerName){
@@ -740,6 +768,7 @@ function showSummary(){
     weightedTotal += a.difficulty;
     if(a.correct) weightedCorrect += a.difficulty;
     const tr = document.createElement('tr');
+    tr.className = a.correct ? 'row-correct' : 'row-wrong';
     tr.innerHTML = `<td>${escapeHtml(a.question)}</td>
                     <td>${escapeHtml(a.userAnswer)}</td>
                     <td>${escapeHtml(a.correctAnswer)}</td>
@@ -749,10 +778,10 @@ function showSummary(){
   tbl.appendChild(tbody);
   area.appendChild(tbl);
 
-  const percent = Math.round((weightedCorrect/weightedTotal)*100);
+  const percent = weightedTotal ? Math.round((weightedCorrect/weightedTotal)*100) : 0;
   const scoreDiv = document.createElement('div'); scoreDiv.style.marginTop='12px';
   scoreDiv.innerHTML = `<div class="small">Weighted score: <strong>${weightedCorrect} / ${weightedTotal}</strong> (${percent}%)</div>
-                        <div class="small">Final guess: <strong>${escapeHtml(gameState.finalGuess.player)}</strong> — ${gameState.finalGuess.correct ? 'Correct' : 'Wrong'}</div>`;
+                        <div class="small">Final guess: <strong>${escapeHtml(gameState.finalGuess.player)}</strong> — <strong style="color:${gameState.finalGuess.correct? '#8ef69c': '#ffb4b4'}">${gameState.finalGuess.correct ? 'Correct' : 'Wrong'}</strong></div>`;
   area.appendChild(scoreDiv);
 
   document.getElementById('restartBtn').style.display='inline-block';
@@ -760,6 +789,7 @@ function showSummary(){
   document.getElementById('nextBtn').style.display='none';
 }
 
+/* ========== HELPERS ========== */
 function updateProgress(){ const fill=document.getElementById('progressFill'); if(!gameState){ fill.style.width='0%'; return;} const percentDone = (gameState.currentIndex / gameState.totalQuestions) * 100; fill.style.width = percentDone + '%'; document.getElementById('blurMeta').textContent = `Blur: ${Math.round(gameState.blurPct)}%`; }
 function escapeHtml(s){ return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
