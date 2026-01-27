@@ -5,8 +5,8 @@ const path = require('path');
 const { parse } = require('csv-parse/sync');
 const cloudinary = require('cloudinary').v2;
 
-const IMAGES_CSV = path.join(__dirname, '..', 'games', 'blur_game', 'images.csv');
-const OUT_JSON = path.join(__dirname, '..', 'games', 'blur_game', 'images_manifest.json');
+const IMAGES_CSV = path.join(__dirname, '..', 'docs','games', 'blur_game', 'images.csv');
+const OUT_JSON = path.join(__dirname, '..', 'docs','games', 'blur_game', 'images_manifest.json');
 
 if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
   console.error('Missing Cloudinary credentials in env. Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET.');
