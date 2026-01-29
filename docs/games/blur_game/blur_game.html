@@ -149,7 +149,6 @@ const IMAGES_CSV = './images.csv';
 // START / MIN blur values adjusted per request
 const START_PCT = 150; // starting blur % when no correct answers
 const MIN_GAME_PCT = 20; // minimum blur %
-const FINAL_REVEAL_PCT = 0; // reveal completely on correct final guess
 const PIXEL_MAX = 60;
 
 // Only these 4 themes are shown
@@ -361,15 +360,29 @@ function generateMaskedAlternate(fullName){
   }).join(' ');
 }
 
-function makeGeneratedQuestion(tag, desiredDifficulty){
-  // desiredDifficulty: 1..4 mapping to max ranks 10/20/50/100
+// Make generated question — now accepts an optional desiredDifficulty so we only pick players matching the difficulty bracket
+function makeGeneratedQuestion(tag, desiredDifficulty = null){
   if(!players || players.length === 0) return null;
-  const maxRankMap = {1:10, 2:20, 3:50, 4:100};
-  const maxRank = maxRankMap[desiredDifficulty] || 100;
-  const player = pickRandomPlayerForTag(tag, maxRank);
-  if(!player) return null;
+  // Map desired difficulty to maxRank (strict): 1->10, 2->20, 3->50, 4->100
+  let maxRank = 100;
+  if(desiredDifficulty === 1) maxRank = 10;
+  else if(desiredDifficulty === 2) maxRank = 20;
+  else if(desiredDifficulty === 3) maxRank = 50;
+  else if(desiredDifficulty === 4) maxRank = 100;
+
+  // If desiredDifficulty provided, try picking a player that fits that bracket. If none, return null so caller can fallback.
+  let player = null;
+  if(desiredDifficulty !== null){
+    player = pickRandomPlayerForTag(tag, maxRank);
+    if(!player) return null;
+  } else {
+    // no explicit difficulty requested: allow up to top100
+    player = pickRandomPlayerForTag(tag, 100);
+    if(!player) return null;
+  }
+
   const full = player.full_name;
-  const difficulty = desiredDifficulty;
+  const difficulty = difficultyFromRank(player);
   if(Math.random() < 0.5){
     const an = generateAnagram(full);
     return {
@@ -415,16 +428,12 @@ function startGame(){
   const isPlayerTheme = (tag || '').toLowerCase().includes('player');
 
   if(isPlayerTheme && players.length > 0){
-    // Generate one question per difficulty level using players matching that difficulty
-    for(let d=1; d<=4; d++){
-      const gen = makeGeneratedQuestion(tag, d);
+    for(let i=0;i<4;i++){
+      const gen = makeGeneratedQuestion(tag);
       if(gen) chosenQuestions.push(gen);
       else {
-        // fallback to an existing question of same difficulty
-        let pool = questions.filter(q=> q.difficulty===d && containsTag(q.tags, tag));
-        if(pool.length===0) pool = questions.filter(q=> q.difficulty===d);
-        if(pool.length===0) pool = questions.slice();
-        chosenQuestions.push(Object.assign({}, pool[Math.floor(Math.random()*pool.length)]));
+        const rand = questions[Math.floor(Math.random()*questions.length)];
+        chosenQuestions.push(Object.assign({}, rand));
       }
     }
   } else {
@@ -434,14 +443,16 @@ function startGame(){
       if(pool.length===0) pool = questions.slice();
       chosenQuestions.push(Object.assign({}, pool[Math.floor(Math.random()*pool.length)]));
     }
+    // Occasionally swap in a generated question, but ensure it matches the difficulty slot
     if(Math.random() < 0.25 && players.length > 0){
       const idx = Math.floor(Math.random()*chosenQuestions.length);
-      const desired = chosenQuestions[idx] && chosenQuestions[idx].difficulty ? chosenQuestions[idx].difficulty : 4;
-      const gen = makeGeneratedQuestion(tag, desired);
+      const desiredDifficulty = chosenQuestions[idx].difficulty || (idx+1);
+      const gen = makeGeneratedQuestion(tag, desiredDifficulty);
       if(gen){
+        // ensure the generated question has the same difficulty as requested (it should by construction)
+        gen.difficulty = desiredDifficulty;
         chosenQuestions[idx] = gen;
       }
-    }
     }
   }
 
@@ -569,8 +580,8 @@ function renderCurrentQuestion(){
   renderImage();
 
   // doubled the delay before showing inputs (was 5s -> now 10s)
-  startRing(10000,'g1',0.55);
-  gameState.timers.revealTimer = setTimeout(()=> { showAnswerInputs(q); }, 10000);
+  startRing(5000,'g1',0.55);
+  gameState.timers.revealTimer = setTimeout(()=> { showAnswerInputs(q); }, 5000);
 }
 
 function showAnswerInputs(q){
@@ -662,12 +673,139 @@ function evaluateAnswer(given, q){
 
   const fb = document.getElementById('feedback');
   if(ok){
+    fb.innerHTML = `<span class="correct">Correct!</span> — Answer: <strong>${escapeHtml(deriveCorrectAnswerLabel(q))}</strong>`;
+    gameState.score += 1;
+    // use fixed reductions per difficulty (requested behaviour)
+    const reduction = BLUR_REDUCTIONS[q.difficulty] || 0;
+    gameState.blurPct = Math.max(MIN_GAME_PCT, gameState.blurPct - reduction);
+    renderImage();
+    updateProgress();
+  } else {
+    fb.innerHTML = `<span class="wrong">Too bad!</span> — Answer: <strong>${escapeHtml(deriveCorrectAnswerLabel(q))}</strong>`;
+  }
+
+  if(q.true_false_additional && q.true_false_additional.trim()){
+    const add = document.createElement('em'); add.className='addinfo'; add.textContent = q.true_false_additional;
+    fb.appendChild(add);
+  }
+
+  highlightOptionsAfterAnswer(q, userAnswerLabel);
+
+  document.getElementById('nextBtn').style.display='inline-block';
+  document.getElementById('nextBtn').onclick = ()=> {
+    clearTimers();
+    gameState.currentIndex++;
+    renderCurrentQuestion();
+    renderImage();
+    updateProgress();
+  };
+  document.getElementById('restartBtn').style.display='inline-block';
+  document.getElementById('restartBtn').onclick = ()=> { clearTimers(); startGame(); };
+}
+
+function deriveCorrectAnswerLabel(q){
+  if(q.question_type==='qcm'){
+    const correct = (q.qcm_answer || '').toString().trim().toLowerCase();
+    if(['a','b','c','d'].includes(correct)) return q['qcm_'+correct] || correct;
+    if(['1','2','3','4'].includes(correct)){
+      const map={1:'a',2:'b',3:'c',4:'d'}; return q['qcm_'+map[Number(correct)]] || correct;
+    }
+    return q.answer || '';
+  } else if(q.question_type==='tf' || q.true_false) {
+    const cand = (q.true_false || q.answer || '').toString().trim().toLowerCase();
+    return (cand === '1' || cand === 'true' || cand === 't') ? 'True' : 'False';
+  } else {
+    return q.answer || '';
+  }
+}
+
+function highlightOptionsAfterAnswer(q, userAnswerLabel){
+  const container = document.getElementById('inputs');
+  if(!container) return;
+  if(q.question_type === 'qcm'){
+    const buttons = container.querySelectorAll('button.option');
+    const correctLetterRaw = (q.qcm_answer||'').toString().trim().toLowerCase();
+    let correctLetter = '';
+    if(['a','b','c','d'].includes(correctLetterRaw)) correctLetter = correctLetterRaw;
+    else if(['1','2','3','4'].includes(correctLetterRaw)){ const map={1:'a',2:'b',3:'c',4:'d'}; correctLetter = map[Number(correctLetterRaw)]; }
+    buttons.forEach(btn=>{
+      const letter = btn.dataset.letter || '';
+      if(letter && letter === correctLetter){
+        btn.classList.add('correct-opt');
+      } else {
+        btn.classList.add('wrong-opt');
+      }
+      btn.disabled = true;
+    });
+  } else if (q.question_type === 'tf' || q.true_false){
+    const tfButtons = container.querySelectorAll('button.option');
+    if(tfButtons.length>0){
+      const corr = (q.true_false || q.answer || '').toString().trim().toLowerCase();
+      const corrNormalized = (corr === '1' || corr === 'true' || corr === 't') ? 'true' : 'false';
+      tfButtons.forEach(btn=> {
+        const val = (btn.dataset.value || btn.textContent || '').toString().trim().toLowerCase();
+        if(val === corrNormalized) btn.classList.add('correct-opt'); else btn.classList.add('wrong-opt');
+        btn.disabled = true;
+      });
+    }
+  } else {
+    const inp = container.querySelector('input');
+    if(inp) inp.disabled = true;
+  }
+}
+
+function renderFinalGuessStage(){
+  clearTimers();
+  const area = document.getElementById('questionArea'); area.innerHTML = '';
+  const title = document.createElement('div'); title.innerHTML = `<h3>Last step — Guess the blurred player</h3><div class="small">Type full name or last name (24s).</div>`;
+  area.appendChild(title);
+
+  const box = document.createElement('div'); box.className='final-guess';
+  const inp = document.createElement('input'); inp.type='text'; inp.placeholder='Ex: Novak Djokovic or Djokovic'; inp.style.flex='1';
+  inp.id = 'finalGuessInput';
+  const btn = document.createElement('button'); btn.className='btn btn-primary'; btn.textContent='Guess';
+  box.appendChild(inp); box.appendChild(btn); area.appendChild(box);
+
+  setTimeout(()=> inp.focus(), 20);
+  inp.addEventListener('keydown', (e)=> { if(e.key === 'Enter'){ e.preventDefault(); clearTimers(); evaluateFinalGuess(inp.value, true); }});
+
+  // doubled final guess time (was 12s -> now 24s)
+  startRing(24000,'g2',0.5);
+  if(!gameState.timers) gameState.timers = {};
+  gameState.timers.answerTimeout = setTimeout(()=> { evaluateFinalGuess('', false); }, 24000);
+
+  btn.onclick = ()=> { clearTimers(); evaluateFinalGuess(inp.value, true); };
+}
+
+function evaluateFinalGuess(given, userTriggered){
+  clearTimers();
+  const fb=document.getElementById('feedback');
+  const imageEntry = gameState.image;
+  const playerName = (imageEntry.player || imagesCsvMap[imageEntry.id] && imagesCsvMap[imageEntry.id].player || '').trim();
+  const idFallback = imageEntry.id || '';
+  let ok=false;
+  if(!playerName){
+    ok = given && idFallback.toLowerCase().includes(given.trim().toLowerCase());
+  } else {
+    const gn=(given||'').trim().toLowerCase();
+    if(!gn) ok=false;
+    else {
+      const last = playerName.split(' ').slice(-1)[0].toLowerCase();
+      if(gn === playerName.toLowerCase() || gn === last) ok=true;
+      else ok = openAnswerMatches(playerName, given, true);
+    }
+  }
+
+  gameState.finalGuess = { given: given || '(no answer)', player: playerName || idFallback, correct: ok };
+
+  if(ok){
     fb.innerHTML = `<span class="correct">Congrats !</span> — It was <strong>${escapeHtml(playerName || idFallback)}</strong>.`;
-    gameState.blurPct = FINAL_REVEAL_PCT;
+    // When the final guess is correct, set blur to 0% as requested.
+    gameState.blurPct = 0;
     renderImage();
   } else {
     fb.innerHTML = `<span class="wrong">No!</span> — It was <strong>${escapeHtml(playerName || idFallback)}</strong>.`;
-    gameState.blurPct = FINAL_REVEAL_PCT;
+    gameState.blurPct = MIN_GAME_PCT;
     renderImage();
   }
 
