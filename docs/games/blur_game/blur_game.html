@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Tennis Guess — Blur Game (révisé)</title>
+  <title>Tennis Guess — Blur Game (révisé, anti-race)</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <style>
@@ -29,7 +29,7 @@
     .subtitle{color:var(--muted); font-size:13px;}
     .grid{display:grid; grid-template-columns:420px 1fr; gap:20px;}
     .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); padding:16px; border-radius:var(--radius); box-shadow:var(--card-shadow); border:1px solid rgba(255,255,255,0.03);}
-    .controls{Display:flex; gap:12px; align-items:center;}
+    .controls{display:flex; gap:12px; align-items:center;}
     select, button, input[type=text]{font-family:inherit; font-size:14px;}
     select{background:var(--glass); color:var(--muted); border:1px solid rgba(255,255,255,0.04); padding:8px 10px; border-radius:10px;}
     .btn{background:transparent; color:#e6eef6; padding:8px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.05); cursor:pointer;}
@@ -144,15 +144,10 @@
 const QUESTIONS_CSV = './questions.csv';
 const IMAGES_MANIFEST_JSON = './images_manifest.json';
 const IMAGES_CSV = './images.csv';
-// START / MIN blur values adjusted per request
-const START_PCT = 150; // starting blur % when no correct answers
-const MIN_GAME_PCT = 20; // minimum blur %
+const START_PCT = 150;
+const MIN_GAME_PCT = 20;
 const PIXEL_MAX = 60;
-
-// Only these 4 themes are shown
 const STATIC_TAGS = ['All','ATP','WTA','Player name'];
-
-// reductions by difficulty (direct subtraction when question answered correctly)
 const BLUR_REDUCTIONS = { 1:20, 2:33, 3:50, 4:70 };
 
 /* ========== STATE ========== */
@@ -163,9 +158,13 @@ let availableTags = [];
 let currentTag = 'All';
 let gameState = null;
 
+// players
 const PLAYERS_CSV = './players_list.csv';
 const PLAYERS_RANKS_JSON = './players_ranks.json';
 let players = [];
+
+// anti-race: unique start counter increments each time a game starts
+let startCounter = 0;
 
 /* ========== HELPERS ========== */
 function slugify(s){ return (s||'').toString().trim().toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9\-_]/g,''); }
@@ -199,7 +198,6 @@ function openAnswerMatches(correct,given,acceptNameVariants=false){
   const maxLen=Math.max(a.length,b.length), threshold=Math.max(1, Math.floor(maxLen*0.2));
   return levenshtein(a,b) <= threshold;
 }
-/* Validate player full name contains only letters and spaces (accents allowed) */
 function isAlphaOnlyName(name){
   if(!name) return false;
   return /^[A-Za-zÀ-ÖØ-öø-ÿ\s]+$/u.test(name.trim());
@@ -241,7 +239,7 @@ async function loadData(){
     return { id:id, url: it.url, player: it.player || fallback.player || '', tags: it.tags || fallback.tags || [] };
   });
 
-  // players list (optional) — filter to alpha-only names
+  // players list (optional)
   try {
     const playersCsvText = await fetch(PLAYERS_CSV).then(r => r.ok ? r.text() : Promise.reject('players_list.csv not found'));
     const playersParsed = Papa.parse(playersCsvText, { header: true, skipEmptyLines: true }).data || [];
@@ -261,17 +259,26 @@ async function loadData(){
     players = [];
   }
 
-  // collect tags from images & questions (kept for internal use, but not shown)
+  // collect tags
   const tagSet = new Set();
   images.forEach(img=> img.tags.forEach(t=>tagSet.add(t)));
   questions.forEach(q=> q.tags.forEach(t=> tagSet.add(t)));
   availableTags = Array.from(tagSet).sort((a,b)=>a.localeCompare(b));
+
+  // detect duplicate ids (helpful debugging)
+  const idCounts = {};
+  images.forEach(img => { idCounts[img.id] = (idCounts[img.id]||0) + 1; });
+  const duplicates = Object.keys(idCounts).filter(k => idCounts[k] > 1);
+  if (duplicates.length) {
+    console.warn('Duplicate image ids found in manifest:', duplicates);
+    // safe to update UI here if loadData called when DOM ready
+    try { document.getElementById('dataDebug').textContent += ' • WARNING: duplicate image IDs in manifest'; } catch(e){}
+  }
 }
 
-/* ========== UI: fill select ONLY with STATIC_TAGS ========== */
+/* ========== UI: tag select ========== */
 function fillTagSelect(){
   const sel=document.getElementById('tagSelect'); sel.innerHTML='';
-  // Only include the fixed list requested (All, ATP, WTA, Player name)
   STATIC_TAGS.forEach(t => {
     const opt = document.createElement('option');
     opt.value = t;
@@ -282,8 +289,8 @@ function fillTagSelect(){
   currentTag = sel.value || 'All';
 }
 
-/* ========== GENERATED QUESTIONS HELPERS (ANAGRAM / MASKED-alt) ========== */
-// pick random player with optional rank range filter (used to restrict to precise difficulty bracket)
+/* ========== Generated questions helpers ========== */
+// pick random player with rank window (min..max)
 function pickRandomPlayerForTag(tag, minRank = 1, maxRank = Infinity){
   let pool = [];
   const lt = (tag||'').toLowerCase();
@@ -291,7 +298,6 @@ function pickRandomPlayerForTag(tag, minRank = 1, maxRank = Infinity){
   else if(lt.includes('atp')) pool = players.filter(p => p.circuit && p.circuit.toUpperCase() === 'ATP');
   else pool = players.slice();
   pool = pool.filter(p => p && p.full_name && p.full_name.trim().length>0 && isAlphaOnlyName(p.full_name));
-  // apply rank range constraint if provided
   pool = pool.filter(p => {
     const r = Number(p.rank);
     if(!isFinite(r) || isNaN(r)) return false;
@@ -301,7 +307,6 @@ function pickRandomPlayerForTag(tag, minRank = 1, maxRank = Infinity){
   return pool[Math.floor(Math.random()*pool.length)];
 }
 
-// difficulty mapping for players' best ranks
 function difficultyFromRank(player){
   const rank = Number(player.rank);
   if(!isFinite(rank) || isNaN(rank)) return 4;
@@ -309,7 +314,7 @@ function difficultyFromRank(player){
   if(rank <= 20) return 2;
   if(rank <= 50) return 3;
   if(rank <= 100) return 4;
-  return 4; // fallback
+  return 4;
 }
 
 function shuffleWord(word){
@@ -335,17 +340,14 @@ function generateAnagram(fullName){
   if(words.length >= 2 && Math.random() < 0.25) an.reverse();
   return an.join(' ');
 }
-// Replace approximately 1/3 of letters (excluding first letter), chosen randomly — not necessarily alternating
 function generateMaskedAlternate(fullName){
   return fullName.toLowerCase().split(' ').map(word => {
     const letters = word.split('');
-    // collect indices eligible for replacement (letters only, exclude first)
     const eligible = [];
     for(let i=1;i<letters.length;i++){
       if(/[a-zà-ÿ]/i.test(letters[i])) eligible.push(i);
     }
     const toReplaceCount = Math.max(1, Math.round(eligible.length / 3));
-    // randomly pick unique indices to replace
     const chosen = new Set();
     while(chosen.size < toReplaceCount && chosen.size < eligible.length){
       const pick = eligible[Math.floor(Math.random()*eligible.length)];
@@ -355,15 +357,8 @@ function generateMaskedAlternate(fullName){
   }).join(' ');
 }
 
-// Make generated question — accepts optional desiredDifficulty so we only pick players matching the difficulty bracket
 function makeGeneratedQuestion(tag, desiredDifficulty = null){
   if(!players || players.length === 0) return null;
-
-  // If desiredDifficulty provided map to strict rank range so difficulty increases properly:
-  // difficulty 1 -> rank 1..10
-  // difficulty 2 -> rank 11..20
-  // difficulty 3 -> rank 21..50
-  // difficulty 4 -> rank 51..100
   let minRank = 1, maxRank = 100;
   if(desiredDifficulty !== null){
     if(desiredDifficulty === 1){ minRank = 1; maxRank = 10; }
@@ -371,14 +366,10 @@ function makeGeneratedQuestion(tag, desiredDifficulty = null){
     else if(desiredDifficulty === 3){ minRank = 21; maxRank = 50; }
     else if(desiredDifficulty === 4){ minRank = 51; maxRank = 100; }
   }
-
-  // Try to pick a player strictly within this rank window
   const player = pickRandomPlayerForTag(tag, minRank, maxRank);
-  if(!player) return null; // caller will fallback to regular question
-
+  if(!player) return null;
   const full = player.full_name;
   const difficulty = difficultyFromRank(player);
-
   if(Math.random() < 0.5){
     const an = generateAnagram(full);
     return {
@@ -424,21 +415,17 @@ function startGame(){
   const isPlayerTheme = (tag || '').toLowerCase().includes('player');
 
   if(isPlayerTheme && players.length > 0){
-    // Ensure the 4 questions are strictly increasing difficulty 1,2,3,4
+    // strictly difficulty 1..4
     for(let d=1; d<=4; d++){
-      // try to generate a player-based question that fits the difficulty bracket
       const gen = makeGeneratedQuestion(tag, d);
       if(gen){
-        // explicitly set difficulty to the requested slot to be consistent
         gen.difficulty = d;
         chosenQuestions.push(gen);
       } else {
-        // fallback: pick a question from the questions CSV with the matching difficulty if available
         let pool = questions.filter(q=> q.difficulty===d && containsTag(q.tags, tag));
         if(pool.length===0) pool = questions.filter(q=> q.difficulty===d);
         if(pool.length===0) pool = questions.slice();
         const rand = pool[Math.floor(Math.random()*pool.length)];
-        // ensure the difficulty field reflects the intended slot
         const clone = Object.assign({}, rand);
         clone.difficulty = d;
         chosenQuestions.push(clone);
@@ -451,20 +438,21 @@ function startGame(){
       if(pool.length===0) pool = questions.slice();
       chosenQuestions.push(Object.assign({}, pool[Math.floor(Math.random()*pool.length)]));
     }
-    // Occasionally swap in a generated question, but ensure it matches the difficulty slot
     if(Math.random() < 0.25 && players.length > 0){
       const idx = Math.floor(Math.random()*chosenQuestions.length);
       const desiredDifficulty = chosenQuestions[idx].difficulty || (idx+1);
       const gen = makeGeneratedQuestion(tag, desiredDifficulty);
-      if(gen){
-        gen.difficulty = desiredDifficulty;
-        chosenQuestions[idx] = gen;
-      }
+      if(gen){ gen.difficulty = desiredDifficulty; chosenQuestions[idx] = gen; }
     }
   }
 
+  // ----- ANTI-RACE: fix resolved player and set a unique game id -----
+  const resolvedPlayer = (chosenImage.player || (imagesCsvMap[chosenImage.id] && imagesCsvMap[chosenImage.id].player) || '').trim();
+  startCounter += 1;
+  const thisGameId = startCounter;
+
   gameState = {
-    image: chosenImage,
+    image: Object.assign({}, chosenImage, { resolvedPlayer }),
     questions: chosenQuestions,
     currentIndex:0,
     blurPct: START_PCT,
@@ -472,17 +460,22 @@ function startGame(){
     totalQuestions: chosenQuestions.length,
     timers:{},
     answers: [],
-    preloadedImg: null
+    preloadedImg: null,
+    gameId: thisGameId
   };
 
   const img = new Image();
   img.crossOrigin = 'anonymous';
+
   img.onload = () => {
+    // Ignore if this onload belongs to a previous game
+    if (!gameState || gameState.gameId !== thisGameId) return;
     gameState.preloadedImg = img;
     drawImageWithEffects(img, gameState.blurPct);
     document.getElementById('blurMeta').textContent = `Blur: ${Math.round(gameState.blurPct)}%`;
   };
   img.onerror = () => {
+    if (!gameState || gameState.gameId !== thisGameId) return;
     gameState.preloadedImg = null;
     const canvas = document.getElementById('playerCanvas'), ctx = canvas.getContext('2d');
     ctx.fillStyle='#111'; ctx.fillRect(0,0,canvas.width,canvas.height);
@@ -498,7 +491,7 @@ function startGame(){
   updateProgress();
 }
 
-/* ========== remainder: image render, timers, question flow, evaluation, final guess, summary, helpers, init ========== */
+/* ========== remainder: rendering, timers, flow ========== */
 const canvas = document.getElementById('playerCanvas'), ctx = canvas.getContext('2d');
 function drawImageWithEffects(img, blurPct){
   const cw = canvas.width = 600, ch = canvas.height = 600;
@@ -516,20 +509,36 @@ function drawImageWithEffects(img, blurPct){
   try { ctx.save(); ctx.filter=`blur(${blurPx}px)`; ctx.drawImage(tmp,0,0,tw,th,dx,dy,dw,dh); ctx.restore(); }
   catch(e){ ctx.drawImage(tmp,0,0,tw,th,dx,dy,dw,dh); }
 }
+
 function renderImage(){
   if(!gameState) return;
   const entry = gameState.image;
+
+  // If we have a preloaded image for the current game, draw it.
   if(gameState.preloadedImg){
     drawImageWithEffects(gameState.preloadedImg, gameState.blurPct);
     document.getElementById('blurMeta').textContent = `Blur: ${Math.round(gameState.blurPct)}%`;
     return;
   }
+
+  // If not preloaded, load and guard with gameId to avoid races
   const url = entry.url;
   const img = new Image(); img.crossOrigin='anonymous';
-  img.onload = ()=> { drawImageWithEffects(img, gameState.blurPct); document.getElementById('blurMeta').textContent = `Blur: ${Math.round(gameState.blurPct)}%`; };
-  img.onerror = ()=> { ctx.fillStyle='#111'; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.fillStyle='#999'; ctx.fillText('Image not reachable',20,40); };
+  const thisGameId = gameState.gameId;
+  img.onload = () => {
+    // Ensure the game hasn't changed
+    if (!gameState || gameState.gameId !== thisGameId) return;
+    drawImageWithEffects(img, gameState.blurPct);
+    document.getElementById('blurMeta').textContent = `Blur: ${Math.round(gameState.blurPct)}%`;
+  };
+  img.onerror = () => {
+    if (!gameState || gameState.gameId !== thisGameId) return;
+    ctx.fillStyle='#111'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle='#999'; ctx.fillText('Image not reachable',20,40);
+  };
   img.src = url;
 }
+
 const MAIN_ARC = document.getElementById('mainArc'), TOP_ARC = document.getElementById('topArc'), TIMER_LABEL = document.getElementById('timerLabel');
 const RING_CIRC = 2 * Math.PI * 18; let ringAnim = null;
 function startRing(durationMs, mainColorGradientId='g1', topDurationFraction=0.6) {
@@ -582,7 +591,7 @@ function renderCurrentQuestion(){
 
   renderImage();
 
-  // doubled the delay before showing inputs (was 5s -> now 10s)
+  // delay before showing inputs
   startRing(5000,'g1',0.55);
   gameState.timers.revealTimer = setTimeout(()=> { showAnswerInputs(q); }, 5000);
 }
@@ -616,7 +625,6 @@ function showAnswerInputs(q){
   }
   area.appendChild(inputArea);
 
-  // doubled answer time (was 10s -> now 20s)
   startRing(20000,'g2',0.5);
   if(!gameState.timers) gameState.timers = {};
   gameState.timers.answerTimeout = setTimeout(()=> { lockInputs(); evaluateAnswer('', q); }, 20000);
@@ -678,7 +686,6 @@ function evaluateAnswer(given, q){
   if(ok){
     fb.innerHTML = `<span class="correct">Correct!</span> — Answer: <strong>${escapeHtml(deriveCorrectAnswerLabel(q))}</strong>`;
     gameState.score += 1;
-    // use fixed reductions per difficulty (requested behaviour)
     const reduction = BLUR_REDUCTIONS[q.difficulty] || 0;
     gameState.blurPct = Math.max(MIN_GAME_PCT, gameState.blurPct - reduction);
     renderImage();
@@ -762,7 +769,6 @@ function renderFinalGuessStage(){
   setTimeout(()=> inp.focus(), 20);
   inp.addEventListener('keydown', (e)=> { if(e.key === 'Enter'){ e.preventDefault(); clearTimers(); evaluateFinalGuess(inp.value, true); }});
 
-  // doubled final guess time (was 12s -> now 24s)
   startRing(24000,'g2',0.5);
   if(!gameState.timers) gameState.timers = {};
   gameState.timers.answerTimeout = setTimeout(()=> { evaluateFinalGuess('', false); }, 24000);
@@ -774,11 +780,15 @@ function evaluateFinalGuess(given, userTriggered){
   clearTimers();
   const fb=document.getElementById('feedback');
   const imageEntry = gameState.image;
-  const playerName = (imageEntry.player || imagesCsvMap[imageEntry.id] && imagesCsvMap[imageEntry.id].player || '').trim();
+
+  // Use resolvedPlayer fixed at start (fallback to imagesCsvMap if needed)
+  const playerName = (imageEntry && imageEntry.resolvedPlayer) ? imageEntry.resolvedPlayer
+                     : (imagesCsvMap[imageEntry.id] && imagesCsvMap[imageEntry.id].player) || '';
   const idFallback = imageEntry.id || '';
   let ok=false;
-  if(!playerName){ ok = given && idFallback.toLowerCase().includes(given.trim().toLowerCase()); }
-  else {
+  if(!playerName){
+    ok = given && idFallback.toLowerCase().includes(given.trim().toLowerCase());
+  } else {
     const gn=(given||'').trim().toLowerCase();
     if(!gn) ok=false;
     else {
@@ -791,12 +801,11 @@ function evaluateFinalGuess(given, userTriggered){
   gameState.finalGuess = { given: given || '(no answer)', player: playerName || idFallback, correct: ok };
 
   if(ok){
-    fb.innerHTML = `<span class="correct">Congrats !</span> — It was <strong>${escapeHtml(playerName || idFallback)}</strong>`;
-    // When the final guess is correct, set blur to 0% as requested.
+    fb.innerHTML = `<span class="correct">Congrats !</span> — It was <strong>${escapeHtml(playerName || idFallback)}</strong>.`;
     gameState.blurPct = 0;
     renderImage();
   } else {
-    fb.innerHTML = `<span class="wrong">No!</span> — It was <strong>${escapeHtml(playerName || idFallback)}</strong>`;
+    fb.innerHTML = `<span class="wrong">No!</span> — It was <strong>${escapeHtml(playerName || idFallback)}</strong>.`;
     gameState.blurPct = MIN_GAME_PCT;
     renderImage();
   }
@@ -818,7 +827,10 @@ function showSummary(){
     const tr = document.createElement('tr');
     const userCell = `<span class="${a.correct ? 'ok-text' : 'bad-text'}">${escapeHtml(a.userAnswer)}</span>`;
     const corrCell = escapeHtml(a.correctAnswer);
-    tr.innerHTML = `<td>${escapeHtml(a.question)}</td>                     <td>${userCell}</td>                     <td>${corrCell}</td>                     <td>${a.difficulty}</td>`;
+    tr.innerHTML = `<td>${escapeHtml(a.question)}</td>
+                    <td>${userCell}</td>
+                    <td>${corrCell}</td>
+                    <td>${a.difficulty}</td>`;
     tbody.appendChild(tr);
   });
   tbl.appendChild(tbody);
@@ -826,7 +838,8 @@ function showSummary(){
 
   const percent = weightedTotal ? Math.round((weightedCorrect/weightedTotal)*100) : 0;
   const scoreDiv = document.createElement('div'); scoreDiv.style.marginTop='12px';
-  scoreDiv.innerHTML = `<div class="small">Weighted score: <strong>${weightedCorrect} / ${weightedTotal}</strong> (${percent}%)</div>                         <div class="small">Final guess: <strong>${escapeHtml(gameState.finalGuess.player)}</strong> — ${gameState.finalGuess.correct ? 'Correct' : 'Wrong'}</div>`;
+  scoreDiv.innerHTML = `<div class="small">Weighted score: <strong>${weightedCorrect} / ${weightedTotal}</strong> (${percent}%)</div>
+                        <div class="small">Final guess: <strong>${escapeHtml(gameState.finalGuess.player)}</strong> — ${gameState.finalGuess.correct ? 'Correct' : 'Wrong'}</div>`;
   area.appendChild(scoreDiv);
 
   document.getElementById('restartBtn').style.display='inline-block';
