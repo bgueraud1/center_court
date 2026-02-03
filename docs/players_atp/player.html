@@ -37,10 +37,10 @@
     .tourney-cat { font-size:13px; color:#fff; padding:3px 8px; border-radius:6px; margin-left:8px; font-weight:600; }
 
     .match-line { display:flex; gap:12px; align-items:center; padding:6px 4px; border-radius:6px; }
-    .match-line.win { color: #0b7a33; }   /* green */
-    .match-line.loss { color: #b71c1c; }  /* red */
+    .match-line.win { color: #0b7a33; }   /* green text */
+    .match-line.loss { color: #b71c1c; }  /* red text */
     .match-opponent { flex:1; }
-    .match-score { min-width:120px; text-align:left; font-family: monospace; }
+    .match-score { min-width:120px; text-align:left; font-family: monospace; font-weight:700; }
     .match-date { min-width:90px; text-align:left; color:var(--muted); }
     .match-round { min-width:60px; text-align:left; color:var(--muted); font-size:13px; }
 
@@ -55,6 +55,8 @@
     .select-year { padding:6px 8px; border-radius:6px; border:1px solid var(--border); background:#fff; }
 
     .no-data { color:var(--muted); padding:12px; }
+
+    a.player-link { color:inherit; text-decoration:underline; font-weight:700; }
 
     @media (max-width:760px){
       .player-header { flex-direction:column; }
@@ -107,36 +109,20 @@
   </div>
 
 <script>
-/* Client-side JS for player.html
-   - Expects index in /index/players_index.json
-   - Expects combined JSON in /players_atp/data/{slug}.json
-   - Uses combined.matches_by_year structured as:
-     { "2025": [ {event_id, tourney_name, category, surface, matches: [ {match fields...} ] }, ... ], ... }
-*/
-
 function escapeHtml(s){
   if (s === null || s === undefined) return '';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
-
 function countryCodeToFlag(code){
   if(!code) return '';
-  // small IOC/ISO3 -> ISO2 mapping for common countries (expand as needed)
-  const map = {
-    'ITA':'IT','ESP':'ES','GER':'DE','USA':'US','GBR':'GB','SRB':'RS','FRA':'FR','ARG':'AR','BRA':'BR','SUI':'CH'
-  };
+  const map = {'ITA':'IT','ESP':'ES','GER':'DE','USA':'US','GBR':'GB','SRB':'RS','FRA':'FR','ARG':'AR','BRA':'BR','SUI':'CH'};
   let iso2 = code;
-  if(code.length === 3){
-    iso2 = map[code.toUpperCase()] || null;
-  }
+  if(code.length === 3) iso2 = map[code.toUpperCase()] || null;
   if(!iso2 && code.length === 2) iso2 = code.toUpperCase();
   if(!iso2) return '';
-  // convert to regional indicator symbols
   const A = 0x1F1E6;
-  const chars = [...iso2.toUpperCase()].map(c => String.fromCodePoint(A + c.charCodeAt(0) - 65)).join('');
-  return chars;
+  return [...iso2.toUpperCase()].map(c => String.fromCodePoint(A + c.charCodeAt(0) - 65)).join('');
 }
-
 function surfaceClass(surface){
   if(!surface) return 'surf-other';
   const s = String(surface).toLowerCase();
@@ -145,42 +131,26 @@ function surfaceClass(surface){
   if(s.includes('grass')) return 'surf-grass';
   return 'surf-other';
 }
-
 function dateWithoutYear(isoDate){
   if(!isoDate) return '';
-  // expect YYYY-MM-DD
   try{
     const d = new Date(isoDate);
     if(isNaN(d)) {
-      // try parse string extract MM-DD
       const m = isoDate.match(/^\d{4}-(\d{2}-\d{2})/);
       return m ? m[1] : isoDate;
     }
-    // locale format: use day-month without year
     const day = String(d.getDate()).padStart(2,'0');
     const month = String(d.getMonth()+1).padStart(2,'0');
     return `${day}-${month}`;
-  }catch(e){
-    return isoDate;
-  }
+  }catch(e){ return isoDate; }
 }
-
 async function fetchJsonSafe(url){
-  try{
-    const r = await fetch(url);
-    if(!r.ok) return null;
-    return await r.json();
-  }catch(e){
-    console.warn('fetch failed',url,e);
-    return null;
-  }
+  try{ const r = await fetch(url); if(!r.ok) return null; return await r.json(); }catch(e){ console.warn('fetch failed',url,e); return null; }
 }
 
 (async function(){
   const loading = document.getElementById('loading');
   const root = document.getElementById('player-root');
-
-  // determine slug from URL
   const parts = location.pathname.replace(/\/$/, '').split('/');
   const slug = parts[parts.length - 1] || parts[parts.length - 2] || '';
   if(!slug){ loading.textContent = 'Slug introuvable dans l’URL.'; return; }
@@ -188,7 +158,6 @@ async function fetchJsonSafe(url){
   loading.textContent = 'Chargement de l’index des joueurs…';
   const index = await fetchJsonSafe('/index/players_index.json');
   if(!index || !Array.isArray(index.players)){ loading.textContent = 'Index indisponible (/index/players_index.json).'; return; }
-
   const players = index.players;
   const slugLower = slug.toLowerCase();
   const found = players.find(p => (p.slug && p.slug.toLowerCase() === slugLower) || (((''+(p.player_id||'')).toLowerCase() + '-' + (p.slug||'')).toLowerCase() === slugLower));
@@ -200,7 +169,6 @@ async function fetchJsonSafe(url){
 
   let combined = await fetchJsonSafe(dataUrl);
   if(!combined){
-    // fallback legacy
     const legacyMeta = await fetchJsonSafe(`/players_atp/${pid}.meta.json`);
     const legacyMatches = await fetchJsonSafe(`/players_atp/${pid}.matches.json`);
     if(legacyMeta || legacyMatches){
@@ -219,7 +187,7 @@ async function fetchJsonSafe(url){
     } else { loading.textContent = 'Données indisponibles pour le joueur.'; return; }
   }
 
-  // normalize
+  // normalise
   combined.player_id = combined.player_id || pid;
   combined.name = combined.name || found.name || pid;
   combined.slug = combined.slug || slugLower;
@@ -228,18 +196,15 @@ async function fetchJsonSafe(url){
   combined.best_by_year = combined.best_by_year || {};
   combined.total_points_by_year = combined.total_points_by_year || {};
 
-  // HEADER render
+  // header
   document.getElementById('player-name').textContent = combined.name;
-  const pidCountry = document.getElementById('player-id-country');
   const flag = countryCodeToFlag(combined.country || found.country || '');
-  pidCountry.innerHTML = `<strong>ID:</strong> ${combined.player_id} ${combined.country ? ' • ' + escapeHtml(combined.country) : ''} ${flag ? ' ' + flag : ''}`;
+  document.getElementById('player-id-country').innerHTML = `<strong>ID:</strong> ${combined.player_id} ${combined.country ? ' • ' + escapeHtml(combined.country) : ''} ${flag ? ' ' + flag : ''}`;
 
-  // attributes
-  const attrs = document.getElementById('player-attrs');
-  attrs.innerHTML = '';
+  // attrs
+  const attrs = document.getElementById('player-attrs'); attrs.innerHTML = '';
   const makeAttr = (label, val) => {
-    const d = document.createElement('div');
-    d.className = 'attr';
+    const d = document.createElement('div'); d.className = 'attr';
     d.innerHTML = `<div style="font-weight:600">${escapeHtml(label)}</div><div class="sub" style="margin-top:4px;">${escapeHtml(val || '—')}</div>`;
     return d;
   };
@@ -256,43 +221,36 @@ async function fetchJsonSafe(url){
   const imageWrap = document.getElementById('player-image');
   imageWrap.innerHTML = '';
   if(combined.image){
-    const img = document.createElement('img');
-    img.src = combined.image;
-    img.alt = combined.name;
-    img.loading = 'lazy';
-    imageWrap.appendChild(img);
-  } else {
-    imageWrap.innerHTML = '<div class="sub">Pas d’image</div>';
-  }
+    const img = document.createElement('img'); img.src = combined.image; img.alt = combined.name; img.loading = 'lazy'; imageWrap.appendChild(img);
+  } else imageWrap.innerHTML = '<div class="sub">Pas d’image</div>';
 
-  // === MATCHS PAR ANNEE ===
+  // Matches by year
   const matchesContainer = document.getElementById('matches-container');
-  // matches_by_year expected as {year: [ {event_id,tourney_name,category,surface,matches:[]}, ... ], ...}
   let mby = combined.matches_by_year || {};
-  // if empty but raw matches present, build groups on client just-in-case
+
+  // fallback: build grouping client-side if needed
   if(Object.keys(mby).length === 0 && Array.isArray(combined.matches) && combined.matches.length){
-    mby = {};
+    const map = {};
     for(const m of combined.matches){
       const y = (m.event_year || '').toString();
-      const event_id = (m.event_id || '') + '';
-      const key = event_id || ('unknown_'+(m.tourney_name || '').slice(0,20));
-      if(!mby[y]) mby[y] = {};
-      if(!mby[y][key]) mby[y][key] = { event_id: event_id, tourney_name: m.tourney_name || '', category: m.category || '', surface: m.surface || '', matches: [] };
-      mby[y][key].matches.push(m);
+      if(!map[y]) map[y] = {};
+      const name = (m.tourney_name || '').trim();
+      const key = (m.event_id ? m.event_id + '||' : 'NOID||') + name;
+      if(!map[y][key]) map[y][key] = { event_id: m.event_id || '', tourney_name: name, category: m.category || '', surface: m.surface || '', start_date: m.match_date || '', matches: [] };
+      map[y][key].matches.push(m);
     }
-    // convert nested maps to arrays
+    // convert
     const conv = {};
-    for(const y in mby){
-      conv[y] = Object.values(mby[y]).map(t => {
-        t.matches = (t.matches || []).sort((a,b) => (b.match_date || '').localeCompare(a.match_date || ''));
+    for(const y in map){
+      conv[y] = Object.values(map[y]).map(t => {
+        t.matches = t.matches.sort((a,b)=> (b.match_date||'').localeCompare(a.match_date||''));
         return t;
       });
     }
     mby = conv;
   }
 
-  // list of years for selector
-  const years = Object.keys(mby).filter(k => k !== '').sort((a,b) => parseInt(b||0) - parseInt(a||0));
+  const years = Object.keys(mby).filter(k=>k!=='').sort((a,b)=>parseInt(b||0)-parseInt(a||0));
   if(mby[''] && !years.includes('')) years.push('');
   const yearSelect = document.getElementById('year-select');
   yearSelect.innerHTML = '';
@@ -300,12 +258,8 @@ async function fetchJsonSafe(url){
     matchesContainer.innerHTML = '<div class="no-data">Aucun match disponible.</div>';
   } else {
     for(const y of years){
-      const opt = document.createElement('option');
-      opt.value = y;
-      opt.textContent = y ? y : 'Année inconnue';
-      yearSelect.appendChild(opt);
+      const opt = document.createElement('option'); opt.value = y; opt.textContent = y ? y : 'Année inconnue'; yearSelect.appendChild(opt);
     }
-    // default selected = most recent year
     const selectedYear = years[0];
     yearSelect.value = selectedYear;
     renderMatchesForYear(selectedYear);
@@ -314,42 +268,71 @@ async function fetchJsonSafe(url){
   function renderMatchesForYear(year){
     matchesContainer.innerHTML = '';
     const tournaments = (mby[year] || []);
-    if(!tournaments.length){
-      matchesContainer.innerHTML = '<div class="no-data">Aucun match pour cette année.</div>';
-      return;
-    }
-    // For each tournament, create a box with color by surface and category badge
+    if(!tournaments || tournaments.length === 0){ matchesContainer.innerHTML = '<div class="no-data">Aucun match pour cette année.</div>'; return; }
+    // tournaments already sorted by start_date desc server-side; but ensure client-side ordering too:
+    tournaments.sort((a,b) => {
+      const aDate = a.start_date || '';
+      const bDate = b.start_date || '';
+      if(aDate && bDate){
+        if(aDate < bDate) return 1;
+        if(aDate > bDate) return -1;
+      } else if(aDate && !bDate) return -1;
+      else if(!aDate && bDate) return 1;
+      // tie-break by name
+      return (a.tourney_name || '').localeCompare(b.tourney_name || '');
+    });
+
     for(const t of tournaments){
       const surfClass = surfaceClass(t.surface || '');
-      const div = document.createElement('div');
-      div.className = 'tourney ' + surfClass;
-      const header = document.createElement('div');
-      header.className = 'tourney-header';
+      const div = document.createElement('div'); div.className = 'tourney ' + surfClass;
+      const header = document.createElement('div'); header.className = 'tourney-header';
       const title = document.createElement('div');
-      title.innerHTML = `<span class="tourney-title">${escapeHtml(t.tourney_name || (t.event_id || 'Tournoi'))}</span> <span class="tourney-cat" style="background:rgba(0,0,0,0.15); color:#111;">${escapeHtml(t.category || '')}</span>`;
+      title.innerHTML = `<span class="tourney-title">${escapeHtml(t.tourney_name || 'Tournoi')}</span> <span class="tourney-cat" style="background:rgba(0,0,0,0.15); color:#111;">${escapeHtml(t.category || '')}</span>`;
       header.appendChild(title);
-      const info = document.createElement('div');
-      info.className = 'small muted';
-      info.textContent = t.surface ? `Surface: ${t.surface}` : '';
+      const info = document.createElement('div'); info.className = 'small muted';
+      if(t.start_date) info.textContent = `Début: ${t.start_date}`; else info.textContent = t.surface ? `Surface: ${t.surface}` : '';
       header.appendChild(info);
       div.appendChild(header);
 
-      // match list - one line per match: opponent | score | date(without year) | round
+      // ensure matches are ordered: F/W > SF > QF > R16 > R32 > R64 > R128 > other
+      const mm = (t.matches || []).slice();
+      mm.sort((a,b) => {
+        // round order
+        const order = {'W':0,'F':0,'SF':1,'QF':2,'R16':3,'R32':4,'R64':5,'R128':6,'RR':7};
+        const ra = (a.round || '').toUpperCase();
+        const rb = (b.round || '').toUpperCase();
+        const oa = (order[ra] !== undefined) ? order[ra] : 99;
+        const ob = (order[rb] !== undefined) ? order[rb] : 99;
+        if(oa !== ob) return oa - ob;
+        // then by match_date desc
+        const da = a.match_date || '';
+        const db = b.match_date || '';
+        if(da < db) return 1;
+        if(da > db) return -1;
+        return 0;
+      });
+
       const list = document.createElement('div');
-      for(const m of (t.matches || [])){
+      for(const m of mm){
+        const isWin = m.is_win === true;
         const line = document.createElement('div');
-        const cls = m.is_win ? 'match-line win' : (m.is_win === false ? 'match-line loss' : 'match-line');
-        line.className = cls;
-        // opponent link if id present
+        line.className = 'match-line ' + (isWin ? 'win' : (m.is_win === false ? 'loss' : ''));
+        // opponent and score visibility: bold and colored; opponent link if id available
         let oppHtml = escapeHtml(m.opponent || '—');
         if(m.opponent_id){
           const href = `/players_atp/${String(m.opponent_id).toLowerCase()}`;
-          oppHtml = `<a href="${href}" class="player-link">${escapeHtml(m.opponent || m.opponent_id)}</a>`;
+          oppHtml = `<a class="player-link" href="${href}">${escapeHtml(m.opponent || m.opponent_id)}</a>`;
+        } else {
+          oppHtml = `<span style="font-weight:700">${escapeHtml(m.opponent || '—')}</span>`;
         }
+        const scoreHtml = `<span style="font-weight:700">${escapeHtml(m.score || '')}</span>`;
+        const dateTxt = escapeHtml(dateWithoutYear(m.match_date || ''));
+        const roundTxt = escapeHtml(m.round || '');
+        // combine: opponent (bold colored) — score (bold) — date — round
         line.innerHTML = `<div class="match-opponent">${oppHtml}</div>
-                          <div class="match-score">${escapeHtml(m.score || '')}</div>
-                          <div class="match-date">${escapeHtml(dateWithoutYear(m.match_date || ''))}</div>
-                          <div class="match-round">${escapeHtml(m.round || '')}</div>`;
+                          <div class="match-score">${scoreHtml}</div>
+                          <div class="match-date">${dateTxt}</div>
+                          <div class="match-round">${roundTxt}</div>`;
         list.appendChild(line);
       }
       div.appendChild(list);
@@ -357,22 +340,15 @@ async function fetchJsonSafe(url){
     }
   }
 
-  yearSelect.addEventListener('change', (e) => {
-    renderMatchesForYear(e.target.value);
-  });
+  yearSelect.addEventListener('change', (e) => renderMatchesForYear(e.target.value));
 
-  // === TROPHIES & BEST ===
-  const trophiesList = document.getElementById('trophies-list');
-  trophiesList.innerHTML = '';
+  // TROPHIES & BEST (kept as before)
+  const trophiesList = document.getElementById('trophies-list'); trophiesList.innerHTML = '';
   const trophies = (combined.trophies || []).slice();
-  if(!trophies.length){
-    trophiesList.innerHTML = '<div class="no-data">Aucun trophée enregistré.</div>';
-  } else {
-    // trophies already sorted by importance (points)
+  if(!trophies.length) trophiesList.innerHTML = '<div class="no-data">Aucun trophée enregistré.</div>';
+  else {
     for(const t of trophies){
-      const node = document.createElement('div');
-      node.className = 'tourney surf-other';
-      node.style.padding = '10px';
+      const node = document.createElement('div'); node.className = 'tourney surf-other'; node.style.padding = '10px';
       node.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;">
                           <div><strong>${escapeHtml(t.tourney_name || '—')}</strong><div class="small muted">${escapeHtml(t.category || '')} — Année ${escapeHtml(t.event_year || '')}</div></div>
                           <div style="text-align:right;"><div style="font-weight:700">${escapeHtml(String(t.points || 0))} pts</div></div>
@@ -381,49 +357,26 @@ async function fetchJsonSafe(url){
     }
   }
 
-  // Best per year selector
-  const bestSelect = document.getElementById('best-year-select');
-  bestSelect.innerHTML = '';
-  const bestYears = Object.keys(combined.best_by_year || {}).filter(k => k !== '').sort((a,b) => parseInt(b||0) - parseInt(a||0));
+  const bestSelect = document.getElementById('best-year-select'); bestSelect.innerHTML = '';
+  const bestYears = Object.keys(combined.best_by_year || {}).filter(k => k !== '').sort((a,b)=>parseInt(b||0)-parseInt(a||0));
   if((combined.best_by_year || {})['']) bestYears.push('');
   if(bestYears.length === 0){
-    bestSelect.disabled = true;
-    bestSelect.innerHTML = '<option>—</option>';
+    bestSelect.disabled = true; bestSelect.innerHTML = '<option>—</option>';
     document.getElementById('best-list').innerHTML = '<div class="no-data">Aucune meilleure performance disponible.</div>';
   } else {
-    for(const y of bestYears){
-      const o = document.createElement('option');
-      o.value = y;
-      o.textContent = y ? y : 'Année inconnue';
-      bestSelect.appendChild(o);
-    }
-    // default = most recent
-    const defaultBestYear = bestYears[0];
-    bestSelect.value = defaultBestYear;
-    renderBestForYear(defaultBestYear);
+    for(const y of bestYears){ const o = document.createElement('option'); o.value = y; o.textContent = y ? y : 'Année inconnue'; bestSelect.appendChild(o); }
+    const defaultBestYear = bestYears[0]; bestSelect.value = defaultBestYear; renderBestForYear(defaultBestYear);
   }
 
   function renderBestForYear(y){
-    const container = document.getElementById('best-list');
-    container.innerHTML = '';
+    const container = document.getElementById('best-list'); container.innerHTML = '';
     const arr = (combined.best_by_year && combined.best_by_year[y]) ? combined.best_by_year[y] : [];
     const total = (combined.total_points_by_year && combined.total_points_by_year[y]) ? combined.total_points_by_year[y] : null;
-    if(!arr.length){
-      container.innerHTML = '<div class="no-data">Aucune performance pour cette année.</div>';
-      return;
-    }
-    if(total !== null){
-      const totDiv = document.createElement('div');
-      totDiv.className = 'sub';
-      totDiv.style.marginBottom = '8px';
-      totDiv.textContent = `Total points année ${y}: ${total}`;
-      container.appendChild(totDiv);
-    }
+    if(!arr.length){ container.innerHTML = '<div class="no-data">Aucune performance pour cette année.</div>'; return; }
+    if(total !== null){ const totDiv = document.createElement('div'); totDiv.className = 'sub'; totDiv.style.marginBottom = '8px'; totDiv.textContent = `Total points année ${y}: ${total}`; container.appendChild(totDiv); }
     const ul = document.createElement('div');
     for(const it of arr){
-      const div = document.createElement('div');
-      div.className = 'tourney surf-other';
-      div.style.marginBottom = '8px';
+      const div = document.createElement('div'); div.className = 'tourney surf-other'; div.style.marginBottom = '8px';
       div.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;">
                           <div><strong>${escapeHtml(it.tourney_name || it.event_id || '—')}</strong><div class="small muted">${escapeHtml(it.category || '')} — ${escapeHtml(it.surface || '')}</div></div>
                           <div style="font-weight:700">${escapeHtml(String(it.points || 0))} pts</div>
@@ -435,19 +388,18 @@ async function fetchJsonSafe(url){
 
   bestSelect.addEventListener('change', (e) => renderBestForYear(e.target.value));
 
-  // show page
+  // finalize
   loading.style.display = 'none';
   root.style.display = 'block';
 
-  // tabs behaviour
+  // tabs
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       const target = btn.getAttribute('data-target');
       document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-      const tgt = document.getElementById(target);
-      if(tgt) tgt.classList.add('active');
+      const tgt = document.getElementById(target); if(tgt) tgt.classList.add('active');
     });
   });
 
