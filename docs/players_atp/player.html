@@ -209,6 +209,16 @@ function fetchJsonSafe(url){
   catch(e){ console.warn('fetch failed',url,e); return Promise.resolve(null); }
 }
 
+/* === FIX: surfaceClass was missing — reintroduce it === */
+function surfaceClass(surface){
+  if(!surface) return 'surf-other';
+  const s = String(surface).toLowerCase();
+  if(s.includes('hard')) return 'surf-hard';
+  if(s.includes('clay') || s.includes('red')) return 'surf-clay';
+  if(s.includes('grass')) return 'surf-grass';
+  return 'surf-other';
+}
+
 /* ----------------- main UI flow ----------------- */
 (async function(){
   const loading = document.getElementById('loading');
@@ -338,6 +348,7 @@ function fetchJsonSafe(url){
     matchesContainer.innerHTML = '';
     const tournaments = (mby[year] || []);
     if(!tournaments || tournaments.length === 0){ matchesContainer.innerHTML = '<div class="no-data">No matches for this year.</div>'; return; }
+    // ensure tournaments sorted by start_date desc then name
     tournaments.sort((a,b) => {
       const aDate = a.start_date || '';
       const bDate = b.start_date || '';
@@ -357,10 +368,12 @@ function fetchJsonSafe(url){
       title.innerHTML = `<span class="tourney-title">${escapeHtml(t.tourney_name || 'Tournament')}</span> <span class="tourney-cat" style="background:rgba(0,0,0,0.15); color:#111;">${escapeHtml(t.category || '')}</span>`;
       header.appendChild(title);
       const info = document.createElement('div'); info.className = 'small muted';
+      // Removed start_date display as requested. Show surface only (if known)
       info.textContent = t.surface ? `Surface: ${t.surface}` : '';
       header.appendChild(info);
       div.appendChild(header);
 
+      // matches ordered: F/W > SF > QF > R16 > R32 > R64 > R128 > other
       const mm = (t.matches || []).slice();
       mm.sort((a,b) => {
         const order = {'W':0,'F':0,'SF':1,'QF':2,'R16':3,'R32':4,'R64':5,'R128':6,'RR':7};
@@ -369,6 +382,7 @@ function fetchJsonSafe(url){
         const oa = (order[ra] !== undefined) ? order[ra] : 99;
         const ob = (order[rb] !== undefined) ? order[rb] : 99;
         if(oa !== ob) return oa - ob;
+        // then by start_date desc
         const da = a.start_date || '';
         const db = b.start_date || '';
         if(da < db) return 1;
@@ -381,6 +395,7 @@ function fetchJsonSafe(url){
         const isWin = m.is_win === true;
         const line = document.createElement('div');
         line.className = 'match-line ' + (isWin ? 'win' : (m.is_win === false ? 'loss' : ''));
+        // opponent and score: bold + color
         let oppHtml = escapeHtml(m.opponent || '—');
         if(m.opponent_id){
           const href = `/players_atp/${String(m.opponent_id).toLowerCase()}`;
