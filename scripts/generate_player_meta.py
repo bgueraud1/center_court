@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-generate_player_meta.py (corrigé)
+generate_player_meta.py (strict start_date)
 Génère les JSON meta + matches (players_atp/data/{slug}.json, legacy .meta/.matches)
 Usage:
   python scripts/generate_player_meta.py --matches-dir ./matches/atp_matches --out-dir ./docs --player-data-csv player_data_atp.csv
@@ -35,13 +35,13 @@ def slugify(name: str) -> str:
     return s or ''
 
 def parse_date_only(val):
+    """Return ISO date 'YYYY-MM-DD' if possible, else ''."""
     if val is None:
         return ''
     if isinstance(val, str):
         v = val.strip()
         if v == '':
             return ''
-        # try iso
         try:
             dt = datetime.fromisoformat(v)
             return dt.date().isoformat()
@@ -56,10 +56,7 @@ def parse_date_only(val):
         m = re.search(r"(\d{4}-\d{2}-\d{2})", v)
         if m:
             return m.group(1)
-        m2 = re.search(r"(\d{4})", v)
-        if m2:
-            return m2.group(1)
-        return v
+        return ''
     try:
         dt = pd.to_datetime(val, errors='coerce')
         if not pd.isna(dt):
@@ -85,7 +82,7 @@ def read_matches_from_dir(matches_dir):
     matches = pd.concat(frames, ignore_index=True, sort=False)
     return matches
 
-# Points mapping approximations (used if no explicit points column)
+# Points mapping (kept for best_by_year fallback)
 POINTS_TABLE = {
     'grand_slam': {'W':2000,'F':1300,'SF':800,'QF':400,'R16':200,'R32':100,'R64':50,'R128':10},
     'masters_1000': {'W':1000,'F':650,'SF':400,'QF':200,'R16':100,'R32':50,'R64':30,'R128':10},
@@ -138,7 +135,6 @@ def normalize_round_token(round_tok):
 def points_for_match_row(rr):
     if rr is None:
         return 0
-    # explicit columns preference
     for c in ('points_for_result','points','ranking_points','points_won'):
         try:
             if c in rr.index and rr.get(c) not in (None, ''):
@@ -149,7 +145,6 @@ def points_for_match_row(rr):
                     pass
         except Exception:
             pass
-    # deduce from category + round
     cat = None
     for c in ('category','level','tourney_level','category_name','tourney_name'):
         try:
@@ -170,7 +165,7 @@ def points_for_match_row(rr):
             return int(table.get('R32') or 0)
     return int(table.get('W') or 0) if round_tok == 'W' else int(table.get('F') or 0) if round_tok == 'F' else 0
 
-# build_matches_index_for_player (safe checks)
+# build_matches_index_for_player: **only** use start_date for dates
 def build_matches_index_for_player(matches_df: pd.DataFrame, player_id: str, max_matches: int = None):
     pid = normalize_player_id(player_id)
     if not pid:
@@ -210,7 +205,8 @@ def build_matches_index_for_player(matches_df: pd.DataFrame, player_id: str, max
             match_id = r.get('match_id') or r.get('id') or ''
             event_id = r.get('event_id') or ''
             event_year = str(r.get('event_year') or '')
-            match_date = parse_date_only(r.get('start_date') or '')
+            # STRICT: only read start_date column
+            start_date = parse_date_only(r.get('start_date') or '')
             score = r.get('score_string') if 'score_string' in r.index else r.get('score') if 'score' in r.index else ''
             round_tok = r.get('round') if 'round' in r.index else ''
             surface = (r.get('surface') or '')
@@ -235,7 +231,8 @@ def build_matches_index_for_player(matches_df: pd.DataFrame, player_id: str, max
                 'match_id': str(match_id),
                 'event_id': str(event_id),
                 'event_year': str(event_year),
-                'match_date': match_date,
+                # strict field name
+                'start_date': start_date,
                 'opponent': str(opp_name) if opp_name is not None else '',
                 'opponent_id': str(opp_id).strip().upper() if opp_id not in (None, '') else None,
                 'is_win': bool(is_win) if is_win is not None else None,
@@ -251,8 +248,9 @@ def build_matches_index_for_player(matches_df: pd.DataFrame, player_id: str, max
             print("Warning: failed to process a match row for player", pid)
             traceback.print_exc()
 
+    # sort by start_date ascending (older -> newer) keep stable
     def date_key(x):
-        d = x.get('match_date') or ''
+        d = x.get('start_date') or ''
         try:
             return datetime.fromisoformat(d)
         except Exception:
@@ -283,13 +281,12 @@ def round_sort_index(tok):
     t = normalize_round_token(tok)
     return ROUND_ORDER.get(t, 99)
 
-# build_player_combined
+# build_player_combined: use start_date everywhere (no fallback)
 def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_df: pd.DataFrame = None):
     pid = normalize_player_id(player_id)
     if not pid:
         return None
 
-    # find rows for this player (safe)
     cond_w_series = None
     cond_l_series = None
     try:
@@ -337,13 +334,9 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
         try:
             row = player_data_df[player_data_df['player_id'].astype(str).str.strip().str.upper() == pid]
             if not row.empty:
-                row = row.iloc(0).to_dict() if hasattr(row, 'iloc') else row.iloc[0].to_dict()
+                row = row.iloc[0].to_dict()
         except Exception:
-            try:
-                # fallback to first matching record
-                row = player_data_df[player_data_df['player_id'].astype(str).str.strip().str.upper() == pid].iloc[0].to_dict()
-            except Exception:
-                row = None
+            row = None
         if row:
             full_name = row.get('full_name') or name
             birthdate = parse_date_only(row.get('birth_date') or row.get('dob') or '')
@@ -365,10 +358,10 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
             best_rank = row.get('highest_ranking') or row.get('best_rank') or row.get('career_high_rank') or None
             image = row.get('image') or row.get('photo') or None
             country = row.get('represented_country') or row.get('country') or row.get('country_code') or None
-            first_appearance = parse_date_only(row.get('first_appearance') or row.get('first_appearance_year') or row.get('debut') or '') or ''
-            last_appearance = parse_date_only(row.get('last_appearance') or row.get('last_appearance_year') or '') or ''
+            first_appearance = parse_date_only(row.get('first_appearance') or '') or ''
+            last_appearance = parse_date_only(row.get('last_appearance') or '') or ''
 
-    # fallback deduce first/last from df
+    # fallback deduce first/last from df event_year only (dates not used)
     try:
         years = sorted([y for y in df['event_year'].dropna().astype(str).unique() if str(y).strip()!=''])
         if years and not first_appearance:
@@ -378,6 +371,7 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
     except Exception:
         pass
 
+    # build matches index (entries include start_date)
     matches_index = build_matches_index_for_player(matches_df, pid)
     matches_played = len(matches_index)
     matches_won = sum(1 for m in matches_index if m.get('is_win') is True)
@@ -389,7 +383,7 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
         'matches_lost': int(matches_lost)
     }
 
-    # build match_lookup: map match_id -> original row
+    # build match_lookup: map match_id -> original row (so we can read start_date if needed)
     match_lookup = {}
     try:
         for idx, r in df.iterrows():
@@ -399,44 +393,29 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
     except Exception:
         traceback.print_exc()
 
-    # GROUP TOURNAMENTS: ALWAYS use tourney_name column as displayed name.
+    # GROUP TOURNAMENTS: display name ALWAYS from tourney_name column. start_date ONLY from start_date col.
     tournaments_by_year = defaultdict(lambda: {})
     for m in matches_index:
         try:
             y = m.get('event_year') or ''
             tourney_name = (m.get('tourney_name') or '').strip()
-            # event key: prefer event_id + tourney_name to avoid accidental collisions,
-            # but use tourney_name as displayed value always.
             ev = m.get('event_id') or ''
-            if ev:
-                event_key = f"{ev}||{tourney_name}"
-            else:
-                # if no event_id, key by tourney_name + start_date fallback
-                event_key = f"NOID||{tourney_name}||{m.get('match_date') or ''}"
+            # get start_date strictly from match entry's start_date (already parsed)
+            sd = m.get('start_date') or ''
+            # Key uses event_id + tourney_name + start_date to avoid accidental duplicates,
+            # but displayed name = tourney_name (no fallback)
+            event_key = f"{ev or 'NOID'}||{tourney_name}||{sd}"
             tb = tournaments_by_year[y]
             if event_key not in tb:
-                # get start_date from original row if present (to sort tournaments chronologically)
-                rr = match_lookup.get(str(m.get('match_id')))
-                start_date = ''
-                # prefer start_date in original csv row
-                try:
-                    if rr is not None and hasattr(rr, 'index') and 'start_date' in rr.index:
-                        start_date = parse_date_only(rr.get('start_date') or rr.get('event_start') or '')
-                    else:
-                        # fallback to event's date from match row in index (may be match_date)
-                        start_date = parse_date_only(m.get('start_date') or '')
-                except Exception:
-                    start_date = parse_date_only(m.get('start_date') or '')
-                # Ensure displayed name is always the tourney_name from CSV (as asked)
-                display_name = tourney_name or (rr.get('tourney_name') if (rr is not None and hasattr(rr, 'index') and 'tourney_name' in rr.index) else '')
-                category = (m.get('category') or '') 
-                surface = (m.get('surface') or '')
+                # category & surface from match entry (prefer)
+                category = m.get('category') or ''
+                surface = m.get('surface') or ''
                 tb[event_key] = {
                     'event_id': ev,
-                    'tourney_name': display_name,
+                    'tourney_name': tourney_name,
                     'category': category,
                     'surface': surface,
-                    'start_date': start_date,
+                    'start_date': sd,   # strict
                     'matches': []
                 }
             tb[event_key]['matches'].append(m)
@@ -444,19 +423,17 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
             print("Warning: failed grouping match into tournament for player", pid)
             traceback.print_exc()
 
-    # convert tournaments_by_year to structured lists and sort tournaments by start_date desc, then name
+    # convert and sort tournaments_by_year: tournaments sorted by start_date descending then name
     matches_by_year_structured = {}
     for y, d in tournaments_by_year.items():
         arr = []
         for evk, info in d.items():
             try:
-                # inside a tournament, sort matches logically (round order then date desc)
+                # inside each tournament, sort matches: round order then start_date desc
                 info['matches'] = sorted(
                     info['matches'],
-                    key=lambda mm: (round_sort_index(mm.get('round')), 
-                                    # use match_date descending -> invert with negative timestamp
-                                    -int(pd.to_datetime(mm.get('start_date') or '1970-01-01', errors='coerce', utc=True).timestamp() or 0)
-                                   )
+                    key=lambda mm: (round_sort_index(mm.get('round')),
+                                    -int(pd.to_datetime(mm.get('start_date') or '1970-01-01', errors='coerce', utc=True).timestamp() or 0))
                 )
             except Exception:
                 try:
@@ -464,7 +441,6 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
                 except Exception:
                     pass
             arr.append(info)
-        # sort tournaments: by start_date descending (most recent first); missing start_date go last;
         def tkey(t):
             sd = t.get('start_date') or ''
             try:
@@ -477,7 +453,7 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
         arr_sorted = sorted(arr, key=lambda t: (tkey(t)[0], tkey(t)[1]), reverse=True)
         matches_by_year_structured[y] = arr_sorted
 
-    # trophies & best_by_year
+    # trophies & best_by_year based on matches_index (points present or computed)
     trophies_map = {}
     best_by_year = {}
     for m in matches_index:
@@ -548,7 +524,7 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
         'best_by_year': best_by_year_lists,
         'total_points_by_year': total_points_by_year,
         'generated_at': datetime.utcnow().isoformat() + 'Z',
-        'version': 'meta_v4'
+        'version': 'meta_v4-strict-startdate'
     }
 
     return combined
@@ -616,7 +592,7 @@ def main(matches_dir: str, out_dir: str, limit_players: int = None, player_data_
                 'matches_count': len(combined.get('matches', [])),
                 'matches_index_path': f"players_atp/{pid}.matches.json",
                 'generated_at': combined['generated_at'],
-                'version': combined.get('version','meta_v4')
+                'version': combined.get('version','meta_v4-strict-startdate')
             }
             with open(meta_path, 'w', encoding='utf8') as f:
                 json.dump(legacy_meta, f, ensure_ascii=False, indent=2)

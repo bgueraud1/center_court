@@ -127,7 +127,7 @@ function surfaceClass(surface){
   if(!surface) return 'surf-other';
   const s = String(surface).toLowerCase();
   if(s.includes('hard')) return 'surf-hard';
-  if(s.includes('clay') || s.includes('clay') || s.includes('red')) return 'surf-clay';
+  if(s.includes('clay') || s.includes('red')) return 'surf-clay';
   if(s.includes('grass')) return 'surf-grass';
   return 'surf-other';
 }
@@ -224,26 +224,32 @@ async function fetchJsonSafe(url){
     const img = document.createElement('img'); img.src = combined.image; img.alt = combined.name; img.loading = 'lazy'; imageWrap.appendChild(img);
   } else imageWrap.innerHTML = '<div class="sub">Pas d’image</div>';
 
-  // Matches by year
+  // Matches by year (client)
   const matchesContainer = document.getElementById('matches-container');
   let mby = combined.matches_by_year || {};
 
-  // fallback: build grouping client-side if needed
+  // fallback: build grouping client-side if needed (STRICT: use start_date only)
   if(Object.keys(mby).length === 0 && Array.isArray(combined.matches) && combined.matches.length){
     const map = {};
     for(const m of combined.matches){
       const y = (m.event_year || '').toString();
       if(!map[y]) map[y] = {};
       const name = (m.tourney_name || '').trim();
-      const key = (m.event_id ? m.event_id + '||' : 'NOID||') + name;
-      if(!map[y][key]) map[y][key] = { event_id: m.event_id || '', tourney_name: name, category: m.category || '', surface: m.surface || '', start_date: m.match_date || '', matches: [] };
+      const sd = (m.start_date || '').trim(); // strict
+      const key = (m.event_id ? m.event_id : 'NOID') + '||' + name + '||' + sd;
+      if(!map[y][key]) map[y][key] = { event_id: m.event_id || '', tourney_name: name, category: m.category || '', surface: m.surface || '', start_date: sd, matches: [] };
       map[y][key].matches.push(m);
     }
-    // convert
     const conv = {};
     for(const y in map){
       conv[y] = Object.values(map[y]).map(t => {
-        t.matches = t.matches.sort((a,b)=> (b.match_date||'').localeCompare(a.match_date||''));
+        t.matches = t.matches.sort((a,b)=> {
+          const oa = a.start_date || '';
+          const ob = b.start_date || '';
+          if(oa < ob) return 1;
+          if(oa > ob) return -1;
+          return 0;
+        });
         return t;
       });
     }
@@ -269,7 +275,7 @@ async function fetchJsonSafe(url){
     matchesContainer.innerHTML = '';
     const tournaments = (mby[year] || []);
     if(!tournaments || tournaments.length === 0){ matchesContainer.innerHTML = '<div class="no-data">Aucun match pour cette année.</div>'; return; }
-    // tournaments already sorted by start_date desc server-side; but ensure client-side ordering too:
+    // ensure tournaments sorted by start_date desc then name
     tournaments.sort((a,b) => {
       const aDate = a.start_date || '';
       const bDate = b.start_date || '';
@@ -278,7 +284,6 @@ async function fetchJsonSafe(url){
         if(aDate > bDate) return -1;
       } else if(aDate && !bDate) return -1;
       else if(!aDate && bDate) return 1;
-      // tie-break by name
       return (a.tourney_name || '').localeCompare(b.tourney_name || '');
     });
 
@@ -294,19 +299,18 @@ async function fetchJsonSafe(url){
       header.appendChild(info);
       div.appendChild(header);
 
-      // ensure matches are ordered: F/W > SF > QF > R16 > R32 > R64 > R128 > other
+      // matches ordered: F/W > SF > QF > R16 > R32 > R64 > R128 > other
       const mm = (t.matches || []).slice();
       mm.sort((a,b) => {
-        // round order
         const order = {'W':0,'F':0,'SF':1,'QF':2,'R16':3,'R32':4,'R64':5,'R128':6,'RR':7};
         const ra = (a.round || '').toUpperCase();
         const rb = (b.round || '').toUpperCase();
         const oa = (order[ra] !== undefined) ? order[ra] : 99;
         const ob = (order[rb] !== undefined) ? order[rb] : 99;
         if(oa !== ob) return oa - ob;
-        // then by match_date desc
-        const da = a.match_date || '';
-        const db = b.match_date || '';
+        // then by start_date desc
+        const da = a.start_date || '';
+        const db = b.start_date || '';
         if(da < db) return 1;
         if(da > db) return -1;
         return 0;
@@ -317,18 +321,17 @@ async function fetchJsonSafe(url){
         const isWin = m.is_win === true;
         const line = document.createElement('div');
         line.className = 'match-line ' + (isWin ? 'win' : (m.is_win === false ? 'loss' : ''));
-        // opponent and score visibility: bold and colored; opponent link if id available
+        // opponent and score: bold + color
         let oppHtml = escapeHtml(m.opponent || '—');
         if(m.opponent_id){
           const href = `/players_atp/${String(m.opponent_id).toLowerCase()}`;
-          oppHtml = `<a class="player-link" href="${href}">${escapeHtml(m.opponent || m.opponent_id)}</a>`;
+          oppHtml = `<a class="player-link" href="${href}"><strong>${escapeHtml(m.opponent || m.opponent_id)}</strong></a>`;
         } else {
-          oppHtml = `<span style="font-weight:700">${escapeHtml(m.opponent || '—')}</span>`;
+          oppHtml = `<strong>${escapeHtml(m.opponent || '—')}</strong>`;
         }
-        const scoreHtml = `<span style="font-weight:700">${escapeHtml(m.score || '')}</span>`;
-        const dateTxt = escapeHtml(dateWithoutYear(m.match_date || ''));
+        const scoreHtml = `<strong>${escapeHtml(m.score || '')}</strong>`;
+        const dateTxt = escapeHtml(dateWithoutYear(m.start_date || ''));
         const roundTxt = escapeHtml(m.round || '');
-        // combine: opponent (bold colored) — score (bold) — date — round
         line.innerHTML = `<div class="match-opponent">${oppHtml}</div>
                           <div class="match-score">${scoreHtml}</div>
                           <div class="match-date">${dateTxt}</div>
@@ -342,7 +345,7 @@ async function fetchJsonSafe(url){
 
   yearSelect.addEventListener('change', (e) => renderMatchesForYear(e.target.value));
 
-  // TROPHIES & BEST (kept as before)
+  // TROPHIES & BEST
   const trophiesList = document.getElementById('trophies-list'); trophiesList.innerHTML = '';
   const trophies = (combined.trophies || []).slice();
   if(!trophies.length) trophiesList.innerHTML = '<div class="no-data">Aucun trophée enregistré.</div>';
