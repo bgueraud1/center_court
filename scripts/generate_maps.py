@@ -23,6 +23,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 import pandas as pd
+import numbers
 
 # ----------------- Helpers -----------------
 def safe_mkdir(path: str):
@@ -57,6 +58,33 @@ def parse_date_only(val: Optional[str]) -> str:
         return v
     except Exception:
         return ''
+
+def normalize_event_token(val: Optional[Any]) -> str:
+    """
+    Normalize event identifiers / years read by pandas.
+    - If numeric (int or float with .0), return the integer representation as string ('311').
+    - Otherwise return stripped string.
+    """
+    if val is None:
+        return ''
+    # handle pd.NA / nan
+    try:
+        if isinstance(val, float) and pd.isna(val):
+            return ''
+    except Exception:
+        pass
+    # integral numeric types
+    if isinstance(val, numbers.Integral):
+        return str(int(val))
+    # floats that are integer-valued (e.g. 311.0)
+    try:
+        fv = float(val)
+        if fv.is_integer():
+            return str(int(fv))
+    except Exception:
+        pass
+    # final fallback: string strip
+    return str(val).strip()
 
 def read_matches_from_dir(matches_dir: str) -> pd.DataFrame:
     pattern = os.path.join(matches_dir, "*.csv")
@@ -205,8 +233,7 @@ def build_maps_for_player(matches_df: pd.DataFrame,
         except Exception:
             opp_country = ''
 
-        # host country detection
-                # host country detection (NEW ORDER: explicit host columns -> event map -> winner/loser fallback)
+        # host country detection (explicit host columns -> event map -> winner/loser fallback)
         host_country = ''
         try:
             # 1) direct host columns if any
@@ -215,25 +242,31 @@ def build_maps_for_player(matches_df: pd.DataFrame,
                     host_country = str(row.get(col, '')).strip().upper()
                     break
 
-            # 2) final fallback: use event_id + event_year mapping if available (prefer this over winner/loser)
+            # 2) use event_id + event_year mapping if available (prefer this)
             if not host_country:
-                event_id = str(row.get('event_id') or '').strip()
-                event_year = str(row.get('event_year') or '').strip()
-                if event_id:
-                    if host_event_map:
-                        ev_map = host_event_map.get(event_id) or host_event_map.get(str(event_id))
-                        if isinstance(ev_map, dict):
-                            # prefer exact year match, then default, then any value
-                            host_iso = ev_map.get(event_year) or ev_map.get('default')
-                            if not host_iso:
-                                for v in ev_map.values():
-                                    if v:
-                                        host_iso = v
-                                        break
-                            if host_iso:
-                                host_country = str(host_iso).strip().upper()
+                raw_event_id = row.get('event_id') if 'event_id' in row.index else None
+                raw_event_year = row.get('event_year') if 'event_year' in row.index else None
+                event_id = normalize_event_token(raw_event_id)
+                event_year = normalize_event_token(raw_event_year)
+                if event_id and host_event_map:
+                    ev_map = host_event_map.get(event_id) or host_event_map.get(str(event_id))
+                    if isinstance(ev_map, dict):
+                        # prefer exact year match, then default, then any value
+                        host_iso = None
+                        if event_year:
+                            host_iso = ev_map.get(event_year)
+                        if not host_iso:
+                            host_iso = ev_map.get('default')
+                        if not host_iso:
+                            # fallback to any available value in the mapping
+                            for v in ev_map.values():
+                                if v:
+                                    host_iso = v
+                                    break
+                        if host_iso:
+                            host_country = str(host_iso).strip().upper()
 
-            # 3) last resort: use winner/loser country as best-effort (only if we still don't have a host)
+            # 3) last resort: use winner/loser country as best-effort (only if still empty)
             if not host_country:
                 for col in ('country_winner','winner_country','country_loser','loser_country'):
                     if col in row.index and str(row.get(col, '')).strip():
@@ -242,11 +275,14 @@ def build_maps_for_player(matches_df: pd.DataFrame,
         except Exception:
             host_country = ''
 
+        # normalize event fields for storage
+        stored_event_id = normalize_event_token(row.get('event_id') if 'event_id' in row.index else None)
+        stored_event_year = normalize_event_token(row.get('event_year') if 'event_year' in row.index else None)
 
         match_entry = {
             'match_id': str(row.get('match_id') or ''),
-            'event_id': str(row.get('event_id') or ''),
-            'event_year': str(row.get('event_year') or ''),
+            'event_id': stored_event_id,
+            'event_year': stored_event_year,
             'match_date': parse_date_only(row.get('start_date') or row.get('match_date') or ''),
             'tourney_name': str(row.get('tourney_name') or '')[:250],
             'opponent_country': opp_country,
@@ -315,7 +351,7 @@ def build_maps_for_player(matches_df: pd.DataFrame,
         for idx, row in df.iterrows():
             try:
                 if normalize_player_id(row.get('player_id_winner')) == pid and str(row.get('round') or '').strip().upper() in ('W','WIN','F'):
-                    key = f"{row.get('event_id')}_{row.get('event_year')}"
+                    key = f"{normalize_event_token(row.get('event_id'))}_{normalize_event_token(row.get('event_year'))}"
                     title_event_ids.add(key)
             except Exception:
                 pass
@@ -371,7 +407,8 @@ def build_maps_for_player(matches_df: pd.DataFrame,
             'sample_matches': s.get('sample_matches', [])
         }
 
-        result = {
+    # final result (outside loops)
+    result = {
         'meta': {
             'player_id': pid,
             'player_name': player_name,
@@ -387,7 +424,6 @@ def build_maps_for_player(matches_df: pd.DataFrame,
         'host_countries': map_host_stats
     }
     return result
-
 
 # ----------------- CLI Main -----------------
 
