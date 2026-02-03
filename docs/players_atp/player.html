@@ -169,19 +169,34 @@ function escapeHtml(s){
   if (s === null || s === undefined) return '';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
+// remplace l'ancienne countryCodeToFlag par celle-ci
 function countryCodeToFlag(code){
-  if(!code) return '';
+  if(!code && code !== 0) return '';
+  // normalize to string and trim
+  let iso2 = String(code).trim();
+  if(!iso2) return '';
+  // mapping for common 3-letter IOC -> 2-letter ISO
   const map = {'ITA':'IT','ESP':'ES','GER':'DE','USA':'US','GBR':'GB','SRB':'RS','FRA':'FR','ARG':'AR','BRA':'BR','SUI':'CH','CAN':'CA','AUS':'AU'};
-  let iso2 = code;
-  if(typeof iso2 === 'string') iso2 = iso2.trim();
-  if(!iso2) return '';
-  if(iso2.length === 3) iso2 = (map[iso2.toUpperCase()] || null);
-  if(!iso2 && iso2.length === 2) iso2 = iso2.toUpperCase();
-  if(!iso2) return '';
-  if(!/^[A-Z]{2}$/.test(iso2.toUpperCase())) return '';
+  // if code is 3 letters and exists in map, map it; otherwise, if 3 letters and not in map, give up
+  if(iso2.length === 3){
+    const mapped = map[iso2.toUpperCase()];
+    if(!mapped){
+      // try to be permissive: return empty if we can't map a 3-letter code
+      return '';
+    }
+    iso2 = mapped;
+  }
+  // if now length is 2, uppercase it
+  if(iso2.length === 2) iso2 = iso2.toUpperCase();
+  // validate final iso2
+  if(!/^[A-Z]{2}$/.test(iso2)) return '';
   const A = 0x1F1E6;
-  return [...iso2.toUpperCase()].map(c => String.fromCodePoint(A + c.charCodeAt(0) - 65)).join('');
+  return [...iso2].map(c => String.fromCodePoint(A + c.charCodeAt(0) - 65)).join('');
 }
+
+
+
+
 function fmtPercent(x){
   if(x === null || x === undefined) return '—';
   if(isNaN(x)) return '—';
@@ -560,8 +575,10 @@ function surfaceClass(surface){
   function createCountryRow(countryCode, statsObj, kind){
     const row = document.createElement('div'); row.className = 'country-row';
     const meta = document.createElement('div'); meta.className = 'country-meta';
-    const flag = document.createElement('div'); flag.className = 'country-flag'; flag.innerHTML = countryCodeToFlag(countryCode) || '';
-    const name = document.createElement('div'); name.className = 'country-name'; name.title = countryCode; name.textContent = countryCode;
+    const safeCode = countryCode || '—';
+    const flag = document.createElement('div'); flag.className = 'country-flag'; flag.innerHTML = countryCodeToFlag(safeCode) || '';
+    const name = document.createElement('div'); name.className = 'country-name'; name.title = safeCode; name.textContent = safeCode;
+
     meta.appendChild(flag);
     meta.appendChild(name);
 
