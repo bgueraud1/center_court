@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-generate_player_meta.py (debug / robust - prints traceback on error)
-
-Remarques :
-- Cette version ajoute des gardes explicites pour éviter l'évaluation booléenne d'une pd.Series.
-- Si une erreur survient pendant le traitement d'un joueur, la traceback complète est affichée.
+generate_player_meta.py (corrigé)
+Génère les JSON meta + matches (players_atp/data/{slug}.json, legacy .meta/.matches)
 Usage:
-    python scripts/generate_player_meta.py --matches-dir ./matches/atp_matches --out-dir ./docs --player-data-csv player_data_atp.csv
+  python scripts/generate_player_meta.py --matches-dir ./matches/atp_matches --out-dir ./docs --player-data-csv player_data_atp.csv
 """
 from pathlib import Path
 import argparse
@@ -19,6 +16,7 @@ from collections import Counter, defaultdict
 from datetime import datetime
 import pandas as pd
 
+# -------- helpers --------
 def safe_mkdir(path):
     os.makedirs(path, exist_ok=True)
 
@@ -43,6 +41,7 @@ def parse_date_only(val):
         v = val.strip()
         if v == '':
             return ''
+        # try iso
         try:
             dt = datetime.fromisoformat(v)
             return dt.date().isoformat()
@@ -86,7 +85,7 @@ def read_matches_from_dir(matches_dir):
     matches = pd.concat(frames, ignore_index=True, sort=False)
     return matches
 
-# points table (approx)
+# Points mapping approximations (used if no explicit points column)
 POINTS_TABLE = {
     'grand_slam': {'W':2000,'F':1300,'SF':800,'QF':400,'R16':200,'R32':100,'R64':50,'R128':10},
     'masters_1000': {'W':1000,'F':650,'SF':400,'QF':200,'R16':100,'R32':50,'R64':30,'R128':10},
@@ -139,7 +138,7 @@ def normalize_round_token(round_tok):
 def points_for_match_row(rr):
     if rr is None:
         return 0
-    # explicit
+    # explicit columns preference
     for c in ('points_for_result','points','ranking_points','points_won'):
         try:
             if c in rr.index and rr.get(c) not in (None, ''):
@@ -150,7 +149,7 @@ def points_for_match_row(rr):
                     pass
         except Exception:
             pass
-    # deduce
+    # deduce from category + round
     cat = None
     for c in ('category','level','tourney_level','category_name','tourney_name'):
         try:
@@ -171,7 +170,7 @@ def points_for_match_row(rr):
             return int(table.get('R32') or 0)
     return int(table.get('W') or 0) if round_tok == 'W' else int(table.get('F') or 0) if round_tok == 'F' else 0
 
-# build_matches_index_for_player with explicit Series checks
+# build_matches_index_for_player (safe checks)
 def build_matches_index_for_player(matches_df: pd.DataFrame, player_id: str, max_matches: int = None):
     pid = normalize_player_id(player_id)
     if not pid:
@@ -184,7 +183,6 @@ def build_matches_index_for_player(matches_df: pd.DataFrame, player_id: str, max
         if 'player_id_loser' in matches_df.columns:
             cond_l_series = matches_df['player_id_loser'].astype(str).str.strip().str.upper() == pid
     except Exception:
-        # if for some reason columns cannot be coerced, fallback to empty
         cond_w_series = None
         cond_l_series = None
 
@@ -250,7 +248,6 @@ def build_matches_index_for_player(matches_df: pd.DataFrame, player_id: str, max
             }
             out.append(entry)
         except Exception:
-            # Don't let one bad row break everything; log and continue
             print("Warning: failed to process a match row for player", pid)
             traceback.print_exc()
 
@@ -271,12 +268,28 @@ def choose_most_likely_name(cands):
         return ''
     return counts.most_common(1)[0][0]
 
+# Round ordering helper (F/W > SF > QF > R16 > R32 > R64 > R128 > others)
+ROUND_ORDER = {
+    'W': 0, 'WIN': 0, 'F': 0,
+    'SF': 1, 'S': 1,
+    'QF': 2,
+    'R16': 3, '4R': 3,
+    'R32': 4,
+    'R64': 5,
+    'R128': 6,
+    'RR': 7
+}
+def round_sort_index(tok):
+    t = normalize_round_token(tok)
+    return ROUND_ORDER.get(t, 99)
+
+# build_player_combined
 def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_df: pd.DataFrame = None):
     pid = normalize_player_id(player_id)
     if not pid:
         return None
 
-    # construct series conditions defensively
+    # find rows for this player (safe)
     cond_w_series = None
     cond_l_series = None
     try:
@@ -307,7 +320,7 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
                 pass
     name = choose_most_likely_name(name_candidates) or pid
 
-    # enrich from player_data_df if present
+    # enrich from player_data_df
     birthdate = ''
     birthplace = ''
     height_cm = None
@@ -324,44 +337,46 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
         try:
             row = player_data_df[player_data_df['player_id'].astype(str).str.strip().str.upper() == pid]
             if not row.empty:
-                row = row.iloc[0].to_dict()
-                full_name = row.get('full_name') or name
-                birthdate = parse_date_only(row.get('birth_date') or row.get('dob') or '')
-                birthplace = row.get('birthplace') or row.get('birth_place') or ''
-                try:
-                    if 'height_cm' in row and row.get('height_cm'):
-                        height_cm = float(str(row.get('height_cm')).replace('m','').strip())
-                    else:
-                        h = row.get('height_cm') or row.get('height') or row.get('height_inches')
-                        if h and isinstance(h, str) and 'm' in h:
-                            try:
-                                height_cm = float(h.replace('m','').strip())
-                            except Exception:
-                                height_cm = None
-                except Exception:
-                    height_cm = None
-                hand = row.get('plays') or row.get('plays') or row.get('hand') or ''
-                backhand = row.get('backhand') or ''
-                best_rank = row.get('highest_ranking') or row.get('best_rank') or row.get('career_high_rank') or None
-                image = row.get('image') or row.get('photo') or None
-                country = row.get('represented_country') or row.get('country') or row.get('country_code') or None
-                first_appearance = parse_date_only(row.get('first_appearance') or row.get('first_appearance_year') or row.get('debut') or '') or ''
-                last_appearance = parse_date_only(row.get('last_appearance') or row.get('last_appearance_year') or '') or ''
+                row = row.iloc(0).to_dict() if hasattr(row, 'iloc') else row.iloc[0].to_dict()
         except Exception:
-            print("Warning: failed to read player_data row for", pid)
-            traceback.print_exc()
+            try:
+                # fallback to first matching record
+                row = player_data_df[player_data_df['player_id'].astype(str).str.strip().str.upper() == pid].iloc[0].to_dict()
+            except Exception:
+                row = None
+        if row:
+            full_name = row.get('full_name') or name
+            birthdate = parse_date_only(row.get('birth_date') or row.get('dob') or '')
+            birthplace = row.get('birthplace') or row.get('birth_place') or ''
+            try:
+                if 'height_cm' in row and row.get('height_cm'):
+                    height_cm = float(str(row.get('height_cm')).replace('m','').strip())
+                else:
+                    h = row.get('height_cm') or row.get('height') or row.get('height_inches')
+                    if h and isinstance(h, str) and 'm' in h:
+                        try:
+                            height_cm = float(h.replace('m','').strip())
+                        except Exception:
+                            height_cm = None
+            except Exception:
+                height_cm = None
+            hand = row.get('plays') or row.get('hand') or ''
+            backhand = row.get('backhand') or ''
+            best_rank = row.get('highest_ranking') or row.get('best_rank') or row.get('career_high_rank') or None
+            image = row.get('image') or row.get('photo') or None
+            country = row.get('represented_country') or row.get('country') or row.get('country_code') or None
+            first_appearance = parse_date_only(row.get('first_appearance') or row.get('first_appearance_year') or row.get('debut') or '') or ''
+            last_appearance = parse_date_only(row.get('last_appearance') or row.get('last_appearance_year') or '') or ''
 
-    years = []
+    # fallback deduce first/last from df
     try:
-        if 'event_year' in df.columns:
-            years = sorted([y for y in df['event_year'].dropna().astype(str).unique() if str(y).strip()!=''])
+        years = sorted([y for y in df['event_year'].dropna().astype(str).unique() if str(y).strip()!=''])
+        if years and not first_appearance:
+            first_appearance = years[0]
+        if years and not last_appearance:
+            last_appearance = years[-1]
     except Exception:
-        years = []
-
-    if years and not first_appearance:
-        first_appearance = years[0]
-    if years and not last_appearance:
-        last_appearance = years[-1]
+        pass
 
     matches_index = build_matches_index_for_player(matches_df, pid)
     matches_played = len(matches_index)
@@ -374,7 +389,7 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
         'matches_lost': int(matches_lost)
     }
 
-    # Build match_lookup for enrichment
+    # build match_lookup: map match_id -> original row
     match_lookup = {}
     try:
         for idx, r in df.iterrows():
@@ -384,57 +399,85 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
     except Exception:
         traceback.print_exc()
 
+    # GROUP TOURNAMENTS: ALWAYS use tourney_name column as displayed name.
     tournaments_by_year = defaultdict(lambda: {})
     for m in matches_index:
-        y = m.get('event_year') or ''
-        event_key = str(m.get('event_id') or '') or ('unknown_'+(m.get('tourney_name') or '')[:30])
-        tb = tournaments_by_year[y]
-        if event_key not in tb:
-            # récupère l'éventuelle ligne d'origine sans forcer sa vérité (ne pas utiliser "or None")
-            rr = match_lookup.get(str(m.get('match_id')))
-            tn = ''
-            cat = ''
-            surf = ''
-            # n'accède aux attributs de rr que si rr existe (et ressemble à une Series ou dict)
-            if rr is not None:
-                try:
-                    # rr peut être une pandas Series (ligne) : utiliser rr.get ou rr[...] selon disponibilité
-                    tn = rr.get('tourney_name') if 'tourney_name' in getattr(rr, 'index', []) else (m.get('tourney_name') or '')
-                    cat = rr.get('category') if 'category' in getattr(rr, 'index', []) else (m.get('category') or '')
-                    surf = rr.get('surface') if 'surface' in getattr(rr, 'index', []) else (m.get('surface') or '')
-                except Exception:
-                    # si rr n'a pas .index ou .get, fallback sur les valeurs dans m
-                    tn = m.get('tourney_name') or ''
-                    cat = m.get('category') or ''
-                    surf = m.get('surface') or ''
+        try:
+            y = m.get('event_year') or ''
+            tourney_name = (m.get('tourney_name') or '').strip()
+            # event key: prefer event_id + tourney_name to avoid accidental collisions,
+            # but use tourney_name as displayed value always.
+            ev = m.get('event_id') or ''
+            if ev:
+                event_key = f"{ev}||{tourney_name}"
             else:
-                tn = m.get('tourney_name') or ''
-                cat = m.get('category') or ''
-                surf = m.get('surface') or ''
+                # if no event_id, key by tourney_name + start_date fallback
+                event_key = f"NOID||{tourney_name}||{m.get('match_date') or ''}"
+            tb = tournaments_by_year[y]
+            if event_key not in tb:
+                # get start_date from original row if present (to sort tournaments chronologically)
+                rr = match_lookup.get(str(m.get('match_id')))
+                start_date = ''
+                # prefer start_date in original csv row
+                try:
+                    if rr is not None and hasattr(rr, 'index') and 'start_date' in rr.index:
+                        start_date = parse_date_only(rr.get('start_date') or rr.get('event_start') or '')
+                    else:
+                        # fallback to event's date from match row in index (may be match_date)
+                        start_date = parse_date_only(m.get('match_date') or '')
+                except Exception:
+                    start_date = parse_date_only(m.get('match_date') or '')
+                # Ensure displayed name is always the tourney_name from CSV (as asked)
+                display_name = tourney_name or (rr.get('tourney_name') if (rr is not None and hasattr(rr, 'index') and 'tourney_name' in rr.index) else '')
+                category = (m.get('category') or '') 
+                surface = (m.get('surface') or '')
+                tb[event_key] = {
+                    'event_id': ev,
+                    'tourney_name': display_name,
+                    'category': category,
+                    'surface': surface,
+                    'start_date': start_date,
+                    'matches': []
+                }
+            tb[event_key]['matches'].append(m)
+        except Exception:
+            print("Warning: failed grouping match into tournament for player", pid)
+            traceback.print_exc()
 
-            tb[event_key] = {
-                'event_id': m.get('event_id'),
-                'tourney_name': tn or '',
-                'category': cat or '',
-                'surface': surf or '',
-                'matches': []
-            }
-        tb[event_key]['matches'].append(m)
-
+    # convert tournaments_by_year to structured lists and sort tournaments by start_date desc, then name
     matches_by_year_structured = {}
     for y, d in tournaments_by_year.items():
         arr = []
         for evk, info in d.items():
             try:
-                info['matches'] = sorted(info['matches'], key=lambda mm: mm.get('match_date') or '', reverse=True)
+                # inside a tournament, sort matches logically (round order then date desc)
+                info['matches'] = sorted(
+                    info['matches'],
+                    key=lambda mm: (round_sort_index(mm.get('round')), 
+                                    # use match_date descending -> invert with negative timestamp
+                                    -int(pd.to_datetime(mm.get('match_date') or '1970-01-01', errors='coerce', utc=True).timestamp() or 0)
+                                   )
+                )
             except Exception:
-                pass
+                try:
+                    info['matches'] = sorted(info['matches'], key=lambda mm: mm.get('match_date') or '', reverse=True)
+                except Exception:
+                    pass
             arr.append(info)
-        matches_by_year_structured[y] = sorted(arr, key=lambda t: (t.get('tourney_name') or ''))
-    if '' in tournaments_by_year and '' not in matches_by_year_structured:
-        matches_by_year_structured[''] = tournaments_by_year['']
+        # sort tournaments: by start_date descending (most recent first); missing start_date go last;
+        def tkey(t):
+            sd = t.get('start_date') or ''
+            try:
+                ts = pd.to_datetime(sd, errors='coerce')
+                if pd.isna(ts):
+                    return (datetime.min, t.get('tourney_name') or '')
+                return (ts.to_pydatetime(), t.get('tourney_name') or '')
+            except Exception:
+                return (datetime.min, t.get('tourney_name') or '')
+        arr_sorted = sorted(arr, key=lambda t: (tkey(t)[0], tkey(t)[1]), reverse=True)
+        matches_by_year_structured[y] = arr_sorted
 
-    # trophies & best
+    # trophies & best_by_year
     trophies_map = {}
     best_by_year = {}
     for m in matches_index:
@@ -505,11 +548,12 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
         'best_by_year': best_by_year_lists,
         'total_points_by_year': total_points_by_year,
         'generated_at': datetime.utcnow().isoformat() + 'Z',
-        'version': 'meta_v3'
+        'version': 'meta_v4'
     }
 
     return combined
 
+# -------- main CLI --------
 def main(matches_dir: str, out_dir: str, limit_players: int = None, player_data_csv: str = None):
     matches = read_matches_from_dir(matches_dir)
     print(f"Read matches: rows={len(matches)}, cols={len(matches.columns)}")
@@ -572,7 +616,7 @@ def main(matches_dir: str, out_dir: str, limit_players: int = None, player_data_
                 'matches_count': len(combined.get('matches', [])),
                 'matches_index_path': f"players_atp/{pid}.matches.json",
                 'generated_at': combined['generated_at'],
-                'version': combined.get('version','meta_v3')
+                'version': combined.get('version','meta_v4')
             }
             with open(meta_path, 'w', encoding='utf8') as f:
                 json.dump(legacy_meta, f, ensure_ascii=False, indent=2)
@@ -606,6 +650,6 @@ if __name__ == "__main__":
     ap.add_argument("--matches-dir", required=True, help="Dir with matches CSVs (glob *.csv).")
     ap.add_argument("--out-dir", default="./docs", help="Output directory (publish dir, default ./docs).")
     ap.add_argument("--limit-players", type=int, default=None, help="Limit processed players (testing).")
-    ap.add_argument("--player-data-csv", default="player_data_atp.csv", help="Optional CSV with extra player fields (player_id,...). Default: player_data_atp.csv")
+    ap.add_argument("--player-data-csv", default="player_data_atp.csv", help="Optional CSV with extra player fields (player_id,...).")
     args = ap.parse_args()
     main(args.matches_dir, args.out_dir, args.limit_players, args.player_data_csv)
