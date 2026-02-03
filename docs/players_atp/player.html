@@ -654,23 +654,19 @@ function fetchJsonSafe(url){
   // end of main IIFE
 })();
 
-/* ------------------ maps-client (Plotly) ------------------ */
-/* This module provides: initMaps(options), renderOpponentMap(obj), renderHostMap(obj)
-   It tries multiple candidate file names if given slug; it also exposes direct render functions.
-*/
 (function(){
   function slugFromLocation(){
     const parts = location.pathname.replace(/\/$/, '').split('/');
-    let slug = parts[parts.length - 1] || parts[parts.length - 2] || '';
-    return (slug || '').toString();
+    return (parts[parts.length-1] || parts[parts.length-2] || '').toString();
   }
 
   function fetchJsonSafeLocal(url){
-    return fetch(url).then(r => { if(!r.ok) return Promise.reject('not ok'); return r.json(); });
+    return fetch(url).then(r => { if(!r.ok) return Promise.reject(r.status); return r.json(); });
   }
 
   function buildHoverText(item){
-    let pct = (item.win_rate !== null && typeof item.win_rate !== 'undefined') ? (item.win_rate*100) : null;
+    let pct = (typeof item.win_rate === 'number' && !isNaN(item.win_rate)) ? (item.win_rate*100) : (typeof item.win_rate === 'string' ? parseFloat(item.win_rate)*100 : null);
+    if(pct !== null && isNaN(pct)) pct = null;
     let t = `${item.iso || ''}<br>Wins: ${item.wins||0}<br>Losses: ${item.losses||0}<br>Matches: ${item.matches||0}<br>Win rate: ${pct !== null ? pct.toFixed(2)+'%' : '—'}`;
     if(item.sample_matches && item.sample_matches.length){
       t += '<br><br>Sample:<br>' + item.sample_matches.map(s => `${s.event_year || ''} ${s.tourney_name || ''} — ${s.is_win ? 'W':'L'} — ${s.score || ''} (${s.match_date || ''})`).join('<br>');
@@ -678,24 +674,55 @@ function fetchJsonSafe(url){
     return t;
   }
 
-  // Exposed render functions (allow direct rendering if maps JSON already loaded)
-  function renderOpponentMap(mapObj){
-    const locs = [], zs = [], texts = [];
-    Object.keys(mapObj).forEach(iso => {
-      const o = mapObj[iso];
-      const total = (o.matches || ((o.wins||0)+(o.losses||0)));
-      if(!total) return;
-      const pct = (o.win_rate !== undefined && o.win_rate !== null) ? (o.win_rate*100) : ((o.wins||0)/total*100);
+  function toNumericZ(o){
+    // o may have win_rate already or we compute from wins/matches
+    if(o == null) return null;
+    if(typeof o.win_rate === 'number' && !isNaN(o.win_rate)) return o.win_rate*100;
+    try {
+      const matches = Number(o.matches || ((o.wins||0) + (o.losses||0)));
+      const wins = Number(o.wins || 0);
+      if(matches && !isNaN(matches) && matches > 0) return (wins / matches) * 100;
+    } catch(e){}
+    return null;
+  }
+
+  function safeIsoCode(c){
+    if(!c) return '';
+    let s = String(c).trim();
+    // if it's 2-letter, convert to upper 2; if 3-letter, keep 3-letter
+    if(/^[A-Za-z]{2}$/.test(s)) return s.toUpperCase();
+    if(/^[A-Za-z]{3}$/.test(s)) return s.toUpperCase();
+    // handle common 3->2 mapping for a few known codes (extend if needed)
+    const map = {'GBR':'GB','SUI':'CH','USA':'US'};
+    if(map[s.toUpperCase()]) return map[s.toUpperCase()];
+    return s.toUpperCase();
+  }
+
+  function renderChoropleth(targetId, mapObj, opts){
+    opts = opts || {};
+    const div = document.getElementById(targetId);
+    if(!div) {
+      console.warn('renderChoropleth: target not found', targetId);
+      return;
+    }
+
+    const locs = [], zs = [], texts = [], isosForPlotly = [];
+    Object.keys(mapObj || {}).forEach(code => {
+      const item = mapObj[code] || {};
+      const zval = toNumericZ(item);
+      // skip entries without numeric value to avoid NaN in z
+      if(zval === null || isNaN(zval)) return;
+      // use 3-letter codes if available - Plotly default locationmode below set to ISO-3
+      const iso = (code || '').toString().trim();
+      if(!iso) return;
       locs.push(iso);
-      zs.push(Math.round(pct*100)/100);
-      const item = Object.assign({ iso: iso }, o);
-      texts.push(buildHoverText(item));
+      zs.push(Math.round(zval*100)/100); // percent (0..100)
+      const copy = Object.assign({ iso: iso }, item);
+      texts.push(buildHoverText(copy));
     });
 
-    const div = document.getElementById('map-opponents');
-    if(!div) return;
     if(locs.length === 0){
-      div.innerHTML = '<div style="padding:12px;color:#666">No opponent data available for maps.</div>';
+      div.innerHTML = '<div style="padding:12px;color:#666">No map data available.</div>';
       return;
     }
 
@@ -704,57 +731,36 @@ function fetchJsonSafe(url){
       locations: locs,
       z: zs,
       text: texts,
-      colorscale: 'Blues',
+      locationmode: 'ISO-3', // explicitly ask Plotly to interpret locations as ISO-3
+      colorscale: opts.colorscale || 'Blues',
       autocolorscale: false,
       colorbar: { title: 'Win %' },
       hoverinfo: 'text'
     };
+
     const layout = {
-      title: 'Win rate vs opponent nationality',
+      title: opts.title || '',
       geo: { projection: { type: 'natural earth' } },
       margin: { t: 40, b: 0, l: 0, r: 0 }
     };
-    Plotly.react(div, [trace], layout, {responsive:true});
+
+    try{
+      Plotly.react(div, [trace], layout, {responsive:true, displayModeBar:false});
+      // if the div was hidden during initial render, force a resize once visible
+      setTimeout(()=>{ try{ if(window.Plotly && window.Plotly.Plots && typeof window.Plotly.Plots.resize === 'function') window.Plotly.Plots.resize(div); }catch(e){console.warn('resize error',e);} }, 200);
+    }catch(e){
+      console.error('Plotly render failed', e);
+      div.innerHTML = '<div style="padding:12px;color:#b71c1c">Map rendering error (see console)</div>';
+    }
+  }
+
+  function renderOpponentMap(mapObj){
+    renderChoropleth('map-opponents', mapObj, { colorscale:'Blues', title: 'Win rate vs opponent nationality' });
   }
 
   function renderHostMap(mapObj){
-    const locs = [], zs = [], texts = [];
-    Object.keys(mapObj).forEach(iso => {
-      const o = mapObj[iso];
-      const total = (o.matches || ((o.wins||0)+(o.losses||0)));
-      if(!total) return;
-      const pct = (o.win_rate !== undefined && o.win_rate !== null) ? (o.win_rate*100) : ((o.wins||0)/total*100);
-      locs.push(iso);
-      zs.push(Math.round(pct*100)/100);
-      const item = Object.assign({ iso: iso }, o);
-      texts.push(buildHoverText(item) + (o.titles ? ('<br>Titles: '+o.titles) : ''));
-    });
-
-    const div = document.getElementById('map-hosts');
-    if(!div) return;
-    if(locs.length === 0){
-      div.innerHTML = '<div style="padding:12px;color:#666">No host country data available for maps.</div>';
-      return;
-    }
-
-    const trace = {
-      type: 'choropleth',
-      locations: locs,
-      z: zs,
-      text: texts,
-      colorscale: 'YlGnBu',
-      autocolorscale: false,
-      colorbar: { title: 'Win %' },
-      hoverinfo: 'text'
-    };
-
-    const layout = {
-      title: 'Win rate in tournaments by host country',
-      geo: { projection: { type: 'natural earth' } },
-      margin: { t: 40, b: 0, l: 0, r: 0 }
-    };
-
-    Plotly.react(div, [trace], layout, {responsive:true});
+    // augment hover text with titles count if present in objects
+    renderChoropleth('map-hosts', mapObj, { colorscale:'YlGnBu', title: 'Win rate in tournaments by host country' });
   }
 
   function initMaps(options){
@@ -774,7 +780,6 @@ function fetchJsonSafe(url){
 
     (function tryNext(i){
       if(i >= candidates.length){
-        // no maps JSON found; leave the divs with a nice message
         const d1 = document.getElementById('map-opponents');
         const d2 = document.getElementById('map-hosts');
         if(d1) d1.innerHTML = '<div style="padding:12px;color:#666">Maps not available for this player.</div>';
@@ -782,11 +787,13 @@ function fetchJsonSafe(url){
         return;
       }
       const url = candidates[i];
-      fetchJsonSafe(url).then(d => {
-        if(!d){ tryNext(i+1); return; }
+      fetch(url).then(r => {
+        if(!r.ok) throw r.status;
+        return r.json();
+      }).then(d => {
         const opp = d.map_opponent_stats || d.opponent_countries || {};
         const host = d.map_host_stats || d.host_countries || {};
-        // if we have maps objects, render them
+        // render if any data found
         try {
           renderOpponentMap(opp);
           renderHostMap(host);
@@ -797,7 +804,6 @@ function fetchJsonSafe(url){
     })(0);
   }
 
-  // expose functions
   window.MapsClient = {
     initMaps: initMaps,
     renderOpponentMap: renderOpponentMap,
@@ -805,5 +811,6 @@ function fetchJsonSafe(url){
   };
 })();
 </script>
+
 </body>
 </html>
