@@ -654,14 +654,72 @@ function fetchJsonSafe(url){
   // end of main IIFE
 })();
 
+
+
 (function(){
+  const RETRY_INTERVAL = 180; // ms
+  const MAX_RETRIES = 20; // ~3.6s total
+
   function slugFromLocation(){
     const parts = location.pathname.replace(/\/$/, '').split('/');
     return (parts[parts.length-1] || parts[parts.length-2] || '').toString();
   }
 
-  function fetchJsonSafeLocal(url){
-    return fetch(url).then(r => { if(!r.ok) return Promise.reject(r.status); return r.json(); });
+  function waitForPlotly(maxRetries = MAX_RETRIES){
+    return new Promise((resolve) => {
+      let tries = 0;
+      (function check(){
+        if(window.Plotly && typeof window.Plotly.react === 'function') return resolve(true);
+        tries++;
+        if(tries >= maxRetries) return resolve(false);
+        setTimeout(check, RETRY_INTERVAL);
+      })();
+    });
+  }
+
+  function waitForElement(id, maxRetries = MAX_RETRIES){
+    return new Promise((resolve) => {
+      let tries = 0;
+      (function poll(){
+        const el = document.getElementById(id);
+        if(el) return resolve(el);
+        tries++;
+        if(tries >= maxRetries) return resolve(null);
+        setTimeout(poll, RETRY_INTERVAL);
+      })();
+    });
+  }
+
+  function ensureMapContainers(){
+    // ensure panel-maps exists
+    let panelMaps = document.getElementById('panel-maps');
+    if(!panelMaps){
+      console.warn('maps-client: panel-maps not found — cannot reliably create containers');
+      return {op:null, host:null};
+    }
+    // create container if missing
+    let op = document.getElementById('map-opponents');
+    let host = document.getElementById('map-hosts');
+    if(!op){
+      op = document.createElement('div');
+      op.id = 'map-opponents';
+      op.className = 'map-card';
+      op.style.minHeight = '320px';
+      panelMaps.querySelector('.map-wrap') ? panelMaps.querySelector('.map-wrap').prepend(op) : panelMaps.appendChild(op);
+      console.info('maps-client: created missing #map-opponents container');
+    }
+    if(!host){
+      host = document.getElementById('map-hosts');
+      if(!host){
+        host = document.createElement('div');
+        host.id = 'map-hosts';
+        host.className = 'map-card';
+        host.style.minHeight = '320px';
+        panelMaps.querySelector('.map-wrap') ? panelMaps.querySelector('.map-wrap').appendChild(host) : panelMaps.appendChild(host);
+        console.info('maps-client: created missing #map-hosts container');
+      }
+    }
+    return {op, host};
   }
 
   function buildHoverText(item){
@@ -675,92 +733,95 @@ function fetchJsonSafe(url){
   }
 
   function toNumericZ(o){
-    // o may have win_rate already or we compute from wins/matches
-    if(o == null) return null;
-    if(typeof o.win_rate === 'number' && !isNaN(o.win_rate)) return o.win_rate*100;
-    try {
-      const matches = Number(o.matches || ((o.wins||0) + (o.losses||0)));
-      const wins = Number(o.wins || 0);
-      if(matches && !isNaN(matches) && matches > 0) return (wins / matches) * 100;
-    } catch(e){}
+    if(!o) return null;
+    // prefer explicit win_rate (0..1)
+    if(typeof o.win_rate === 'number' && !isNaN(o.win_rate)) return o.win_rate * 100;
+    // if win_rate stored as string "0.75"
+    if(typeof o.win_rate === 'string' && o.win_rate.trim() !== ''){
+      const v = parseFloat(o.win_rate);
+      if(!isNaN(v)) return v * 100;
+    }
+    // fallback to wins / matches
+    const wins = Number(o.wins || 0);
+    const matches = Number(o.matches || ((o.wins||0) + (o.losses||0)));
+    if(matches && !isNaN(matches) && matches > 0) return (wins / matches) * 100;
     return null;
   }
 
-  function safeIsoCode(c){
-    if(!c) return '';
-    let s = String(c).trim();
-    // if it's 2-letter, convert to upper 2; if 3-letter, keep 3-letter
-    if(/^[A-Za-z]{2}$/.test(s)) return s.toUpperCase();
-    if(/^[A-Za-z]{3}$/.test(s)) return s.toUpperCase();
-    // handle common 3->2 mapping for a few known codes (extend if needed)
-    const map = {'GBR':'GB','SUI':'CH','USA':'US'};
-    if(map[s.toUpperCase()]) return map[s.toUpperCase()];
-    return s.toUpperCase();
-  }
-
-  function renderChoropleth(targetId, mapObj, opts){
+  function renderChoroplethSafe(targetId, mapObj, opts){
     opts = opts || {};
-    const div = document.getElementById(targetId);
-    if(!div) {
-      console.warn('renderChoropleth: target not found', targetId);
-      return;
-    }
+    return waitForElement(targetId, MAX_RETRIES).then((div)=>{
+      // if still not present, try to create containers inside panel-maps
+      if(!div){
+        const created = ensureMapContainers();
+        div = document.getElementById(targetId);
+        if(!div){
+          console.warn('renderChoropleth: target still not found', targetId);
+          return;
+        }
+      }
+      // build arrays
+      const locs = [], zs = [], texts = [];
+      Object.keys(mapObj || {}).forEach(code => {
+        const item = mapObj[code] || {};
+        const zval = toNumericZ(item);
+        if(zval === null || isNaN(zval)) return; // skip non-numeric
+        // keep original code as ISO label; Plotly will interpret with locationmode
+        const iso = (code || '').toString().trim();
+        if(!iso) return;
+        locs.push(iso);
+        zs.push(Math.round(zval*100)/100);
+        const copy = Object.assign({ iso: iso }, item);
+        texts.push(buildHoverText(copy));
+      });
 
-    const locs = [], zs = [], texts = [], isosForPlotly = [];
-    Object.keys(mapObj || {}).forEach(code => {
-      const item = mapObj[code] || {};
-      const zval = toNumericZ(item);
-      // skip entries without numeric value to avoid NaN in z
-      if(zval === null || isNaN(zval)) return;
-      // use 3-letter codes if available - Plotly default locationmode below set to ISO-3
-      const iso = (code || '').toString().trim();
-      if(!iso) return;
-      locs.push(iso);
-      zs.push(Math.round(zval*100)/100); // percent (0..100)
-      const copy = Object.assign({ iso: iso }, item);
-      texts.push(buildHoverText(copy));
+      if(locs.length === 0){
+        div.innerHTML = '<div style="padding:12px;color:#666">No map data available.</div>';
+        return;
+      }
+
+      const trace = {
+        type: 'choropleth',
+        locations: locs,
+        z: zs,
+        text: texts,
+        locationmode: opts.locationmode || 'ISO-3', // explicit
+        colorscale: opts.colorscale || 'Blues',
+        autocolorscale: false,
+        colorbar: { title: 'Win %' },
+        hoverinfo: 'text'
+      };
+
+      const layout = {
+        title: opts.title || '',
+        geo: { projection: { type: 'natural earth' } },
+        margin: { t: 40, b: 0, l: 0, r: 0 }
+      };
+
+      // ensure Plotly present
+      return waitForPlotly().then((ok) => {
+        if(!ok){
+          console.error('renderChoropleth: Plotly not available');
+          div.innerHTML = '<div style="padding:12px;color:#b71c1c">Plotly not loaded.</div>';
+          return;
+        }
+        try {
+          Plotly.react(div, [trace], layout, {responsive:true, displayModeBar:false});
+          // small timeout then resize to handle hidden->visible transitions
+          setTimeout(()=>{ try{ if(window.Plotly && window.Plotly.Plots && typeof window.Plotly.Plots.resize === 'function') window.Plotly.Plots.resize(div); }catch(e){console.warn('resize error',e);} }, 220);
+        } catch(e){
+          console.error('Plotly render failed', e);
+          div.innerHTML = '<div style="padding:12px;color:#b71c1c">Map rendering error (see console)</div>';
+        }
+      });
     });
-
-    if(locs.length === 0){
-      div.innerHTML = '<div style="padding:12px;color:#666">No map data available.</div>';
-      return;
-    }
-
-    const trace = {
-      type: 'choropleth',
-      locations: locs,
-      z: zs,
-      text: texts,
-      locationmode: 'ISO-3', // explicitly ask Plotly to interpret locations as ISO-3
-      colorscale: opts.colorscale || 'Blues',
-      autocolorscale: false,
-      colorbar: { title: 'Win %' },
-      hoverinfo: 'text'
-    };
-
-    const layout = {
-      title: opts.title || '',
-      geo: { projection: { type: 'natural earth' } },
-      margin: { t: 40, b: 0, l: 0, r: 0 }
-    };
-
-    try{
-      Plotly.react(div, [trace], layout, {responsive:true, displayModeBar:false});
-      // if the div was hidden during initial render, force a resize once visible
-      setTimeout(()=>{ try{ if(window.Plotly && window.Plotly.Plots && typeof window.Plotly.Plots.resize === 'function') window.Plotly.Plots.resize(div); }catch(e){console.warn('resize error',e);} }, 200);
-    }catch(e){
-      console.error('Plotly render failed', e);
-      div.innerHTML = '<div style="padding:12px;color:#b71c1c">Map rendering error (see console)</div>';
-    }
   }
 
   function renderOpponentMap(mapObj){
-    renderChoropleth('map-opponents', mapObj, { colorscale:'Blues', title: 'Win rate vs opponent nationality' });
+    return renderChoroplethSafe('map-opponents', mapObj, { colorscale:'Blues', title:'Win rate vs opponent nationality' });
   }
-
   function renderHostMap(mapObj){
-    // augment hover text with titles count if present in objects
-    renderChoropleth('map-hosts', mapObj, { colorscale:'YlGnBu', title: 'Win rate in tournaments by host country' });
+    return renderChoroplethSafe('map-hosts', mapObj, { colorscale:'YlGnBu', title:'Win rate in tournaments by host country' });
   }
 
   function initMaps(options){
@@ -774,7 +835,6 @@ function fetchJsonSafe(url){
       `/players_atp/${slugParam}.maps.json`,
       `/players_atp/${slugParam.toUpperCase()}.maps.json`,
       `/players_atp/${slugParam.toLowerCase()}.maps.json`,
-      `/players_atp/${slugParam}.maps.json`,
       `/players_atp/${slugParam}-maps.json`
     ];
 
@@ -793,10 +853,10 @@ function fetchJsonSafe(url){
       }).then(d => {
         const opp = d.map_opponent_stats || d.opponent_countries || {};
         const host = d.map_host_stats || d.host_countries || {};
-        // render if any data found
+        // render, but don't fail if one of them errors
         try {
-          renderOpponentMap(opp);
-          renderHostMap(host);
+          renderOpponentMap(opp).catch(()=>{});
+          renderHostMap(host).catch(()=>{});
         } catch(e){
           console.warn('maps client render error', e);
         }
