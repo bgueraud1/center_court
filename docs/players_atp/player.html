@@ -30,6 +30,11 @@
     .panel { display:none; border:1px solid var(--border); padding:12px; border-radius:8px; background:#fff; }
     .panel.active { display:block; }
 
+    /* sub-tabs inside stats */
+    .subtabs { display:flex; gap:8px; margin-bottom:12px; }
+    .subtab-btn { padding:6px 10px; border:1px solid var(--border); background:#fff; cursor:pointer; border-radius:8px; font-size:13px; }
+    .subtab-btn.active { background:#103f8a; color:#fff; border-color:#103f8a; }
+
     /* tournaments */
     .tourney { border-radius:10px; padding:12px; margin-bottom:12px; border:1px solid #eee; background:#fff; box-shadow:0 4px 10px rgba(20,20,40,0.03); }
     .tourney-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
@@ -67,9 +72,24 @@
     .best-item { display:flex; justify-content:space-between; align-items:center; padding:10px; border-radius:10px; border:1px solid #f0f0f0; background:#fff; }
     .round-badge { padding:4px 8px; border-radius:8px; background:#f1f5ff; font-weight:700; color:var(--accent); }
 
+    /* maps UI */
+    .maps-wrapper { display:flex; gap:14px; flex-wrap:wrap; }
+    .maps-column { flex:1 1 320px; min-width:260px; background:#fff; border:1px solid var(--border); border-radius:10px; padding:12px; box-shadow:0 6px 14px rgba(10,20,40,0.02); }
+    .country-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px; border-radius:8px; border-bottom:1px dashed #f0f0f0; }
+    .country-meta { display:flex; gap:10px; align-items:center; min-width:0; flex:1; }
+    .country-flag { font-size:20px; width:36px; text-align:center; }
+    .country-name { font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .country-stats { text-align:right; min-width:120px; font-size:13px; color:var(--muted); }
+
+    .sample-list { margin-top:8px; padding-left:12px; font-size:13px; color:var(--muted); }
+    .sample-item { margin-bottom:6px; }
+
+    .pill { padding:6px 8px; border-radius:999px; font-weight:700; background:#f6f8ff; color:var(--accent); font-size:12px; }
+
     @media (max-width:760px){
       .player-header { flex-direction:column; }
       .player-image { width:100%; max-width:260px; }
+      .maps-wrapper { flex-direction:column; }
     }
   </style>
 </head>
@@ -113,37 +133,61 @@
     </div>
 
     <div id="panel-stats" class="panel" role="tabpanel">
-      <div class="no-data">Detailed statistics are handled by another module and are not loaded here.</div>
+      <div class="subtabs" id="stats-subtabs" style="margin-bottom:12px;">
+        <button class="subtab-btn active" data-sub="detailed">Detailed statistics</button>
+        <button class="subtab-btn" data-sub="scenarios">Scenarios</button>
+        <button class="subtab-btn" data-sub="timeseries">Time series</button>
+        <button class="subtab-btn" data-sub="maps">Maps</button>
+      </div>
+
+      <div id="stats-content">
+        <div id="stats-detailed" class="stats-panel">Detailed statistics are handled by another module and are not loaded here.</div>
+        <div id="stats-scenarios" class="stats-panel" style="display:none;">Scenarios are not loaded yet.</div>
+        <div id="stats-timeseries" class="stats-panel" style="display:none;">Time series are not loaded yet.</div>
+        <div id="stats-maps" class="stats-panel" style="display:none;">
+          <div id="maps-loading" class="sub">Maps: not loaded yet.</div>
+          <div id="maps-root" style="display:none;">
+            <div class="maps-wrapper">
+              <div class="maps-column" id="maps-hosts">
+                <h4>Host countries</h4>
+                <div id="host-list"></div>
+              </div>
+              <div class="maps-column" id="maps-opponents">
+                <h4>Opponent countries</h4>
+                <div id="opp-list"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
 <script>
+/* ---------------- utilities ---------------- */
 function escapeHtml(s){
   if (s === null || s === undefined) return '';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 function countryCodeToFlag(code){
   if(!code) return '';
-  const map = {'ITA':'IT','ESP':'ES','GER':'DE','USA':'US','GBR':'GB','SRB':'RS','FRA':'FR','ARG':'AR','BRA':'BR','SUI':'CH'};
+  const map = {'ITA':'IT','ESP':'ES','GER':'DE','USA':'US','GBR':'GB','SRB':'RS','FRA':'FR','ARG':'AR','BRA':'BR','SUI':'CH','CAN':'CA','AUS':'AU'};
   let iso2 = code;
   if(typeof iso2 === 'string') iso2 = iso2.trim();
   if(!iso2) return '';
   if(iso2.length === 3) iso2 = (map[iso2.toUpperCase()] || null);
   if(!iso2 && iso2.length === 2) iso2 = iso2.toUpperCase();
   if(!iso2) return '';
-  // must be A-Z letters only
   if(!/^[A-Z]{2}$/.test(iso2.toUpperCase())) return '';
   const A = 0x1F1E6;
   return [...iso2.toUpperCase()].map(c => String.fromCodePoint(A + c.charCodeAt(0) - 65)).join('');
 }
-function surfaceClass(surface){
-  if(!surface) return 'surf-other';
-  const s = String(surface).toLowerCase();
-  if(s.includes('hard')) return 'surf-hard';
-  if(s.includes('clay') || s.includes('red')) return 'surf-clay';
-  if(s.includes('grass')) return 'surf-grass';
-  return 'surf-other';
+function fmtPercent(x){
+  if(x === null || x === undefined) return '—';
+  if(isNaN(x)) return '—';
+  return (Math.round((x*100)*10)/10) + '%';
 }
+function fmtInt(x){ if(x === null || x === undefined) return '—'; return String(x); }
 function dateWithoutYear(isoDate){
   if(!isoDate) return '';
   try{
@@ -152,13 +196,11 @@ function dateWithoutYear(isoDate){
       const m = isoDate.match(/^\d{4}-(\d{2}-\d{2})/);
       if(m) {
         const parts = m[1].split('-');
-        // fallback: return DD Month
         const mock = new Date(`${new Date().getFullYear()}-${parts[0]}-${parts[1]}`);
         try{ return new Intl.DateTimeFormat('en', { day: '2-digit', month: 'long' }).format(mock); }catch(e){ return `${parts[1]}-${parts[0]}`; }
       }
       return isoDate;
     }
-    // Use locale-insensitive English long month
     return new Intl.DateTimeFormat('en', { day: '2-digit', month: 'long' }).format(d);
   }catch(e){ return isoDate; }
 }
@@ -167,9 +209,12 @@ function fetchJsonSafe(url){
   catch(e){ console.warn('fetch failed',url,e); return Promise.resolve(null); }
 }
 
+/* ----------------- main UI flow ----------------- */
 (async function(){
   const loading = document.getElementById('loading');
   const root = document.getElementById('player-root');
+
+  // derive slug/pid from URL (same logic as before)
   const parts = location.pathname.replace(/\/$/, '').split('/');
   const slug = parts[parts.length - 1] || parts[parts.length - 2] || '';
   if(!slug){ loading.textContent = 'Slug not found in URL.'; return; }
@@ -243,18 +288,17 @@ function fetchJsonSafe(url){
     const img = document.createElement('img'); img.src = combined.image; img.alt = combined.name; img.loading = 'lazy'; imageWrap.appendChild(img);
   } else imageWrap.innerHTML = '<div class="sub">No image</div>';
 
-  // Matches by year (client)
+  // Matches by year (unchanged)
   const matchesContainer = document.getElementById('matches-container');
   let mby = combined.matches_by_year || {};
 
-  // fallback: build grouping client-side if needed (STRICT: use start_date only)
   if(Object.keys(mby).length === 0 && Array.isArray(combined.matches) && combined.matches.length){
     const map = {};
     for(const m of combined.matches){
       const y = (m.event_year || '').toString();
       if(!map[y]) map[y] = {};
       const name = (m.tourney_name || '').trim();
-      const sd = (m.start_date || '').trim(); // strict
+      const sd = (m.start_date || '').trim();
       const key = (m.event_id ? m.event_id : 'NOID') + '||' + name + '||' + sd;
       if(!map[y][key]) map[y][key] = { event_id: m.event_id || '', tourney_name: name, category: m.category || '', surface: m.surface || '', start_date: sd, matches: [] };
       map[y][key].matches.push(m);
@@ -294,7 +338,6 @@ function fetchJsonSafe(url){
     matchesContainer.innerHTML = '';
     const tournaments = (mby[year] || []);
     if(!tournaments || tournaments.length === 0){ matchesContainer.innerHTML = '<div class="no-data">No matches for this year.</div>'; return; }
-    // ensure tournaments sorted by start_date desc then name
     tournaments.sort((a,b) => {
       const aDate = a.start_date || '';
       const bDate = b.start_date || '';
@@ -314,12 +357,10 @@ function fetchJsonSafe(url){
       title.innerHTML = `<span class="tourney-title">${escapeHtml(t.tourney_name || 'Tournament')}</span> <span class="tourney-cat" style="background:rgba(0,0,0,0.15); color:#111;">${escapeHtml(t.category || '')}</span>`;
       header.appendChild(title);
       const info = document.createElement('div'); info.className = 'small muted';
-      // Removed start_date display as requested. Show surface only (if known)
       info.textContent = t.surface ? `Surface: ${t.surface}` : '';
       header.appendChild(info);
       div.appendChild(header);
 
-      // matches ordered: F/W > SF > QF > R16 > R32 > R64 > R128 > other
       const mm = (t.matches || []).slice();
       mm.sort((a,b) => {
         const order = {'W':0,'F':0,'SF':1,'QF':2,'R16':3,'R32':4,'R64':5,'R128':6,'RR':7};
@@ -328,7 +369,6 @@ function fetchJsonSafe(url){
         const oa = (order[ra] !== undefined) ? order[ra] : 99;
         const ob = (order[rb] !== undefined) ? order[rb] : 99;
         if(oa !== ob) return oa - ob;
-        // then by start_date desc
         const da = a.start_date || '';
         const db = b.start_date || '';
         if(da < db) return 1;
@@ -341,7 +381,6 @@ function fetchJsonSafe(url){
         const isWin = m.is_win === true;
         const line = document.createElement('div');
         line.className = 'match-line ' + (isWin ? 'win' : (m.is_win === false ? 'loss' : ''));
-        // opponent and score: bold + color
         let oppHtml = escapeHtml(m.opponent || '—');
         if(m.opponent_id){
           const href = `/players_atp/${String(m.opponent_id).toLowerCase()}`;
@@ -407,11 +446,11 @@ function fetchJsonSafe(url){
 
   bestSelect.addEventListener('change', (e) => renderBestForYear(e.target.value));
 
-  // finalize
+  // finalize initial UI
   loading.style.display = 'none';
   root.style.display = 'block';
 
-  // tabs
+  // main tabs behaviour
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -422,8 +461,191 @@ function fetchJsonSafe(url){
     });
   });
 
+  // stats subtabs behaviour & lazy loaders
+  const subtabs = document.querySelectorAll('.subtab-btn');
+  const loaded = { detailed:false, scenarios:false, timeseries:false, maps:false };
+
+  subtabs.forEach(s => {
+    s.addEventListener('click', async (ev) => {
+      subtabs.forEach(x => x.classList.remove('active'));
+      s.classList.add('active');
+      const sub = s.getAttribute('data-sub');
+      // hide all stats panels then show requested
+      document.querySelectorAll('#stats-content .stats-panel').forEach(p => p.style.display = 'none');
+      const panel = document.getElementById('stats-' + sub);
+      if(panel) panel.style.display = 'block';
+
+      // lazy load once per subpanel
+      if(sub === 'detailed' && !loaded.detailed){
+        // attempt to load a detailed stats JSON (path convention)
+        const urlCandidates = [
+          `/players_atp/${pid}.stats.json`,
+          `/players_atp/${pid.toLowerCase()}.stats.json`,
+          `/players_atp/${combined.slug}.stats.json`
+        ];
+        let data = null;
+        for(const u of urlCandidates){
+          data = await fetchJsonSafe(u);
+          if(data) { break; }
+        }
+        if(data && typeof data === 'object'){
+          panel.innerHTML = `<pre style="white-space:pre-wrap;max-height:320px;overflow:auto;padding:8px;border:1px solid var(--border);">${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
+        } else {
+          panel.innerHTML = '<div class="no-data">Detailed statistics file not found.</div>';
+        }
+        loaded.detailed = true;
+      }
+
+      if(sub === 'scenarios' && !loaded.scenarios){
+        const urlCandidates = [
+          `/players_atp/${pid}.scenarios.json`,
+          `/players_atp/${pid.toLowerCase()}.scenarios.json`,
+          `/players_atp/${combined.slug}.scenarios.json`
+        ];
+        let data = null;
+        for(const u of urlCandidates){
+          data = await fetchJsonSafe(u);
+          if(data) break;
+        }
+        if(data && typeof data === 'object'){
+          panel.innerHTML = `<pre style="white-space:pre-wrap;max-height:320px;overflow:auto;padding:8px;border:1px solid var(--border);">${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
+        } else {
+          panel.innerHTML = '<div class="no-data">Scenarios file not found.</div>';
+        }
+        loaded.scenarios = true;
+      }
+
+      if(sub === 'timeseries' && !loaded.timeseries){
+        const urlCandidates = [
+          `/players_atp/${pid}.timeseries.json`,
+          `/players_atp/${pid.toLowerCase()}.timeseries.json`,
+          `/players_atp/${combined.slug}.timeseries.json`
+        ];
+        let data = null;
+        for(const u of urlCandidates){
+          data = await fetchJsonSafe(u);
+          if(data) break;
+        }
+        if(data && typeof data === 'object'){
+          panel.innerHTML = `<pre style="white-space:pre-wrap;max-height:420px;overflow:auto;padding:8px;border:1px solid var(--border);">${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
+        } else {
+          panel.innerHTML = '<div class="no-data">Time series file not found.</div>';
+        }
+        loaded.timeseries = true;
+      }
+
+      if(sub === 'maps' && !loaded.maps){
+        await loadAndRenderMaps(pid, panel);
+        loaded.maps = true;
+      }
+    });
+  });
+
+  // helper: build a country row node
+  function createCountryRow(countryCode, statsObj, kind){
+    const row = document.createElement('div'); row.className = 'country-row';
+    const meta = document.createElement('div'); meta.className = 'country-meta';
+    const flag = document.createElement('div'); flag.className = 'country-flag'; flag.innerHTML = countryCodeToFlag(countryCode) || '';
+    const name = document.createElement('div'); name.className = 'country-name'; name.title = countryCode; name.textContent = countryCode;
+    meta.appendChild(flag);
+    meta.appendChild(name);
+
+    const stats = document.createElement('div'); stats.className = 'country-stats';
+    const wins = fmtInt(statsObj.wins || statsObj.wins === 0 ? statsObj.wins : (statsObj.wins===undefined ? '—' : statsObj.wins));
+    const losses = fmtInt(statsObj.losses || statsObj.losses === 0 ? statsObj.losses : (statsObj.losses===undefined ? '—' : statsObj.losses));
+    const matches = fmtInt(statsObj.matches || statsObj.matches === 0 ? statsObj.matches : (statsObj.matches===undefined ? '—' : statsObj.matches));
+    const win_rate = (statsObj.win_rate === null || statsObj.win_rate === undefined) ? null : Number(statsObj.win_rate);
+    const titles = statsObj.titles ? String(statsObj.titles) : '';
+    const rightHtml = `<div style="font-weight:700">${matches} matches</div><div style="font-size:12px;color:var(--muted)">${wins}W • ${losses}L • ${fmtPercent(win_rate)} ${titles? ' • '+titles + ' T': ''}</div>`;
+    stats.innerHTML = rightHtml;
+
+    row.appendChild(meta);
+    row.appendChild(stats);
+
+    // sample matches (toggle)
+    if(Array.isArray(statsObj.sample_matches) && statsObj.sample_matches.length){
+      const toggle = document.createElement('button');
+      toggle.className = 'pill';
+      toggle.style.marginLeft = '8px';
+      toggle.textContent = 'Examples';
+      toggle.onclick = () => {
+        if(toggle.nextSibling && toggle.nextSibling.classList && toggle.nextSibling.classList.contains('sample-list')){
+          toggle.nextSibling.remove();
+          return;
+        }
+        const list = document.createElement('div'); list.className = 'sample-list';
+        for(const s of statsObj.sample_matches){
+          // build a short description: date - opponent - score
+          const date = s.match_date ? dateWithoutYear(s.match_date) : (s.event_year ? s.event_year : '');
+          const opp = s.opponent_country || s.opponent || s.opponent_id || '';
+          const score = s.score || '';
+          const ev = s.event_id ? ` (${s.event_id}${s.event_year? ' ' + s.event_year : ''})` : (s.event_year ? ` (${s.event_year})` : '');
+          const div = document.createElement('div'); div.className = 'sample-item';
+          div.textContent = `${date} — ${opp}${ev} — ${score}`;
+          list.appendChild(div);
+        }
+        row.appendChild(list);
+      };
+      // append small toggle next to stats
+      stats.appendChild(toggle);
+    }
+
+    return row;
+  }
+
+  // load maps JSON and render
+  async function loadAndRenderMaps(pid, targetPanel){
+    const loadingNode = document.getElementById('maps-loading');
+    const mapsRoot = document.getElementById('maps-root');
+    loadingNode.textContent = 'Loading maps data...';
+
+    const candidates = [
+      `/players_atp/${pid}.maps.json`,
+      `/players_atp/${pid.toLowerCase()}.maps.json`,
+      `/players_atp/${combined.slug}.maps.json`,
+      `/players_atp/data/${combined.slug}.maps.json`
+    ];
+    let data = null;
+    for(const u of candidates){
+      data = await fetchJsonSafe(u);
+      if(data) break;
+    }
+    if(!data){
+      loadingNode.textContent = 'Maps data not found.';
+      return;
+    }
+    // prefer canonical keys map_opponent_stats and map_host_stats, otherwise fallback to opponent_countries / host_countries
+    const opp = data.map_opponent_stats || data.opponent_countries || {};
+    const host = data.map_host_stats || data.host_countries || {};
+
+    // Render host list
+    const hostList = document.getElementById('host-list'); hostList.innerHTML = '';
+    const oppList = document.getElementById('opp-list'); oppList.innerHTML = '';
+
+    // sort countries by matches desc
+    const hostEntries = Object.keys(host).map(k => ({ k, stats: host[k] })).sort((a,b) => ( (b.stats.matches||0) - (a.stats.matches||0) ));
+    const oppEntries = Object.keys(opp).map(k => ({ k, stats: opp[k] })).sort((a,b) => ( (b.stats.matches||0) - (a.stats.matches||0) ));
+
+    if(hostEntries.length === 0) hostList.innerHTML = '<div class="no-data">No host country data available.</div>';
+    else {
+      for(const e of hostEntries){
+        const node = createCountryRow(e.k, e.stats, 'host');
+        hostList.appendChild(node);
+      }
+    }
+    if(oppEntries.length === 0) oppList.innerHTML = '<div class="no-data">No opponent country data available.</div>';
+    else {
+      for(const e of oppEntries){
+        const node = createCountryRow(e.k, e.stats, 'opp');
+        oppList.appendChild(node);
+      }
+    }
+
+    loadingNode.style.display = 'none';
+    mapsRoot.style.display = 'block';
+  }
+
 })();
 </script>
 </body>
 </html>
-
