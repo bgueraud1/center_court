@@ -277,7 +277,7 @@ except Exception as e:
     print("Unexpected error running generate_players:", e)
     raise
 
-
+"""
 # === Generate ATP player pages (if script exists) ===
 print("Generating ATP player pages (if available)...")
 gen_atp = ROOT / "scripts" / "generate_players_atp.py"
@@ -316,7 +316,7 @@ for src_dir, dst_dir in [(ROOT / "players", BUILD_DIR / "players"), (ROOT / "pla
         except Exception as e:
             print(f"Could not copy player dir {src_dir} -> {dst_dir}: {e}")
 
-
+"""
 
 # -------------------------
 # 6) Build the nicer index.html with sections, custom names, header logo, footer
