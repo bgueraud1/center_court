@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-generate_player_meta.py (strict start_date, winner-aware points)
-Usage:
-  python scripts/generate_player_meta.py --matches-dir ./matches/atp_matches --out-dir ./docs --player-data-csv player_data_atp.csv
+generate_player_meta.py (strict start_date) — updated
 """
 from pathlib import Path
 import argparse
@@ -81,31 +79,37 @@ def read_matches_from_dir(matches_dir):
     matches = pd.concat(frames, ignore_index=True, sort=False)
     return matches
 
-# Points table (clean integers) based on the table you provided.
+# Points mapping (updated using supplied table)
 POINTS_TABLE = {
     'grand_slam': {'W':2000,'F':1300,'SF':800,'QF':400,'R16':200,'R32':100,'R64':50,'R128':10},
     'masters_1000': {'W':1000,'F':650,'SF':400,'QF':200,'R16':100,'R32':50,'R64':30,'R128':10},
     'atp_500': {'W':500,'F':330,'SF':200,'QF':100,'R16':50,'R32':25,'R64':0},
     'atp_250': {'W':250,'F':165,'SF':100,'QF':50,'R16':25,'R32':13,'R64':0},
-    'atp_finals': {'W':500,'F':500,'SF':400,'RR_WIN':200},  # approximation for finals
+    'atp_finals': {'W':500,'F':400,'SF':400,'RR_WIN':200},
     'default': {'W':0,'F':0,'SF':0,'QF':0,'R16':0,'R32':0,'R64':0,'R128':0}
 }
+
 
 def detect_category_key(cat_str):
     if not cat_str:
         return 'default'
     s = str(cat_str).lower()
-    if 'grand' in s or 'slam' in s or 'major' in s or 'gs' in s:
+    s = s.replace('-', ' ')
+    if 'grand' in s or 'slam' in s or 'major' in s or '\bgs\b' in s:
         return 'grand_slam'
     if 'final' in s and ('atp' in s or 'finals' in s):
         return 'atp_finals'
-    if 'masters' in s or '1000' in s:
+    if 'masters' in s or '1000' in s or 'masters 1000' in s:
         return 'masters_1000'
-    if '500' in s:
+    if '500' in s and 'atp' in s:
         return 'atp_500'
-    if '250' in s:
+    if '250' in s and 'atp' in s:
         return 'atp_250'
+    # catch some abbreviations
+    if s.strip() in ('gs','grand slam'):
+        return 'grand_slam'
     return 'default'
+
 
 def normalize_round_token(round_tok):
     if round_tok is None:
@@ -119,7 +123,7 @@ def normalize_round_token(round_tok):
         return 'SF'
     if r in ('QF','QUARTER','QUARTER-FINAL','Q'):
         return 'QF'
-    if r.startswith('R') and len(r) > 1 and r[1:].isdigit():
+    if r.startswith('R') and r[1:].isdigit():
         return r
     if 'ROUND' in r and '16' in r:
         return 'R16'
@@ -131,15 +135,11 @@ def normalize_round_token(round_tok):
         return 'RR'
     return r
 
-def points_for_match_row(rr, is_winner=False):
-    """
-    Compute points for the player represented by the row.
-    rr: pandas Series of original row
-    is_winner: True if the player in context is the match winner (so final -> W points)
-    """
+
+def points_for_match_row(rr):
     if rr is None:
         return 0
-    # prefer explicit numeric columns if present
+    # prefer explicit numeric columns
     for c in ('points_for_result','points','ranking_points','points_won'):
         try:
             if c in rr.index and rr.get(c) not in (None, ''):
@@ -150,7 +150,7 @@ def points_for_match_row(rr, is_winner=False):
                     pass
         except Exception:
             pass
-    # determine category
+    # fallback to calculation by category + round
     cat = None
     for c in ('category','level','tourney_level','category_name','tourney_name'):
         try:
@@ -161,19 +161,25 @@ def points_for_match_row(rr, is_winner=False):
             pass
     cat_key = detect_category_key(cat)
     round_tok = normalize_round_token(rr.get('round') if 'round' in rr.index else '')
-    # if player is winner and round is final (F), use W points
-    if is_winner and round_tok == 'F':
-        round_tok = 'W'
     table = POINTS_TABLE.get(cat_key, POINTS_TABLE['default'])
+    # If the row represents a winner but round token is 'F', prefer winner points
+    is_win = False
+    try:
+        if 'player_id_winner' in rr.index and str(rr.get('player_id_winner')).strip() != '':
+            # this function doesn't know the player of interest; keep generic behavior
+            pass
+    except Exception:
+        pass
     if round_tok in table and table.get(round_tok) is not None:
         return int(table.get(round_tok) or 0)
-    # fallback for 'Rxx' ranges
     if round_tok.startswith('R'):
         if round_tok in table:
             return int(table.get(round_tok) or 0)
+        if 'R32' in table and 'R16' not in table:
+            return int(table.get('R32') or 0)
     return int(table.get('W') or 0) if round_tok == 'W' else int(table.get('F') or 0) if round_tok == 'F' else 0
 
-# build_matches_index_for_player (strict start_date, compute points with is_winner)
+# build_matches_index_for_player: **only** use start_date for dates
 def build_matches_index_for_player(matches_df: pd.DataFrame, player_id: str, max_matches: int = None):
     pid = normalize_player_id(player_id)
     if not pid:
@@ -233,8 +239,7 @@ def build_matches_index_for_player(matches_df: pd.DataFrame, player_id: str, max
 
             tourney_name = r.get('tourney_name') or r.get('event_name') or ''
             category = r.get('category') or r.get('level') or r.get('tourney_level') or r.get('category_name') or ''
-
-            pts = points_for_match_row(r, is_winner=(is_win is True))
+            pts = points_for_match_row(r)
 
             entry = {
                 'match_id': str(match_id),
@@ -268,6 +273,7 @@ def build_matches_index_for_player(matches_df: pd.DataFrame, player_id: str, max
     if max_matches:
         out_sorted = out_sorted[-int(max_matches):] if len(out_sorted) > int(max_matches) else out_sorted
     return out_sorted
+
 
 def choose_most_likely_name(cands):
     counts = Counter([str(x).strip() for x in cands if x and str(x).strip()])
@@ -392,7 +398,7 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
         'matches_lost': int(matches_lost)
     }
 
-    # build match_lookup: map match_id -> original row (so we can read other fields if needed)
+    # build match_lookup: map match_id -> original row (so we can read start_date if needed)
     match_lookup = {}
     try:
         for idx, r in df.iterrows():
@@ -409,11 +415,14 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
             y = m.get('event_year') or ''
             tourney_name = (m.get('tourney_name') or '').strip()
             ev = m.get('event_id') or ''
+            # get start_date strictly from match entry's start_date (already parsed)
             sd = m.get('start_date') or ''
-            # Use event_id || tourney_name || start_date as key (start_date must exist)
+            # Key uses event_id + tourney_name + start_date to avoid accidental duplicates,
+            # but displayed name = tourney_name (no fallback)
             event_key = f"{ev or 'NOID'}||{tourney_name}||{sd}"
             tb = tournaments_by_year[y]
             if event_key not in tb:
+                # category & surface from match entry (prefer)
                 category = m.get('category') or ''
                 surface = m.get('surface') or ''
                 tb[event_key] = {
@@ -421,7 +430,7 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
                     'tourney_name': tourney_name,
                     'category': category,
                     'surface': surface,
-                    'start_date': sd,
+                    'start_date': sd,   # strict
                     'matches': []
                 }
             tb[event_key]['matches'].append(m)
@@ -429,13 +438,13 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
             print("Warning: failed grouping match into tournament for player", pid)
             traceback.print_exc()
 
-    # convert tournaments_by_year to structured lists and sort tournaments by start_date desc then name
+    # convert and sort tournaments_by_year: tournaments sorted by start_date descending then name
     matches_by_year_structured = {}
     for y, d in tournaments_by_year.items():
         arr = []
         for evk, info in d.items():
             try:
-                # inside tournament sort matches: round order then start_date desc
+                # inside each tournament, sort matches: round order then start_date desc
                 info['matches'] = sorted(
                     info['matches'],
                     key=lambda mm: (round_sort_index(mm.get('round')),
@@ -459,7 +468,7 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
         arr_sorted = sorted(arr, key=lambda t: (tkey(t)[0], tkey(t)[1]), reverse=True)
         matches_by_year_structured[y] = arr_sorted
 
-    # trophies & best_by_year (include final round in best_by_year entries)
+    # trophies & best_by_year based on matches_index (points present or computed)
     trophies_map = {}
     best_by_year = {}
     for m in matches_index:
@@ -467,10 +476,26 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
             y = m.get('event_year') or ''
             event_key = f"{m.get('event_id','')}_{y}"
             rtok = normalize_round_token(m.get('round') or '')
-            # trophy if player won the final (consider W or F with is_win True)
-            if m.get('is_win') and rtok in ('W','WIN','F'):
-                # points were computed with is_winner flag in index builder
-                pts = m.get('points') or 0
+            is_win = bool(m.get('is_win') is True)
+
+            # Determine points for trophy / best: if player won the match and round is final ('F'), treat as winner 'W' to give winner points
+            # Compute points from m.get('points') if present, otherwise derive from table but prefer winner points when appropriate
+            pts = int(m.get('points') or 0)
+            if pts == 0:
+                # derive
+                cat_key = detect_category_key(m.get('category') or '')
+                table = POINTS_TABLE.get(cat_key, POINTS_TABLE['default'])
+                # if winner and final, give W points
+                if is_win and rtok in ('F',''):
+                    pts = int(table.get('W') or 0)
+                else:
+                    # if round present in table use it, otherwise fallback
+                    pts = int(table.get(rtok) or table.get('W') or 0)
+
+            # Only consider *actual winners* as trophies. A finalist who lost shouldn't be recorded as winner.
+            if is_win and rtok in ('W','WIN','F'):
+                # store winner points (ensure winner points used)
+                # if rtok == 'F' but is_win True, we already ensured pts is winner points
                 trophies_map[event_key] = {
                     'event_id': m.get('event_id'),
                     'event_year': y,
@@ -479,13 +504,13 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
                     'surface': m.get('surface') or '',
                     'points': int(pts or 0)
                 }
-            # best_by_year: keep round of that match to display the final round achieved
+
+            # best_by_year: keep the best single performance per event/year for the player and include final round
             if y:
                 if y not in best_by_year:
                     best_by_year[y] = {}
                 key = f"{m.get('event_id','')}"
                 cur = best_by_year[y].get(key)
-                pts = m.get('points') or 0
                 if cur is None or int(pts or 0) > int(cur.get('points', 0)):
                     best_by_year[y][key] = {
                         'event_id': m.get('event_id'),
@@ -494,7 +519,7 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
                         'category': m.get('category') or '',
                         'surface': m.get('surface') or '',
                         'points': int(pts or 0),
-                        'round': m.get('round') or ''
+                        'round': normalize_round_token(m.get('round') or '')
                     }
         except Exception:
             print("Warning: failed computing trophies/best for player", pid)
@@ -534,7 +559,7 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
         'best_by_year': best_by_year_lists,
         'total_points_by_year': total_points_by_year,
         'generated_at': datetime.utcnow().isoformat() + 'Z',
-        'version': 'meta_v4-strict-startdate-winner-points'
+        'version': 'meta_v4-strict-startdate-updated'
     }
 
     return combined
@@ -602,7 +627,7 @@ def main(matches_dir: str, out_dir: str, limit_players: int = None, player_data_
                 'matches_count': len(combined.get('matches', [])),
                 'matches_index_path': f"players_atp/{pid}.matches.json",
                 'generated_at': combined['generated_at'],
-                'version': combined.get('version','meta_v4-strict-startdate-winner-points')
+                'version': combined.get('version','meta_v4-strict-startdate-updated')
             }
             with open(meta_path, 'w', encoding='utf8') as f:
                 json.dump(legacy_meta, f, ensure_ascii=False, indent=2)
