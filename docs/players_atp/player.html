@@ -171,28 +171,21 @@ function escapeHtml(s){
 }
 // remplace l'ancienne countryCodeToFlag par celle-ci
 function countryCodeToFlag(code){
-  if(!code && code !== 0) return '';
-  // normalize to string and trim
+  if(code === null || code === undefined) return '';
   let iso2 = String(code).trim();
   if(!iso2) return '';
-  // mapping for common 3-letter IOC -> 2-letter ISO
   const map = {'ITA':'IT','ESP':'ES','GER':'DE','USA':'US','GBR':'GB','SRB':'RS','FRA':'FR','ARG':'AR','BRA':'BR','SUI':'CH','CAN':'CA','AUS':'AU'};
-  // if code is 3 letters and exists in map, map it; otherwise, if 3 letters and not in map, give up
   if(iso2.length === 3){
     const mapped = map[iso2.toUpperCase()];
-    if(!mapped){
-      // try to be permissive: return empty if we can't map a 3-letter code
-      return '';
-    }
+    if(!mapped) return '';
     iso2 = mapped;
   }
-  // if now length is 2, uppercase it
   if(iso2.length === 2) iso2 = iso2.toUpperCase();
-  // validate final iso2
   if(!/^[A-Z]{2}$/.test(iso2)) return '';
   const A = 0x1F1E6;
   return [...iso2].map(c => String.fromCodePoint(A + c.charCodeAt(0) - 65)).join('');
 }
+
 
 
 
@@ -576,8 +569,14 @@ function surfaceClass(surface){
     const row = document.createElement('div'); row.className = 'country-row';
     const meta = document.createElement('div'); meta.className = 'country-meta';
     const safeCode = countryCode || '—';
-    const flag = document.createElement('div'); flag.className = 'country-flag'; flag.innerHTML = countryCodeToFlag(safeCode) || '';
-    const name = document.createElement('div'); name.className = 'country-name'; name.title = safeCode; name.textContent = safeCode;
+    const flag = document.createElement('div');
+    flag.className = 'country-flag';
+    flag.innerHTML = countryCodeToFlag(safeCode) || '';
+    const name = document.createElement('div');
+    name.className = 'country-name';
+    name.title = safeCode;
+    name.textContent = safeCode;
+
 
     meta.appendChild(flag);
     meta.appendChild(name);
@@ -609,7 +608,8 @@ function surfaceClass(surface){
         for(const s of statsObj.sample_matches){
           // build a short description: date - opponent - score
           const date = s.match_date ? dateWithoutYear(s.match_date) : (s.event_year ? s.event_year : '');
-          const opp = s.opponent_country || s.opponent || s.opponent_id || '';
+          const opp = data.map_opponent_stats || data.opponent_countries || {};
+          const host = data.map_host_stats || data.host_countries || {};
           const score = s.score || '';
           const ev = s.event_id ? ` (${s.event_id}${s.event_year? ' ' + s.event_year : ''})` : (s.event_year ? ` (${s.event_year})` : '');
           const div = document.createElement('div'); div.className = 'sample-item';
