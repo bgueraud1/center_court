@@ -1,59 +1,124 @@
 <!doctype html>
-<html>
+<html lang="fr">
 <head>
   <meta charset="utf-8">
   <title>Fiche joueur - Center Court</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
-    body { font-family: Arial, Helvetica, sans-serif; margin: 18px; }
+    :root{
+      --gap: 14px;
+      --muted: #666;
+      --border: #e6e6e6;
+      --card-bg: #fafafa;
+    }
+    body { font-family: Arial, Helvetica, sans-serif; margin: 18px; color: #222; }
     #loading { font-size: 16px; color: #333; }
-    #player-root { display:none; }
-    table { border-collapse: collapse; width: 100%; max-width: 900px; }
-    th, td { padding: 6px 8px; border: 1px solid #ddd; text-align:left; }
+    #player-root { display:none; max-width:1100px; margin:0 auto; }
+
+    /* Header */
+    .player-header { display:flex; gap:var(--gap); align-items:flex-start; margin-bottom:16px; }
+    .player-meta-block { flex:1; min-width:0; }
+    .player-meta-top { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+    h1#player-name { margin:0; font-size:24px; line-height:1.05; }
+    .meta-small { color:var(--muted); font-size:13px; margin-top:6px; }
+    .player-attributes { margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; font-size:14px; color:#333; }
+    .attr { background:var(--card-bg); padding:6px 8px; border:1px solid var(--border); border-radius:6px; font-size:13px; }
+
+    /* image */
+    .player-image { width:140px; flex-shrink:0; border:1px solid var(--border); border-radius:6px; overflow:hidden; background:#fff; display:flex; align-items:center; justify-content:center; }
+    .player-image img { width:100%; height:auto; display:block; object-fit:cover; }
+
+    /* tabs */
+    .tabs { display:flex; gap:8px; margin:8px 0 16px 0; }
+    .tab-btn { padding:8px 12px; border:1px solid var(--border); background:#fff; cursor:pointer; border-radius:6px; }
+    .tab-btn.active { background:#333; color:#fff; border-color:#333; }
+
+    /* content panels */
+    .panel { display:none; border:1px solid var(--border); padding:12px; border-radius:6px; background:#fff; }
+    .panel.active { display:block; }
+
+    /* matches by year */
+    .year-block { margin-bottom:12px; }
+    .year-title { font-weight:bold; margin-bottom:8px; font-size:16px; }
+    table.matches { width:100%; border-collapse:collapse; font-size:14px; }
+    table.matches th, table.matches td { padding:8px; border:1px solid var(--border); text-align:left; vertical-align:top; }
+    table.matches th { background:#f7f7f7; font-weight:600; }
+
+    /* trophies / best */
+    .trophies-list, .best-list { list-style:none; padding-left:0; margin:0; }
+    .trophies-list li, .best-list li { padding:8px 6px; border-bottom:1px dashed #eee; }
+
+    /* small helpers */
+    .muted { color:var(--muted); font-size:13px; }
+    .small { font-size:13px; color:var(--muted); }
+    .nowrap { white-space:nowrap; }
+    .label { display:inline-block; min-width:110px; color:var(--muted); }
+    a.player-link { color:#0b66d1; text-decoration:none; }
+    .no-data { color:var(--muted); padding:12px; }
+    @media (max-width:720px){
+      .player-header { flex-direction:column; }
+      .player-image { width:100%; max-width:220px; }
+    }
   </style>
 </head>
 <body>
   <div id="loading">Chargement…</div>
 
-  <div id="player-root">
-    <h1 id="player-name"></h1>
-    <p id="player-meta"></p>
-    <section id="summary">
-      <h2>Résumé</h2>
-      <div id="summary-body"></div>
-    </section>
+  <div id="player-root" aria-live="polite">
+    <div class="player-header">
+      <div class="player-meta-block">
+        <div class="player-meta-top">
+          <h1 id="player-name">Nom Joueur</h1>
+          <div class="meta-small" id="player-id-country">ID • PAYS</div>
+        </div>
+        <div class="player-attributes" id="player-attributes">
+          <!-- attributs (birthdate, birthplace, hand, backhand, height, best_rank, first/last) -->
+        </div>
+        <div id="player-description" class="small muted" style="margin-top:8px;"></div>
+      </div>
 
-    <section id="stats">
-      <h2>Statistiques (extrait)</h2>
-      <div id="stats-body"></div>
-    </section>
+      <div class="player-image" id="player-image">
+        <!-- image here -->
+      </div>
+    </div>
 
-    <section id="maps">
-      <h2>Cartes (pays)</h2>
-      <div id="maps-body"></div>
-    </section>
+    <!-- tabs -->
+    <div class="tabs" role="tablist" aria-label="Onglets joueur">
+      <button class="tab-btn active" data-target="panel-matches" role="tab" aria-selected="true">Matchs par année</button>
+      <button class="tab-btn" data-target="panel-trophies" role="tab" aria-selected="false">Tournois & meilleures perfs</button>
+      <!-- placeholder for stats tab (not used) -->
+      <button class="tab-btn" data-target="panel-stats" role="tab" aria-selected="false">Statistiques (non chargées)</button>
+    </div>
 
-    <section id="scenarios">
-      <h2>Scénarios</h2>
-      <div id="scenarios-body"></div>
-    </section>
+    <!-- panels -->
+    <div id="panel-matches" class="panel active" role="tabpanel">
+      <div id="matches-body">
+        <div class="no-data">Chargement des matches...</div>
+      </div>
+    </div>
 
-    <section id="timeseries">
-      <h2>Séries temporelles (aperçu)</h2>
-      <div id="ts-body"></div>
-    </section>
+    <div id="panel-trophies" class="panel" role="tabpanel">
+      <h3>Trophées remportés</h3>
+      <div id="trophies-body"><div class="no-data">Chargement des trophées...</div></div>
+
+      <h3 style="margin-top:14px;">Meilleures performances par année</h3>
+      <div id="best-body"><div class="no-data">Chargement des meilleures perfs...</div></div>
+    </div>
+
+    <div id="panel-stats" class="panel" role="tabpanel">
+      <div class="no-data">Les statistiques détaillées sont gérées par un autre module et ne sont pas chargées ici.</div>
+    </div>
   </div>
 
 <script>
-/**
- * player.html — template unique.
- * Hypothèses d'emplacement :
- * - index : /data/index/players_index.json
- * - player files : /data/players/{PLAYER_ID}.meta.json, .stats.json, .maps.json, .scenarios.json, .ts.json
- *
- * L'URL visible doit être : /players_atp/<slug> (par ex. s0ag-jannik-sinner)
- * _redirects (Netlify) envoie toute requête /players_atp/* vers ce fichier.
- */
+/* player.html — template unique révisé
+   Comportement :
+   - Récupère le slug depuis l'URL /players_atp/<slug>
+   - Charge index: /index/players_index.json pour retrouver player_id et data_path
+   - Charge en priorité le fichier combiné lazy: /players_atp/data/{slug}.json (data_path)
+   - Fallback: /players_atp/{PLAYER_ID}.meta.json + /players_atp/{PLAYER_ID}.matches.json
+   - Rend : header (avec image) + panel "Matchs par année" (matches_by_year) + panel "Trophies & best_by_year"
+*/
 
 function fmtNumSmart(v){
   if(v === null || v === undefined || Number.isNaN(Number(v))) return "—";
@@ -73,11 +138,13 @@ async function fetchJsonSafe(url){
   }
 }
 
-(async function(){
+function safeText(v){ return (v === null || v === undefined || v === '') ? '—' : String(v); }
+
+(function(){
   const loading = document.getElementById('loading');
   const root = document.getElementById('player-root');
 
-  // 1) determine slug from URL
+  // determine slug from URL
   const parts = location.pathname.replace(/\/$/, '').split('/');
   const slug = parts[parts.length - 1] || parts[parts.length - 2] || '';
   if(!slug){
@@ -86,103 +153,286 @@ async function fetchJsonSafe(url){
   }
 
   loading.textContent = 'Chargement de l’index des joueurs…';
-  const index = await fetchJsonSafe('/index/players_index.json');
-  if(!index || !Array.isArray(index.players)){
-    loading.textContent = 'Index des joueurs indisponible (/index/players_index.json).';
-    return;
-  }
 
-  // 2) find player entry by slug OR by "<id>-<slug>" legacy format
-  const players = index.players;
-  const slugLower = slug.toLowerCase();
-  const found = players.find(p => (p.slug && p.slug.toLowerCase() === slugLower) || ((''+(p.player_id||'')).toLowerCase() + '-' + (p.slug||'')).toLowerCase() === slugLower);
-  if(!found){
-    loading.textContent = 'Joueur non trouvé pour le slug: ' + slug;
-    return;
-  }
-  const pid = found.player_id;
-
-  loading.textContent = 'Chargement des données du joueur…';
-  // lazy load only the parts we want to show immediately
-  const meta = await fetchJsonSafe(`/players_atp/${pid}.meta.json`);
-  const stats = await fetchJsonSafe(`/players_atp/${pid}.stats.json`);
-  const maps = await fetchJsonSafe(`/players_atp/${pid}.maps.json`);
-  const scenarios = await fetchJsonSafe(`/players_atp/${pid}.scenarios.json`);
-  const ts = await fetchJsonSafe(`/players_atp/${pid}.ts.json`);
-
-  // Render header
-  document.getElementById('player-name').textContent = (meta && meta.name) || found.name || pid;
-  document.getElementById('player-meta').innerHTML = `<em>ID:</em> ${pid} ${meta && meta.country ? ' • ' + meta.country : ''}`;
-
-  // Summary
-  const summaryBody = document.getElementById('summary-body');
-  if(meta && meta.summary){
-    summaryBody.innerHTML = `<p>Matches joués : ${meta.summary.matches_played || '—'} — Victoires : ${meta.summary.matches_won || '—'}</p>`;
-  } else if (stats && stats.career) {
-    summaryBody.innerHTML = `<p>Matches joués : ${stats.career.matches_played || '—'} — Victoires : ${stats.career.matches_won || '—'}</p>`;
-  } else {
-    summaryBody.innerHTML = `<p>Aucune donnée de résumé disponible.</p>`;
-  }
-
-  // Stats excerpt (show mean values for some keys)
-  const statsBody = document.getElementById('stats-body');
-  if(stats && stats.career && stats.career.stat_agg){
-    const agg = stats.career.stat_agg;
-    const keys = ['aces','doublefaults','tiebreak_win_rate','breakpoints_converted_rate','service_games_lost_rate','firstserve_percent'];
-    let html = '<table><thead><tr><th>Stat</th><th>Moyenne</th><th>Count</th></tr></thead><tbody>';
-    keys.forEach(k => {
-      const entry = agg[k];
-      const mean = entry && entry.mean !== null ? Number(entry.mean) : null;
-      const cnt = entry ? entry.count : 0;
-      html += `<tr><td>${k}</td><td>${mean !== null ? fmtNumSmart(mean) : '—'}</td><td>${cnt || 0}</td></tr>`;
-    });
-    html += '</tbody></table>';
-    statsBody.innerHTML = html;
-  } else {
-    statsBody.innerHTML = '<p>Statistiques détaillées non disponibles.</p>';
-  }
-
-  // Maps excerpt
-  const mapsBody = document.getElementById('maps-body');
-  if(maps && maps.opponent_countries){
-    const keys = Object.keys(maps.opponent_countries).sort().slice(0,12);
-    let html = '<ul>';
-    keys.forEach(k => {
-      const o = maps.opponent_countries[k];
-      html += `<li>${k} — ${o.matches} matchs — victoires ${o.wins || 0} — taux ${o.win_rate ? (o.win_rate*100).toFixed(1)+'%' : '—'}</li>`;
-    });
-    html += '</ul>';
-    mapsBody.innerHTML = html;
-  } else {
-    mapsBody.innerHTML = '<p>Cartes non disponibles.</p>';
-  }
-
-  // Scenarios excerpt
-  const scBody = document.getElementById('scenarios-body');
-  if(scenarios && scenarios.scenarios){
-    let html = '<ul>';
-    for(const k in scenarios.scenarios){
-      const obj = scenarios.scenarios[k];
-      html += `<li>${k}: ${obj.count || (obj.all && obj.all.length) || 0} — <small>exemple(s)</small></li>`;
+  (async () => {
+    const index = await fetchJsonSafe('/index/players_index.json');
+    if(!index || !Array.isArray(index.players)){
+      loading.textContent = 'Index des joueurs indisponible (/index/players_index.json).';
+      return;
     }
-    html += '</ul>';
-    scBody.innerHTML = html;
-  } else {
-    scBody.innerHTML = '<p>Scénarios non disponibles.</p>';
-  }
 
-  // Timeseries small preview
-  const tsBody = document.getElementById('ts-body');
-  if(ts && ts.ts && ts.ts.win_rate_rolling && ts.ts.win_rate_rolling.length){
-    const last = ts.ts.win_rate_rolling[ts.ts.win_rate_rolling.length - 1];
-    tsBody.innerHTML = `<p>Win rate (roll): ${last && last.value !== null ? (Number(last.value)*100).toFixed(1)+'%' : '—'}</p>`;
-  } else {
-    tsBody.innerHTML = '<p>Séries temporelles non disponibles.</p>';
-  }
+    const players = index.players;
+    const slugLower = slug.toLowerCase();
+    // find by slug or legacy "<id>-<slug>" formats
+    const found = players.find(p => (p.slug && p.slug.toLowerCase() === slugLower) || (((''+(p.player_id||'')).toLowerCase() + '-' + (p.slug||'')).toLowerCase() === slugLower));
+    if(!found){
+      loading.textContent = 'Joueur non trouvé pour le slug: ' + slug;
+      return;
+    }
+    const pid = found.player_id;
+    // prefer combined data path if provided in index
+    let dataUrl = (found.data_path ? ('/' + String(found.data_path).replace(/^\/+/, '')) : null);
+    // fallback candidate (modern): /players_atp/data/{slug}.json
+    if(!dataUrl){
+      dataUrl = `/players_atp/data/${slugLower}.json`;
+    }
 
-  // show page
-  loading.style.display = 'none';
-  root.style.display = 'block';
+    loading.textContent = 'Chargement des données du joueur…';
+
+    // Try to load combined data
+    let combined = await fetchJsonSafe(dataUrl);
+
+    // fallback: try legacy meta + matches
+    if(!combined){
+      const legacyMeta = await fetchJsonSafe(`/players_atp/${pid}.meta.json`);
+      const legacyMatches = await fetchJsonSafe(`/players_atp/${pid}.matches.json`);
+      if(legacyMeta || legacyMatches){
+        combined = {
+          player_id: pid,
+          name: (legacyMeta && legacyMeta.name) || found.name || pid,
+          slug: legacyMeta && legacyMeta.slug ? legacyMeta.slug : (found.slug || `${pid.toLowerCase()}`),
+          country: legacyMeta && legacyMeta.country ? legacyMeta.country : found.country || null,
+          summary: legacyMeta && legacyMeta.summary ? legacyMeta.summary : (legacyMatches && legacyMatches.matches ? {matches_played: legacyMatches.matches.length} : null),
+          matches: legacyMatches && legacyMatches.matches ? legacyMatches.matches : [],
+          // best effort placeholders
+          matches_by_year: {},
+          trophies: [],
+          best_by_year: {},
+          total_points_by_year: {},
+          generated_at: legacyMeta && legacyMeta.generated_at ? legacyMeta.generated_at : new Date().toISOString(),
+          version: legacyMeta && legacyMeta.version ? legacyMeta.version : 'meta_legacy'
+        };
+      } else {
+        // give up
+        loading.textContent = 'Données indisponibles pour le joueur (ni JSON combiné ni legacy).';
+        return;
+      }
+    }
+
+    // Normalize some fields
+    combined.player_id = combined.player_id || pid;
+    combined.name = combined.name || found.name || pid;
+    combined.slug = combined.slug || slug.toLowerCase();
+    combined.matches = combined.matches || [];
+    combined.matches_by_year = combined.matches_by_year || {};
+    combined.trophies = combined.trophies || [];
+    combined.best_by_year = combined.best_by_year || {};
+    combined.total_points_by_year = combined.total_points_by_year || {};
+
+    // Render header
+    document.getElementById('player-name').textContent = combined.name;
+    const pidCountry = document.getElementById('player-id-country');
+    pidCountry.innerHTML = `<em>ID:</em> ${combined.player_id} ${combined.country ? ' • ' + combined.country : ''}`;
+
+    // attributes block
+    const attrNode = document.getElementById('player-attributes');
+    attrNode.innerHTML = '';
+    const makeAttr = (label, value) => {
+      const div = document.createElement('div');
+      div.className = 'attr';
+      div.innerHTML = `<strong>${label}</strong><div class="small muted">${safeText(value)}</div>`;
+      return div;
+    };
+
+    // birthdate -> display YYYY-MM-DD or YYYY
+    if(combined.birthdate) attrNode.appendChild(makeAttr('Date de naissance', combined.birthdate));
+    if(combined.birthplace) attrNode.appendChild(makeAttr('Lieu de naissance', combined.birthplace));
+    if(combined.hand) attrNode.appendChild(makeAttr('Main', combined.hand));
+    if(combined.backhand) attrNode.appendChild(makeAttr('Revers', combined.backhand));
+    if(combined.height_cm) attrNode.appendChild(makeAttr('Taille (cm)', combined.height_cm));
+    if(combined.best_rank) attrNode.appendChild(makeAttr('Meilleur rang', combined.best_rank));
+    if(combined.first_appearance) attrNode.appendChild(makeAttr('1ère apparition', combined.first_appearance));
+    if(combined.last_appearance) attrNode.appendChild(makeAttr('Dernière apparition', combined.last_appearance));
+
+    // description small
+    const desc = document.getElementById('player-description');
+    desc.textContent = combined.image ? '' : '';
+
+    // image
+    const imgWrap = document.getElementById('player-image');
+    imgWrap.innerHTML = '';
+    if(combined.image){
+      const img = document.createElement('img');
+      img.alt = combined.name;
+      img.src = combined.image;
+      img.loading = 'lazy';
+      imgWrap.appendChild(img);
+    } else {
+      // placeholder
+      imgWrap.innerHTML = '<div class="small muted" style="padding:8px; text-align:center;">Pas d’image</div>';
+    }
+
+    // --- Matches par année ---
+    const matchesBody = document.getElementById('matches-body');
+    matchesBody.innerHTML = '';
+
+    // If matches_by_year empty but matches array present => build grouping
+    let mby = combined.matches_by_year;
+    if((!mby || Object.keys(mby).length === 0) && Array.isArray(combined.matches) && combined.matches.length){
+      // group by event_year (string)
+      mby = {};
+      for(const m of combined.matches){
+        const y = (m.event_year || '').toString();
+        if(!(y in mby)) mby[y] = [];
+        mby[y].push(m);
+      }
+      // sort each year by match_date desc
+      for(const ky of Object.keys(mby)){
+        mby[ky].sort((a,b) => {
+          const da = a.match_date || '';
+          const db = b.match_date || '';
+          if(da < db) return 1;
+          if(da > db) return -1;
+          return 0;
+        });
+      }
+    }
+
+    const yearKeys = Object.keys(mby).filter(k => k !== '').sort((a,b) => (parseInt(b) || 0) - (parseInt(a) || 0));
+    // include unknown-year bucket at the end if exists
+    if(mby['']) yearKeys.push('');
+
+    if(yearKeys.length === 0){
+      matchesBody.innerHTML = '<div class="no-data">Aucun match disponible.</div>';
+    } else {
+      for(const y of yearKeys){
+        const block = document.createElement('div');
+        block.className = 'year-block';
+        const title = document.createElement('div');
+        title.className = 'year-title';
+        title.textContent = y ? `Année ${y}` : 'Année inconnue';
+        block.appendChild(title);
+
+        const tbl = document.createElement('table');
+        tbl.className = 'matches';
+        const thead = document.createElement('thead');
+        thead.innerHTML = `<tr>
+          <th>Date</th><th>Adversaire</th><th>Score</th><th>Tour</th><th>Surface</th>
+        </tr>`;
+        tbl.appendChild(thead);
+        const tbody = document.createElement('tbody');
+
+        const arr = mby[y] || [];
+        for(const m of arr){
+          const tr = document.createElement('tr');
+          const date = m.match_date || m.start_date || '';
+          const oppName = m.opponent || m.opponent_name || '';
+          const oppId = m.opponent_id || null;
+          const score = m.score || '';
+          const rnd = m.round || '';
+          const surface = m.surface || '';
+
+          // opponent link best-effort (linking only by id -> may not be full slug)
+          let oppHtml = safeText(oppName);
+          if(oppId){
+            // try linking to /players_atp/<id> (legacy) which will redirect via _redirects if slug exists
+            const oppHref = `/players_atp/${String(oppId).toLowerCase()}`;
+            oppHtml = `<a class="player-link" href="${oppHref}">${escapeHtml(oppName)}</a>`;
+          } else {
+            oppHtml = escapeHtml(oppName || '—');
+          }
+
+          tr.innerHTML = `<td class="nowrap">${escapeHtml(date)}</td>
+                          <td>${oppHtml}</td>
+                          <td>${escapeHtml(score)}</td>
+                          <td class="nowrap">${escapeHtml(rnd)}</td>
+                          <td class="nowrap">${escapeHtml(surface)}</td>`;
+          tbody.appendChild(tr);
+        }
+        tbl.appendChild(tbody);
+        block.appendChild(tbl);
+        matchesBody.appendChild(block);
+      }
+    }
+
+    // --- Trophies & Best per year ---
+    const trophiesBody = document.getElementById('trophies-body');
+    trophiesBody.innerHTML = '';
+
+    if(Array.isArray(combined.trophies) && combined.trophies.length){
+      const ul = document.createElement('ul');
+      ul.className = 'trophies-list';
+      // sort trophies by year desc
+      combined.trophies.sort((a,b) => (parseInt(b.event_year||0) - parseInt(a.event_year||0)));
+      for(const t of combined.trophies){
+        const year = t.event_year || '';
+        const name = t.tourney_name || t.event_id || '—';
+        const cat = t.category || '';
+        const surf = t.surface || '';
+        const li = document.createElement('li');
+        li.innerHTML = `<strong>${escapeHtml(name)}</strong> <span class="small muted">(${escapeHtml(cat)} — ${escapeHtml(surf)})</span><div class="small muted">Année: ${escapeHtml(year)}</div>`;
+        ul.appendChild(li);
+      }
+      trophiesBody.appendChild(ul);
+    } else {
+      trophiesBody.innerHTML = '<div class="no-data">Aucun trophée enregistré.</div>';
+    }
+
+    // best_by_year
+    const bestBody = document.getElementById('best-body');
+    bestBody.innerHTML = '';
+
+    const bby = combined.best_by_year || {};
+    const yearsBest = Object.keys(bby).filter(k => k !== '').sort((a,b) => parseInt(b||0) - parseInt(a||0));
+    if(yearsBest.length === 0){
+      bestBody.innerHTML = '<div class="no-data">Aucune meilleure performance disponible.</div>';
+    } else {
+      for(const y of yearsBest){
+        const sec = document.createElement('div');
+        sec.style.marginBottom = '12px';
+        const h = document.createElement('div');
+        h.className = 'year-title';
+        const totalPts = (combined.total_points_by_year && combined.total_points_by_year[y]) ? combined.total_points_by_year[y] : null;
+        h.textContent = `Année ${y}` + (totalPts !== null ? ` — Total points: ${totalPts}` : '');
+        sec.appendChild(h);
+
+        const arr = bby[y] || [];
+        const ul = document.createElement('ul');
+        ul.className = 'best-list';
+        for(const it of arr){
+          const nm = it.tourney_name || it.event_id || '—';
+          const cat = it.category || '';
+          const pts = typeof it.points !== 'undefined' ? it.points : '—';
+          const surf = it.surface || '';
+          const li = document.createElement('li');
+          li.innerHTML = `<strong>${escapeHtml(nm)}</strong> — ${escapeHtml(cat)} — points: ${escapeHtml(String(pts))} <span class="small muted">(${escapeHtml(surf)})</span>`;
+          ul.appendChild(li);
+        }
+        sec.appendChild(ul);
+        bestBody.appendChild(sec);
+      }
+    }
+
+    // finished rendering -> show root
+    loading.style.display = 'none';
+    root.style.display = 'block';
+  })();
+
+  // tabs behaviour
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(b => b.setAttribute('aria-selected', 'false'));
+      btn.classList.add('active');
+      btn.setAttribute('aria-selected', 'true');
+
+      const target = btn.getAttribute('data-target');
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      const tgt = document.getElementById(target);
+      if(tgt) tgt.classList.add('active');
+    });
+  });
+
+  // small util: escape HTML
+  function escapeHtml(s){
+    if(s === null || s === undefined) return '';
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
 
 })();
 </script>

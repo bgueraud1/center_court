@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-generate_player_meta.py
+generate_player_meta.py (révisé)
 Module 1 - Génération non-statistique (métadonnées & index léger de matches)
 
 Usage:
@@ -17,7 +17,6 @@ from pathlib import Path
 import argparse
 import json
 import os
-import glob
 import re
 from collections import Counter, defaultdict
 from datetime import datetime
@@ -63,6 +62,10 @@ def parse_date_only(val):
         m = re.search(r"(\d{4}-\d{2}-\d{2})", v)
         if m:
             return m.group(1)
+        # fallback: try YYYY
+        m2 = re.search(r"(\d{4})", v)
+        if m2:
+            return m2.group(1)
         return v
     try:
         dt = pd.to_datetime(val, errors='coerce')
@@ -104,7 +107,7 @@ def build_matches_index_for_player(matches_df: pd.DataFrame, player_id: str, max
     if cond_l is not False and cond_l.any():
         rows.append(matches_df[cond_l])
     if not rows:
-        # fallback: look for name columns? we'll skip here (expensive)
+        # fallback: look for name columns? expensive, skip
         return []
 
     rel = pd.concat(rows, ignore_index=True, sort=False)
@@ -118,7 +121,6 @@ def build_matches_index_for_player(matches_df: pd.DataFrame, player_id: str, max
         elif 'player_id_loser' in r.index and normalize_player_id(r.get('player_id_loser')) == pid:
             is_win = False
         else:
-            # fallback: if winner name equals player's name? Skip to None
             is_win = None
 
         match_id = r.get('match_id') or r.get('id') or ''
@@ -208,8 +210,10 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
     first_appearance = ''
     last_appearance = ''
     image = None
+    country = None
 
     if isinstance(player_data_df, pd.DataFrame) and 'player_id' in player_data_df.columns:
+        # try to match row (normalize case)
         row = player_data_df[player_data_df['player_id'].astype(str).str.strip().str.upper() == pid]
         if not row.empty:
             row = row.iloc[0].to_dict()
@@ -225,6 +229,18 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
             backhand = row.get('backhand') or ''
             best_rank = row.get('best_rank') or row.get('career_high_rank') or None
             image = row.get('image') or row.get('photo') or None
+            country = row.get('country') or row.get('nationality') or row.get('country_code') or country
+
+    # fallback: try to deduce country from matches columns
+    if not country:
+        country_cols = []
+        for c in ('winner_country','loser_country','country_winner','country_loser','player_country'):
+            if c in df.columns:
+                # extend by values
+                vals = df[c].dropna().astype(str).str.strip().str.upper().tolist()
+                country_cols.extend(vals)
+        if country_cols:
+            country = Counter([c for c in country_cols if c]).most_common(1)[0][0]
 
     # fallback: try deducing first/last appearance from matches data
     years = sorted([y for y in df['event_year'].dropna().astype(str).unique() if str(y).strip()!=''])
@@ -244,8 +260,28 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
         'matches_lost': int(matches_lost)
     }
 
+    # build matches_by_year (group matches_index by event_year descending)
+    matches_by_year = defaultdict(list)
+    for m in matches_index:
+        y = m.get('event_year') or ''
+        matches_by_year[y].append(m)
+    # sort years descending and within each year sort by date desc
+    matches_by_year_sorted = {}
+    for y in sorted([k for k in matches_by_year.keys() if k], reverse=True):
+        arr = matches_by_year[y]
+        def date_key(x):
+            d = x.get('match_date') or ''
+            try:
+                return datetime.fromisoformat(d)
+            except Exception:
+                return datetime.min
+        arr_sorted = sorted(arr, key=date_key, reverse=True)
+        matches_by_year_sorted[y] = arr_sorted
+    # include empty year '' if present
+    if '' in matches_by_year and '' not in matches_by_year_sorted:
+        matches_by_year_sorted[''] = matches_by_year['']
+
     # --- trophies and best_by_year calculation ---
-    # We'll scan matches_index: identify titles (is_win True and round in W/WIN/F)
     trophies_map = {}
     best_by_year = {}
     # We also attempt to get 'points_for_result' if present in original matches df
@@ -254,7 +290,7 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
     # build mapping from match_id -> original row (first occurence)
     for idx, r in df.iterrows():
         mid = r.get('match_id') or r.get('id') or ''
-        if mid and mid not in match_lookup:
+        if mid and str(mid) not in match_lookup:
             match_lookup[str(mid)] = r
 
     for m in matches_index:
@@ -263,29 +299,26 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
         key = f"{m.get('event_id','')}_{y}"
         round_tok = (m.get('round') or '').upper()
         cat = None
-        # try to get category from original row:
         rr = match_lookup.get(str(mid))
         if rr is not None:
             cat = rr.get('category') or rr.get('level') or rr.get('tourney_level') or rr.get('category_name') or None
+
+        # best_by_year logic: pick best event (by points) per event_id+year
         if y:
             if y not in best_by_year:
                 best_by_year[y] = {}
-            # compute points candidate (try to read points_for_result or fallback to map)
             candidate = 0
-            # prefer explicit points_for_result
             pts = None
             if rr is not None:
                 for c in ('points_for_result','points','ranking_points','points_won'):
-                    if c in rr.index and rr.get(c) not in (None, ''):
-                        try:
+                    try:
+                        if c in rr.index and rr.get(c) not in (None, ''):
                             pts = int(float(rr.get(c)))
                             break
-                        except Exception:
-                            pts = None
-            # if still none, keep 0
+                    except Exception:
+                        pts = None
             if pts is not None:
                 candidate = pts
-            # choose best by (event_id,year)
             cur = best_by_year[y].get(key)
             if cur is None or candidate > cur.get('points', 0):
                 best_by_year[y][key] = {
@@ -296,7 +329,8 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
                     'surface': (rr.get('surface') if rr is not None else ''),
                     'points': candidate
                 }
-        # trophies
+
+        # trophies detection: a win in final or round token W/F/WIN
         if m.get('is_win') and round_tok in ('W','WIN','F'):
             trophies_map[key] = {
                 'event_id': m.get('event_id'),
@@ -325,7 +359,8 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
         'player_id': pid,
         'name': name,
         'slug': player_slug,
-        'country': (Counter([str(x).strip().upper() for c in ('winner_country','loser_country','country_winner','country_loser') for x in df.get(c, []) if x and str(x).strip() ]) .most_common(1)[0][0]) if True else None,
+        # country kept as ISO / code if available
+        'country': country,
         'birthdate': birthdate,
         'birthplace': birthplace,
         'height_cm': height_cm,
@@ -337,6 +372,7 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
         'image': image,
         'summary': summary,
         'matches': matches_index,
+        'matches_by_year': matches_by_year_sorted,
         'trophies': trophies_sorted,
         'best_by_year': best_by_year_lists,
         'total_points_by_year': total_points_by_year,
@@ -395,6 +431,7 @@ def main(matches_dir: str, out_dir: str, limit_players: int = None, player_data_
             data_path = players_data_dir / f"{json_slug}.json"
             with open(data_path, 'w', encoding='utf8') as f:
                 json.dump(combined, f, ensure_ascii=False, indent=2)
+
             # also write legacy meta and matches for backward compatibility
             meta_path = players_dir / f"{pid}.meta.json"
             matches_path = players_dir / f"{pid}.matches.json"
@@ -424,7 +461,7 @@ def main(matches_dir: str, out_dir: str, limit_players: int = None, player_data_
                 'country': combined.get('country'),
                 'matches_count': len(combined.get('matches', []))
             })
-            print("done", "")
+            print("done")
         except Exception as e:
             print("ERROR", e)
 
