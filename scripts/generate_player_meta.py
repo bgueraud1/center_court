@@ -424,9 +424,9 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
                         start_date = parse_date_only(rr.get('start_date') or rr.get('event_start') or '')
                     else:
                         # fallback to event's date from match row in index (may be match_date)
-                        start_date = parse_date_only(m.get('match_date') or '')
+                        start_date = parse_date_only(m.get('start_date') or '')
                 except Exception:
-                    start_date = parse_date_only(m.get('match_date') or '')
+                    start_date = parse_date_only(m.get('start_date') or '')
                 # Ensure displayed name is always the tourney_name from CSV (as asked)
                 display_name = tourney_name or (rr.get('tourney_name') if (rr is not None and hasattr(rr, 'index') and 'tourney_name' in rr.index) else '')
                 category = (m.get('category') or '') 
@@ -455,12 +455,12 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
                     info['matches'],
                     key=lambda mm: (round_sort_index(mm.get('round')), 
                                     # use match_date descending -> invert with negative timestamp
-                                    -int(pd.to_datetime(mm.get('match_date') or '1970-01-01', errors='coerce', utc=True).timestamp() or 0)
+                                    -int(pd.to_datetime(mm.get('start_date') or '1970-01-01', errors='coerce', utc=True).timestamp() or 0)
                                    )
                 )
             except Exception:
                 try:
-                    info['matches'] = sorted(info['matches'], key=lambda mm: mm.get('match_date') or '', reverse=True)
+                    info['matches'] = sorted(info['matches'], key=lambda mm: mm.get('start_date') or '', reverse=True)
                 except Exception:
                     pass
             arr.append(info)
