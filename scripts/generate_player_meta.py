@@ -5,71 +5,65 @@ generate_player_meta.py
 Module 1 - Génération non-statistique (métadonnées & index léger de matches)
 
 Usage:
-    python generate_player_meta.py --matches-dir /path/to/matches_csv_dir --out-dir ./dist
+    python scripts/generate_player_meta.py --matches-dir ./matches/atp_matches --out-dir ./docs
 
-Sorties (par défaut sous ./dist):
-  - dist/index/players_index.json
-  - dist/players/{PLAYER_ID}.meta.json
-  - dist/players/{PLAYER_ID}.matches.json
+Outputs:
+  - OUT_DIR/index/players_index.json
+  - OUT_DIR/players_atp/data/{player_slug}.json   <- file used by player.html (lazy load)
+  - OUT_DIR/players_atp/{PLAYER_ID}.meta.json     <- kept for backward compatibility
+  - OUT_DIR/players_atp/{PLAYER_ID}.matches.json  <- lightweight matches list (kept)
 """
-
+from pathlib import Path
 import argparse
-import os
 import json
+import os
 import glob
 import re
 from collections import Counter, defaultdict
 from datetime import datetime
 import pandas as pd
 
-# ------------ Helpers ------------
-
+# -------- helpers --------
 def safe_mkdir(path):
     os.makedirs(path, exist_ok=True)
+
+def normalize_player_id(pid):
+    if pid is None:
+        return ''
+    return str(pid).strip().upper()
 
 def slugify(name: str) -> str:
     if not name:
         return ''
     s = name.strip().lower()
-    # replace accents, non-ascii (simple approach)
+    # remove accents roughly, keep ascii/words
     s = re.sub(r"[^\w\s-]", "", s, flags=re.UNICODE)
-    s = re.sub(r"[\s_-]+", "-", s)
-    s = re.sub(r"^-+|-+$", "", s)
-    return s
-
-def normalize_player_id(pid: str) -> str:
-    if pid is None:
-        return ''
-    return str(pid).strip().upper()
+    s = re.sub(r"[\s_]+", "-", s)
+    s = s.strip("-")
+    return s or ''
 
 def parse_date_only(val):
-    """Return ISO date string YYYY-MM-DD if possible, else return original / empty string."""
     if val is None:
         return ''
     if isinstance(val, str):
         v = val.strip()
         if v == '':
             return ''
-        # common patterns: 'YYYY-MM-DD', 'YYYY-MM-DDTHH:MM:SS', 'HH:MM:SS' etc.
         try:
-            # try iso first
             dt = datetime.fromisoformat(v)
             return dt.date().isoformat()
         except Exception:
             pass
-        # try pandas parser (lenient)
         try:
             dt = pd.to_datetime(v, errors='coerce')
             if not pd.isna(dt):
                 return dt.date().isoformat()
         except Exception:
             pass
-        # fallback: extract YYYY-MM-DD using regex
         m = re.search(r"(\d{4}-\d{2}-\d{2})", v)
         if m:
             return m.group(1)
         return v
-    # if it's a timestamp
     try:
         dt = pd.to_datetime(val, errors='coerce')
         if not pd.isna(dt):
@@ -78,87 +72,63 @@ def parse_date_only(val):
         pass
     return ''
 
-def choose_most_likely_name(name_candidates):
-    """
-    name_candidates: iterable of strings (may contain None)
-    Return the most frequent non-empty candidate, else empty string.
-    """
-    counts = Counter([str(n).strip() for n in name_candidates if n and str(n).strip()])
-    if not counts:
-        return ''
-    return counts.most_common(1)[0][0]
-
 def read_matches_from_dir(matches_dir):
-    """
-    Reads all CSV files in directory (non-recursive) and concat into DataFrame.
-    Accepts typical CSVs exported previously (comma separated).
-    """
-    pattern = os.path.join(matches_dir, "*.csv")
-    files = sorted(glob.glob(pattern))
+    matches_dir = Path(matches_dir)
+    files = sorted(matches_dir.glob("*.csv"))
     if not files:
-        raise FileNotFoundError(f"No CSV files found in {matches_dir} matching *.csv")
+        raise FileNotFoundError(f"No CSV files found in {matches_dir}")
     frames = []
     for f in files:
         try:
             df = pd.read_csv(f, low_memory=False)
             frames.append(df)
         except Exception as e:
-            print(f"Warning: failed to read {f}: {e}")
+            print(f"Warning: cannot read {f}: {e}")
     if not frames:
-        raise RuntimeError("No CSV files could be read.")
+        raise RuntimeError("No CSV files loaded")
     matches = pd.concat(frames, ignore_index=True, sort=False)
     return matches
 
-# ------------ Core functions ------------
-
+# lightweight match index builder (fields used by the client)
 def build_matches_index_for_player(matches_df: pd.DataFrame, player_id: str, max_matches: int = None):
-    """
-    Create a lightweight index (list) of matches for the player.
-    Each entry includes match_id, date, opponent, opponent_id (if any), is_win, score, round, surface, event_year, event_id.
-    """
     pid = normalize_player_id(player_id)
-    if pid == '':
+    if not pid:
         return []
-
-    # Identify rows where player appears as winner or loser
+    # candidate conditions
     cond_w = ('player_id_winner' in matches_df.columns) and (matches_df['player_id_winner'].astype(str).str.strip().str.upper() == pid)
     cond_l = ('player_id_loser' in matches_df.columns) and (matches_df['player_id_loser'].astype(str).str.strip().str.upper() == pid)
 
-    # fallback to matching names if id columns absent
-    relevant = pd.DataFrame()
+    rows = []
     if cond_w is not False and cond_w.any():
-        relevant = pd.concat([relevant, matches_df[cond_w]], ignore_index=True, sort=False)
+        rows.append(matches_df[cond_w])
     if cond_l is not False and cond_l.any():
-        relevant = pd.concat([relevant, matches_df[cond_l]], ignore_index=True, sort=False)
-
-    # If no rows found via id, try looking at name columns (safer fallback)
-    if relevant.empty:
-        # no ID matches - return empty
+        rows.append(matches_df[cond_l])
+    if not rows:
+        # fallback: look for name columns? we'll skip here (expensive)
         return []
 
-    # Normalize certain columns existance
-    cols = relevant.columns
+    rel = pd.concat(rows, ignore_index=True, sort=False)
+
     out = []
-    for idx, r in relevant.iterrows():
-        # determine is_win
+    for idx, r in rel.iterrows():
+        # try to determine is_win
         is_win = None
         if 'player_id_winner' in r.index and normalize_player_id(r.get('player_id_winner')) == pid:
             is_win = True
         elif 'player_id_loser' in r.index and normalize_player_id(r.get('player_id_loser')) == pid:
             is_win = False
         else:
-            # fallback by names (best-effort)
-            # If player_id present in row but casing different, above handled; else fallback to player_winner/player_loser text match is expensive and fragile; skip
+            # fallback: if winner name equals player's name? Skip to None
             is_win = None
 
-        match_id = r.get('match_id') if 'match_id' in r.index else r.get('id') if 'id' in r.index else None
-        event_id = r.get('event_id') if 'event_id' in r.index else None
+        match_id = r.get('match_id') or r.get('id') or ''
+        event_id = r.get('event_id') or ''
         event_year = str(r.get('event_year') or '')
         match_date = parse_date_only(r.get('start_date') or r.get('match_date') or '')
         score = r.get('score_string') if 'score_string' in r.index else r.get('score') if 'score' in r.index else ''
         round_tok = r.get('round') if 'round' in r.index else ''
-        surface = (r.get('surface') or '') if 'surface' in r.index else ''
-        # opponent fields
+        surface = (r.get('surface') or '')
+
         opp_name = ''
         opp_id = None
         if is_win is True:
@@ -168,14 +138,13 @@ def build_matches_index_for_player(matches_df: pd.DataFrame, player_id: str, max
             opp_name = r.get('player_winner') or r.get('winner_player_name') or ''
             opp_id = r.get('player_id_winner') if 'player_id_winner' in r.index else None
         else:
-            # unknown who is winner; attempt best guess
-            opp_name = r.get('player_winner') or r.get('winner_player_name') or r.get('player_loser') or r.get('loser_player_name') or ''
+            opp_name = r.get('player_winner') or r.get('player_loser') or r.get('winner_player_name') or r.get('loser_player_name') or ''
             opp_id = r.get('player_id_winner') or r.get('player_id_loser') or None
 
         entry = {
-            'match_id': str(match_id) if match_id is not None else '',
-            'event_id': str(event_id) if event_id is not None else '',
-            'event_year': str(event_year) if event_year is not None else '',
+            'match_id': str(match_id),
+            'event_id': str(event_id),
+            'event_year': str(event_year),
             'match_date': match_date,
             'opponent': str(opp_name) if opp_name is not None else '',
             'opponent_id': str(opp_id).strip().upper() if opp_id not in (None, '') else None,
@@ -186,7 +155,7 @@ def build_matches_index_for_player(matches_df: pd.DataFrame, player_id: str, max
         }
         out.append(entry)
 
-    # optional: sort by date ascending
+    # sort ascending by date (client sorts/filters), but keep stable order
     def date_key(x):
         d = x.get('match_date') or ''
         try:
@@ -198,16 +167,19 @@ def build_matches_index_for_player(matches_df: pd.DataFrame, player_id: str, max
         out_sorted = out_sorted[-int(max_matches):] if len(out_sorted) > int(max_matches) else out_sorted
     return out_sorted
 
-def build_player_meta(matches_df: pd.DataFrame, player_id: str):
-    """
-    Build a metadata dict for player_id.
-    This function intentionally does NOT compute statistics.
-    """
+def choose_most_likely_name(cands):
+    counts = Counter([str(x).strip() for x in cands if x and str(x).strip()])
+    if not counts:
+        return ''
+    return counts.most_common(1)[0][0]
+
+# build per-player combined object used by player.html (lazy)
+def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_df: pd.DataFrame = None):
     pid = normalize_player_id(player_id)
     if not pid:
         return None
 
-    # collect all rows where player appears
+    # find all rows for this player
     cond_w = ('player_id_winner' in matches_df.columns) and (matches_df['player_id_winner'].astype(str).str.strip().str.upper() == pid)
     cond_l = ('player_id_loser' in matches_df.columns) and (matches_df['player_id_loser'].astype(str).str.strip().str.upper() == pid)
     frames = []
@@ -219,136 +191,257 @@ def build_player_meta(matches_df: pd.DataFrame, player_id: str):
         return None
     df = pd.concat(frames, ignore_index=True, sort=False)
 
-    # deduce canonical player name: choose most frequent occurrence in player_winner/player_loser
-    names = []
-    if 'player_winner' in df.columns:
-        names.extend(df['player_winner'].dropna().astype(str).tolist())
-    if 'player_loser' in df.columns:
-        names.extend(df['player_loser'].dropna().astype(str).tolist())
-    # also check winner/loser_player_name
-    if 'winner_player_name' in df.columns:
-        names.extend(df['winner_player_name'].dropna().astype(str).tolist())
-    if 'loser_player_name' in df.columns:
-        names.extend(df['loser_player_name'].dropna().astype(str).tolist())
-
-    player_name = choose_most_likely_name(names) or ''
-
-    # try to find a country (most frequent non-empty)
-    countries = []
-    for col in ('country_winner', 'winner_country', 'country_loser', 'loser_country', 'country_winner_1', 'country_loser_1'):
+    # name
+    name_candidates = []
+    for col in ('player_winner','player_loser','winner_player_name','loser_player_name','player_winner_name','player_loser_name'):
         if col in df.columns:
-            countries.extend([str(x).strip().upper() for x in df[col].dropna().astype(str).tolist() if str(x).strip() != ''])
-    country = Counter(countries).most_common(1)[0][0] if countries else None
+            name_candidates.extend(df[col].dropna().astype(str).tolist())
+    name = choose_most_likely_name(name_candidates) or pid
 
-    # basic summary counts
-    matches_played = len(df)
-    matches_won = 0
-    if 'player_id_winner' in df.columns:
-        matches_won = int((df['player_id_winner'].astype(str).str.strip().str.upper() == pid).sum())
-    else:
-        # fallback: try player_winner string comparisons to deduce wins (less reliable)
-        if 'player_winner' in df.columns:
-            matches_won = int((df['player_winner'].astype(str).str.strip().str.lower() == player_name.strip().lower()).sum())
+    # enrich from player_data_df if present
+    birthdate = ''
+    birthplace = ''
+    height_cm = None
+    hand = ''
+    backhand = ''
+    best_rank = None
+    first_appearance = ''
+    last_appearance = ''
+    image = None
 
-    matches_lost = matches_played - matches_won
+    if isinstance(player_data_df, pd.DataFrame) and 'player_id' in player_data_df.columns:
+        row = player_data_df[player_data_df['player_id'].astype(str).str.strip().str.upper() == pid]
+        if not row.empty:
+            row = row.iloc[0].to_dict()
+            birthdate = parse_date_only(row.get('birth_date') or row.get('dob') or row.get('date_of_birth') or '')
+            birthplace = row.get('birth_place') or row.get('birthplace') or ''
+            # height attempts
+            try:
+                if 'height_cm' in row and row.get('height_cm'):
+                    height_cm = float(row.get('height_cm'))
+            except Exception:
+                height_cm = None
+            hand = row.get('hand') or row.get('plays') or ''
+            backhand = row.get('backhand') or ''
+            best_rank = row.get('best_rank') or row.get('career_high_rank') or None
+            image = row.get('image') or row.get('photo') or None
 
-    # small summary object
+    # fallback: try deducing first/last appearance from matches data
+    years = sorted([y for y in df['event_year'].dropna().astype(str).unique() if str(y).strip()!=''])
+    if years:
+        first_appearance = years[0]
+        last_appearance = years[-1]
+
+    # basic summary
+    matches_index = build_matches_index_for_player(matches_df, pid)
+    matches_played = len(matches_index)
+    matches_won = sum(1 for m in matches_index if m.get('is_win') is True)
+    matches_lost = sum(1 for m in matches_index if m.get('is_win') is False)
+
     summary = {
         'matches_played': int(matches_played),
         'matches_won': int(matches_won),
         'matches_lost': int(matches_lost)
     }
 
-    # build list of match summaries (lightweight)
-    matches_index = build_matches_index_for_player(matches_df, pid)
+    # --- trophies and best_by_year calculation ---
+    # We'll scan matches_index: identify titles (is_win True and round in W/WIN/F)
+    trophies_map = {}
+    best_by_year = {}
+    # We also attempt to get 'points_for_result' if present in original matches df
+    # Build dict of matches by match_id for lookup of columns not in index
+    match_lookup = {}
+    # build mapping from match_id -> original row (first occurence)
+    for idx, r in df.iterrows():
+        mid = r.get('match_id') or r.get('id') or ''
+        if mid and mid not in match_lookup:
+            match_lookup[str(mid)] = r
 
-    meta = {
+    for m in matches_index:
+        mid = m.get('match_id') or ''
+        y = m.get('event_year') or ''
+        key = f"{m.get('event_id','')}_{y}"
+        round_tok = (m.get('round') or '').upper()
+        cat = None
+        # try to get category from original row:
+        rr = match_lookup.get(str(mid))
+        if rr is not None:
+            cat = rr.get('category') or rr.get('level') or rr.get('tourney_level') or rr.get('category_name') or None
+        if y:
+            if y not in best_by_year:
+                best_by_year[y] = {}
+            # compute points candidate (try to read points_for_result or fallback to map)
+            candidate = 0
+            # prefer explicit points_for_result
+            pts = None
+            if rr is not None:
+                for c in ('points_for_result','points','ranking_points','points_won'):
+                    if c in rr.index and rr.get(c) not in (None, ''):
+                        try:
+                            pts = int(float(rr.get(c)))
+                            break
+                        except Exception:
+                            pts = None
+            # if still none, keep 0
+            if pts is not None:
+                candidate = pts
+            # choose best by (event_id,year)
+            cur = best_by_year[y].get(key)
+            if cur is None or candidate > cur.get('points', 0):
+                best_by_year[y][key] = {
+                    'event_id': m.get('event_id'),
+                    'event_year': y,
+                    'tourney_name': (rr.get('tourney_name') if rr is not None else ''),
+                    'category': cat or 'Other',
+                    'surface': (rr.get('surface') if rr is not None else ''),
+                    'points': candidate
+                }
+        # trophies
+        if m.get('is_win') and round_tok in ('W','WIN','F'):
+            trophies_map[key] = {
+                'event_id': m.get('event_id'),
+                'event_year': y,
+                'tourney_name': (rr.get('tourney_name') if rr is not None else ''),
+                'category': cat or 'Other',
+                'surface': (rr.get('surface') if rr is not None else '')
+            }
+
+    # convert best_by_year maps to lists and compute totals
+    best_by_year_lists = {}
+    for y, d in best_by_year.items():
+        arr = list(d.values())
+        arr_sorted = sorted(arr, key=lambda t: (-t.get('points', 0), t.get('tourney_name','')))
+        best_by_year_lists[y] = arr_sorted
+    total_points_by_year = { y: sum(item.get('points',0) for item in arr) for y, arr in best_by_year_lists.items() }
+
+    trophies_list = list(trophies_map.values())
+    trophies_sorted = sorted(trophies_list, key=lambda t: (-int(t.get('event_year') or 0), t.get('tourney_name','')))
+
+    # build combined object that player.html / JS expects
+    slug_name = slugify(name) or pid.lower()
+    player_slug = f"{pid.lower()}-{slug_name}"
+
+    combined = {
         'player_id': pid,
-        'name': player_name,
-        'slug': slugify(player_name) or pid.lower(),
-        'country': country,
+        'name': name,
+        'slug': player_slug,
+        'country': (Counter([str(x).strip().upper() for c in ('winner_country','loser_country','country_winner','country_loser') for x in df.get(c, []) if x and str(x).strip() ]) .most_common(1)[0][0]) if True else None,
+        'birthdate': birthdate,
+        'birthplace': birthplace,
+        'height_cm': height_cm,
+        'hand': hand,
+        'backhand': backhand,
+        'best_rank': best_rank,
+        'first_appearance': first_appearance,
+        'last_appearance': last_appearance,
+        'image': image,
         'summary': summary,
-        'matches_count': len(matches_index),
-        'matches_index_path': f"players/{pid}.matches.json",  # relative path in output dir
+        'matches': matches_index,
+        'trophies': trophies_sorted,
+        'best_by_year': best_by_year_lists,
+        'total_points_by_year': total_points_by_year,
         'generated_at': datetime.utcnow().isoformat() + 'Z',
-        'version': 'v1'
+        'version': 'meta_v2'
     }
 
-    return meta, matches_index
+    return combined
 
-# ------------ CLI / Main ------------
-
-def main(matches_dir: str, out_dir: str, limit_players: int = None):
-    print("=> Reading matches CSVs from", matches_dir)
+# -------- main CLI --------
+def main(matches_dir: str, out_dir: str, limit_players: int = None, player_data_csv: str = None):
     matches = read_matches_from_dir(matches_dir)
-    print("=> Read matches: rows =", len(matches), "columns =", len(matches.columns))
+    print(f"Read matches: rows={len(matches)}, cols={len(matches.columns)}")
 
-    # ensure some standard columns exist lower-case mapping (we'll keep original names)
-    # find unique player ids from winner/loser columns
+    # optional player data CSV (for richer fields)
+    player_data_df = None
+    if player_data_csv:
+        try:
+            player_data_df = pd.read_csv(player_data_csv, low_memory=False)
+            print("Loaded player data CSV:", player_data_csv, "rows:", len(player_data_df))
+        except Exception as e:
+            print("Warning: could not read player_data CSV:", e)
+            player_data_df = None
+
+    # collect player ids
     player_ids = set()
     if 'player_id_winner' in matches.columns:
         player_ids.update([normalize_player_id(x) for x in matches['player_id_winner'].dropna().unique()])
     if 'player_id_loser' in matches.columns:
         player_ids.update([normalize_player_id(x) for x in matches['player_id_loser'].dropna().unique()])
-
-    # remove empty ids
     player_ids = sorted([p for p in player_ids if p])
 
     if limit_players:
         player_ids = player_ids[:int(limit_players)]
 
-    print(f"=> Found {len(player_ids)} player ids to process")
+    print("Players to process:", len(player_ids))
 
-    # prepare output directories
-    idx_dir = os.path.join(out_dir, "index")
-    players_dir = os.path.join(out_dir, "players")
+    out_dir = Path(out_dir)
+    idx_dir = out_dir / "index"
+    players_dir = out_dir / "players_atp"
+    players_data_dir = players_dir / "data"
     safe_mkdir(idx_dir)
     safe_mkdir(players_dir)
+    safe_mkdir(players_data_dir)
 
     players_index = []
-
-    # iterate players
     for i, pid in enumerate(player_ids, start=1):
-        print(f"[{i}/{len(player_ids)}] Processing player {pid} ...", end=' ')
         try:
-            result = build_player_meta(matches, pid)
-            if not result:
-                print("skip (no rows)")
+            print(f"[{i}/{len(player_ids)}] {pid} ...", end=' ')
+            combined = build_player_combined(matches, pid, player_data_df)
+            if combined is None:
+                print("skip (no data)")
                 continue
-            meta, matches_index = result
-            # write files
-            meta_path = os.path.join(players_dir, f"{pid}.meta.json")
-            matches_path = os.path.join(players_dir, f"{pid}.matches.json")
+            # write combined data file used by lazy JS
+            json_slug = combined['slug']
+            data_path = players_data_dir / f"{json_slug}.json"
+            with open(data_path, 'w', encoding='utf8') as f:
+                json.dump(combined, f, ensure_ascii=False, indent=2)
+            # also write legacy meta and matches for backward compatibility
+            meta_path = players_dir / f"{pid}.meta.json"
+            matches_path = players_dir / f"{pid}.matches.json"
+            legacy_meta = {
+                'player_id': pid,
+                'name': combined['name'],
+                'slug': combined['slug'],
+                'country': combined.get('country'),
+                'summary': combined.get('summary'),
+                'matches_count': len(combined.get('matches', [])),
+                'matches_index_path': f"players_atp/{pid}.matches.json",
+                'generated_at': combined['generated_at'],
+                'version': 'meta_v2'
+            }
             with open(meta_path, 'w', encoding='utf8') as f:
-                json.dump(meta, f, ensure_ascii=False, indent=2)
+                json.dump(legacy_meta, f, ensure_ascii=False, indent=2)
             with open(matches_path, 'w', encoding='utf8') as f:
-                json.dump({'matches': matches_index, 'generated_at': datetime.utcnow().isoformat() + 'Z'}, f, ensure_ascii=False, indent=2)
+                json.dump({'matches': combined.get('matches', []), 'generated_at': combined['generated_at']}, f, ensure_ascii=False, indent=2)
 
+            # index entry (used by players index page)
             players_index.append({
                 'player_id': pid,
-                'name': meta.get('name'),
-                'slug': meta.get('slug'),
-                'country': meta.get('country'),
-                'matches_count': meta.get('matches_count'),
-                'meta_path': f"players/{pid}.meta.json",
-                'matches_path': f"players/{pid}.matches.json"
+                'name': combined['name'],
+                'slug': combined['slug'],   # ex: s0ag-jannik-sinner
+                'page_href': f"players_atp/{combined['slug']}",   # link target used by index page -> _redirects rule will rewrite path to player.html
+                'data_path': f"players_atp/data/{combined['slug']}.json",
+                'country': combined.get('country'),
+                'matches_count': len(combined.get('matches', []))
             })
-            print("done (matches:", len(matches_index), ")")
+            print("done", "")
         except Exception as e:
-            print("ERROR processing", pid, ":", e)
+            print("ERROR", e)
 
-    # write global index
-    players_index_path = os.path.join(idx_dir, "players_index.json")
+    # write index
+    players_index_path = idx_dir / "players_index.json"
     with open(players_index_path, 'w', encoding='utf8') as f:
-        json.dump({'players': players_index, 'generated_at': datetime.utcnow().isoformat() + 'Z'}, f, ensure_ascii=False, indent=2)
+        json.dump({'players': players_index, 'generated_at': datetime.utcnow().isoformat()+'Z'}, f, ensure_ascii=False, indent=2)
 
-    print("=> Done. players_index written to", players_index_path)
-    print("=> Per-player files written to", players_dir)
+    print("Wrote players_index:", players_index_path)
+    print("Wrote player data to:", players_data_dir)
+    print("Legacy meta/matches written to:", players_dir)
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="Generate player metadata and lightweight matches index from matches CSVs.")
-    ap.add_argument("--matches-dir", required=True, help="Directory containing matches CSV files (glob *.csv).")
-    ap.add_argument("--out-dir", default="./dist", help="Output directory (default ./dist).")
-    ap.add_argument("--limit-players", type=int, default=None, help="Limit number of players to process (for testing).")
+    ap = argparse.ArgumentParser(description="Generate player meta + lightweight matches index for ATP players.")
+    ap.add_argument("--matches-dir", required=True, help="Dir with matches CSVs (glob *.csv).")
+    ap.add_argument("--out-dir", default="./docs", help="Output directory (publish dir, default ./docs).")
+    ap.add_argument("--limit-players", type=int, default=None, help="Limit processed players (testing).")
+    ap.add_argument("--player-data-csv", default=None, help="Optional CSV with extra player fields (player_id,...).")
     args = ap.parse_args()
-    main(args.matches_dir, args.out_dir, args.limit_players)
+    main(args.matches_dir, args.out_dir, args.limit_players, args.player_data_csv)

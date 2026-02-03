@@ -110,7 +110,7 @@ def main(matches_dir, out_dir, modules, limit_players=None):
                         maps_obj = mod_maps.build_maps_for_player_from_matches_dir(matches_dir, pid) if hasattr(mod_maps, 'build_maps_for_player_from_matches_dir') else mod_maps.build_maps_for_player(None, pid)
                         # If build_maps_for_player expects matches_df, it's module-specific - prefer the module's own main
                         # Write output to dist/players/{pid}.maps.json
-                        out_path = os.path.join(out_dir, 'players', f"{pid}.maps.json")
+                        out_path = os.path.join(out_dir, 'players_atp', f"{pid}.maps.json")
                         with open(out_path, 'w', encoding='utf8') as f:
                             json.dump(maps_obj, f, ensure_ascii=False, indent=2)
                     except Exception as e:
