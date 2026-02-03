@@ -749,80 +749,86 @@ function fetchJsonSafe(url){
   }
 
   function renderChoroplethSafe(targetId, mapObj, opts){
-    opts = opts || {};
-    return waitForElement(targetId, MAX_RETRIES).then((div)=>{
-      // if still not present, try to create containers inside panel-maps
+  opts = opts || {};
+  return waitForElement(targetId, MAX_RETRIES).then((div)=>{
+    if(!div){
+      const created = ensureMapContainers();
+      div = document.getElementById(targetId);
       if(!div){
-        const created = ensureMapContainers();
-        div = document.getElementById(targetId);
-        if(!div){
-          console.warn('renderChoropleth: target still not found', targetId);
-          return;
-        }
-      }
-      // build arrays
-      const locs = [], zs = [], texts = [];
-      Object.keys(mapObj || {}).forEach(code => {
-        const item = mapObj[code] || {};
-        const zval = toNumericZ(item);
-        if(zval === null || isNaN(zval)) return; // skip non-numeric
-        // keep original code as ISO label; Plotly will interpret with locationmode
-        const iso = (code || '').toString().trim();
-        if(!iso) return;
-        locs.push(iso);
-        zs.push(Math.round(zval*100)/100);
-        const copy = Object.assign({ iso: iso }, item);
-        texts.push(buildHoverText(copy));
-      });
-
-      if(locs.length === 0){
-        div.innerHTML = '<div style="padding:12px;color:#666">No map data available.</div>';
+        console.warn('renderChoropleth: target still not found', targetId);
         return;
       }
+    }
 
-      const trace = {
-        type: 'choropleth',
-        locations: locs,
-        z: zs,
-        text: texts,
-        locationmode: opts.locationmode || 'ISO-3', // explicit
-        colorscale: opts.colorscale || 'Blues',
-        autocolorscale: false,
-        colorbar: { title: 'Win %' },
-        hoverinfo: 'text'
-      };
-
-      const layout = {
-        title: opts.title || '',
-        geo: { projection: { type: 'natural earth' } },
-        margin: { t: 40, b: 0, l: 0, r: 0 }
-      };
-
-      // ensure Plotly present
-      return waitForPlotly().then((ok) => {
-        if(!ok){
-          console.error('renderChoropleth: Plotly not available');
-          div.innerHTML = '<div style="padding:12px;color:#b71c1c">Plotly not loaded.</div>';
-          return;
-        }
-        try {
-          Plotly.react(div, [trace], layout, {responsive:true, displayModeBar:false});
-          // small timeout then resize to handle hidden->visible transitions
-          setTimeout(()=>{ try{ if(window.Plotly && window.Plotly.Plots && typeof window.Plotly.Plots.resize === 'function') window.Plotly.Plots.resize(div); }catch(e){console.warn('resize error',e);} }, 220);
-        } catch(e){
-          console.error('Plotly render failed', e);
-          div.innerHTML = '<div style="padding:12px;color:#b71c1c">Map rendering error (see console)</div>';
-        }
-      });
+    const locs = [], zs = [], texts = [];
+    Object.keys(mapObj || {}).forEach(code => {
+      const item = mapObj[code] || {};
+      const zval = toNumericZ(item); // renvoie 0..100 ou null
+      if(zval === null || isNaN(zval)) return;
+      const iso = (code || '').toString().trim().toUpperCase();
+      if(!iso) return;
+      locs.push(iso);
+      zs.push(Math.round(zval*100)/100);
+      const copy = Object.assign({ iso: iso }, item);
+      texts.push(buildHoverText(copy));
     });
-  }
 
-  function renderOpponentMap(mapObj){
-    return renderChoroplethSafe('map-opponents', mapObj, { colorscale:'Blues', title:'Win rate vs opponent nationality' });
-  }
-  function renderHostMap(mapObj){
-    return renderChoroplethSafe('map-hosts', mapObj, { colorscale:'YlGnBu', title:'Win rate in tournaments by host country' });
-  }
+    if(locs.length === 0){
+      div.innerHTML = '<div style="padding:12px;color:#666">No map data available.</div>';
+      return;
+    }
+
+    // custom colorscales: white -> color (blue/red)
+    const colorscales = {
+      blue: [[0, 'rgb(255,255,255)'], [1, 'rgb(19,102,214)']],
+      red:  [[0, 'rgb(255,255,255)'], [1, 'rgb(180,24,24)']]
+    };
+    const colorscale = opts.colorscale === 'red' ? colorscales.red : colorscales.blue;
+
+    const trace = {
+      type: 'choropleth',
+      locations: locs,
+      z: zs,
+      text: texts,
+      locationmode: opts.locationmode || 'ISO-3',
+      colorscale: colorscale,
+      autocolorscale: false,
+      colorbar: { title: 'Win %', ticksuffix: '%' },
+      hoverinfo: 'text',
+      zmin: 0,
+      zmax: 100
+    };
+
+    const layout = {
+      title: opts.title || '',
+      geo: { projection: { type: 'natural earth' }, showframe:false },
+      margin: { t: 40, b: 0, l: 0, r: 0 }
+    };
+
+    return waitForPlotly().then((ok) => {
+      if(!ok){
+        div.innerHTML = '<div style="padding:12px;color:#b71c1c">Plotly not loaded.</div>';
+        return;
+      }
+      try {
+        Plotly.react(div, [trace], layout, {responsive:true, displayModeBar:false});
+        setTimeout(()=>{ try{ if(window.Plotly && window.Plotly.Plots && typeof window.Plotly.Plots.resize === 'function') window.Plotly.Plots.resize(div); }catch(e){console.warn('resize error',e);} }, 220);
+      } catch(e){
+        console.error('Plotly render failed', e);
+        div.innerHTML = '<div style="padding:12px;color:#b71c1c">Map rendering error (see console)</div>';
+      }
+    });
+  });
+}
+
+function renderOpponentMap(mapObj){
+  return renderChoroplethSafe('map-opponents', mapObj, { colorscale: 'blue', title: 'Win rate vs opponent nationality' });
+}
+
+function renderHostMap(mapObj){
+  return renderChoroplethSafe('map-hosts', mapObj, { colorscale: 'red', title: 'Win rate in tournaments by host country' });
+}
+
 
   function initMaps(options){
     options = options || {};

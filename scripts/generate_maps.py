@@ -206,34 +206,42 @@ def build_maps_for_player(matches_df: pd.DataFrame,
             opp_country = ''
 
         # host country detection
+                # host country detection (NEW ORDER: explicit host columns -> event map -> winner/loser fallback)
         host_country = ''
         try:
-            # direct host columns
+            # 1) direct host columns if any
             for col in ('host_country','event_country','country_event','host_country_code'):
                 if col in row.index and str(row.get(col, '')).strip():
                     host_country = str(row.get(col, '')).strip().upper()
                     break
 
-            # fallback: use winner/loser country as best-effort
+            # 2) final fallback: use event_id + event_year mapping if available (prefer this over winner/loser)
+            if not host_country:
+                event_id = str(row.get('event_id') or '').strip()
+                event_year = str(row.get('event_year') or '').strip()
+                if event_id:
+                    if host_event_map:
+                        ev_map = host_event_map.get(event_id) or host_event_map.get(str(event_id))
+                        if isinstance(ev_map, dict):
+                            # prefer exact year match, then default, then any value
+                            host_iso = ev_map.get(event_year) or ev_map.get('default')
+                            if not host_iso:
+                                for v in ev_map.values():
+                                    if v:
+                                        host_iso = v
+                                        break
+                            if host_iso:
+                                host_country = str(host_iso).strip().upper()
+
+            # 3) last resort: use winner/loser country as best-effort (only if we still don't have a host)
             if not host_country:
                 for col in ('country_winner','winner_country','country_loser','loser_country'):
                     if col in row.index and str(row.get(col, '')).strip():
                         host_country = str(row.get(col, '')).strip().upper()
                         break
-
-            # final fallback: use event_id + event_year mapping if available
-            if not host_country:
-                event_id = str(row.get('event_id') or '').strip()
-                event_year = str(row.get('event_year') or '').strip()
-                if event_id and host_event_map:
-                    ev_map = host_event_map.get(event_id) or host_event_map.get(str(event_id))
-                    if isinstance(ev_map, dict):
-                        # prefer exact year match
-                        host_country = ev_map.get(event_year) or ev_map.get('default') or (next(iter(ev_map.values()), '') if ev_map else '')
-                        if isinstance(host_country, str):
-                            host_country = host_country.strip().upper()
         except Exception:
             host_country = ''
+
 
         match_entry = {
             'match_id': str(row.get('match_id') or ''),
@@ -363,7 +371,7 @@ def build_maps_for_player(matches_df: pd.DataFrame,
             'sample_matches': s.get('sample_matches', [])
         }
 
-    result = {
+        result = {
         'meta': {
             'player_id': pid,
             'player_name': player_name,
@@ -371,10 +379,15 @@ def build_maps_for_player(matches_df: pd.DataFrame,
             'generated_at': datetime.utcnow().isoformat() + 'Z',
             'version': 'v1'
         },
+        # canonical keys (nouveau format)
         'map_opponent_stats': map_opponent_stats,
-        'map_host_stats': map_host_stats
+        'map_host_stats': map_host_stats,
+        # compatibility avec anciens noms (certaines pages clientes attendent opponent_countries / host_countries)
+        'opponent_countries': map_opponent_stats,
+        'host_countries': map_host_stats
     }
     return result
+
 
 # ----------------- CLI Main -----------------
 
