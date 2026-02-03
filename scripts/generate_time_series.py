@@ -176,7 +176,7 @@ def main(matches_dir, out_dir, rolling_window=20, player_list=None, limit_player
         player_ids = [p for p in player_ids if p in set(player_list)]
     if limit_players:
         player_ids = player_ids[:int(limit_players)]
-    players_dir = os.path.join(out_dir, "players")
+    players_dir = os.path.join(out_dir, "players_atp")
     safe_mkdir(players_dir)
     for i, pid in enumerate(player_ids, start=1):
         print(f"[ts] [{i}/{len(player_ids)}] building ts for {pid}")

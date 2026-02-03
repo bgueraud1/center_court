@@ -772,7 +772,7 @@ def main(matches_dir, out_dir, host_event_map_path=None, player_list=None, limit
         player_ids = player_ids[:int(limit_players)]
     print(f"[dstats] processing {len(player_ids)} players")
 
-    players_dir = os.path.join(out_dir, "players")
+    players_dir = os.path.join(out_dir, "players_atp")
     safe_mkdir(players_dir)
 
     for i, pid in enumerate(player_ids, start=1):

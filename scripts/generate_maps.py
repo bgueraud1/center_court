@@ -257,7 +257,7 @@ def main(matches_dir, out_dir, player_list=None, limit_players=None):
         player_ids = player_ids[:int(limit_players)]
 
     # ensure out dirs
-    players_dir = os.path.join(out_dir, "players")
+    players_dir = os.path.join(out_dir, "players_atp")
     safe_mkdir(players_dir)
 
     for i, pid in enumerate(player_ids, start=1):
