@@ -1,0 +1,190 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Fiche joueur - Center Court</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; margin: 18px; }
+    #loading { font-size: 16px; color: #333; }
+    #player-root { display:none; }
+    table { border-collapse: collapse; width: 100%; max-width: 900px; }
+    th, td { padding: 6px 8px; border: 1px solid #ddd; text-align:left; }
+  </style>
+</head>
+<body>
+  <div id="loading">Chargement…</div>
+
+  <div id="player-root">
+    <h1 id="player-name"></h1>
+    <p id="player-meta"></p>
+    <section id="summary">
+      <h2>Résumé</h2>
+      <div id="summary-body"></div>
+    </section>
+
+    <section id="stats">
+      <h2>Statistiques (extrait)</h2>
+      <div id="stats-body"></div>
+    </section>
+
+    <section id="maps">
+      <h2>Cartes (pays)</h2>
+      <div id="maps-body"></div>
+    </section>
+
+    <section id="scenarios">
+      <h2>Scénarios</h2>
+      <div id="scenarios-body"></div>
+    </section>
+
+    <section id="timeseries">
+      <h2>Séries temporelles (aperçu)</h2>
+      <div id="ts-body"></div>
+    </section>
+  </div>
+
+<script>
+/**
+ * player.html — template unique.
+ * Hypothèses d'emplacement :
+ * - index : /data/index/players_index.json
+ * - player files : /data/players/{PLAYER_ID}.meta.json, .stats.json, .maps.json, .scenarios.json, .ts.json
+ *
+ * L'URL visible doit être : /players_atp/<slug> (par ex. s0ag-jannik-sinner)
+ * _redirects (Netlify) envoie toute requête /players_atp/* vers ce fichier.
+ */
+
+function fmtNumSmart(v){
+  if(v === null || v === undefined || Number.isNaN(Number(v))) return "—";
+  const n = Number(v);
+  if(Number.isInteger(n)) return String(n);
+  return n.toFixed(2);
+}
+
+async function fetchJsonSafe(url){
+  try{
+    const r = await fetch(url);
+    if(!r.ok) return null;
+    return await r.json();
+  } catch(e){
+    console.warn("fetch failed", url, e);
+    return null;
+  }
+}
+
+(async function(){
+  const loading = document.getElementById('loading');
+  const root = document.getElementById('player-root');
+
+  // 1) determine slug from URL
+  const parts = location.pathname.replace(/\/$/, '').split('/');
+  const slug = parts[parts.length - 1] || parts[parts.length - 2] || '';
+  if(!slug){
+    loading.textContent = 'Slug introuvable dans l’URL.';
+    return;
+  }
+
+  loading.textContent = 'Chargement de l’index des joueurs…';
+  const index = await fetchJsonSafe('/data/index/players_index.json');
+  if(!index || !Array.isArray(index.players)){
+    loading.textContent = 'Index des joueurs indisponible (/data/index/players_index.json).';
+    return;
+  }
+
+  // 2) find player entry by slug OR by "<id>-<slug>" legacy format
+  const players = index.players;
+  const slugLower = slug.toLowerCase();
+  const found = players.find(p => (p.slug && p.slug.toLowerCase() === slugLower) || ((''+(p.player_id||'')).toLowerCase() + '-' + (p.slug||'')).toLowerCase() === slugLower);
+  if(!found){
+    loading.textContent = 'Joueur non trouvé pour le slug: ' + slug;
+    return;
+  }
+  const pid = found.player_id;
+
+  loading.textContent = 'Chargement des données du joueur…';
+  // lazy load only the parts we want to show immediately
+  const meta = await fetchJsonSafe(`/data/players/${pid}.meta.json`);
+  const stats = await fetchJsonSafe(`/data/players/${pid}.stats.json`);
+  const maps = await fetchJsonSafe(`/data/players/${pid}.maps.json`);
+  const scenarios = await fetchJsonSafe(`/data/players/${pid}.scenarios.json`);
+  const ts = await fetchJsonSafe(`/data/players/${pid}.ts.json`);
+
+  // Render header
+  document.getElementById('player-name').textContent = (meta && meta.name) || found.name || pid;
+  document.getElementById('player-meta').innerHTML = `<em>ID:</em> ${pid} ${meta && meta.country ? ' • ' + meta.country : ''}`;
+
+  // Summary
+  const summaryBody = document.getElementById('summary-body');
+  if(meta && meta.summary){
+    summaryBody.innerHTML = `<p>Matches joués : ${meta.summary.matches_played || '—'} — Victoires : ${meta.summary.matches_won || '—'}</p>`;
+  } else if (stats && stats.career) {
+    summaryBody.innerHTML = `<p>Matches joués : ${stats.career.matches_played || '—'} — Victoires : ${stats.career.matches_won || '—'}</p>`;
+  } else {
+    summaryBody.innerHTML = `<p>Aucune donnée de résumé disponible.</p>`;
+  }
+
+  // Stats excerpt (show mean values for some keys)
+  const statsBody = document.getElementById('stats-body');
+  if(stats && stats.career && stats.career.stat_agg){
+    const agg = stats.career.stat_agg;
+    const keys = ['aces','doublefaults','tiebreak_win_rate','breakpoints_converted_rate','service_games_lost_rate','firstserve_percent'];
+    let html = '<table><thead><tr><th>Stat</th><th>Moyenne</th><th>Count</th></tr></thead><tbody>';
+    keys.forEach(k => {
+      const entry = agg[k];
+      const mean = entry && entry.mean !== null ? Number(entry.mean) : null;
+      const cnt = entry ? entry.count : 0;
+      html += `<tr><td>${k}</td><td>${mean !== null ? fmtNumSmart(mean) : '—'}</td><td>${cnt || 0}</td></tr>`;
+    });
+    html += '</tbody></table>';
+    statsBody.innerHTML = html;
+  } else {
+    statsBody.innerHTML = '<p>Statistiques détaillées non disponibles.</p>';
+  }
+
+  // Maps excerpt
+  const mapsBody = document.getElementById('maps-body');
+  if(maps && maps.opponent_countries){
+    const keys = Object.keys(maps.opponent_countries).sort().slice(0,12);
+    let html = '<ul>';
+    keys.forEach(k => {
+      const o = maps.opponent_countries[k];
+      html += `<li>${k} — ${o.matches} matchs — victoires ${o.wins || 0} — taux ${o.win_rate ? (o.win_rate*100).toFixed(1)+'%' : '—'}</li>`;
+    });
+    html += '</ul>';
+    mapsBody.innerHTML = html;
+  } else {
+    mapsBody.innerHTML = '<p>Cartes non disponibles.</p>';
+  }
+
+  // Scenarios excerpt
+  const scBody = document.getElementById('scenarios-body');
+  if(scenarios && scenarios.scenarios){
+    let html = '<ul>';
+    for(const k in scenarios.scenarios){
+      const obj = scenarios.scenarios[k];
+      html += `<li>${k}: ${obj.count || (obj.all && obj.all.length) || 0} — <small>exemple(s)</small></li>`;
+    }
+    html += '</ul>';
+    scBody.innerHTML = html;
+  } else {
+    scBody.innerHTML = '<p>Scénarios non disponibles.</p>';
+  }
+
+  // Timeseries small preview
+  const tsBody = document.getElementById('ts-body');
+  if(ts && ts.ts && ts.ts.win_rate_rolling && ts.ts.win_rate_rolling.length){
+    const last = ts.ts.win_rate_rolling[ts.ts.win_rate_rolling.length - 1];
+    tsBody.innerHTML = `<p>Win rate (roll): ${last && last.value !== null ? (Number(last.value)*100).toFixed(1)+'%' : '—'}</p>`;
+  } else {
+    tsBody.innerHTML = '<p>Séries temporelles non disponibles.</p>';
+  }
+
+  // show page
+  loading.style.display = 'none';
+  root.style.display = 'block';
+
+})();
+</script>
+</body>
+</html>
