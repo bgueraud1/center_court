@@ -210,7 +210,7 @@ def build_matches_index_for_player(matches_df: pd.DataFrame, player_id: str, max
             match_id = r.get('match_id') or r.get('id') or ''
             event_id = r.get('event_id') or ''
             event_year = str(r.get('event_year') or '')
-            match_date = parse_date_only(r.get('start_date') or r.get('match_date') or '')
+            match_date = parse_date_only(r.get('start_date') or '')
             score = r.get('score_string') if 'score_string' in r.index else r.get('score') if 'score' in r.index else ''
             round_tok = r.get('round') if 'round' in r.index else ''
             surface = (r.get('surface') or '')
