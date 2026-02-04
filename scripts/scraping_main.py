@@ -394,13 +394,42 @@ def map_core_from_gc_row(r, tournament_id, year_str):
     indoor = get_any(r, ["Indoor/Outdoor", "inOutdoor", "IndoorOutdoor", "indoor_outdoor"])
 
         # --- after winner/loser resolution in map_core_from_gc_row ---
-    # retrieve raw A/B player ids (try multiple keys to be robust)
-    pidA = get_any(r, ["PlayerIDA", "PlayerIdA", "playerida", "PlayerIDA1"]) or r.get("PlayerIDA") or None
-    pidB = get_any(r, ["PlayerIDB", "PlayerIdB", "playeridb", "PlayerIDB1"]) or r.get("PlayerIDB") or None
+        # --- robust retrieval of raw A/B player ids and mapping to winner/loser ids ---
+    import re
 
-    # canonical player_id_winner / player_id_loser
+    def find_pid(d, base_names):
+        """Cherche une valeur plausible de PlayerID en testant plusieurs clés et fallback numeric heuristique."""
+        # 1) exact keys / preferred order
+        for key in base_names:
+            if key in d and d.get(key) not in (None, ""):
+                return str(d.get(key)).strip()
+        # 2) lowercase variants (ex: transform_home_away_data a pu changer la casse)
+        lower_bases = [bk.lower() for bk in base_names]
+        for k in d.keys():
+            try:
+                if k.lower() in lower_bases and d.get(k) not in (None, ""):
+                    return str(d.get(k)).strip()
+            except Exception:
+                continue
+        # 3) fallback : chercher une valeur numérique plausible (4-7 chiffres) dans champs contenant 'player'|'id'
+        for k, v in d.items():
+            try:
+                s = str(v).strip()
+            except Exception:
+                continue
+            if re.fullmatch(r"\d{4,7}", s):
+                if 'player' in k.lower() or 'id' in k.lower() or 'playerid' in k.lower():
+                    return s
+        return None
+
+    pidA = find_pid(r, ["PlayerIDA", "PlayerIdA", "playerida", "PlayerAId", "PlayerIDA1"])
+    pidB = find_pid(r, ["PlayerIDB", "PlayerIdB", "playeridb", "PlayerBId", "PlayerIDB1"])
+
+    # canonical player_id_winner / player_id_loser (plusieurs filets de sécurité)
     player_id_winner = None
     player_id_loser = None
+
+    # 1) si on a déjà déterminé match_winner_label via les sets -> utiliser directement
     try:
         if match_winner_label == 'A':
             player_id_winner = pidA
@@ -408,15 +437,48 @@ def map_core_from_gc_row(r, tournament_id, year_str):
         elif match_winner_label == 'B':
             player_id_winner = pidB
             player_id_loser = pidA
-        else:
-            # if undetermined, try to infer by comparing winner_name to A/B names
-            w_raw_name = (r.get("Winner") or r.get("winner_player_name") or "").strip() if r.get("Winner") else None
-            if w_raw_name and pidA and w_raw_name in (pA_name or ""):
-                player_id_winner = pidA; player_id_loser = pidB
-            elif w_raw_name and pidB and w_raw_name in (pB_name or ""):
-                player_id_winner = pidB; player_id_loser = pidA
     except Exception:
         player_id_winner = player_id_loser = None
+
+    # 2) si pas résolu, regarder le champ Winner (valeurs communes : "1"/"2"/"A"/"B" ou un id)
+    if player_id_winner is None:
+        w_raw = r.get("Winner") or r.get("winner") or r.get("winner_flag_raw")
+        if w_raw is not None:
+            wr = str(w_raw).strip()
+            if wr in ("1", "A", "a"):
+                player_id_winner = pidA; player_id_loser = pidB
+            elif wr in ("2", "B", "b"):
+                player_id_winner = pidB; player_id_loser = pidA
+            else:
+                # si Winner contient directement l'ID du joueur
+                if pidA and wr == str(pidA):
+                    player_id_winner = pidA; player_id_loser = pidB
+                elif pidB and wr == str(pidB):
+                    player_id_winner = pidB; player_id_loser = pidA
+
+    # 3) si toujours None, comparer winner_player_name / ResultString (texte) avec pA_name / pB_name
+    if player_id_winner is None:
+        wtxt = (r.get("winner_player_name") or r.get("Winner") or r.get("ResultString") or "").strip()
+        try:
+            if wtxt and pA_name and wtxt.lower() in pA_name.lower():
+                player_id_winner = pidA; player_id_loser = pidB
+            elif wtxt and pB_name and wtxt.lower() in pB_name.lower():
+                player_id_winner = pidB; player_id_loser = pidA
+        except Exception:
+            pass
+
+    # 4) dernier recours : si on a les deux pid mais aucune info sur vainqueur,
+    #    on laisse les player_id_winner/loser à None (mieux que donner le mauvais id).
+    #    Optionnel : si tu veux forcer, commenter la section ci-dessous pour assigner par défaut A->winner.
+    # if player_id_winner is None and pidA and pidB:
+    #     player_id_winner = pidA; player_id_loser = pidB
+
+    # normalisation finale : convertir "" en None
+    if player_id_winner == "":
+        player_id_winner = None
+    if player_id_loser == "":
+        player_id_loser = None
+
 
 
     return {
