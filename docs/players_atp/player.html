@@ -85,10 +85,20 @@
     .bucket-table th, .bucket-table td { border:1px solid var(--border); padding:8px; text-align:left; font-size:13px; }
     .muted-small { color:var(--muted); font-size:13px; }
 
+    /* scenarios UI */
+    .scenarios-grid { display:grid; grid-template-columns: 1fr 1fr; gap:12px; align-items:start; }
+    .scenario-card { border:1px solid var(--border); padding:12px; border-radius:8px; background:#fff; }
+    .scenario-card h4 { margin:0 0 8px 0; font-size:16px; }
+    .scenario-table { width:100%; border-collapse:collapse; margin-top:8px; }
+    .scenario-table th, .scenario-table td { border:1px solid var(--border); padding:8px; text-align:left; font-size:13px; }
+    .sample-list { margin-top:8px; display:flex; flex-direction:column; gap:6px; }
+    .sample-item { border:1px dashed #eee; padding:8px; border-radius:6px; background:#fafafa; font-size:13px; }
+
     @media (max-width:760px){
       .player-header { flex-direction:column; }
       .player-image { width:100%; max-width:260px; }
       .map-card { min-width:100%; height:360px; }
+      .scenarios-grid { grid-template-columns: 1fr; }
     }
   </style>
   <!-- Plotly for maps (CDN) -->
@@ -330,7 +340,8 @@ function fetchJsonSafe(url){
     });
 
     for(const t of tournaments){
-      const div = document.createElement('div'); div.className = 'tourney ' + (t.surface ? ('surf-' + t.surface.toLowerCase()) : 'surf-other');
+      const surfaceClass = (t.surface ? ('surf-' + String(t.surface).toLowerCase()) : 'surf-other');
+      const div = document.createElement('div'); div.className = 'tourney ' + surfaceClass;
       const header = document.createElement('div'); header.className = 'tourney-header';
       const title = document.createElement('div');
       title.innerHTML = `<span class="tourney-title">${escapeHtml(t.tourney_name || 'Tournament')}</span> <span class="tourney-cat" style="background:rgba(0,0,0,0.15); color:#111;">${escapeHtml(t.category || '')}</span>`;
@@ -719,6 +730,173 @@ function fetchJsonSafe(url){
     }
   }
 
+  /* ------------------ Scenarios renderer (new, pretty) ------------------ */
+
+  function humanizeScenarioKey(k){
+    // friendly labels for the keys produced by generate_scenarios.py
+    const map = {
+      'wins_after_losing_first_set': 'Wins after losing first set',
+      'losses_after_winning_first_set': 'Losses after winning first set',
+      'wins_in_2_sets': 'Wins in 2 sets',
+      'wins_in_3_sets': 'Wins in 3 sets',
+      'losses_in_2_sets': 'Losses in 2 sets',
+      'losses_in_3_sets': 'Losses in 3 sets',
+      'wins_after_losing_first_two_sets': 'Wins after losing first two sets',
+      'wins_after_down_2_1': 'Wins after being down 2–1',
+      'losses_after_winning_first_two_sets': 'Losses after winning first two sets',
+      'losses_after_leading_2_1': 'Losses after leading 2–1',
+      'wins_in_4_sets': 'Wins in 4 sets',
+      'wins_in_5_sets': 'Wins in 5 sets',
+      'losses_in_4_sets': 'Losses in 4 sets',
+      'losses_in_5_sets': 'Losses in 5 sets'
+    };
+    return map[k] || k.replace(/_/g, ' ');
+  }
+
+  function pctFromObj(obj){
+    // accept either object with 'pct' field, or {count, denominator} or raw number
+    if(!obj) return null;
+    if(typeof obj === 'number') return obj;
+    if(obj.pct !== undefined && obj.pct !== null) return obj.pct;
+    if(obj.denominator !== undefined && obj.denominator && obj.denominator > 0){
+      return (obj.count || 0) / obj.denominator;
+    }
+    return null;
+  }
+
+  function renderScenarios(data, sourceUrl, targetDiv){
+    try{
+      const sc = data.scenarios || data; // be forgiving
+      const non_gs = sc.non_gs || {};
+      const gs = sc.gs || {};
+      const retire = sc.retirements || {};
+      const samples = sc.samples || {};
+
+      let html = `<div style="font-weight:700;margin-bottom:8px">Scenarios (source: ${escapeHtml(sourceUrl)})</div>`;
+      html += `<div class="scenarios-grid">`;
+
+      // NON-GS card
+      html += `<div class="scenario-card"><h4>Non-Grand Slam</h4>`;
+      html += `<div class="muted-small">Metrics for non-GS matches</div>`;
+      html += `<table class="scenario-table"><thead><tr><th>Scenario</th><th>Count</th><th>Share</th></tr></thead><tbody>`;
+      const nonGsOrder = [
+        'wins_after_losing_first_set',
+        'losses_after_winning_first_set',
+        'wins_in_2_sets',
+        'wins_in_3_sets',
+        'losses_in_2_sets',
+        'losses_in_3_sets'
+      ];
+      nonGsOrder.forEach(k => {
+        const v = non_gs[k];
+        if(v === undefined) return;
+        const count = (typeof v === 'object' && v.count !== undefined) ? v.count : (typeof v === 'number' ? v : 0);
+        const pct = pctFromObj(v);
+        html += `<tr><td style="font-weight:700">${escapeHtml(humanizeScenarioKey(k))}</td><td>${escapeHtml(String(count))}</td><td>${escapeHtml(pct !== null ? smartPercentFromFraction(pct) : '—')}</td></tr>`;
+      });
+      html += `</tbody></table>`;
+      // samples for non-GS (if present)
+      html += `<div style="margin-top:8px;"><strong>Samples</strong>`;
+      const sampleKeys = Object.keys(samples || {});
+      if(sampleKeys.length){
+        html += `<div class="sample-list">`;
+        ['wins_after_losing_first_set','losses_after_winning_first_set','wins_in_2_sets','wins_in_3_sets'].forEach(sk=>{
+          if(samples[sk] && samples[sk].length){
+            html += `<div><div style="font-weight:700;margin-top:6px">${escapeHtml(humanizeScenarioKey(sk))} (${samples[sk].length})</div>`;
+            samples[sk].slice(0,6).forEach(it=>{
+              html += `<div class="sample-item"><div><strong>${escapeHtml(it.score || it.match_id || '')}</strong> — ${escapeHtml(it.start_date || '')}</div></div>`;
+            });
+            html += `</div>`;
+          }
+        });
+        html += `</div>`;
+      }
+      html += `</div></div>`;
+
+      // GS card
+      html += `<div class="scenario-card"><h4>Grand Slams (GS)</h4>`;
+      html += `<div class="muted-small">GS-specific scenarios & set-length breakdown</div>`;
+      html += `<table class="scenario-table"><thead><tr><th>Scenario</th><th>Count</th><th>Share</th></tr></thead><tbody>`;
+      const gsOrder = [
+        'wins_after_losing_first_set',
+        'wins_after_losing_first_two_sets',
+        'wins_after_down_2_1',
+        'losses_after_winning_first_two_sets',
+        'losses_after_winning_first_set',
+        'losses_after_leading_2_1',
+        'wins_in_3_sets',
+        'wins_in_4_sets',
+        'wins_in_5_sets',
+        'losses_in_3_sets',
+        'losses_in_4_sets',
+        'losses_in_5_sets'
+      ];
+      gsOrder.forEach(k => {
+        const v = gs[k];
+        if(v === undefined) return;
+        const count = (typeof v === 'object' && v.count !== undefined) ? v.count : (typeof v === 'number' ? v : 0);
+        const pct = pctFromObj(v);
+        html += `<tr><td style="font-weight:700">${escapeHtml(humanizeScenarioKey(k))}</td><td>${escapeHtml(String(count))}</td><td>${escapeHtml(pct !== null ? smartPercentFromFraction(pct) : '—')}</td></tr>`;
+      });
+      html += `</tbody></table>`;
+      // GS samples
+      html += `<div style="margin-top:8px;"><strong>Samples (GS)</strong>`;
+      if(sampleKeys.length){
+        html += `<div class="sample-list">`;
+        ['wins_after_losing_first_two_sets','wins_after_down_2_1','wins_in_5_sets'].forEach(sk=>{
+          if(samples[sk] && samples[sk].length){
+            html += `<div><div style="font-weight:700;margin-top:6px">${escapeHtml(humanizeScenarioKey(sk))} (${samples[sk].length})</div>`;
+            samples[sk].slice(0,6).forEach(it=>{
+              html += `<div class="sample-item"><div><strong>${escapeHtml(it.score || it.match_id || '')}</strong> — ${escapeHtml(it.start_date || '')}</div></div>`;
+            });
+            html += `</div>`;
+          }
+        });
+        html += `</div>`;
+      }
+      html += `</div></div>`;
+
+      html += `</div>`; // end grid
+
+      // Retirements block (separate full row)
+      html += `<div style="margin-top:12px" class="scenario-card">`;
+      html += `<h4>Retirements / abandons</h4>`;
+      html += `<div class="muted-small">Matches not finished (detected heuristically)</div>`;
+      html += `<div style="margin-top:8px">Count: <strong>${escapeHtml(String(retire.count || 0))}</strong></div>`;
+      if(retire.by_set && Object.keys(retire.by_set).length){
+        html += `<div style="margin-top:8px"><table class="scenario-table"><thead><tr><th>Set at retirement</th><th>Count</th></tr></thead><tbody>`;
+        Object.keys(retire.by_set).sort((a,b)=>Number(a)-Number(b)).forEach(setk=>{
+          html += `<tr><td>${escapeHtml(setk)}</td><td>${escapeHtml(String(retire.by_set[setk]))}</td></tr>`;
+        });
+        html += `</tbody></table></div>`;
+      }
+      if(Array.isArray(retire.examples) && retire.examples.length){
+        html += `<div style="margin-top:8px"><strong>Examples</strong>`;
+        retire.examples.slice(0,8).forEach(e=>{
+          html += `<div class="sample-item"><div><strong>${escapeHtml(e.score || '')}</strong> — ${escapeHtml(e.start_date || '')} — vs ${escapeHtml(e.opponent || '')} (retire set ${escapeHtml(String(e.retire_set || ''))})</div></div>`;
+        });
+        html += `</div>`;
+      }
+      html += `</div>`;
+
+      // raw JSON preview toggle
+      html += `<div style="margin-top:12px" class="scenario-card"><div style="display:flex;align-items:center;gap:12px"><div style="font-weight:700">Raw scenarios JSON</div><button id="scenarios-toggle-raw" class="tab-btn" style="padding:6px 8px">Toggle</button></div><div id="scenarios-raw" style="display:none;margin-top:8px;max-height:320px;overflow:auto;border:1px solid var(--border);padding:8px;background:#fff"><pre class="muted-small">${escapeHtml(JSON.stringify(data, null, 2).slice(0,20000))}${String(JSON.stringify(data).length>20000 ? '…' : '')}</pre></div></div>`;
+
+      targetDiv.innerHTML = html;
+
+      const toggle = document.getElementById('scenarios-toggle-raw');
+      if(toggle){
+        toggle.addEventListener('click', ()=>{
+          const pre = document.getElementById('scenarios-raw');
+          if(pre) pre.style.display = (pre.style.display === 'none' ? 'block' : 'none');
+        });
+      }
+    }catch(e){
+      console.error('renderScenarios error', e);
+      targetDiv.innerHTML = '<div class="no-data">Error rendering scenarios.</div>';
+    }
+  }
+
   /* ------------------ loadStatsSubpanel (re-used) ------------------ */
 
   async function loadStatsSubpanel(kind, playerData){
@@ -744,18 +922,8 @@ function fetchJsonSafe(url){
       const candidates = buildCandidatesFor(playerData, 'scenarios').concat([`/players_atp/${pid}.scenarios.json`, `/players_atp/${slugVal}.scenarios.json`]);
       const res = await tryCandidatesSequential(candidates);
       if(!res || !res.data){ targetDiv.innerHTML = '<div class="no-data">Scenarios are not available for this player.</div>'; return; }
-      const data = res.data;
-      let html = `<div style="font-weight:700;margin-bottom:8px">Scenarios (source: ${escapeHtml(res.url)})</div>`;
-      if(Array.isArray(data.scenarios) && data.scenarios.length){
-        html += '<div style="display:flex;flex-direction:column;gap:8px">';
-        data.scenarios.forEach(s => {
-          html += `<div style="border:1px solid var(--border);padding:10px;border-radius:8px"><div style="font-weight:700">${escapeHtml(s.title || s.name || 'Scenario')}</div><div class="sub">${escapeHtml(s.description || JSON.stringify(s).slice(0,300))}</div></div>`;
-        });
-        html += '</div>';
-      } else {
-        html += `<pre class="sub">${escapeHtml(JSON.stringify(data, null, 2).slice(0,2000))}${String(JSON.stringify(data).length>2000 ? '…' : '')}</pre>`;
-      }
-      targetDiv.innerHTML = html;
+      // render nicely using new renderer
+      renderScenarios(res.data, res.url, targetDiv);
       return;
     }
 
