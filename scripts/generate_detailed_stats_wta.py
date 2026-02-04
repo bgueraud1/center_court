@@ -33,7 +33,9 @@ def read_matches_from_dir(matches_dir):
     frames = []
     for f in files:
         try:
-            df = pd.read_csv(f, low_memory=False)
+            df = pd.read_csv(f, low_memory=False, dtype=str)
+            # normaliser les valeurs 'nan' importées comme chaînes vers de vrais NA
+            df = df.where(pd.notnull(df), None)
             # --- ADD: tag each row with source filename and extracted year from filename ---
             basename = os.path.basename(f)
             df['__src_file'] = basename
