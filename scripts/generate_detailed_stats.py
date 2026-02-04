@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-generate_detailed_stats.py - Detailed statistics per player (full version)
+generate_detailed_stats.py - Detailed statistics per player (improved)
 
-Usage:
-  python generate_detailed_stats.py --matches-dir /path/to/matches --out-dir ./dist --limit-players 200 --player S0AG
-
-Outputs:
-  - {out_dir}/players_atp/{PLAYER_ID}.stats.json
+- Fix tie-break counting using explicit tiebreak_setN_winner/tiebreak_setN_loser columns.
+- Compute upsets using ATP snapshot CSVs in directory atp_rankings (files named data_YYYY_MM_DD*.csv).
+- Produce career_by_surface and lists available_years/available_surfaces in output JSON.
+- Keeps stat_agg structure: { stat: {'count', 'sum', 'min','max','mean'} }
 """
 
 import argparse
@@ -19,6 +18,7 @@ from collections import defaultdict, Counter
 from datetime import datetime, timedelta
 import pandas as pd
 import math
+import unicodedata
 
 # ---------------- Helpers ----------------
 
@@ -113,7 +113,6 @@ def parse_time_to_seconds(s):
         st = str(s).strip()
         if st == '':
             return None
-        # pattern hh:mm:ss or mm:ss
         parts = st.split(':')
         if len(parts) == 3:
             h = int(parts[0]); m = int(parts[1]); sec = int(parts[2])
@@ -121,7 +120,6 @@ def parse_time_to_seconds(s):
         if len(parts) == 2:
             m = int(parts[0]); sec = int(parts[1])
             return m*60 + sec
-        # maybe numeric seconds
         val = to_float_safe(st)
         if val is not None:
             return float(val)
@@ -130,7 +128,6 @@ def parse_time_to_seconds(s):
     return None
 
 def round_smart(v):
-    """Round following rule: max 2 decimals; if effectively integer -> int"""
     if v is None:
         return None
     try:
@@ -139,17 +136,13 @@ def round_smart(v):
         f = float(v)
         if abs(f - round(f)) < 1e-9:
             return int(round(f))
-        return round(f, 2)
+        return round(f, 6)  # keep precision internal; presentation handled client-side
     except Exception:
         return v
 
 # ---------------- Aggregation utilities ----------------
 
 def add_numeric_agg(agg_dict, key, value):
-    """
-    Maintains agg_dict[key] = {'count':int, 'sum':float, 'min':float, 'max':float}
-    If value is None -> do nothing.
-    """
     if value is None:
         return
     try:
@@ -167,13 +160,7 @@ def add_numeric_agg(agg_dict, key, value):
         entry['max'] = v
     agg_dict[key] = entry
 
-def finalize_numeric_agg(agg_dict, is_rate=False):
-    """
-    Transform internal agg_dict to final form with mean.
-    For rates (is_rate True) we omit sum (user requested: no Sum for rates).
-    Returns mapping: key -> {count, mean, sum (unless rate), min, max}
-    Values rounded smartly.
-    """
+def finalize_numeric_agg(agg_dict):
     out = {}
     for k, e in agg_dict.items():
         cnt = int(e.get('count', 0)) if e and 'count' in e else 0
@@ -181,186 +168,215 @@ def finalize_numeric_agg(agg_dict, is_rate=False):
         mn = e.get('min', None)
         mx = e.get('max', None)
         mean = (s / cnt) if cnt > 0 else None
-        obj = {'count': cnt, 'mean': round_smart(mean) if mean is not None else None,
-               'min': round_smart(mn) if mn is not None else None,
-               'max': round_smart(mx) if mx is not None else None}
-        if not is_rate:
-            obj['sum'] = round_smart(s) if cnt>0 else None
-        out[k] = obj
+        out[k] = {'count': cnt, 'sum': (s if cnt>0 else None), 'min': (mn if cnt>0 else None), 'max': (mx if cnt>0 else None), 'mean': (mean if mean is not None else None)}
     return out
 
-# ---------------- Extractor: per-match metrics ----------------
+# ---------------- ATP rankings loader (atp_rankings dir) ----------------
 
-def first_available(row, candidates):
-    for c in candidates:
-        if c in row.index:
-            v = row.get(c)
-            if v is not None and str(v).strip() != '':
-                return v
+def normalize_name_for_match(full_name):
+    # produce "Initial. Lastname" style from "Roger Federer" -> "R. Federer"
+    if not isinstance(full_name, str):
+        return ''
+    s = full_name.strip()
+    if not s:
+        return ''
+    parts = s.split()
+    if len(parts) == 1:
+        return parts[0].strip()
+    first = parts[0]
+    last = parts[-1]
+    initial = first[0].upper() if first else ''
+    return f"{initial}. {last}".strip()
+
+def normalize_str(s):
+    if s is None: return ''
+    s2 = str(s).strip().lower()
+    # remove diacritics
+    s2 = ''.join(c for c in unicodedata.normalize('NFKD', s2) if not unicodedata.combining(c))
+    s2 = re.sub(r'[^a-z0-9\.\s\-]', '', s2)
+    s2 = re.sub(r'\s+', ' ', s2).strip()
+    return s2
+
+def load_atp_rankings(rankings_dir):
+    """
+    Load CSV ranking snapshots from rankings_dir with filenames like data_YYYY_MM_DD*.csv
+    Return sorted list of tuples (date(datetime.date), mapping) where mapping maps:
+      - short_name_norm (e.g. 'r. federer') -> ranking (int)
+      - last_name_norm -> list of possible rankings (we will pick first)
+    """
+    if not rankings_dir:
+        return []
+    pattern = os.path.join(rankings_dir, "data_*.csv")
+    files = sorted(glob.glob(pattern))
+    entries = []
+    for f in files:
+        m = re.search(r'data_(\d{4})[_\-]?(\d{2})[_\-]?(\d{2})', os.path.basename(f))
+        if not m:
+            # try any date in filename
+            m2 = re.search(r'(\d{4})[_\-]?(\d{2})[_\-]?(\d{2})', os.path.basename(f))
+            if m2:
+                m = m2
+        if not m:
+            continue
+        try:
+            dt = datetime(int(m.group(1)), int(m.group(2)), int(m.group(3))).date()
+        except Exception:
+            continue
+        try:
+            df = pd.read_csv(f, low_memory=False)
+        except Exception as e:
+            print("[rankings] warning failed to read", f, e)
+            continue
+        mapping = {}
+        last_map = defaultdict(list)
+        for _, row in df.iterrows():
+            full = row.get('full_name') or row.get('name') or ''
+            rank = safe_int(row.get('ranking') or row.get('rank') or row.get('position'))
+            if full and rank:
+                short = normalize_name_for_match(full)
+                shortn = normalize_str(short)
+                mapping[shortn] = rank
+                ln = normalize_str(full.split()[-1] if isinstance(full, str) else full)
+                last_map[ln].append(rank)
+        entries.append((dt, mapping, last_map))
+    # sort by date ascending
+    entries.sort(key=lambda x: x[0])
+    return entries
+
+def get_rank_for_player_on_date(name_short, match_date, rankings_entries):
+    """
+    name_short: e.g. "T. Henman" or "T Henman" etc.
+    match_date: datetime.date
+    rankings_entries: list as returned above
+    Returns ranking int or None
+    """
+    if not name_short or not match_date or not rankings_entries:
+        return None
+    norm_short = normalize_str(name_short)
+    # find latest snapshot with date <= match_date
+    candidate = None
+    for dt, mapping, last_map in rankings_entries:
+        if dt <= match_date:
+            candidate = (dt, mapping, last_map)
+        else:
+            break
+    if not candidate:
+        return None
+    dt, mapping, last_map = candidate
+    # try short match
+    if norm_short in mapping:
+        return mapping[norm_short]
+    # fallback: compare by last name
+    last = ''
+    parts = name_short.split()
+    if parts:
+        last = normalize_str(parts[-1])
+    if last and last in last_map and last_map[last]:
+        # pick the most common / first
+        return last_map[last][0]
+    # no match
     return None
 
+# ---------------- Extractor: per-match metrics (with tie-break fix) ----------------
+
 def extract_player_match_metrics(r, player_id):
-    """
-    Given a pandas Series row r and player's normalized player_id, return computed metrics dict.
-    """
     pid = normalize_player_id(player_id)
     m = {}
 
-    # determine winner
+    # determine if player is winner
     is_winner = None
     if 'player_id_winner' in r.index and normalize_player_id(r.get('player_id_winner')) == pid:
         is_winner = True
     elif 'player_id_loser' in r.index and normalize_player_id(r.get('player_id_loser')) == pid:
         is_winner = False
 
-    # which side is "player" in column suffix
-    side = 'winner' if is_winner else 'loser' if is_winner is False else None
-
-    # --- aces & double faults ---
+    # --- raw stats as before (look for many column variants) ---
+    # aces / doublefaults
     aces = None
+    for cand in ('aces', 'aces_tot_winner', 'aces_tot_loser', 'aces_tot', 'aces_tot_'+('winner' if is_winner else 'loser') if is_winner is not None else ''):
+        if cand and cand in r.index and str(r.get(cand, '')).strip() != '':
+            aces = to_float_safe(r.get(cand)); break
     dfaults = None
-    # try common candidates
-    for cand in (f'aces_tot_{side}', f'aces_tot_{side}', f'aces_tot_{side}', f'aces_tot_{side}', f'aces_tot_{side}', f'aces_tot_{side}'):
-        pass
-    # broader approach: try many candidate names
-    ac_cands = []
-    df_cands = []
-    if side:
-        ac_cands += [f'aces_tot_{side}', f'aces_{side}', f'aces_tot_{side}'.replace('__','_')]
-        df_cands += [f'doublefaults_tot_{side}', f'doublefaults_{side}']
-    ac_cands += ['aces', 'aces_tot_winner', 'aces_tot_loser', 'aces_tot']
-    df_cands += ['doublefaults', 'doublefaults_tot_winner', 'doublefaults_tot_loser', 'doublefaults_tot']
-    for c in ac_cands:
-        if c in r.index and str(r.get(c, '')).strip() != '':
-            aces = to_float_safe(r.get(c))
-            break
-    for c in df_cands:
-        if c in r.index and str(r.get(c, '')).strip() != '':
-            dfaults = to_float_safe(r.get(c))
-            break
+    for cand in ('doublefaults', 'doublefaults_tot_winner', 'doublefaults_tot_loser', 'doublefaults_tot', 'doublefaults_tot_'+('winner' if is_winner else 'loser') if is_winner is not None else ''):
+        if cand and cand in r.index and str(r.get(cand, '')).strip() != '':
+            dfaults = to_float_safe(r.get(cand)); break
     m['aces'] = aces
     m['doublefaults'] = dfaults
 
-    # --- service points played (try many likely columns) ---
-    serv_points = None
-    serv_cands = []
-    if side:
-        serv_cands += [
-            f'totalservicepointswon_divisor_tot_{side}', f'totalservicepointswon_divisor_{side}',
-            f'totalservicepointswon_divisor_tot_{side}'.replace('__','_'),
-            f'firstserve_divisor_tot_{side}', f'servicegamesplayed_tot_{side}'
-        ]
-    serv_cands += ['totalservicepointswon_divisor', 'totalservicepointswon_divisor_tot',
-                   'servicegamesplayed', 'servicegamesplayed_tot', 'servicegamesplayed_tot_winner', 'servicegamesplayed_tot_loser']
-    # pick first suitable
-    for c in serv_cands:
-        if c in r.index and str(r.get(c, '')).strip() != '':
-            serv_points = to_float_safe(r.get(c))
-            if serv_points is not None:
+    # service points (approx) & per-point rates
+    service_points = None
+    # try servicegamesplayed * 4 as fallback
+    side = 'winner' if is_winner else 'loser' if is_winner is not None else None
+    for cand in (f'totalservicepointswon_divisor_tot_{side}' if side else None, f'firstserve_divisor_tot_{side}' if side else None, f'servicegamesplayed_tot_{side}' if side else None, 'servicegamesplayed', 'servicegamesplayed_tot'):
+        if cand and cand in r.index and str(r.get(cand, '')).strip() != '':
+            # if it's service games, multiply by 4 as rough estimate
+            val = to_float_safe(r.get(cand))
+            if val is not None:
+                if 'servicegamesplayed' in cand:
+                    service_points = val * 4.0
+                else:
+                    service_points = val
                 break
-    # fallback: estimate from service games * 4 points per game (very rough)
-    if serv_points is None:
-        sg = first_available(r, ['servicegamesplayed_tot_'+side if side else '', 'servicegamesplayed', 'servicegamesplayed_tot_winner', 'servicegamesplayed_tot_loser'])
-        sg_n = to_float_safe(sg)
-        if sg_n is not None:
-            serv_points = sg_n * 4.0
+    m['service_points_played'] = service_points
+    m['aces_per_service_point'] = (float(aces)/service_points) if (aces is not None and service_points) else None
+    m['doublefaults_per_service_point'] = (float(dfaults)/service_points) if (dfaults is not None and service_points) else None
 
-    m['service_points_played'] = serv_points
-
-    # aces per service point & double fault rate
-    if m['aces'] is not None and m['service_points_played']:
-        m['aces_per_service_point'] = (float(m['aces']) / float(m['service_points_played'])) if m['service_points_played']>0 else None
-    else:
-        m['aces_per_service_point'] = None
-
-    if m['doublefaults'] is not None and m['service_points_played']:
-        m['doublefaults_per_service_point'] = (float(m['doublefaults']) / float(m['service_points_played'])) if m['service_points_played']>0 else None
-    else:
-        m['doublefaults_per_service_point'] = None
-
-    # --- serve/return percent fields (look for winner/loser variants) ---
-    def find_pct(base_names):
-        # attempt winner/loser variants first
-        names = []
-        if side:
-            for b in base_names:
-                names += [f"{b}_tot_{side}", f"{b}_{side}", f"{b}_tot_{side}".replace('__','_')]
-        names += base_names + [b + '_tot' for b in base_names]
+    # percents
+    def find_pct(names):
         for n in names:
-            if n in r.index and str(r.get(n, '')).strip() != '':
+            if n and n in r.index and str(r.get(n, '')).strip() != '':
                 v = to_float_safe(r.get(n))
                 if v is not None:
+                    # normalize >1 -> assume percent
+                    if v > 1.0:
+                        v = v / 100.0
                     return v
         return None
 
-    m['firstserve_percent'] = find_pct(['firstserve_percent'])
-    m['firstserve_points_won_percent'] = find_pct(['firstservepointswon_percent'])
-    m['secondserve_points_won_percent'] = find_pct(['secondservepointswon_percent'])
-    m['service_points_won_percent'] = find_pct(['totalservicepointswon_percent','totalservicepointswon_percent'])
-    m['return_points_won_percent'] = find_pct(['totalreturnpointswon_percent','totalreturnpointswon_percent'])
-    # normalize percents if >1 assume given in percent (e.g., 65)
-    for k in ('firstserve_percent','firstserve_points_won_percent','secondserve_points_won_percent','service_points_won_percent','return_points_won_percent'):
-        if m.get(k) is not None:
-            v = m[k]
-            if v is not None and v > 1.0:
-                m[k] = float(v) / 100.0
+    m['firstserve_percent'] = find_pct([f'firstserve_percent_tot_{side}' if side else None, f'firstserve_percent_{side}' if side else None, 'firstserve_percent'])
+    m['firstserve_points_won_percent'] = find_pct([f'firstservepointswon_percent_tot_{side}' if side else None, 'firstservepointswon_percent'])
+    m['secondserve_points_won_percent'] = find_pct([f'secondservepointswon_percent_tot_{side}' if side else None, 'secondservepointswon_percent'])
+    m['service_points_won_percent'] = find_pct([f'totalservicepointswon_percent_tot_{side}' if side else None, 'totalservicepointswon_percent'])
+    m['return_points_won_percent'] = find_pct([f'totalreturnpointswon_percent_tot_{side}' if side else None, 'totalreturnpointswon_percent'])
 
-    # --- breakpoints faced/converted: opponent's breakpointssaved_divisor/dividend ---
-    # opponent side
+    # breakpoints faced/converted using opponent's breakpointssaved_divisor/dividend
     opp_side = 'loser' if is_winner else 'winner' if is_winner is not None else None
     opp_bps_div = None
     opp_bps_dvd = None
     if opp_side:
-        div_cands = [f'breakpointssaved_divisor_tot_{opp_side}', f'breakpointssaved_divisor_{opp_side}', 'breakpointssaved_divisor_tot', 'breakpointssaved_divisor']
-        dvd_cands = [f'breakpointssaved_dividend_tot_{opp_side}', f'breakpointssaved_dividend_{opp_side}', 'breakpointssaved_dividend_tot', 'breakpointssaved_dividend']
-    else:
-        div_cands = ['breakpointssaved_divisor_tot','breakpointssaved_divisor']
-        dvd_cands = ['breakpointssaved_dividend_tot','breakpointssaved_dividend']
-    for c in div_cands:
-        if c in r.index and str(r.get(c,'')).strip() != '':
-            opp_bps_div = to_float_safe(r.get(c))
-            if opp_bps_div is not None: break
-    for c in dvd_cands:
-        if c in r.index and str(r.get(c,'')).strip() != '':
-            opp_bps_dvd = to_float_safe(r.get(c))
-            if opp_bps_dvd is not None: break
+        for c in (f'breakpointssaved_divisor_tot_{opp_side}', f'breakpointssaved_divisor_{opp_side}', 'breakpointssaved_divisor_tot', 'breakpointssaved_divisor'):
+            if c in r.index and str(r.get(c, '')).strip() != '':
+                opp_bps_div = to_float_safe(r.get(c)); break
+        for c in (f'breakpointssaved_dividend_tot_{opp_side}', f'breakpointssaved_dividend_{opp_side}', 'breakpointssaved_dividend_tot', 'breakpointssaved_dividend'):
+            if c in r.index and str(r.get(c, '')).strip() != '':
+                opp_bps_dvd = to_float_safe(r.get(c)); break
     m['breakpoints_faced'] = opp_bps_div
     if opp_bps_div is not None and opp_bps_dvd is not None:
         conv = max(0.0, opp_bps_div - opp_bps_dvd)
         m['breakpoints_converted'] = conv
-        m['breakpoints_converted_rate'] = (conv / opp_bps_div) if opp_bps_div>0 else None
+        m['breakpoints_converted_pct'] = (conv / opp_bps_div) if opp_bps_div>0 else None
     else:
-        # try explicit fields
-        explicit = first_available(r, ['breakpoints_converted', f'breakpoints_converted_{opp_side}' if opp_side else 'breakpoints_converted'])
-        conv_fallback = to_float_safe(explicit) if explicit is not None else None
+        conv_fallback = None
+        for cand in ('breakpoints_converted', f'breakpoints_converted_{opp_side}' if opp_side else None):
+            if cand and cand in r.index and str(r.get(cand, '')).strip() != '':
+                conv_fallback = to_float_safe(r.get(cand)); break
         m['breakpoints_converted'] = conv_fallback
-        if conv_fallback is not None and opp_bps_div:
-            m['breakpoints_converted_rate'] = (conv_fallback / opp_bps_div) if opp_bps_div and opp_bps_div>0 else None
-        else:
-            m['breakpoints_converted_rate'] = None
+        m['breakpoints_converted_pct'] = (conv_fallback / opp_bps_div) if (conv_fallback is not None and opp_bps_div and opp_bps_div>0) else None
 
-    # --- service games lost rate (breaks conceded by player) ---
-    # According to instructions: service_games_lost_rate = (break_points converted by opponent) / servicegamesplayed_tot_{player}
-    # break_points converted by opponent is the player's breakpoints_converted when opponent is receiver, but simpler: use breakpoints_converted from m (which measured opponent converting on player's serve)
-    player_service_games_played = None
-    sg_cands = []
-    if side:
-        sg_cands += [f'servicegamesplayed_tot_{side}', f'servicegamesplayed_{side}']
-    sg_cands += ['servicegamesplayed', 'servicegamesplayed_tot_winner', 'servicegamesplayed_tot_loser', 'servicegamesplayed_tot']
-    for c in sg_cands:
-        if c in r.index and str(r.get(c,'')).strip() != '':
-            player_service_games_played = to_float_safe(r.get(c))
-            if player_service_games_played is not None: break
-    # breaks conceded by player = opponent converted on player's serve => that is m['breakpoints_converted'] (we set it from opponent stats)
-    if m.get('breakpoints_converted') is not None and player_service_games_played and player_service_games_played>0:
+    # service games lost rate
+    player_sg_played = None
+    for cand in (f'servicegamesplayed_tot_{side}' if side else None, f'servicegamesplayed_{side}' if side else None, 'servicegamesplayed', 'servicegamesplayed_tot'):
+        if cand and cand in r.index and str(r.get(cand, '')).strip() != '':
+            player_sg_played = to_float_safe(r.get(cand)); break
+    if m.get('breakpoints_converted') is not None and player_sg_played and player_sg_played>0:
         try:
-            m['service_games_lost_rate'] = float(m.get('breakpoints_converted')) / float(player_service_games_played)
+            m['service_games_lost_rate'] = float(m.get('breakpoints_converted')) / float(player_sg_played)
         except Exception:
             m['service_games_lost_rate'] = None
     else:
         m['service_games_lost_rate'] = None
 
-    # --- tiebreaks played/won via explicit columns ---
+    # tie-breaks fix: explicitly parse tiebreak_setN_winner / loser columns and compare
     tb_played = 0
     tb_won = 0
     for i in range(1, 6):
@@ -369,65 +385,51 @@ def extract_player_match_metrics(r, player_id):
         tw = r.get(tw_col) if tw_col in r.index else None
         tl = r.get(tl_col) if tl_col in r.index else None
         if (tw is not None and str(tw).strip() != '') or (tl is not None and str(tl).strip() != ''):
+            # both should be present in many CSVs but guard otherwise
             tb_played += 1
             try:
                 tw_n = int(re.sub(r'[^0-9]', '', str(tw))) if (tw is not None and str(tw).strip() != '') else None
                 tl_n = int(re.sub(r'[^0-9]', '', str(tl))) if (tl is not None and str(tl).strip() != '') else None
             except Exception:
                 tw_n = tl_n = None
+            # determine player's score vs opponent: if player is winner, player's tb value is in *_winner columns, else *_loser columns
             if tw_n is not None and tl_n is not None:
                 if is_winner:
                     if tw_n > tl_n: tb_won += 1
                 else:
                     if tl_n > tw_n: tb_won += 1
             else:
-                # if only one side present guess
+                # if only one side present, infer conservatively
                 if is_winner and tw and not tl:
                     tb_won += 1
                 if (not is_winner) and tl and not tw:
                     tb_won += 1
+
     m['tiebreaks_played'] = int(tb_played)
     m['tiebreaks_won'] = int(tb_won)
-    m['tiebreak_win_rate'] = (float(tb_won)/tb_played) if tb_played>0 else None
+    m['tiebreak_win_rate'] = (float(tb_won) / tb_played) if tb_played > 0 else None
 
-    # --- match time ---
+    # match_time
     mtsec = None
-    for c in ('match_time_total', 'match_time', 'match_time_seconds', 'match_time_total'):
-        if c in r.index and str(r.get(c,'')).strip() != '':
-            mtsec = parse_time_to_seconds(r.get(c))
-            if mtsec is not None: break
-    # fallback to settime columns (some CSVs)
+    for c in ('match_time_total', 'match_time', 'match_time_seconds'):
+        if c in r.index and str(r.get(c, '')).strip() != '':
+            mtsec = parse_time_to_seconds(r.get(c)); break
     if mtsec is None:
-        if is_winner:
-            key = 'settime_tot_winner'
-        elif is_winner is False:
-            key = 'settime_tot_loser'
-        else:
-            key = None
-        if key and key in r.index and str(r.get(key,'')).strip() != '':
+        key = 'settime_tot_winner' if is_winner else 'settime_tot_loser' if is_winner is not None else None
+        if key and key in r.index and str(r.get(key, '')).strip() != '':
             mtsec = to_float_safe(r.get(key))
     m['match_time_seconds'] = float(mtsec) if mtsec is not None else None
     m['match_time_hours'] = (float(mtsec)/3600.0) if mtsec is not None else None
 
-    # --- ranking/seeding extraction for upset/bucket calculations ---
-    # possible columns: winner_seed, loser_seed, seed_winner, seed_loser, winner_seed, loser_seed, seed_winner, seed_loser
-    def extract_seed(side_opt):
-        candidates = []
-        if side_opt:
-            candidates += [f'{side_opt}_seed', f'seed_{side_opt}', f'seed{("_" + side_opt) if side_opt else ""}']
-        candidates += ['winner_seed', 'loser_seed', 'seed_winner', 'seed_loser', 'seed_winner', 'seed_loser']
-        for c in candidates:
-            if c in r.index:
-                v = r.get(c)
-                n = safe_int(v)
-                if n is not None:
-                    return n
-        return None
-
-    winner_seed = extract_seed('winner')
-    loser_seed = extract_seed('loser')
-    m['winner_seed'] = winner_seed
-    m['loser_seed'] = loser_seed
+    # ranking seeds from csv if present (may be blank)
+    try:
+        m['winner_seed'] = safe_int(r.get('winner_seed') if 'winner_seed' in r.index else r.get('winner_seed') if 'winner_seed' in r.index else r.get('winner_seed'))
+    except Exception:
+        m['winner_seed'] = None
+    try:
+        m['loser_seed'] = safe_int(r.get('loser_seed') if 'loser_seed' in r.index else r.get('loser_seed') if 'loser_seed' in r.index else r.get('loser_seed'))
+    except Exception:
+        m['loser_seed'] = None
 
     return m
 
@@ -456,12 +458,12 @@ def rank_bucket_from_rank(r):
             return label
     return None
 
-def build_detailed_stats(matches_df, player_id, host_event_map=None):
+def build_detailed_stats(matches_df, player_id, rankings_entries=None, host_event_map=None):
     pid = normalize_player_id(player_id)
     if not pid:
         return None
 
-    # collect rows where player appears (by ID or name fallback)
+    # collect rows where player appears
     cond_w = ('player_id_winner' in matches_df.columns) and (matches_df['player_id_winner'].astype(str).str.strip().str.upper() == pid)
     cond_l = ('player_id_loser' in matches_df.columns) and (matches_df['player_id_loser'].astype(str).str.strip().str.upper() == pid)
     frames = []
@@ -469,32 +471,20 @@ def build_detailed_stats(matches_df, player_id, host_event_map=None):
         frames.append(matches_df[cond_w])
     if cond_l is not False and cond_l.any():
         frames.append(matches_df[cond_l])
-    # fallback by name columns if no ID found
-    if not frames:
-        # attempt match by winner/loser name equals pid (loose)
-        nm_w = 'player_winner' in matches_df.columns
-        nm_l = 'player_loser' in matches_df.columns
-        if nm_w:
-            cond = matches_df['player_winner'].astype(str).str.strip().str.upper() == pid
-            if cond.any(): frames.append(matches_df[cond])
-        if nm_l:
-            cond = matches_df['player_loser'].astype(str).str.strip().str.upper() == pid
-            if cond.any(): frames.append(matches_df[cond])
-
     if not frames:
         return {
             'player_id': pid,
-            'player_name': pid,
-            'meta': {'matches': 0, 'generated_at': datetime.utcnow().isoformat() + 'Z', 'version': 'v1'},
             'career': {},
             'stats_by_year': {},
             'stats_by_month': {},
-            'matches': []
+            'career_by_surface': {},
+            'available_years': [],
+            'available_surfaces': [],
+            'meta': {'matches': 0, 'generated_at': datetime.utcnow().isoformat() + 'Z'}
         }
-
     df = pd.concat(frames, ignore_index=True, sort=False)
 
-    # canonical name
+    # canonical player name
     player_name = pid
     for col in ('player_winner','player_loser','winner_player_name','loser_player_name'):
         if col in df.columns:
@@ -504,40 +494,43 @@ def build_detailed_stats(matches_df, player_id, host_event_map=None):
                 break
 
     # containers
-    career_stat_agg = {}  # for numeric aggregation across matches
-    # we'll treat rates separately so that we can omit sum for them: maintain a set of rate keys
-    rate_keys = set([
-        'aces_per_service_point','doublefaults_per_service_point','firstserve_percent',
-        'firstserve_points_won_percent','secondserve_points_won_percent','service_points_won_percent','return_points_won_percent',
-        'breakpoints_converted_rate','service_games_lost_rate','tiebreak_win_rate'
-    ])
-
-    # counters and totals
-    career_counts = {
-        'matches_played': 0, 'matches_won': 0, 'matches_lost': 0,
-        'sets_won': 0, 'sets_lost': 0,
-        'tiebreaks_played': 0, 'tiebreaks_won': 0,
-        'total_match_time_seconds': 0.0, 'match_time_count': 0
-    }
-
-    ranking_buckets = defaultdict(lambda: {'matches':0, 'wins':0})
-    upsets = {'wins_vs_better':0, 'matches_vs_better':0, 'losses_vs_worse':0, 'matches_vs_worse':0}
-
+    career_stat_agg = {}
+    career_by_surface = defaultdict(lambda: {})
+    stats_by_year = {}
+    stats_by_month = {}
     matches_out = []
 
+    career_counts = {'matches_played':0,'matches_won':0,'matches_lost':0,'sets_won':0,'sets_lost':0,'tiebreaks_played':0,'tiebreaks_won':0,'total_match_time_seconds':0.0,'match_time_count':0}
+    ranking_buckets = defaultdict(lambda: {'matches':0,'wins':0})
+    upsets = {'wins_vs_better':0,'matches_vs_better':0,'losses_vs_worse':0,'matches_vs_worse':0}
+
+    available_surfaces = set()
+    available_years = set()
+
     for idx, r in df.iterrows():
+        # determine winner flag
         is_winner = None
         if 'player_id_winner' in r.index and normalize_player_id(r.get('player_id_winner')) == pid:
             is_winner = True
         elif 'player_id_loser' in r.index and normalize_player_id(r.get('player_id_loser')) == pid:
             is_winner = False
 
-        match_date = parse_date_only(r.get('start_date') or r.get('match_date') or '')
-        e_year = str(r.get('event_year') or (match_date[:4] if match_date else ''))
+        # basic metadata
+        e_year = str(r.get('event_year') or '')
+        match_date_raw = r.get('start_date') or r.get('match_date') or ''
+        match_date_iso = parse_date_only(match_date_raw)
+        match_date_dt = None
+        try:
+            if match_date_iso:
+                match_date_dt = datetime.fromisoformat(match_date_iso).date()
+        except Exception:
+            match_date_dt = None
         event_id = str(r.get('event_id') or '')
         tourney_name = r.get('tourney_name') or ''
-        surface = (r.get('surface') or '').strip().lower()
-        round_tok = r.get('round') or ''
+        surface = (r.get('surface') or '').strip().lower() or 'unknown'
+        if surface: available_surfaces.add(surface)
+        if e_year: available_years.add(e_year)
+
         # opponent info
         opponent_name = ''
         opponent_id = None
@@ -548,71 +541,52 @@ def build_detailed_stats(matches_df, player_id, host_event_map=None):
             opponent_name = r.get('player_winner') or r.get('winner_player_name') or ''
             opponent_id = r.get('player_id_winner') if 'player_id_winner' in r.index else None
 
-        # extract per-match metrics
+        # extract metrics
         m = extract_player_match_metrics(r, pid)
-        if m is None:
-            m = {}
+        m.setdefault('tiebreaks_played', 0); m.setdefault('tiebreaks_won', 0); m.setdefault('tiebreak_win_rate', None)
+        m.setdefault('breakpoints_faced', None); m.setdefault('breakpoints_converted', None); m.setdefault('breakpoints_converted_pct', None)
+        m.setdefault('service_games_lost_rate', None); m.setdefault('match_time_seconds', None); m.setdefault('match_time_hours', None)
 
-        # ensure keys
-        m.setdefault('aces', None)
-        m.setdefault('doublefaults', None)
-        m.setdefault('aces_per_service_point', None)
-        m.setdefault('doublefaults_per_service_point', None)
-        m.setdefault('firstserve_percent', None)
-        m.setdefault('firstserve_points_won_percent', None)
-        m.setdefault('secondserve_points_won_percent', None)
-        m.setdefault('service_points_won_percent', None)
-        m.setdefault('return_points_won_percent', None)
-        m.setdefault('breakpoints_faced', None)
-        m.setdefault('breakpoints_converted', None)
-        m.setdefault('breakpoints_converted_rate', None)
-        m.setdefault('service_games_lost_rate', None)
-        m.setdefault('tiebreaks_played', 0)
-        m.setdefault('tiebreaks_won', 0)
-        m.setdefault('tiebreak_win_rate', None)
-        m.setdefault('match_time_seconds', None)
-        m.setdefault('match_time_hours', None)
-
-        # append per-match minimal record (frontend may use)
+        # append match record
         matches_out.append({
             'match_id': str(r.get('match_id') or ''),
             'event_id': event_id,
             'event_year': e_year,
-            'match_date': match_date,
+            'start_date': match_date_iso,
             'opponent': str(opponent_name) if opponent_name else '',
-            'opponent_id': str(opponent_id).strip().upper() if opponent_id not in (None, '') else None,
+            'opponent_id': str(opponent_id).strip().upper() if opponent_id not in (None,'') else None,
             'is_win': bool(is_winner) if is_winner is not None else None,
             'score': str(r.get('score_string') or r.get('score') or ''),
-            'aces': round_smart(m.get('aces')),
-            'doublefaults': round_smart(m.get('doublefaults')),
-            'aces_per_service_point': round_smart(m.get('aces_per_service_point')),
-            'doublefaults_per_service_point': round_smart(m.get('doublefaults_per_service_point')),
-            'firstserve_percent': round_smart(m.get('firstserve_percent')),
-            'firstserve_points_won_percent': round_smart(m.get('firstserve_points_won_percent')),
-            'secondserve_points_won_percent': round_smart(m.get('secondserve_points_won_percent')),
-            'service_points_won_percent': round_smart(m.get('service_points_won_percent')),
-            'return_points_won_percent': round_smart(m.get('return_points_won_percent')),
-            'breakpoints_faced': round_smart(m.get('breakpoints_faced')),
-            'breakpoints_converted': round_smart(m.get('breakpoints_converted')),
-            'breakpoints_converted_rate': round_smart(m.get('breakpoints_converted_rate')),
-            'service_games_lost_rate': round_smart(m.get('service_games_lost_rate')),
+            'aces': m.get('aces'),
+            'doublefaults': m.get('doublefaults'),
+            'aces_per_service_point': m.get('aces_per_service_point'),
+            'doublefaults_per_service_point': m.get('doublefaults_per_service_point'),
+            'firstserve_percent': m.get('firstserve_percent'),
+            'firstserve_points_won_percent': m.get('firstserve_points_won_percent'),
+            'secondserve_points_won_percent': m.get('secondserve_points_won_percent'),
+            'service_points_won_percent': m.get('service_points_won_percent'),
+            'return_points_won_percent': m.get('return_points_won_percent'),
+            'breakpoints_faced': m.get('breakpoints_faced'),
+            'breakpoints_converted': m.get('breakpoints_converted'),
+            'breakpoints_converted_rate': m.get('breakpoints_converted_pct'),
+            'service_games_lost_rate': m.get('service_games_lost_rate'),
             'tiebreaks_played': m.get('tiebreaks_played'),
             'tiebreaks_won': m.get('tiebreaks_won'),
-            'tiebreak_win_rate': round_smart(m.get('tiebreak_win_rate')),
+            'tiebreak_win_rate': m.get('tiebreak_win_rate'),
             'match_time_seconds': m.get('match_time_seconds'),
-            'match_time_hours': round_smart(m.get('match_time_hours')),
-            'round': str(round_tok),
-            'surface': surface
+            'match_time_hours': m.get('match_time_hours'),
+            'surface': surface,
+            'round': str(r.get('round') or '')
         })
 
-        # career counters
+        # update career counts
         career_counts['matches_played'] += 1
         if is_winner is True:
             career_counts['matches_won'] += 1
         elif is_winner is False:
             career_counts['matches_lost'] += 1
 
-        # sets won/lost try parse
+        # sets parsing (best-effort)
         s_w = 0; s_l = 0
         for sc in ['set1_score','set2_score','set3_score','set4_score','set5_score']:
             if sc in r.index:
@@ -637,11 +611,9 @@ def build_detailed_stats(matches_df, player_id, host_event_map=None):
         career_counts['sets_won'] += s_w
         career_counts['sets_lost'] += s_l
 
-        # tiebreak counters
         career_counts['tiebreaks_played'] += int(m.get('tiebreaks_played') or 0)
         career_counts['tiebreaks_won'] += int(m.get('tiebreaks_won') or 0)
 
-        # match time
         if m.get('match_time_seconds') is not None:
             try:
                 career_counts['total_match_time_seconds'] += float(m.get('match_time_seconds'))
@@ -649,7 +621,7 @@ def build_detailed_stats(matches_df, player_id, host_event_map=None):
             except Exception:
                 pass
 
-        # aggregate numeric fields
+        # aggregate numeric fields to career and per-year and per-month and per-surface
         numeric_fields = {
             'aces': to_float_safe(m.get('aces')),
             'doublefaults': to_float_safe(m.get('doublefaults')),
@@ -662,67 +634,90 @@ def build_detailed_stats(matches_df, player_id, host_event_map=None):
             'return_points_won_percent': to_float_safe(m.get('return_points_won_percent')),
             'breakpoints_faced': to_float_safe(m.get('breakpoints_faced')),
             'breakpoints_converted': to_float_safe(m.get('breakpoints_converted')),
-            'breakpoints_converted_rate': to_float_safe(m.get('breakpoints_converted_rate')),
+            'breakpoints_converted_rate': to_float_safe(m.get('breakpoints_converted_pct')),
             'service_games_lost_rate': to_float_safe(m.get('service_games_lost_rate')),
             'tiebreak_win_rate': to_float_safe(m.get('tiebreak_win_rate')),
             'match_time_hours': to_float_safe(m.get('match_time_hours'))
         }
-
         for k,v in numeric_fields.items():
             add_numeric_agg(career_stat_agg, k, v)
+            # per-surface
+            add_numeric_agg(career_by_surface[surface].setdefault('stat_agg', {}), k, v)
 
-        # ranking/upset buckets: try to determine opponent ranking/seed
-        # prefer explicit seed columns
-        winner_seed = None
-        loser_seed = None
-        for cand in ('winner_seed','loser_seed','seed_winner','seed_loser','seed_winner','seed_loser'):
-            if cand in r.index:
-                try:
-                    if cand.startswith('winner'):
-                        winner_seed = safe_int(r.get(cand))
-                    elif cand.startswith('loser'):
-                        loser_seed = safe_int(r.get(cand))
-                except Exception:
-                    pass
-        # also try other patterns
-        if winner_seed is None and 'winner_seed' in r.index:
-            winner_seed = safe_int(r.get('winner_seed'))
-        if loser_seed is None and 'loser_seed' in r.index:
-            loser_seed = safe_int(r.get('loser_seed'))
-
-        # opponent rank numeric (we interpret seed as ranking proxy)
-        opp_rank = None
-        if is_winner is True:
-            opp_rank = safe_int(loser_seed)
-            player_seed = safe_int(winner_seed)
-        elif is_winner is False:
-            opp_rank = safe_int(winner_seed)
-            player_seed = safe_int(loser_seed)
-        else:
-            opp_rank = None
-            player_seed = None
-
-        # bucket update
-        b = rank_bucket_from_rank(opp_rank)
-        if b:
-            ranking_buckets[b]['matches'] += 1
+        # per-year
+        if e_year:
+            if e_year not in stats_by_year:
+                stats_by_year[e_year] = {'matches_played':0,'matches_won':0,'matches_lost':0,'sets_won':0,'sets_lost':0,'tiebreaks_played':0,'tiebreaks_won':0,'total_match_time_seconds':0.0,'match_time_count':0,'stat_agg':{}, 'by_surface': defaultdict(lambda: {'stat_agg': {}})}
+            sy = stats_by_year[e_year]
+            sy['matches_played'] += 1
             if is_winner:
-                ranking_buckets[b]['wins'] += 1
+                sy['matches_won'] += 1
+            else:
+                sy['matches_lost'] += 1
+            sy['sets_won'] += s_w
+            sy['sets_lost'] += s_l
+            sy['tiebreaks_played'] += int(m.get('tiebreaks_played') or 0)
+            sy['tiebreaks_won'] += int(m.get('tiebreaks_won') or 0)
+            if m.get('match_time_seconds'):
+                try:
+                    sy['total_match_time_seconds'] += float(m.get('match_time_seconds')); sy['match_time_count'] += 1
+                except Exception: pass
+            for k,v in numeric_fields.items():
+                add_numeric_agg(sy['stat_agg'], k, v)
+                add_numeric_agg(sy['by_surface'][surface]['stat_agg'], k, v)
 
-        # upsets:
-        # define "better" as lower seed number (1 better than 10). If opponent has numeric seed and player's seed numeric:
-        # - win vs better: player wins while player's seed > opponent's seed (player worse ranked)
-        # - loss vs worse: player loses while player's seed < opponent's seed (player better ranked)
-        if player_seed is not None and opp_rank is not None:
-            # matches_vs_better: when opponent is better (opp_rank < player_seed)
-            if opp_rank < player_seed:
-                upsets['matches_vs_better'] += 1
-                if is_winner:
-                    upsets['wins_vs_better'] += 1
-            if opp_rank > player_seed:
-                upsets['matches_vs_worse'] += 1
-                if not is_winner:
-                    upsets['losses_vs_worse'] += 1
+        # per-month
+        month_key = None
+        if match_date_dt:
+            month_key = match_date_dt.strftime('%Y-%m')
+            if month_key not in stats_by_month:
+                stats_by_month[month_key] = {'matches_played':0,'matches_won':0,'matches_lost':0,'stat_agg':{}, 'by_surface': defaultdict(lambda: {'stat_agg': {}})}
+            sm = stats_by_month[month_key]
+            sm['matches_played'] += 1
+            if is_winner:
+                sm['matches_won'] += 1
+            else:
+                sm['matches_lost'] += 1
+            for k,v in numeric_fields.items():
+                add_numeric_agg(sm['stat_agg'], k, v)
+                add_numeric_agg(sm['by_surface'][surface]['stat_agg'], k, v)
+
+        # ranking/upset logic using rankings_entries (if available)
+        player_rank = None
+        opp_rank = None
+        if rankings_entries and match_date_dt:
+            # find full names in CSV to match
+            # prefer winner_player_name / loser_player_name or player_winner/player_loser
+            winner_name = r.get('winner_player_name') or r.get('player_winner') or ''
+            loser_name = r.get('loser_player_name') or r.get('player_loser') or ''
+            # short forms
+            winner_short = normalize_name_for_match(winner_name) if winner_name else ''
+            loser_short = normalize_name_for_match(loser_name) if loser_name else ''
+            # find ranking snapshot nearest <= match_date
+            # get player and opponent depending on which side
+            if is_winner is True:
+                player_rank = get_rank_for_player_on_date(winner_short, match_date_dt, rankings_entries)
+                opp_rank = get_rank_for_player_on_date(loser_short, match_date_dt, rankings_entries)
+            elif is_winner is False:
+                player_rank = get_rank_for_player_on_date(loser_short, match_date_dt, rankings_entries)
+                opp_rank = get_rank_for_player_on_date(winner_short, match_date_dt, rankings_entries)
+            # bucket mapping for opponent
+            if opp_rank is not None:
+                b = rank_bucket_from_rank(opp_rank)
+                if b:
+                    ranking_buckets[b]['matches'] += 1
+                    if is_winner:
+                        ranking_buckets[b]['wins'] += 1
+            # upsets counting
+            if player_rank is not None and opp_rank is not None:
+                if opp_rank < player_rank:
+                    upsets['matches_vs_better'] += 1
+                    if is_winner:
+                        upsets['wins_vs_better'] += 1
+                if opp_rank > player_rank:
+                    upsets['matches_vs_worse'] += 1
+                    if not is_winner:
+                        upsets['losses_vs_worse'] += 1
 
     # finalize career stats
     career_stats = {
@@ -734,36 +729,64 @@ def build_detailed_stats(matches_df, player_id, host_event_map=None):
         'tiebreaks_played': career_counts['tiebreaks_played'],
         'tiebreaks_won': career_counts['tiebreaks_won'],
         'total_match_time_seconds': career_counts['total_match_time_seconds'],
-        'total_match_time_hours': round_smart(career_counts['total_match_time_seconds'] / 3600.0) if career_counts['total_match_time_seconds'] else 0,
+        'total_match_time_hours': (career_counts['total_match_time_seconds'] / 3600.0) if career_counts['total_match_time_seconds'] else 0,
         'match_time_count': career_counts['match_time_count'],
         'stat_agg': finalize_numeric_agg(career_stat_agg)
     }
 
-    # finalize ranking buckets to include win_rate
-    ranking_buckets_out = {}
-    for k, v in ranking_buckets.items():
-        matches = int(v['matches'])
-        wins = int(v['wins'])
-        win_rate = (wins / matches) if matches>0 else None
-        ranking_buckets_out[k] = {'matches': matches, 'wins': wins, 'win_rate': round_smart(win_rate) if win_rate is not None else None}
+    # finalize per-year & per-month & career_by_surface
+    sby = {}
+    for y, sy in stats_by_year.items():
+        sby[y] = {
+            'matches_played': sy['matches_played'],
+            'matches_won': sy['matches_won'],
+            'matches_lost': sy['matches_lost'],
+            'sets_won': sy['sets_won'],
+            'sets_lost': sy['sets_lost'],
+            'tiebreaks_played': sy['tiebreaks_played'],
+            'tiebreaks_won': sy['tiebreaks_won'],
+            'total_match_time_seconds': sy['total_match_time_seconds'],
+            'total_match_time_hours': (sy['total_match_time_seconds'] / 3600.0) if sy['total_match_time_seconds'] else 0,
+            'match_time_count': sy['match_time_count'],
+            'stat_agg': finalize_numeric_agg(sy['stat_agg']),
+            'by_surface': {}
+        }
+        for surf, obj in sy['by_surface'].items():
+            sby[y]['by_surface'][surf] = {'stat_agg': finalize_numeric_agg(obj['stat_agg'])}
 
-    # finalize upsets rates
+    smb = {}
+    for mkey, sm in stats_by_month.items():
+        smb[mkey] = {'matches_played': sm['matches_played'], 'matches_won': sm['matches_won'], 'matches_lost': sm['matches_lost'], 'stat_agg': finalize_numeric_agg(sm['stat_agg']), 'by_surface': {}}
+        for surf, obj in sm['by_surface'].items():
+            smb[mkey]['by_surface'][surf] = {'stat_agg': finalize_numeric_agg(obj['stat_agg'])}
+
+    career_by_surface_out = {}
+    for surf, obj in career_by_surface.items():
+        career_by_surface_out[surf] = {'stat_agg': finalize_numeric_agg(obj.get('stat_agg', {}))}
+
+    ranking_buckets_out = {k: {'matches': v['matches'], 'wins': v['wins'], 'win_rate': ( (v['wins'] / v['matches']) if v['matches']>0 else None )} for k,v in ranking_buckets.items()}
+
     upsets_out = {
         'wins_vs_better_count': int(upsets.get('wins_vs_better',0)),
         'matches_vs_better': int(upsets.get('matches_vs_better',0)),
-        'wins_vs_better_rate': round_smart((upsets.get('wins_vs_better',0) / upsets.get('matches_vs_better',1)) if upsets.get('matches_vs_better',0)>0 else None),
+        'wins_vs_better_rate': ( (upsets.get('wins_vs_better',0) / upsets.get('matches_vs_better',1)) if upsets.get('matches_vs_better',0)>0 else None ),
         'losses_vs_worse_count': int(upsets.get('losses_vs_worse',0)),
         'matches_vs_worse': int(upsets.get('matches_vs_worse',0)),
-        'losses_vs_worse_rate': round_smart((upsets.get('losses_vs_worse',0) / upsets.get('matches_vs_worse',1)) if upsets.get('matches_vs_worse',0)>0 else None)
+        'losses_vs_worse_rate': ( (upsets.get('losses_vs_worse',0) / upsets.get('matches_vs_worse',1)) if upsets.get('matches_vs_worse',0)>0 else None )
     }
 
     result = {
         'player_id': pid,
         'player_name': player_name,
-        'meta': {'matches': len(matches_out), 'generated_at': datetime.utcnow().isoformat() + 'Z', 'version': 'v1'},
+        'meta': {'matches': len(matches_out), 'generated_at': datetime.utcnow().isoformat() + 'Z', 'version': 'v2'},
         'career': career_stats,
+        'career_by_surface': career_by_surface_out,
+        'stats_by_year': sby,
+        'stats_by_month': smb,
         'ranking_buckets': ranking_buckets_out,
         'upsets': upsets_out,
+        'available_years': sorted(list(available_years)),
+        'available_surfaces': sorted(list(available_surfaces)),
         'matches': matches_out
     }
 
@@ -771,10 +794,17 @@ def build_detailed_stats(matches_df, player_id, host_event_map=None):
 
 # ---------------- CLI Main ----------------
 
-def main(matches_dir, out_dir, host_event_map_path=None, player_list=None, limit_players=None):
+def main(matches_dir, out_dir, rankings_dir=None, host_event_map_path=None, player_list=None, limit_players=None):
     print("[dstats] Reading matches from", matches_dir)
     matches = read_matches_from_dir(matches_dir)
     print("[dstats] matches rows:", len(matches), "columns:", len(matches.columns))
+
+    # load rankings
+    rankings_entries = []
+    if rankings_dir:
+        print("[dstats] Loading rankings from", rankings_dir)
+        rankings_entries = load_atp_rankings(rankings_dir)
+        print(f"[dstats] {len(rankings_entries)} ranking snapshots loaded")
 
     host_map = None
     if host_event_map_path:
@@ -786,13 +816,12 @@ def main(matches_dir, out_dir, host_event_map_path=None, player_list=None, limit
             print("[dstats] Warning: failed to load host_event_map:", e)
             host_map = None
 
-    # discover players by id columns
+    # discover player ids
     player_ids = set()
     if 'player_id_winner' in matches.columns:
         player_ids.update([normalize_player_id(x) for x in matches['player_id_winner'].dropna().unique()])
     if 'player_id_loser' in matches.columns:
         player_ids.update([normalize_player_id(x) for x in matches['player_id_loser'].dropna().unique()])
-    # fallback: if none found, try names
     if not player_ids:
         for col in ('player_winner','player_loser','winner_player_name','loser_player_name'):
             if col in matches.columns:
@@ -810,7 +839,7 @@ def main(matches_dir, out_dir, host_event_map_path=None, player_list=None, limit
     for i, pid in enumerate(player_ids, start=1):
         try:
             print(f"[dstats] [{i}/{len(player_ids)}] building stats for {pid} ...")
-            obj = build_detailed_stats(matches, pid, host_event_map=host_map)
+            obj = build_detailed_stats(matches, pid, rankings_entries=rankings_entries, host_event_map=host_map)
             out_path = os.path.join(players_dir, f"{pid}.stats.json")
             with open(out_path, 'w', encoding='utf8') as f:
                 json.dump(obj, f, ensure_ascii=False, indent=2)
@@ -823,9 +852,10 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Generate detailed statistics per player from matches CSVs.")
     ap.add_argument("--matches-dir", required=True, help="Directory containing matches CSV files")
     ap.add_argument("--out-dir", default="./dist", help="Output directory")
+    ap.add_argument("--rankings-dir", default="./atpp_rankings", help="Directory containing ATP ranking CSV snapshots")
     ap.add_argument("--host-event-map", default=None, help="Optional JSON file path containing HOST_COUNTRY_TO_EVENT_IDS mapping")
     ap.add_argument("--limit-players", type=int, default=None, help="Limit number of players to process")
     ap.add_argument("--player", help="Process a single player id (e.g. S0AG)")
     args = ap.parse_args()
     plist = [args.player] if args.player else None
-    main(args.matches_dir, args.out_dir, host_event_map_path=args.host_event_map, player_list=plist, limit_players=args.limit_players)
+    main(args.matches_dir, args.out_dir, rankings_dir=args.rankings_dir, host_event_map_path=args.host_event_map, player_list=plist, limit_players=args.limit_players)

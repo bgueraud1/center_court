@@ -138,7 +138,22 @@
       <!-- subtabs for stats -->
       <div class="subtabs" id="stats-subtabs"></div>
       <div id="stats-subpanels">
-        <div id="panel-detailed" style="display:none; padding:8px;"></div>
+        <!-- DETAILED panel contains the filters and the container; it's empty until loaded -->
+        <div id="panel-detailed" style="display:none; padding:8px;">
+          <div style="display:flex;gap:12px;align-items:center;margin-bottom:10px;">
+            <div>
+              <label class="muted">Year:</label>
+              <select id="stats-year-filter" class="select-year"><option value="ALL">All</option></select>
+            </div>
+            <div>
+              <label class="muted">Surface:</label>
+              <select id="stats-surface-filter" class="select-year"><option value="ALL">All</option></select>
+            </div>
+            <div style="margin-left:auto;" id="detailed-stats-summary"></div>
+          </div>
+          <div id="detailed-stats-container"></div>
+        </div>
+
         <div id="panel-scenarios" style="display:none; padding:8px;"></div>
         <div id="panel-timeseries" style="display:none; padding:8px;"></div>
         <div id="panel-maps" style="display:none; padding:8px;">
@@ -152,14 +167,14 @@
   </div>
 
 <script>
-/* ---------------- common helpers (kept from original + extended) ---------------- */
+/* ---------------- common helpers ---------------- */
 function escapeHtml(s){
   if (s === null || s === undefined) return '';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 function countryCodeToFlag(code){
   if(!code) return '';
-  const map = {'ITA':'IT','ESP':'ES','DEU':'DE','GER':'DE','USA':'US','GBR':'GB','SRB':'RS','FRA':'FR','ARG':'AR','BRA':'BR','CHE':'CH','SUI':'CH'}; // include aliases
+  const map = {'ITA':'IT','ESP':'ES','DEU':'DE','GER':'DE','USA':'US','GBR':'GB','SRB':'RS','FRA':'FR','ARG':'AR','BRA':'BR','CHE':'CH','SUI':'CH'};
   let iso2 = code;
   if(typeof iso2 === 'string') iso2 = iso2.trim();
   if(!iso2) return '';
@@ -199,7 +214,7 @@ function fetchJsonSafe(url){
   catch(e){ console.warn('fetch failed',url,e); return Promise.resolve(null); }
 }
 
-/* ----------------- main loader for player data (original logic) ----------------- */
+/* ----------------- main loader for player data ----------------- */
 (async function(){
   const loading = document.getElementById('loading');
   const root = document.getElementById('player-root');
@@ -436,7 +451,7 @@ function fetchJsonSafe(url){
 
   bestSelect.addEventListener('change', (e) => renderBestForYear(e.target.value));
 
-  // finalize
+  // finalize header UI
   loading.style.display = 'none';
   root.style.display = 'block';
 
@@ -456,7 +471,6 @@ function fetchJsonSafe(url){
     });
   });
 
-  // If user lands directly on stats tab (rare), init it
   if(document.getElementById('panel-stats').classList.contains('active')){
     initStatsSubtabs(combined);
   }
@@ -501,7 +515,7 @@ function fetchJsonSafe(url){
     loadStatsSubpanel('detailed', playerData);
   }
 
-  // helper: try multiple candidate URLs for a given base name
+  // try multiple candidate URLs sequentially
   function tryCandidatesSequential(candidates){
     return new Promise((resolve) => {
       (function attempt(i){
@@ -535,9 +549,62 @@ function fetchJsonSafe(url){
     return candidates;
   }
 
-  /* ---------- New: detailed stats renderer (core addition) ---------- */
+  /* ---------- Detailed stats renderer (with filters & tidy formatting) ---------- */
 
-  // map of stat labels -> stat keys inside career.stat_agg
+  function smartTrimNumber(n){
+    if(n === null || n === undefined) return null;
+    const num = Number(n);
+    if(isNaN(num)) return null;
+    if(Math.abs(num - Math.round(num)) < 1e-9) return Math.round(num);
+    // otherwise keep up to 2 decimals and trim trailing zeros
+    return parseFloat((Math.round(num * 100) / 100).toFixed(2));
+  }
+  function smartPercentFromFraction(frac){
+    // input: fraction 0..1 -> returns nicely formatted string
+    if(frac === null || frac === undefined) return '—';
+    const f = Number(frac);
+    if(isNaN(f)) return '—';
+    const pct = f * 100;
+    if(Math.abs(pct - Math.round(pct)) < 1e-9) return `${Math.round(pct)}%`;
+    // else keep up to 2 decimals, remove trailing zeros
+    const s = (Math.round(pct * 100) / 100).toFixed(2).replace(/\.?0+$/,'');
+    return `${s}%`;
+  }
+  function smartNumberString(v){
+    if(v === null || v === undefined) return '—';
+    const n = Number(v);
+    if(isNaN(n)) return '—';
+    if(Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n));
+    return (Math.round(n * 100) / 100).toFixed(2).replace(/\.?0+$/,'');
+  }
+  function smartHoursString(h){
+    if(h === null || h === undefined) return '—';
+    const n = Number(h);
+    if(isNaN(n)) return '—';
+    if(Math.abs(n - Math.round(n)) < 1e-9) return `${Math.round(n)} h`;
+    return `${(Math.round(n * 100) / 100).toFixed(2).replace(/\.?0+$/,'')} h`;
+  }
+  function daysOrHoursForTotalHours(h){
+    if(h === null || h === undefined) return '—';
+    const n = Number(h);
+    if(isNaN(n)) return '—';
+    const days = n / 24;
+    if(days >= 1){
+      if(Math.abs(days - Math.round(days)) < 1e-9) return `${Math.round(days)} d`;
+      return `${(Math.round(days * 100) / 100).toFixed(2).replace(/\.?0+$/,'')} d`;
+    } else {
+      return smartHoursString(n);
+    }
+  }
+
+  // which stat keys are rates/pct (we will suppress Sum column for them)
+  const RATE_KEYS = new Set([
+    'aces_per_service_point','doublefaults_per_service_point',
+    'firstserve_percent','firstserve_points_won_percent','secondserve_points_won_percent',
+    'service_points_won_percent','return_points_won_percent',
+    'breakpoints_converted_rate','service_games_lost_rate','tiebreak_win_rate'
+  ]);
+
   const STATS_DEFINITION = [
     { label: 'Number of aces', key: 'aces', type: 'count' },
     { label: 'Aces per service point', key: 'aces_per_service_point', type: 'rate' },
@@ -550,7 +617,7 @@ function fetchJsonSafe(url){
     { label: 'Service points won %', key: 'service_points_won_percent', type: 'pct' },
     { label: 'Return points won %', key: 'return_points_won_percent', type: 'pct' },
 
-    { label: 'Breakpointss faced', key: 'breakpoints_faced', type: 'count' },
+    { label: 'Breakpoints faced', key: 'breakpoints_faced', type: 'count' },
     { label: 'Breakpoints converted (count)', key: 'breakpoints_converted', type: 'count' },
     { label: 'Breakpoints converted rate', key: 'breakpoints_converted_rate', type: 'rate' },
 
@@ -560,161 +627,167 @@ function fetchJsonSafe(url){
     { label: 'Mean match time (hours)', key: 'match_time_hours', type: 'hours' }
   ];
 
-  function formatNumber(v){
-    if(v === null || v === undefined) return '—';
-    if(typeof v === 'number'){
-      if(Math.abs(v - Math.round(v)) < 1e-9) return String(Math.round(v));
-      return (Math.round(v * 100) / 100).toFixed( (Math.abs(v - Math.round(v))<1e-9) ? 0 : 2 ).replace(/\.00$/,'');
-    }
-    return String(v);
-  }
-  function formatPercentFromFraction(v){
-    if(v === null || v === undefined) return '—';
-    const num = Number(v);
-    if(isNaN(num)) return '—';
-    return (Math.round((num*100) * 100) / 100).toFixed(2) + '%';
-  }
-  function formatHours(v){
-    if(v === null || v === undefined) return '—';
-    const num = Number(v);
-    if(isNaN(num)) return '—';
-    // show hours with 2 decimals max; if integer -> no decimals
-    if(Math.abs(num - Math.round(num)) < 1e-9) return String(Math.round(num)) + ' h';
-    return (Math.round(num * 100) / 100).toFixed(2) + ' h';
-  }
-  function formatDaysFromHours(hours){
-    if(hours === null || hours === undefined) return '—';
-    const h = Number(hours);
-    if(isNaN(h)) return '—';
-    const days = h / 24.0;
-    if(days < 1) return (Math.round((days*24)*100)/100).toFixed(2) + ' h';
-    if(Math.abs(days - Math.round(days)) < 1e-9) return String(Math.round(days)) + ' d';
-    return (Math.round(days * 100) / 100).toFixed(2) + ' d';
-  }
-
-  // detect if a stat key is a rate type (no Sum column)
-  const RATE_KEYS = new Set([
-    'aces_per_service_point','doublefaults_per_service_point',
-    'firstserve_percent','firstserve_points_won_percent','secondserve_points_won_percent',
-    'service_points_won_percent','return_points_won_percent',
-    'breakpoints_converted_rate','service_games_lost_rate','tiebreak_win_rate'
-  ]);
-
-  async function renderDetailedStatsFrom(statsUrl, container){
+  async function renderDetailedStatsFrom(statsUrl, targetDiv){
     try{
-      const res = await fetch(statsUrl);
-      if(!res.ok) { container.innerHTML = '<div class="no-data">Failed to load detailed stats.</div>'; return; }
-      const data = await res.json();
+      const r = await fetch(statsUrl);
+      if(!r.ok){ targetDiv.innerHTML = '<div class="no-data">Failed to load detailed stats.</div>'; return; }
+      const data = await r.json();
+
+      // get aggregations
       const career = data.career || {};
-      const stat_agg = (career.stat_agg) ? career.stat_agg : (data.stat_agg || {});
-      const total_match_time_hours = career.total_match_time_hours || (career.total_match_time_hours === 0 ? 0 : null);
+      const stat_agg = career.stat_agg || data.stat_agg || {};
+      const byYear = data.stats_by_year || {};
+      const career_by_surface = data.career_by_surface || {};
+      const availableYears = (data.available_years && data.available_years.length) ? data.available_years.slice().sort((a,b)=>parseInt(b)-parseInt(a)) : Object.keys(byYear || {}).slice().sort((a,b)=>parseInt(b)-parseInt(a));
+      const availableSurfaces = (data.available_surfaces && data.available_surfaces.length) ? data.available_surfaces.slice().sort() : Object.keys(career_by_surface || {}).slice().sort();
 
-      // Top summary cards
-      const summaryHtml = [];
-      summaryHtml.push(`<div class="stats-summary">`);
-      summaryHtml.push(`<div class="stat-card"><div style="font-weight:700">Matches</div><div class="sub">${escapeHtml(String(career.matches_played || data.meta && data.meta.matches || '—'))}</div></div>`);
-      summaryHtml.push(`<div class="stat-card"><div style="font-weight:700">Matches won</div><div class="sub">${escapeHtml(String(career.matches_won || '—'))}</div></div>`);
-      summaryHtml.push(`<div class="stat-card"><div style="font-weight:700">Matches lost</div><div class="sub">${escapeHtml(String(career.matches_lost || '—'))}</div></div>`);
-      if(total_match_time_hours !== null){
-        summaryHtml.push(`<div class="stat-card"><div style="font-weight:700">Total time on court</div><div class="sub">${escapeHtml(formatHours(total_match_time_hours))} (${escapeHtml(formatDaysFromHours(total_match_time_hours))})</div></div>`);
-      } else {
-        summaryHtml.push(`<div class="stat-card"><div style="font-weight:700">Total time on court</div><div class="sub">—</div></div>`);
+      // populate filters
+      const ysel = document.getElementById('stats-year-filter');
+      const ssel = document.getElementById('stats-surface-filter');
+      ysel.innerHTML = '<option value="ALL">All</option>';
+      ssel.innerHTML = '<option value="ALL">All</option>';
+      for(const y of availableYears){ const o = document.createElement('option'); o.value=y; o.textContent = y || 'Unknown'; ysel.appendChild(o); }
+      for(const s of availableSurfaces){ const o = document.createElement('option'); o.value=s; o.textContent = s; ssel.appendChild(o); }
+
+      // helper: pick stat_agg according to filters
+      function pickAgg(year, surface){
+        // Year+Surface -> stats_by_year[year].by_surface[surface].stat_agg
+        if(year && year !== 'ALL'){
+          const sy = byYear[year];
+          if(sy){
+            if(surface && surface !== 'ALL'){
+              const byS = sy.by_surface || {};
+              if(byS[surface] && byS[surface].stat_agg) return byS[surface].stat_agg;
+            }
+            if(sy.stat_agg) return sy.stat_agg;
+          }
+        }
+        if(surface && surface !== 'ALL'){
+          if(career_by_surface[surface] && career_by_surface[surface].stat_agg) return career_by_surface[surface].stat_agg;
+        }
+        // fallback to career
+        return stat_agg;
       }
-      summaryHtml.push(`</div>`);
 
-      // build stats table header
-      let html = `<div style="font-weight:700;margin-bottom:8px">Detailed statistics (source: ${escapeHtml(statsUrl)})</div>`;
-      html += summaryHtml.join('');
-      html += `<table class="stats-table"><thead><tr><th style="min-width:230px">Statistic</th><th>Count</th><th>Mean</th><th>Sum</th><th>Min</th><th>Max</th></tr></thead><tbody>`;
+      const container = document.getElementById('detailed-stats-container');
+      const topSummary = document.getElementById('detailed-stats-summary');
 
-      // iterate STAT_DEFINITION to keep ordering
-      for(const s of STATS_DEFINITION){
-        const key = s.key;
-        const agg = stat_agg[key] || null;
-        const count = agg && agg.count !== undefined ? agg.count : (agg ? agg.count : null);
-        const mean = agg && ('mean' in agg) ? agg.mean : null;
-        const sum = agg && ('sum' in agg) ? agg.sum : null;
-        const mn = agg && ('min' in agg) ? agg.min : null;
-        const mx = agg && ('max' in agg) ? agg.max : null;
+      function renderForSelected(){
+        const year = ysel.value;
+        const surface = ssel.value;
+        const agg = pickAgg(year, surface);
+        topSummary.innerHTML = `<div class="muted-small">Showing: <strong>${year==='ALL'?'All years':year}</strong> / <strong>${surface==='ALL'?'All surfaces':surface}</strong></div>`;
 
-        // presentation formatting depending on type
-        let meanFmt = '—', sumFmt = '—', minFmt = '—', maxFmt = '—';
-        if(s.type === 'pct' || RATE_KEYS.has(key)){
-          // mean is fraction (0..1) -> show percent
-          meanFmt = mean !== null && mean !== undefined ? formatPercentFromFraction(mean) : '—';
-          minFmt = mn !== null && mn !== undefined ? formatPercentFromFraction(mn) : '—';
-          maxFmt = mx !== null && mx !== undefined ? formatPercentFromFraction(mx) : '—';
-          // sum omitted for rates
-          sumFmt = '—';
-        } else if(s.type === 'hours'){
-          meanFmt = mean !== null && mean !== undefined ? formatHours(mean) : '—';
-          minFmt = mn !== null && mn !== undefined ? formatHours(mn) : '—';
-          maxFmt = mx !== null && mx !== undefined ? formatHours(mx) : '—';
-          sumFmt = (total_match_time_hours !== null && total_match_time_hours !== undefined) ? formatHours(total_match_time_hours) : (sum !== null && sum !== undefined ? formatHours(sum) : '—');
+        // build table (NO Count column)
+        let html = `<div style="font-weight:700;margin-bottom:8px">Detailed statistics (source: ${escapeHtml(statsUrl)})</div>`;
+        // top cards
+        html += `<div class="stats-summary">`;
+        html += `<div class="stat-card"><div style="font-weight:700">Matches</div><div class="sub">${escapeHtml(String(career.matches_played || data.meta && data.meta.matches || '—'))}</div></div>`;
+        html += `<div class="stat-card"><div style="font-weight:700">Matches won</div><div class="sub">${escapeHtml(String(career.matches_won || '—'))}</div></div>`;
+        html += `<div class="stat-card"><div style="font-weight:700">Matches lost</div><div class="sub">${escapeHtml(String(career.matches_lost || '—'))}</div></div>`;
+        if(career.total_match_time_hours !== undefined && career.total_match_time_hours !== null){
+          html += `<div class="stat-card"><div style="font-weight:700">Total time on court</div><div class="sub">${escapeHtml(smartHoursString(career.total_match_time_hours))} (${escapeHtml(daysOrHoursForTotalHours(career.total_match_time_hours))})</div></div>`;
         } else {
-          // counts / raw numeric
-          meanFmt = mean !== null && mean !== undefined ? formatNumber(mean) : '—';
-          minFmt = mn !== null && mn !== undefined ? formatNumber(mn) : '—';
-          maxFmt = mx !== null && mx !== undefined ? formatNumber(mx) : '—';
-          sumFmt = sum !== null && sum !== undefined ? formatNumber(sum) : '—';
+          html += `<div class="stat-card"><div style="font-weight:700">Total time on court</div><div class="sub">—</div></div>`;
         }
-
-        html += `<tr>
-                  <td style="font-weight:700">${escapeHtml(s.label)}</td>
-                  <td>${count !== null && count !== undefined ? escapeHtml(String(count)) : '—'}</td>
-                  <td>${escapeHtml(String(meanFmt))}</td>
-                  <td>${escapeHtml(String(sumFmt))}</td>
-                  <td>${escapeHtml(String(minFmt))}</td>
-                  <td>${escapeHtml(String(maxFmt))}</td>
-                 </tr>`;
-      }
-
-      html += `</tbody></table>`;
-
-      // Upsets block (if present)
-      if(data.upsets || data.ranking_buckets || data.ranking_buckets){
-        html += `<div class="upsets"><div style="flex:1 1 360px"><h4 style="margin-top:14px">Upsets</h4>`;
-        const u = data.upsets || {};
-        html += `<div class="muted-small">Wins vs better (count): <strong>${escapeHtml(String(u.wins_vs_better_count || 0))}</strong></div>`;
-        html += `<div class="muted-small">Matches vs better: <strong>${escapeHtml(String(u.matches_vs_better || 0))}</strong></div>`;
-        html += `<div class="muted-small">Win rate vs better: <strong>${u.wins_vs_better_rate !== null && u.wins_vs_better_rate !== undefined ? ( (typeof u.wins_vs_better_rate === 'number') ? ( (Math.round(u.wins_vs_better_rate*100)/100).toFixed(2)+'%' ) : escapeHtml(String(u.wins_vs_better_rate)) ) : '—' }</strong></div>`;
-        html += `<div style="height:8px"></div>`;
-        html += `<div class="muted-small">Losses vs worse (count): <strong>${escapeHtml(String(u.losses_vs_worse_count || 0))}</strong></div>`;
-        html += `<div class="muted-small">Matches vs worse: <strong>${escapeHtml(String(u.matches_vs_worse || 0))}</strong></div>`;
-        html += `<div class="muted-small">Loss rate vs worse: <strong>${u.losses_vs_worse_rate !== null && u.losses_vs_worse_rate !== undefined ? ( (typeof u.losses_vs_worse_rate === 'number') ? ( (Math.round(u.losses_vs_worse_rate*100)/100).toFixed(2)+'%' ) : escapeHtml(String(u.losses_vs_worse_rate)) ) : '—' }</strong></div>`;
         html += `</div>`;
-      }
 
-      // Ranking buckets table
-      if(data.ranking_buckets && Object.keys(data.ranking_buckets).length){
-        html += `<div style="flex:1 1 360px"><h4 style="margin-top:14px">Wins by ranking bucket (opponent)</h4>`;
-        html += `<table class="bucket-table"><thead><tr><th>Bucket</th><th>Matches</th><th>Wins</th><th>Win rate</th></tr></thead><tbody>`;
-        const keys = Object.keys(data.ranking_buckets);
-        // sort bucket labels by sensible order (1-10, 11-20..). We'll try to sort by numerical start if possible
-        keys.sort((a,b)=>{
-          const aNum = parseInt(a.split('-')[0].replace(/\D/g,'')) || 9999;
-          const bNum = parseInt(b.split('-')[0].replace(/\D/g,'')) || 9999;
-          return aNum - bNum;
-        });
-        for(const k of keys){
-          const item = data.ranking_buckets[k] || {};
-          html += `<tr><td style="font-weight:700">${escapeHtml(k)}</td><td>${escapeHtml(String(item.matches || 0))}</td><td>${escapeHtml(String(item.wins || 0))}</td><td>${item.win_rate !== null && item.win_rate !== undefined ? ( (typeof item.win_rate === 'number') ? ( (Math.round(item.win_rate*100)/100).toFixed(2)+'%' ) : escapeHtml(String(item.win_rate)) ) : '—'}</td></tr>`;
+        html += `<table class="stats-table"><thead><tr><th style="min-width:240px">Statistic</th><th>Mean</th><th>Sum</th><th>Min</th><th>Max</th></tr></thead><tbody>`;
+
+        for(const s of STATS_DEFINITION){
+          const key = s.key;
+          const node = agg[key] || null;
+          const mean = node && node.mean !== undefined ? node.mean : null;
+          const sum = node && node.sum !== undefined ? node.sum : null;
+          const mn = node && node.min !== undefined ? node.min : null;
+          const mx = node && node.max !== undefined ? node.max : null;
+
+          let meanFmt='—', sumFmt='—', minFmt='—', maxFmt='—';
+          if(s.type === 'pct' || RATE_KEYS.has(key)){
+            meanFmt = mean !== null && mean !== undefined ? smartPercentFromFraction(mean) : '—';
+            minFmt = mn !== null && mn !== undefined ? smartPercentFromFraction(mn) : '—';
+            maxFmt = mx !== null && mx !== undefined ? smartPercentFromFraction(mx) : '—';
+            sumFmt = '—';
+          } else if(s.type === 'hours'){
+            meanFmt = mean !== null && mean !== undefined ? smartHoursString(mean) : '—';
+            minFmt = mn !== null && mn !== undefined ? smartHoursString(mn) : '—';
+            maxFmt = mx !== null && mx !== undefined ? smartHoursString(mx) : '—';
+            sumFmt = career.total_match_time_hours !== undefined && career.total_match_time_hours !== null ? smartHoursString(career.total_match_time_hours) : (sum !== null && sum !== undefined ? smartHoursString(sum) : '—');
+          } else {
+            meanFmt = mean !== null && mean !== undefined ? smartNumberString(mean) : '—';
+            minFmt = mn !== null && mn !== undefined ? smartNumberString(mn) : '—';
+            maxFmt = mx !== null && mx !== undefined ? smartNumberString(mx) : '—';
+            sumFmt = sum !== null && sum !== undefined ? smartNumberString(sum) : '—';
+          }
+
+          html += `<tr>
+                    <td style="font-weight:700">${escapeHtml(s.label)}</td>
+                    <td>${escapeHtml(meanFmt)}</td>
+                    <td>${escapeHtml(sumFmt)}</td>
+                    <td>${escapeHtml(minFmt)}</td>
+                    <td>${escapeHtml(maxFmt)}</td>
+                   </tr>`;
         }
-        html += `</tbody></table></div>`;
+
+        html += `</tbody></table>`;
+
+        // Upsets summary (if present)
+        if(data.upsets){
+          const u = data.upsets;
+          html += `<div class="upsets"><div style="flex:1 1 360px"><h4 style="margin-top:14px">Upsets</h4>`;
+          html += `<div class="muted-small">Wins vs better (count): <strong>${escapeHtml(String(u.wins_vs_better_count || 0))}</strong></div>`;
+          html += `<div class="muted-small">Matches vs better: <strong>${escapeHtml(String(u.matches_vs_better || 0))}</strong></div>`;
+          html += `<div class="muted-small">Win rate vs better: <strong>${u.wins_vs_better_rate !== null && u.wins_vs_better_rate !== undefined ? (typeof u.wins_vs_better_rate === 'number' ? smartPercentFromFraction(u.wins_vs_better_rate) : escapeHtml(String(u.wins_vs_better_rate))) : '—'}</strong></div>`;
+          html += `<div style="height:8px"></div>`;
+          html += `<div class="muted-small">Losses vs worse (count): <strong>${escapeHtml(String(u.losses_vs_worse_count || 0))}</strong></div>`;
+          html += `<div class="muted-small">Matches vs worse: <strong>${escapeHtml(String(u.matches_vs_worse || 0))}</strong></div>`;
+          html += `<div class="muted-small">Loss rate vs worse: <strong>${u.losses_vs_worse_rate !== null && u.losses_vs_worse_rate !== undefined ? (typeof u.losses_vs_worse_rate === 'number' ? smartPercentFromFraction(u.losses_vs_worse_rate) : escapeHtml(String(u.losses_vs_worse_rate))) : '—'}</strong></div>`;
+          html += `</div></div>`;
+        }
+
+        // Ranking buckets
+        if(data.ranking_buckets && Object.keys(data.ranking_buckets).length){
+          html += `<div style="margin-top:14px"><h4>Wins by ranking bucket (opponent)</h4>`;
+          html += `<table class="bucket-table"><thead><tr><th>Bucket</th><th>Matches</th><th>Wins</th><th>Win rate</th></tr></thead><tbody>`;
+          const keys = Object.keys(data.ranking_buckets).sort((a,b)=>{
+            const ai = parseInt(a.split('-')[0].replace(/\D/g,'')) || 9999;
+            const bi = parseInt(b.split('-')[0].replace(/\D/g,'')) || 9999;
+            return ai - bi;
+          });
+          for(const k of keys){
+            const it = data.ranking_buckets[k] || {};
+            const wr = it.win_rate;
+            let wrFmt = '—';
+            if(wr !== null && wr !== undefined){
+              if(typeof wr === 'number') wrFmt = smartPercentFromFraction(wr);
+              else wrFmt = escapeHtml(String(wr));
+            }
+            html += `<tr><td style="font-weight:700">${escapeHtml(k)}</td><td>${escapeHtml(String(it.matches || 0))}</td><td>${escapeHtml(String(it.wins || 0))}</td><td>${wrFmt}</td></tr>`;
+          }
+          html += `</tbody></table></div>`;
+        }
+
+        container.innerHTML = html;
       }
 
-      container.innerHTML = html;
+      // two filters change
+      ysel.addEventListener('change', renderForSelected);
+      ssel.addEventListener('change', renderForSelected);
+
+      // initial render
+      renderForSelected();
+
     }catch(e){
       console.error('renderDetailedStatsFrom error', e);
-      container.innerHTML = '<div class="no-data">Error rendering detailed stats.</div>';
+      targetDiv.innerHTML = '<div class="no-data">Error rendering detailed stats.</div>';
     }
   }
 
-  /* ------------------ loadStatsSubpanel (re-used with detailed renderer) ------------------ */
+  /* ------------------ loadStatsSubpanel (re-used) ------------------ */
 
   async function loadStatsSubpanel(kind, playerData){
     if(statsLoadState[kind]) return;
-    statsLoadState[kind] = true;
+    statsLoadState[kind] = true; // avoid double load
     const pid = playerData.player_id;
     const slugVal = playerData.slug || slug;
 
@@ -724,13 +797,9 @@ function fetchJsonSafe(url){
     targetDiv.innerHTML = '<div class="sub">Loading…</div>';
 
     if(kind === 'detailed'){
-      const candidates = buildCandidatesFor(playerData, 'stats').concat([`/players_atp/${pid}.stats.json`, `/players_atp/${slugVal}.stats.json`, `/players_atp/${slugVal}.stats.json`]);
-      // attempt sequential fetch
+      const candidates = buildCandidatesFor(playerData, 'stats').concat([`/players_atp/${pid}.stats.json`, `/players_atp/${slugVal}.stats.json`]);
       const res = await tryCandidatesSequential(candidates);
-      if(!res || !res.data){
-        targetDiv.innerHTML = '<div class="no-data">Detailed statistics are not available for this player.</div>'; return;
-      }
-      // use improved renderer
+      if(!res || !res.data){ targetDiv.innerHTML = '<div class="no-data">Detailed statistics are not available for this player.</div>'; return; }
       await renderDetailedStatsFrom(res.url, targetDiv);
       return;
     }
@@ -808,11 +877,11 @@ function fetchJsonSafe(url){
     }
   }
 
-  // end of main IIFE
+  // end main IIFE
 })();
 
 /* ------------------ maps-client (Plotly) ------------------ */
-/* (same as earlier — kept intact) */
+/* (kept intact from the previous file) */
 (function(){
   const RETRY_INTERVAL = 180; // ms
   const MAX_RETRIES = 20; // ~3.6s total
