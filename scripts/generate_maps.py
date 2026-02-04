@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 import pandas as pd
 import numbers
+from collections import Counter, defaultdict
+
 
 # ----------------- Helpers -----------------
 def safe_mkdir(path: str):
@@ -345,6 +347,34 @@ def build_maps_for_player(matches_df: pd.DataFrame,
         opp_iso3 = to_iso3(opp_country)
         host_iso3 = to_iso3(host_country)
 
+
+
+                # determine opponent name (if available in row)
+        opp_name = ''
+        try:
+            if is_win is True:
+                # opponent is loser
+                for col in ('player_loser','loser_player_name','loser_name'):
+                    if col in row.index and str(row.get(col, '')).strip():
+                        opp_name = str(row.get(col, '')).strip()
+                        break
+            elif is_win is False:
+                for col in ('player_winner','winner_player_name','winner_name'):
+                    if col in row.index and str(row.get(col, '')).strip():
+                        opp_name = str(row.get(col, '')).strip()
+                        break
+            # fallback: try generic player name columns
+            if not opp_name:
+                for col in ('winner_player_name','loser_player_name','player_winner','player_loser'):
+                    if col in row.index and str(row.get(col, '')).strip():
+                        val = str(row.get(col, '')).strip()
+                        if val and val != player_name:
+                            opp_name = val
+                            break
+        except Exception:
+            opp_name = ''
+
+
         match_entry = {
             'match_id': str(row.get('match_id') or ''),
             'event_id': stored_event_id,
@@ -356,15 +386,25 @@ def build_maps_for_player(matches_df: pd.DataFrame,
             'opponent_country_iso3': opp_iso3,
             'host_country': host_country,
             'host_country_iso3': host_iso3,
+            'opponent_name': opp_name,
             'is_win': True if is_win is True else (False if is_win is False else None),
             'score': str(row.get('score_string') or row.get('score') or '')
         }
+
         matches_out.append(match_entry)
 
 
     # Build aggregates
     opp_map: Dict[str, Dict[str, Any]] = {}
     host_map: Dict[str, Dict[str, Any]] = {}
+
+    # helper counters to compute top opponent and top tournament per country
+    opp_name_matches = defaultdict(Counter)   # opp_name_matches[country_iso3][opponent_name] = count
+    opp_name_wins = defaultdict(Counter)      # opp_name_wins[country_iso3][opponent_name] = wins
+
+    host_tourney_matches = defaultdict(Counter)  # host_tourney_matches[host_iso3][tourney_name] = count
+    host_tourney_wins = defaultdict(Counter)     # host_tourney_wins[host_iso3][tourney_name] = wins
+
 
     for m in matches_out:
         oc = (m.get('opponent_country_iso3') or '').strip().upper()
@@ -415,6 +455,17 @@ def build_maps_for_player(matches_df: pd.DataFrame,
                     'score': m.get('score')
                 })
             host_map[hc] = h
+                    # update host tourney counters (for top tournament)
+            try:
+                if hc:
+                    tname = (m.get('tourney_name') or '').strip()
+                    if tname:
+                        host_tourney_matches[hc][tname] += 1
+                        if m.get('is_win') is True:
+                            host_tourney_wins[hc][tname] += 1
+            except Exception:
+                pass
+
 
 
     # Titles: detect unique event_id+year where player won final/title
@@ -461,6 +512,28 @@ def build_maps_for_player(matches_df: pd.DataFrame,
                     host_map[host_iso] = {'wins': 0, 'losses': 0, 'matches': 0, 'titles': 0, 'sample_matches': []}
                 host_map[host_iso]['titles'] = host_map[host_iso].get('titles', 0) + 1
 
+
+
+
+
+    # compute top opponent per opponent country
+    top_opponent_per_country = {}
+    for c, counter in opp_name_matches.items():
+        if not counter:
+            continue
+        name, matches_cnt = counter.most_common(1)[0]
+        wins_cnt = int(opp_name_wins[c].get(name, 0))
+        top_opponent_per_country[c] = {'name': name, 'wins': wins_cnt, 'matches': int(matches_cnt)}
+
+    # compute top tournament per host country
+    top_tourney_per_country = {}
+    for c, counter in host_tourney_matches.items():
+        if not counter:
+            continue
+        tname, matches_cnt = counter.most_common(1)[0]
+        wins_cnt = int(host_tourney_wins[c].get(tname, 0))
+        top_tourney_per_country[c] = {'tourney_name': tname, 'wins': wins_cnt, 'matches': int(matches_cnt)}
+
     # compute win_rate fields
     map_opponent_stats: Dict[str, Any] = {}
     for c, s in opp_map.items():
@@ -472,8 +545,11 @@ def build_maps_for_player(matches_df: pd.DataFrame,
             'losses': int(s.get('losses', 0)),
             'matches': matches_n,
             'win_rate': win_rate,
-            'sample_matches': s.get('sample_matches', [])
+            # do not remove sample_matches from file (kept), but hover won't show it
+            'sample_matches': s.get('sample_matches', []),
+            'top_opponent': top_opponent_per_country.get(c)  # may be None
         }
+
 
     map_host_stats: Dict[str, Any] = {}
     for c, s in host_map.items():
@@ -486,8 +562,10 @@ def build_maps_for_player(matches_df: pd.DataFrame,
             'matches': matches_n,
             'win_rate': win_rate,
             'titles': int(s.get('titles', 0)),
-            'sample_matches': s.get('sample_matches', [])
+            'sample_matches': s.get('sample_matches', []),
+            'top_tourney': top_tourney_per_country.get(c)
         }
+
 
     # final result (outside loops)
     result = {
