@@ -495,17 +495,19 @@ function fetchJsonSafe(url){
 
   // try multiple candidate URLs sequentially
   function tryCandidatesSequential(candidates){
-    return new Promise((resolve) => {
-      (function attempt(i){
-        if(i >= candidates.length){ return resolve(null); }
-        const url = candidates[i];
-        fetchJsonSafe(url).then(d => {
-          if(d) return resolve({data:d, url:url});
-          attempt(i+1);
-        }).catch(()=> attempt(i+1));
-      })(0);
-    });
-  }
+  return new Promise((resolve) => {
+    (function attempt(i){
+      if(i >= candidates.length){ return resolve(null); }
+      const url = candidates[i];
+      console.debug('tryCandidatesSequential: trying', url);
+      fetchJsonSafe(url).then(d => {
+        if(d) return resolve({data:d, url:url});
+        attempt(i+1);
+      }).catch(()=> attempt(i+1));
+    })(0);
+  });
+}
+
 
   function buildCandidatesFor(player, suffix){
     const pid = (player && player.player_id) ? String(player.player_id) : '';
@@ -601,18 +603,60 @@ function fetchJsonSafe(url){
     { label: 'Mean match time (hours)', key: 'match_time_hours', type: 'hours' }
   ];
 
-  async function renderDetailedStatsFrom(statsUrl, targetDiv){
+      async function renderDetailedStatsFrom(statsSource, targetDiv){
     try{
-      const res = await fetch(statsUrl);
-      if(!res.ok){ targetDiv.innerHTML = '<div class="no-data">Failed to load detailed stats.</div>'; return; }
-      const data = await res.json();
+      // accept either a URL string or an already-fetched data object
+      let data = null;
+      let sourceUrl = '(inline)';
+      if(typeof statsSource === 'string'){
+        sourceUrl = statsSource;
+        const res = await fetch(statsSource);
+        if(!res.ok){
+          targetDiv.innerHTML = '<div class="no-data">Failed to load detailed stats.</div>';
+          console.warn('renderDetailedStatsFrom: fetch failed', statsSource, res.status);
+          return;
+        }
+        data = await res.json();
+      } else if(typeof statsSource === 'object' && statsSource !== null){
+        data = statsSource;
+        sourceUrl = '(preloaded)';
+      } else {
+        targetDiv.innerHTML = '<div class="no-data">Invalid stats source.</div>';
+        console.warn('renderDetailedStatsFrom: invalid statsSource', statsSource);
+        return;
+      }
+
+      // Diagnostic log: which source and top-level keys
+      try { console.info('renderDetailedStatsFrom: source=', sourceUrl, 'keys=', Object.keys(data || {})); } catch(e){}
 
       const career = data.career || {};
       const stat_agg = career.stat_agg || data.stat_agg || {};
       const byYear = data.stats_by_year || {};
       const career_by_surface = data.career_by_surface || {};
-      const availableYears = (data.available_years && data.available_years.length) ? data.available_years.slice().sort((a,b)=>parseInt(b)-parseInt(a)) : Object.keys(byYear || {}).slice().sort((a,b)=>parseInt(b)-parseInt(a));
-      const availableSurfaces = (data.available_surfaces && data.available_surfaces.length) ? data.available_surfaces.slice().sort() : Object.keys(career_by_surface || {}).slice().sort();
+      let availableYears = (data.available_years && data.available_years.length) ? data.available_years.slice().sort((a,b)=>parseInt(b)-parseInt(a)) : Object.keys(byYear || {}).slice().sort((a,b)=>parseInt(b)-parseInt(a));
+      let availableSurfaces = (data.available_surfaces && data.available_surfaces.length) ? data.available_surfaces.slice().sort() : Object.keys(career_by_surface || {}).slice().sort();
+
+      // Fallback: if still empty, try derive from matches list (event_year / start_date / surface)
+      if((!availableYears || availableYears.length === 0) && Array.isArray(data.matches) && data.matches.length){
+        const yearsSet = new Set();
+        for(const m of data.matches){
+          const y = (m.event_year || '').toString().trim();
+          if(y) yearsSet.add(y);
+          else if(m.start_date){
+            const mm = (''+m.start_date).match(/^(\d{4})/);
+            if(mm) yearsSet.add(mm[1]);
+          }
+        }
+        if(yearsSet.size) availableYears = Array.from(yearsSet).sort((a,b)=>parseInt(b)-parseInt(a));
+      }
+      if((!availableSurfaces || availableSurfaces.length === 0) && Array.isArray(data.matches) && data.matches.length){
+        const surfSet = new Set();
+        for(const m of data.matches){
+          const s = (m.surface || '').toString().trim().toLowerCase();
+          if(s) surfSet.add(s);
+        }
+        if(surfSet.size) availableSurfaces = Array.from(surfSet).sort();
+      }
 
       // find or create local summary & container elements inside targetDiv
       let topSummary = targetDiv.querySelector('#detailed-stats-summary');
@@ -637,19 +681,18 @@ function fetchJsonSafe(url){
         for(const y of availableYears){ const o = document.createElement('option'); o.value = y; o.textContent = y || 'Unknown'; yselGlobal.appendChild(o); }
       }
       if(sselGlobal){
-          sselGlobal.innerHTML = '<option value="ALL">All</option>';
-          for(const s of availableSurfaces){
-            const val = (s || '').toString();
-            // display label nicer (capitalize first letter), but keep value as the normalized key
-            const display = (val === 'unknown' || val === '') ? 'Unknown' : (val.charAt(0).toUpperCase() + val.slice(1));
-            const o = document.createElement('option');
-            o.value = val;          // e.g. "hard", "clay", "grass", "unknown"
-            o.textContent = display; // e.g. "Hard", "Clay", "Grass"
-            sselGlobal.appendChild(o);
-          }
+        sselGlobal.innerHTML = '<option value="ALL">All</option>';
+        for(const s of availableSurfaces){
+          const val = (s || '').toString();
+          const display = (val === 'unknown' || val === '') ? 'Unknown' : (val.charAt(0).toUpperCase() + val.slice(1));
+          const o = document.createElement('option');
+          o.value = val;
+          o.textContent = display;
+          sselGlobal.appendChild(o);
         }
+      }
 
-
+      // same pickAgg / renderForSelected logic as before...
       function pickAgg(year, surface){
         if(year && year !== 'ALL'){
           const sy = byYear[year];
@@ -738,6 +781,7 @@ function fetchJsonSafe(url){
       if(targetDiv) targetDiv.innerHTML = '<div class="no-data">Error rendering detailed stats.</div>';
     }
   }
+
 
   /* ------------------ Scenarios renderer (new, pretty) ------------------ */
 
@@ -916,10 +960,18 @@ function fetchJsonSafe(url){
     if(kind === 'detailed'){
       const candidates = buildCandidatesFor(playerData, 'stats').concat([`/players_atp/${pid}.stats.json`, `/players_atp/${slugVal}.stats.json`]);
       const res = await tryCandidatesSequential(candidates);
-      if(!res || !res.data){ targetDiv.innerHTML = '<div class="no-data">Detailed statistics are not available for this player.</div>'; return; }
-      await renderDetailedStatsFrom(res.url, targetDiv);
+      if(!res || !res.data){
+        targetDiv.innerHTML = '<div class="no-data">Detailed statistics are not available for this player.</div>';
+        console.warn('loadStatsSubpanel: no stats candidate succeeded', candidates);
+        return;
+      }
+      console.info('loadStatsSubpanel: selected stats candidate', res.url, 'top-level keys=', Object.keys(res.data || {}));
+      // pass the already-fetched data to renderDetailedStatsFrom to avoid refetch & CORS/404 surprises
+      await renderDetailedStatsFrom(res.data, targetDiv);
       return;
     }
+
+
 
     if(kind === 'scenarios'){
       const candidates = buildCandidatesFor(playerData, 'scenarios').concat([`/players_atp/${pid}.scenarios.json`, `/players_atp/${slugVal}.scenarios.json`]);
