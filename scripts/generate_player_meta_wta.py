@@ -20,9 +20,39 @@ def safe_mkdir(path):
     os.makedirs(path, exist_ok=True)
 
 def normalize_player_id(pid):
+    """
+    Retourne un string propre de l'ID du joueur :
+     - None/'' -> ''
+     - int -> '12345'
+     - float sans fraction -> '12345' (enlève le .0)
+     - '12345.0' -> '12345'
+     - sinon -> str(pid).strip().upper()
+    """
     if pid is None:
         return ''
-    return str(pid).strip().upper()
+    # entiers purs
+    if isinstance(pid, int):
+        return str(pid)
+    # floats : si équivalent entier, convertir en int
+    if isinstance(pid, float):
+        if pid.is_integer():
+            return str(int(pid))
+        # sinon garder représentation sans perte (mais improbable pour des ids)
+        return str(pid).strip()
+    s = str(pid).strip()
+    if s == '':
+        return ''
+    # capture des cas "12345.0", "12345.00" -> "12345"
+    m = re.match(r'^(-?\d+)(?:\.0+)$', s)
+    if m:
+        return m.group(1)
+    # si c'est une chaîne de chiffres (possiblement avec espaces), renvoyer les chiffres
+    m2 = re.match(r'^\s*([0-9]+)\s*$', s)
+    if m2:
+        return m2.group(1)
+    # sinon renvoyer en uppercase (utile si ids alphanumériques)
+    return s.upper()
+
 
 def slugify(name: str) -> str:
     if not name:
