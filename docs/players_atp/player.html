@@ -94,6 +94,17 @@
     .sample-list { margin-top:8px; display:flex; flex-direction:column; gap:6px; }
     .sample-item { border:1px dashed #eee; padding:8px; border-radius:6px; background:#fafafa; font-size:13px; }
 
+    /* ---------------- Time Series UI ---------------- */
+    .ts-controls { display:flex; gap:12px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
+    .ts-controls .ts-left { display:flex; gap:8px; align-items:center; }
+    .ts-controls .ts-surfaces { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .ts-surface { display:flex; gap:6px; align-items:center; font-size:13px; }
+    .ts-surface .swatch { width:12px; height:12px; border-radius:3px; display:inline-block; border:1px solid rgba(0,0,0,0.08); box-shadow:0 1px 0 rgba(0,0,0,0.03); }
+    #ts-chart { min-height:360px; width:100%; }
+    .ts-controls .muted-small { color:var(--muted); font-size:13px; }
+    .ts-legend-note { font-size:13px; color:var(--muted); margin-left:8px; }
+
+
     @media (max-width:760px){
       .player-header { flex-direction:column; }
       .player-image { width:100%; max-width:260px; }
@@ -1062,26 +1073,359 @@ if(kind === 'detailed'){
       return;
     }
 
-    if(kind === 'timeseries'){
-      const candidates = buildCandidatesFor(playerData, 'timeseries').concat([`/players_atp/${pid}.timeseries.json`, `/players_atp/${slugVal}.timeseries.json`]);
-      const res = await tryCandidatesSequential(candidates);
-      if(!res || !res.data){ targetDiv.innerHTML = '<div class="no-data">Time series data not available.</div>'; return; }
-      const data = res.data;
-      let html = `<div style="font-weight:700;margin-bottom:8px">Time Series (source: ${escapeHtml(res.url)})</div>`;
-      if(Array.isArray(data.series) && data.series.length){
-        html += '<div class="sub" style="margin-bottom:8px">Showing the first 100 points (if many)</div>';
-        const rows = data.series.slice(0,100);
-        html += '<div style="max-height:420px;overflow:auto;border:1px solid var(--border);padding:8px;border-radius:6px;background:#fff">';
-        rows.forEach(r => {
-          html += `<div style="padding:6px;border-bottom:1px solid #f0f0f0"><strong>${escapeHtml(String(r.label||r.date||r.x||''))}</strong> — ${escapeHtml(JSON.stringify(r.y || r.value || r).slice(0,200))}</div>`;
-        });
-        html += '</div>';
-      } else {
-        html += `<pre class="sub">${escapeHtml(JSON.stringify(data, null, 2).slice(0,2000))}${String(JSON.stringify(data).length>2000 ? '…' : '')}</pre>`;
-      }
-      targetDiv.innerHTML = html;
-      return;
+    // ----------------- Time Series handler (remplacer la branche timeseries) -----------------
+if(kind === 'timeseries'){
+  // try to locate the stats JSON already present (playerData) or load fallback file
+  // playerData variable already exists in player.html context; otherwise fallback to /players_atp/<pid>.stats.json
+  const tsUrlCandidates = [];
+  // if playerData is the same as the JSON loaded, use it:
+  if(typeof playerData === 'object' && playerData !== null && (playerData.stats_by_year || playerData.available_years)) {
+    // we will use playerData directly
+  } else {
+    tsUrlCandidates.push(`/players_atp/${pid}.stats.json`);
+    if(slugVal) tsUrlCandidates.push(`/players_atp/${slugVal}.stats.json`);
+  }
+
+  // Helper: load JSON if needed
+  async function loadStatsJson(){
+    if(typeof playerData === 'object' && playerData !== null && (playerData.stats_by_year || playerData.available_years)) return playerData;
+    for(const u of tsUrlCandidates){
+      try{
+        const r = await fetch(u);
+        if(!r.ok) continue;
+        const j = await r.json();
+        return j;
+      }catch(e){ continue; }
     }
+    return null;
+  }
+
+  const statsJson = await loadStatsJson();
+  if(!statsJson){
+    targetDiv.innerHTML = '<div class="no-data">No detailed stats JSON available for time series.</div>';
+    return;
+  }
+
+  // UI container
+  targetDiv.innerHTML = `
+    <div style="font-weight:700;margin-bottom:8px">Time Series</div>
+    <div id="ts-controls" class="ts-controls"></div>
+    <div id="ts-chart" style="min-height:360px;width:100%"></div>
+  `;
+
+  // colors
+  const SURFACE_COLORS = { 'ALL':'#000000', 'grass':'#2ea24e', 'hard':'#2b63c6', 'clay':'#d2483b', 'carpet':'#8a3fae', 'other':'#999999' };
+  const CANON_SURFACES = ['ALL','grass','hard','clay','carpet','other'];
+  // Stat definition fallback if not present: use keys from stats_by_year.stat_agg
+  const statsKeysFromJson = (() => {
+    const sby = statsJson.stats_by_year || {};
+    const yearsKeys = Object.keys(sby);
+    if(yearsKeys.length){
+      // pick first year with stat_agg
+      for(const y of yearsKeys){
+        const sy = sby[y];
+        if(sy && sy.stat_agg){
+          return Object.keys(sy.stat_agg);
+        }
+      }
+    }
+    // fallback global career.stat_agg
+    if(statsJson.career && statsJson.career.stat_agg){
+      return Object.keys(statsJson.career.stat_agg);
+    }
+    return [];
+  })();
+
+  // helper to get available years (sorted)
+  function getAvailableYears(){
+    if(Array.isArray(statsJson.available_years) && statsJson.available_years.length){
+      return statsJson.available_years.map(y=>Number(y)).sort((a,b)=>a-b);
+    }
+    if(statsJson.stats_by_year){
+      return Object.keys(statsJson.stats_by_year).map(y=>Number(y)).filter(n=>!Number.isNaN(n)).sort((a,b)=>a-b);
+    }
+    // fallback from matches if present: scan matches[].event_year
+    if(Array.isArray(statsJson.matches) && statsJson.matches.length){
+      const s = new Set();
+      statsJson.matches.forEach(m => { if(m.event_year) s.add(Number(m.event_year)); });
+      return Array.from(s).sort((a,b)=>a-b);
+    }
+    return [];
+  }
+
+  const years = getAvailableYears();
+  if(!years.length){
+    document.getElementById('ts-chart').innerHTML = '<div class="no-data">Aucune année disponible dans stats_by_year.</div>';
+    return;
+  }
+
+  // detect surfaces available in json
+  function getSurfaces(){
+    const s = new Set();
+    if(Array.isArray(statsJson.available_surfaces) && statsJson.available_surfaces.length){
+      statsJson.available_surfaces.forEach(x => { if(x) s.add(String(x).toLowerCase()); });
+    }
+    // also inspect stats_by_year.by_surface
+    if(statsJson.stats_by_year){
+      Object.values(statsJson.stats_by_year).forEach(sy => {
+        if(sy && sy.by_surface){
+          Object.keys(sy.by_surface).forEach(k => s.add(String(k).toLowerCase()));
+        }
+      });
+    }
+    // map to canonical names if possible
+    const mapped = Array.from(s).map(v => {
+      const t = String(v).toLowerCase();
+      if(['all','total','overall'].includes(t)) return 'ALL';
+      if(t.includes('grass')) return 'grass';
+      if(t.includes('hard')) return 'hard';
+      if(t.includes('clay')) return 'clay';
+      if(t.includes('carpet')) return 'carpet';
+      return t;
+    });
+    // ensure canonical present
+    CANON_SURFACES.forEach(c => { if(!mapped.includes(c)) mapped.unshift(c); });
+    // unique
+    return Array.from(new Set(mapped));
+  }
+
+  const surfaces = getSurfaces();
+
+  // create controls: stat select + surface checkboxes
+  const ctrl = document.getElementById('ts-controls');
+  const statSelect = document.createElement('select'); statSelect.id = 'ts-stat-select'; statSelect.style.padding='6px 8px'; statSelect.style.border='1px solid #ddd'; statSelect.style.borderRadius='6px';
+  // fill options: prefer global STATS_DEFINITION if present else use keys
+  if(typeof STATS_DEFINITION !== 'undefined' && Array.isArray(STATS_DEFINITION) && STATS_DEFINITION.length){
+    STATS_DEFINITION.forEach(s => { const o=document.createElement('option'); o.value=s.key; o.textContent=s.label||s.key; statSelect.appendChild(o); });
+  } else {
+    statsKeysFromJson.forEach(k => { const o = document.createElement('option'); o.value=k; o.textContent=k; statSelect.appendChild(o); });
+  }
+  const leftDiv = document.createElement('div'); leftDiv.className='ts-left';
+  leftDiv.appendChild(document.createTextNode('Statistic: ')); leftDiv.appendChild(statSelect);
+  const note = document.createElement('span'); note.className='ts-legend-note'; note.textContent=' (use checkboxes to show/hide surfaces)';
+  leftDiv.appendChild(note);
+  ctrl.appendChild(leftDiv);
+
+  const surfaceDiv = document.createElement('div'); surfaceDiv.className = 'ts-surfaces';
+  surfaces.forEach(surf => {
+    const s = String(surf);
+    const lbl = document.createElement('label'); lbl.className='ts-surface';
+    const cb = document.createElement('input'); cb.type='checkbox'; cb.value=s; // default: ALL checked
+    cb.checked = (s==='ALL');
+    cb.style.marginRight='6px';
+    const sw = document.createElement('span'); sw.className='swatch'; sw.style.background = SURFACE_COLORS[s] || SURFACE_COLORS['other'];
+    const txt = document.createElement('span'); txt.textContent = ' ' + s;
+    lbl.appendChild(cb); lbl.appendChild(sw); lbl.appendChild(txt);
+    surfaceDiv.appendChild(lbl);
+  });
+  ctrl.appendChild(surfaceDiv);
+
+  // utils: safe number and normalize percent
+  function maybeNumber(v){
+    if(v === null || v === undefined) return null;
+    const n = Number(v);
+    if(Number.isFinite(n)) return n;
+    return null;
+  }
+  // decide whether stat is percentage: check STATS_DEFINITION or key heuristics
+  function isPercentStat(key){
+    if(typeof STATS_DEFINITION !== 'undefined' && Array.isArray(STATS_DEFINITION)){
+      for(const s of STATS_DEFINITION){ if(s.key === key && (s.type==='pct' || s.type==='rate')) return true; }
+    }
+    // heuristics
+    if(key && (key.toLowerCase().includes('percent') || key.toLowerCase().includes('rate') || key.toLowerCase().includes('pct') || key.toLowerCase().includes('win_rate'))) return true;
+    return false;
+  }
+  function normalizePercentValue(n, key){
+    if(n === null || n === undefined) return null;
+    const num = Number(n);
+    if(!Number.isFinite(num)) return null;
+    // if value looks like 0..1 -> convert to 0..100
+    if(Math.abs(num) <= 1.0) return num * 100.0;
+    return num;
+  }
+
+  // extract per-year value for statKey & surface (surface can be 'ALL' or canonical)
+  function getValueForYear(statKey, surface, year){
+    const ystr = String(year);
+    const sy = statsJson.stats_by_year && statsJson.stats_by_year[ystr] ? statsJson.stats_by_year[ystr] : null;
+    let raw = null;
+    if(sy){
+      if(surface && surface !== 'ALL' && sy.by_surface && (sy.by_surface[surface] || sy.by_surface[surface.toLowerCase()])){
+        const candidate = sy.by_surface[surface] || sy.by_surface[surface.toLowerCase()];
+        if(candidate && candidate.stat_agg && candidate.stat_agg[statKey]) raw = candidate.stat_agg[statKey].mean;
+      }
+      if(raw === null && sy.stat_agg && sy.stat_agg[statKey]) raw = sy.stat_agg[statKey].mean;
+    }
+    // fallback: career_by_surface if single value per career (not per-year) - don't use for per-year series
+    if(raw === undefined) raw = null;
+    return raw === null ? null : Number(raw);
+  }
+
+  // Build annual points series for given statKey + surface
+  function buildAnnualSeries(statKey, surface){
+    const pts = [];
+    for(const y of years){
+      let raw = getValueForYear(statKey, surface, y);
+      if(raw === null || raw === undefined || isNaN(Number(raw))){
+        pts.push({ year: y, value: null });
+      } else {
+        if(isPercentStat(statKey)){
+          const v = normalizePercentValue(raw, statKey);
+          pts.push({ year: y, value: (v===null ? null : Number(v)) });
+        } else {
+          pts.push({ year: y, value: Number(raw) });
+        }
+      }
+    }
+    return pts;
+  }
+
+  // ---------- Natural cubic spline interpolation (passes through points) ----------
+  // Implementation adapted to JS numeric arrays (natural boundary conditions)
+  function naturalCubicSpline(xs, ys){
+    // xs: strictly increasing, ys: numeric, length n >= 1
+    const n = xs.length;
+    if(n === 1){
+      return {
+        eval: function(xq){ return Array.isArray(xq) ? xq.map(()=>ys[0]) : ys[0]; }
+      };
+    }
+    const h = new Array(n-1);
+    for(let i=0;i<n-1;i++) h[i] = xs[i+1]-xs[i];
+    // solve tridiagonal for c
+    const alpha = new Array(n).fill(0);
+    for(let i=1;i<n-1;i++){
+      alpha[i] = (3/h[i])*(ys[i+1]-ys[i]) - (3/h[i-1])*(ys[i]-ys[i-1]);
+    }
+    const l = new Array(n).fill(0), mu = new Array(n).fill(0), z = new Array(n).fill(0);
+    l[0] = 1; mu[0]=0; z[0]=0;
+    for(let i=1;i<n-1;i++){
+      l[i] = 2*(xs[i+1]-xs[i-1]) - h[i-1]*mu[i-1];
+      mu[i] = h[i]/l[i];
+      z[i] = (alpha[i] - h[i-1]*z[i-1]) / l[i];
+    }
+    l[n-1] = 1; z[n-1]=0;
+    const c = new Array(n).fill(0), b = new Array(n-1).fill(0), d = new Array(n-1).fill(0);
+    for(let j=n-2;j>=0;j--){
+      c[j] = z[j] - mu[j]*c[j+1];
+      b[j] = (ys[j+1]-ys[j])/h[j] - h[j]*(c[j+1]+2*c[j])/3;
+      d[j] = (c[j+1]-c[j]) / (3*h[j]);
+    }
+    const a = ys.slice(0, n-1);
+    // eval function
+    function evalOne(xq){
+      // clamp to [xs[0], xs[n-1]]
+      if(xq <= xs[0]) return ys[0];
+      if(xq >= xs[n-1]) return ys[n-1];
+      // find interval i where xs[i] <= xq <= xs[i+1]
+      let i = 0; // binary search
+      let lo = 0, hi = n-2;
+      while(lo<=hi){
+        const mid = Math.floor((lo+hi)/2);
+        if(xs[mid] <= xq && xq <= xs[mid+1]) { i = mid; break; }
+        if(xq < xs[mid]) hi = mid-1; else lo = mid+1;
+      }
+      const dx = xq - xs[i];
+      return a[i] + b[i]*dx + c[i]*dx*dx + d[i]*dx*dx*dx;
+    }
+    return {
+      eval: function(xq){
+        if(Array.isArray(xq)) return xq.map(xx => evalOne(xx));
+        return evalOne(xq);
+      }
+    };
+  }
+
+  // Build smoothed sampling (100 points between min and max year), ensuring the spline passes through original points
+  function buildSmoothedFromPoints(points){
+    const known = points.filter(p => p.value !== null && p.value !== undefined && !Number.isNaN(Number(p.value)));
+    if(known.length === 0) return [];
+    if(known.length === 1) return [{x: known[0].year, y: known[0].value}];
+    const xs = known.map(p => Number(p.year));
+    const ys = known.map(p => Number(p.value));
+    // ensure xs strictly increasing
+    for(let i=1;i<xs.length;i++){ if(xs[i] <= xs[i-1]) xs[i] = xs[i-1] + 1e-6; }
+    const spline = naturalCubicSpline(xs, ys);
+    const xMin = xs[0], xMax = xs[xs.length-1];
+    const samples = 100;
+    const out = [];
+    for(let k=0;k<samples;k++){
+      const xv = xMin + (xMax - xMin) * (k/(samples-1));
+      const yv = spline.eval(xv);
+      out.push({ x: Number((Math.round(xv*10000)/10000).toFixed(4)), y: Number((Math.round(yv*10000)/10000).toFixed(4)) });
+    }
+    return out;
+  }
+
+  // Render function
+  function renderTS(){
+    const statKey = statSelect.value;
+    // which surfaces checked
+    const checked = Array.from(surfaceDiv.querySelectorAll('input[type="checkbox"]')).filter(c=>c.checked).map(c=>c.value);
+    if(checked.length === 0){
+      // default to ALL
+      const cb = surfaceDiv.querySelector('input[value="ALL"]'); if(cb) cb.checked = true; checked.push('ALL');
+    }
+    const traces = [];
+    for(const surf of checked){
+      const pts = buildAnnualSeries(statKey, surf);
+      const xPts = pts.map(p => p.year);
+      const yPts = pts.map(p => (p.value===null ? NaN : Number(p.value)));
+      const color = SURFACE_COLORS[surf] || SURFACE_COLORS['other'];
+      // markers trace
+      traces.push({
+        x: xPts,
+        y: yPts,
+        mode: 'markers',
+        marker: { color: color, size:6 },
+        name: `${statKey} — ${surf} (points)`,
+        hovertemplate: '%{x}<br>%{y:.2f}<extra></extra>',
+        type: 'scatter'
+      });
+      // smoothed (line)
+      const sm = buildSmoothedFromPoints(pts);
+      if(sm.length){
+        traces.push({
+          x: sm.map(s=>s.x),
+          y: sm.map(s=>s.y),
+          mode: 'lines',
+          line: { color: color, width: 2 },
+          name: `${statKey} — ${surf}`,
+          hoverinfo: 'x+y',
+          type: 'scatter'
+        });
+      }
+    }
+
+    const isPct = isPercentStat(statKey);
+    const yaxis = isPct ? { range: [0,100], ticksuffix: '%' } : { automargin: true };
+    const layout = {
+      margin: { t:20, r:10, l:60, b:40 },
+      xaxis: { title: 'Year', tickmode: 'linear', dtick: 1 },
+      yaxis: Object.assign({ title: (isPct ? 'Percent (%)' : statKey) }, yaxis),
+      legend: { orientation: 'h', x:0, y:1.12, bgcolor: 'rgba(0,0,0,0)' },
+      hovermode: 'closest'
+    };
+    const cfg = { responsive: true, displayModeBar: false };
+    try{
+      Plotly.react('ts-chart', traces, layout, cfg);
+      setTimeout(()=>{ try{ Plotly.Plots.resize(document.getElementById('ts-chart')); }catch(e){} }, 200);
+    }catch(e){
+      console.error('TS Plotly error', e);
+      document.getElementById('ts-chart').innerHTML = '<div class="no-data">Chart error (see console)</div>';
+    }
+  }
+
+  // wire events
+  statSelect.addEventListener('change', renderTS);
+  surfaceDiv.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.addEventListener('change', renderTS));
+  // initial choose stat: prefer first option
+  if(!statSelect.value && statSelect.options.length) statSelect.value = statSelect.options[0].value;
+  renderTS();
+  return;
+}
+
 
     if(kind === 'maps'){
       const candidates = buildCandidatesFor(playerData, 'maps').concat([`/players_atp/${pid}.maps.json`, `/players_atp/${slugVal}.maps.json`, `/players_atp/${slugVal}.maps.json`]);
