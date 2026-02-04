@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -8,42 +8,52 @@
   :root{
     --bg:#ffffff; --muted:#666; --accent:#2b63c6;
     --row-base-h:210; /* bluish hue base (can change) */
-    --row-base-s:18%;
-    --row-light-1:96%;
-    --row-light-2:92%;
+    --row-base-s:70%;
   }
   body{ font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin:20px; color:#111; background:var(--bg); }
   .container{ max-width:1100px; margin:0 auto; }
   h1{ font-size:20px; margin-bottom:10px; }
   .controls{ display:flex; gap:12px; align-items:center; margin-bottom:12px; flex-wrap:wrap;}
-  select, .search{ padding:8px 10px; border:1px solid #ddd; border-radius:6px; }
+  select, .search, input[type="number"]{ padding:8px 10px; border:1px solid #ddd; border-radius:6px; }
+  label.inline{ display:flex; align-items:center; gap:8px; }
   .table{ border-collapse:collapse; width:100%; box-shadow:0 2px 8px rgba(0,0,0,0.04); border-radius:8px; overflow:hidden; }
   .table thead th{ text-align:left; background:#fafafa; padding:10px 12px; font-weight:600; border-bottom:1px solid #eee; }
   .table tbody td{ padding:10px 12px; border-bottom:1px solid rgba(0,0,0,0.04); vertical-align:middle; }
   .player-link{ text-decoration:none; color:inherit; display:flex; gap:8px; align-items:center; }
-  .flag{ font-size:18px; }
+  /* ensure emoji fonts are used for flags */
+  .flag{ font-size:18px; font-family: "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji", "Twemoji Mozilla", sans-serif; line-height:1; }
   .rank-badge{ min-width:36px; text-align:center; padding:6px 8px; border-radius:6px; background:rgba(0,0,0,0.04); font-weight:700; }
-  /* row shading via HSL variations computed in JS and applied inline; fallback zebra */
-  .even-fallback{ background: #fff; }
-  .odd-fallback{ background: #fbfbff; }
+  .muted{ color:var(--muted); font-size:13px; }
+  .empty-note{ padding:18px; color:var(--muted); }
+  .clickable-row{ cursor:pointer; }
+  a.stat-link, a.player-profile { color: inherit; text-decoration: none; }
   /* responsive small */
   @media (max-width:720px){
     .table thead th:nth-child(5), .table tbody td:nth-child(5){ display:none; }
   }
-  .muted{ color:var(--muted); font-size:13px; }
-  .empty-note{ padding:18px; color:var(--muted); }
-  .clickable-row{ cursor:pointer; }
 </style>
 </head>
 <body>
 <div class="container">
   <h1>Leaderboard</h1>
+
   <div class="controls">
-    <label>Statistique:
-      <select id="stat-select"></select>
+    <label class="inline">Statistic:
+      <select id="stat-select" aria-label="Select statistic"></select>
     </label>
-    <input id="search" class="search" placeholder="Rechercher un joueur..." />
-    <div class="muted" id="total-count"></div>
+
+    <label class="inline">Search:
+      <input id="search" class="search" placeholder="Search a player..." aria-label="Search players" />
+    </label>
+
+    <label class="inline" title="Exclude players with fewer than N matches">
+      <input type="checkbox" id="filter-min-matches" checked />
+      <span>Exclude players with &lt;</span>
+      <input type="number" id="min-matches" min="0" value="50" style="width:80px" aria-label="Minimum matches" />
+      <span>matches</span>
+    </label>
+
+    <div class="muted" id="total-count" aria-live="polite"></div>
   </div>
 
   <div id="table-wrap">
@@ -52,13 +62,13 @@
         <tr>
           <th style="width:80px">Rank</th>
           <th>Player</th>
-          <th style="width:60px">Pays</th>
-          <th style="width:140px">Valeur</th>
-          <th class="muted">Profil</th>
+          <th style="width:60px">Country</th>
+          <th style="width:140px">Value</th>
+          <th class="muted">Profile</th>
         </tr>
       </thead>
       <tbody id="leaderboard-body">
-        <tr><td colspan="5" class="empty-note">Chargement…</td></tr>
+        <tr><td colspan="5" class="empty-note">Loading…</td></tr>
       </tbody>
     </table>
   </div>
@@ -66,13 +76,17 @@
 
 <script>
 (async function(){
-  const LEADERBOARDS_BASE = './leaderboards'; // adjust si nécessaire
+  const LEADERBOARDS_BASE = './leaderboards'; // DO NOT change (per your instruction)
   const indexUrl = `${LEADERBOARDS_BASE}/index.json`;
 
   // utility: fetch JSON
-  async function fetchJson(u){ const r = await fetch(u); if(!r.ok) throw new Error('fetch failed'); return r.json(); }
+  async function fetchJson(u){
+    const r = await fetch(u);
+    if(!r.ok) throw new Error('fetch failed: ' + r.status);
+    return r.json();
+  }
 
-  // country code -> emoji flag
+  // country code -> emoji flag (robust)
   function countryCodeToFlagEmoji(code){
     if(!code) return '';
     const c = String(code).trim().toUpperCase();
@@ -83,20 +97,24 @@
     return String.fromCodePoint(first, second);
   }
 
-  // shade generator: from base hue, vary lightness by index to ensure consecutive rows differ
-  // returns CSS HSL string
+  // shade generator: bluish subtle variations; ensure consecutive rows are different
   function rowShade(index){
-    // parameters: tune as desired
-    const hue = getComputedStyle(document.documentElement).getPropertyValue('--row-base-h') || 210;
-    const sat = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--row-base-s')) || 18;
-    // alternate lightness between values but also slightly vary by index to avoid same neighbors
+    // tuned to produce light blue shades, never equal on consecutive indices
+    const hue = 210; // blue
+    const sat = 70; // %
     const baseLight = 96; // very light
-    const delta = 2.6; // per-row variation
-    const alt = (index % 2 === 0) ? baseLight - (index % 5) * delta : baseLight - ((index+1) % 5) * delta;
-    return `hsl(${hue} ${sat}% ${Math.max(88, alt)}%)`;
+    // make a 10-step cycle but shift evens/odds so neighbors differ
+    const step = 1.6; // lightness step
+    // use index modulo 10 to avoid runaway numbers
+    const pos = index % 10;
+    // alternate a small offset for even/odd to guarantee neighbors differ
+    const oddOffset = (index % 2 === 0) ? 1.2 : -1.2;
+    const light = Math.max(86, baseLight - (pos * step) + oddOffset);
+    // return hsl with spaces (modern CSS accepts space separated)
+    return `hsl(${hue} ${sat}% ${light}%)`;
   }
 
-  // format value based on type (type from index entry)
+  // format value helper
   function formatValue(v, type){
     if(v === null || v === undefined || v === '') return '';
     if(type === 'int'){
@@ -120,7 +138,7 @@
   try{
     index = await fetchJson(indexUrl);
   }catch(e){
-    document.getElementById('leaderboard-body').innerHTML = `<tr><td colspan="5" class="empty-note">Impossible de charger l'index des leaderboards (${indexUrl}).</td></tr>`;
+    document.getElementById('leaderboard-body').innerHTML = `<tr><td colspan="5" class="empty-note">Unable to load leaderboards index (${indexUrl}).</td></tr>`;
     console.error(e);
     return;
   }
@@ -130,21 +148,57 @@
   stats.forEach(s => {
     const opt = document.createElement('option');
     opt.value = s.stat_key;
-    opt.textContent = s.label;
+    opt.textContent = s.label || s.stat_key;
     opt.dataset.type = s.type || 'float';
     select.appendChild(opt);
   });
 
+  // helper: get matches count from an entry by checking several possible field names
+  function getMatchesCount(entry){
+    if(entry == null) return null;
+    const candidates = ['matches', 'matches_count', 'matches_played', 'total_matches', 'n_matches'];
+    for(const k of candidates){
+      if(Object.prototype.hasOwnProperty.call(entry, k)){
+        const v = entry[k];
+        const n = Number(v);
+        if(!Number.isNaN(n)) return n;
+      }
+    }
+    // sometimes the count may be inside stats object
+    if(entry.stats && typeof entry.stats === 'object'){
+      for(const k of candidates){
+        if(Object.prototype.hasOwnProperty.call(entry.stats, k)){
+          const n = Number(entry.stats[k]);
+          if(!Number.isNaN(n)) return n;
+        }
+      }
+    }
+    return null;
+  }
+
+  // build url to player page (player.html) using param "player"
+  function urlToPlayer(entry){
+    // prefer player_id if present, else fallback to profile_url
+    const id = entry.player_id || entry.player || entry.id || null;
+    if(id){
+      const u = new URL('/player.html', window.location.origin);
+      u.searchParams.set('player', String(id));
+      return u.toString();
+    }
+    // fallback to profile_url (as absolute or relative)
+    if(entry.profile_url) return entry.profile_url;
+    return null;
+  }
+
   // helper load and render a stat json
   let currentData = null;
-
   async function loadAndRender(statKey){
     const url = `${LEADERBOARDS_BASE}/${statKey}.json`;
     let data;
     try{
       data = await fetchJson(url);
     }catch(e){
-      document.getElementById('leaderboard-body').innerHTML = `<tr><td colspan="5" class="empty-note">Impossible de charger ${url}</td></tr>`;
+      document.getElementById('leaderboard-body').innerHTML = `<tr><td colspan="5" class="empty-note">Unable to load ${url}</td></tr>`;
       console.error(e);
       return;
     }
@@ -152,34 +206,62 @@
     renderTable(data);
   }
 
+  // render table with support for min matches filtering and search
   function renderTable(data){
     const tbody = document.getElementById('leaderboard-body');
     tbody.innerHTML = '';
     const t = data;
     const typ = t.type || 'float';
-    document.getElementById('total-count').textContent = `${t.total_players || t.entries.length} joueurs`;
-    if(!Array.isArray(t.entries) || t.entries.length === 0){
-      tbody.innerHTML = `<tr><td colspan="5" class="empty-note">Aucune donnée pour cette statistique.</td></tr>`;
+    let entries = Array.isArray(t.entries) ? t.entries.slice() : [];
+
+    const totalBefore = entries.length;
+
+    // apply min matches filter if enabled
+    const useMin = document.getElementById('filter-min-matches').checked;
+    const minMatches = Math.max(0, Number(document.getElementById('min-matches').value) || 0);
+    if(useMin && minMatches > 0){
+      entries = entries.filter(e => {
+        const n = getMatchesCount(e);
+        // if count is null -> treat as eligible (do not exclude) to be conservative
+        return (n === null) || (n >= minMatches);
+      });
+    }
+
+    // apply search if any
+    const q = (document.getElementById('search').value || '').trim().toLowerCase();
+    if(q){
+      entries = entries.filter(e => {
+        const name = (e.player_name || e.player || '').toString().toLowerCase();
+        const pid = (e.player_id || e.player || '').toString().toLowerCase();
+        return name.includes(q) || pid.includes(q);
+      });
+    }
+
+    const totalAfter = entries.length;
+    document.getElementById('total-count').textContent = `${totalAfter} players` + (useMin ? ` (filtered from ${totalBefore})` : '');
+
+    if(!Array.isArray(entries) || entries.length === 0){
+      tbody.innerHTML = `<tr><td colspan="5" class="empty-note">No data for this statistic.</td></tr>`;
       return;
     }
-    // build rows with shading
-    for(let i=0;i<t.entries.length;i++){
-      const e = t.entries[i];
+
+    for(let i=0; i<entries.length; i++){
+      const e = entries[i];
       const tr = document.createElement('tr');
       tr.className = 'clickable-row';
-      // apply background shade
       tr.style.background = rowShade(i);
       // rank
-      const tdRank = document.createElement('td'); tdRank.innerHTML = `<div class="rank-badge">${e.rank}</div>`;
+      const tdRank = document.createElement('td'); tdRank.innerHTML = `<div class="rank-badge">${e.rank != null ? e.rank : ''}</div>`;
       // player cell
       const tdPlayer = document.createElement('td');
       const link = document.createElement('a');
       link.className = 'player-link';
-      link.href = e.profile_url || '#';
+      const playerUrl = urlToPlayer(e) || '#';
+      link.href = playerUrl;
       link.target = '_self';
       link.rel = 'noopener';
       const flag = document.createElement('span'); flag.className='flag'; flag.textContent = countryCodeToFlagEmoji(e.country_code) || '';
-      const name = document.createElement('span'); name.textContent = e.player_name || e.player_id;
+      const name = document.createElement('span'); name.textContent = e.player_name || e.player || e.player_id || '';
       link.appendChild(flag); link.appendChild(name);
       tdPlayer.appendChild(link);
       // country short
@@ -187,13 +269,20 @@
       // value
       const tdVal = document.createElement('td'); tdVal.style.fontWeight='700';
       tdVal.textContent = formatValue(e.value, typ);
-      // profile link cell
-      const tdProfile = document.createElement('td'); tdProfile.innerHTML = `<a href="${e.profile_url}" target="_self" rel="noopener">Voir profil</a>`;
-      // click row -> go to profile
+      // profile link cell (anchor so Ctrl+click works)
+      const tdProfile = document.createElement('td');
+      const profHref = urlToPlayer(e);
+      if(profHref){
+        tdProfile.innerHTML = `<a class="player-profile" href="${profHref}" target="_self" rel="noopener">Open player</a>`;
+      } else {
+        tdProfile.textContent = '';
+      }
+
+      // click row -> go to player page (preserve anchors)
       tr.addEventListener('click', (ev) => {
-        // if clicked a real link, allow default
-        if(ev.target.tagName.toLowerCase() === 'a') return;
-        if(e.profile_url) window.location.href = e.profile_url;
+        // if clicked a real link (or inside one), let default happen
+        if(ev.target.closest('a')) return;
+        if(playerUrl) window.location.href = playerUrl;
       });
 
       tr.appendChild(tdRank); tr.appendChild(tdPlayer); tr.appendChild(tdCountry); tr.appendChild(tdVal); tr.appendChild(tdProfile);
@@ -211,14 +300,21 @@
     history.replaceState({}, '', u.toString());
   });
 
-  // search
+  // search input: re-render from currentData but keep filters
   const searchInput = document.getElementById('search');
   searchInput.addEventListener('input', function(){
-    const q = this.value.trim().toLowerCase();
     if(!currentData) return;
-    const filtered = Object.assign({}, currentData);
-    filtered.entries = currentData.entries.filter(e => (e.player_name || '').toLowerCase().includes(q) || (e.player_id || '').toLowerCase().includes(q));
-    renderTable(filtered);
+    renderTable(currentData);
+  });
+
+  // min matches controls -> re-render when toggled/changed
+  document.getElementById('filter-min-matches').addEventListener('change', function(){
+    if(!currentData) return;
+    renderTable(currentData);
+  });
+  document.getElementById('min-matches').addEventListener('input', function(){
+    if(!currentData) return;
+    renderTable(currentData);
   });
 
   // initial chosen stat from URL or first
@@ -228,7 +324,7 @@
     select.value = initial;
     await loadAndRender(initial);
   } else {
-    document.getElementById('leaderboard-body').innerHTML = `<tr><td colspan="5" class="empty-note">Aucune statistique trouvée.</td></tr>`;
+    document.getElementById('leaderboard-body').innerHTML = `<tr><td colspan="5" class="empty-note">No statistic found.</td></tr>`;
   }
 
 })();
