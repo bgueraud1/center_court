@@ -20,39 +20,9 @@ def safe_mkdir(path):
     os.makedirs(path, exist_ok=True)
 
 def normalize_player_id(pid):
-    """
-    Retourne un string propre de l'ID du joueur :
-     - None/'' -> ''
-     - int -> '12345'
-     - float sans fraction -> '12345' (enlève le .0)
-     - '12345.0' -> '12345'
-     - sinon -> str(pid).strip().upper()
-    """
     if pid is None:
         return ''
-    # entiers purs
-    if isinstance(pid, int):
-        return str(pid)
-    # floats : si équivalent entier, convertir en int
-    if isinstance(pid, float):
-        if pid.is_integer():
-            return str(int(pid))
-        # sinon garder représentation sans perte (mais improbable pour des ids)
-        return str(pid).strip()
-    s = str(pid).strip()
-    if s == '':
-        return ''
-    # capture des cas "12345.0", "12345.00" -> "12345"
-    m = re.match(r'^(-?\d+)(?:\.0+)$', s)
-    if m:
-        return m.group(1)
-    # si c'est une chaîne de chiffres (possiblement avec espaces), renvoyer les chiffres
-    m2 = re.match(r'^\s*([0-9]+)\s*$', s)
-    if m2:
-        return m2.group(1)
-    # sinon renvoyer en uppercase (utile si ids alphanumériques)
-    return s.upper()
-
+    return str(pid).strip().upper()
 
 def slugify(name: str) -> str:
     if not name:
@@ -102,7 +72,9 @@ def read_matches_from_dir(matches_dir):
     frames = []
     for f in files:
         try:
-            df = pd.read_csv(f, low_memory=False)
+            df = pd.read_csv(f, low_memory=False, dtype=str)
+            # normaliser les valeurs 'nan' importées comme chaînes vers de vrais NA
+            df = df.where(pd.notnull(df), None)
             frames.append(df)
         except Exception as e:
             print(f"Warning: cannot read {f}: {e}")
@@ -378,12 +350,21 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
     full_name = name
 
     if isinstance(player_data_df, pd.DataFrame) and 'player_id' in player_data_df.columns:
+        row = None
         try:
-            row = player_data_df[player_data_df['player_id'].astype(str).str.strip().str.upper() == pid]
-            if not row.empty:
-                row = row.iloc[0].to_dict()
+            # Normaliser les deux côtés pour éviter les problèmes du type float '123.0'
+            col_str = player_data_df['player_id'].astype(str).str.strip().str.upper().str.replace(r'\.0$','', regex=True)
+            pid_key = str(pid).strip().upper()
+            pid_key = re.sub(r'\.0$', '', pid_key)  # retire éventuel ".0"
+
+            mask = col_str == pid_key
+            sub = player_data_df[mask]
+            if not sub.empty:
+                row = sub.iloc[0].to_dict()
         except Exception:
             row = None
+
+        # row est soit None soit un dict — on peut tester proprement
         if row:
             full_name = row.get('full_name') or name
             birthdate = parse_date_only(row.get('birth_date') or row.get('dob') or '')
@@ -407,6 +388,7 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
             country = row.get('represented_country') or row.get('country') or row.get('country_code') or None
             first_appearance = parse_date_only(row.get('first_appearance') or '') or ''
             last_appearance = parse_date_only(row.get('last_appearance') or '') or ''
+
 
     # fallback deduce first/last from df event_year only (dates not used)
     try:

@@ -338,6 +338,9 @@ def fetch_tournament_data(year, tournament_id, verbose=False):
                 "loser_seed": loser_seed,
                 "winner_country": winner_country,
                 "loser_country": loser_country,
+                # <-- Ajout explicite des IDs pour compatibilité en aval
+                "PlayerIDA": str(pA_id) if pA_id is not None else None,
+                "PlayerIDB": str(pB_id) if pB_id is not None else None,
             }
 
             # attach stats if any (competitors may have ids etc.)
@@ -480,6 +483,9 @@ def fetch_tournament_data(year, tournament_id, verbose=False):
                 "loser_seed": loser_seed,
                 "winner_country": winner_country,
                 "loser_country": loser_country,
+                # <-- Ajout explicite des IDs pour compatibilité en aval
+                "PlayerIDA": str(pA_id) if pA_id is not None else None,
+                "PlayerIDB": str(pB_id) if pB_id is not None else None,
             }
 
             # copy per-set stats and IDs (existing logic)

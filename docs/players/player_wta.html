@@ -235,21 +235,21 @@ function fetchJsonSafe(url){
   if(!slug){ loading.textContent = 'Slug not found in URL.'; return; }
 
   loading.textContent = 'Loading players index...';
-  const index = await fetchJsonSafe('/index/players_index.json');
-  if(!index || !Array.isArray(index.players)){ loading.textContent = 'Index unavailable (/index/players_index.json).'; return; }
+  const index = await fetchJsonSafe('/index/players_wta_index.json');
+  if(!index || !Array.isArray(index.players)){ loading.textContent = 'Index unavailable (/index/players_wta_index.json).'; return; }
   const players = index.players;
   const slugLower = slug.toLowerCase();
   const found = players.find(p => (p.slug && p.slug.toLowerCase() === slugLower) || (((''+(p.player_id||'')).toLowerCase() + '-' + (p.slug||'')).toLowerCase() === slugLower));
   if(!found){ loading.textContent = 'Player not found for slug: ' + slug; return; }
 
   const pid = found.player_id;
-  const dataUrl = (found.data_path ? '/' + String(found.data_path).replace(/^\/+/, '') : `/players_atp/data/${slugLower}.json`);
+  const dataUrl = (found.data_path ? '/' + String(found.data_path).replace(/^\/+/, '') : `/players/data/${slugLower}.json`);
   loading.textContent = 'Loading player data...';
 
   let combined = await fetchJsonSafe(dataUrl);
   if(!combined){
-    const legacyMeta = await fetchJsonSafe(`/players_atp/${pid}.meta.json`);
-    const legacyMatches = await fetchJsonSafe(`/players_atp/${pid}.matches.json`);
+    const legacyMeta = await fetchJsonSafe(`/players/${pid}.meta.json`);
+    const legacyMatches = await fetchJsonSafe(`/players/${pid}.matches.json`);
     if(legacyMeta || legacyMatches){
       combined = {
         player_id: pid,
@@ -397,7 +397,7 @@ function fetchJsonSafe(url){
         line.className = 'match-line ' + (isWin ? 'win' : (m.is_win === false ? 'loss' : ''));
         let oppHtml = escapeHtml(m.opponent || '—');
         if(m.opponent_id){
-          const href = `/players_atp/${String(m.opponent_id).toLowerCase()}`;
+          const href = `/players/${String(m.opponent_id).toLowerCase()}`;
           oppHtml = `<a class="player-link" href="${href}"><strong>${escapeHtml(m.opponent || m.opponent_id)}</strong></a>`;
         } else {
           oppHtml = `<strong>${escapeHtml(m.opponent || '—')}</strong>`;
@@ -539,17 +539,17 @@ function fetchJsonSafe(url){
     const slugLower = slugVal.toLowerCase();
     const candidates = [];
     if(pid) {
-      candidates.push(`/players_atp/${pid}.${suffix}.json`);
-      candidates.push(`/players_atp/${pid.toUpperCase()}.${suffix}.json`);
-      candidates.push(`/players_atp/${pid.toLowerCase()}.${suffix}.json`);
+      candidates.push(`/players/${pid}.${suffix}.json`);
+      candidates.push(`/players/${pid.toUpperCase()}.${suffix}.json`);
+      candidates.push(`/players/${pid.toLowerCase()}.${suffix}.json`);
     }
     if(slugVal){
-      candidates.push(`/players_atp/${slugVal}.${suffix}.json`);
-      candidates.push(`/players_atp/${slugLower}.${suffix}.json`);
-      candidates.push(`/players_atp/data/${slugLower}.${suffix}.json`);
+      candidates.push(`/players/${slugVal}.${suffix}.json`);
+      candidates.push(`/players/${slugLower}.${suffix}.json`);
+      candidates.push(`/players/data/${slugLower}.${suffix}.json`);
     }
-    candidates.push(`/players_atp/${slugLower}.${suffix}.json`);
-    candidates.push(`/players_atp/${slugLower}`);
+    candidates.push(`/players/${slugLower}.${suffix}.json`);
+    candidates.push(`/players/${slugLower}`);
     return candidates;
   }
 
@@ -1092,7 +1092,7 @@ if(kind === 'detailed'){
 
 
     if(kind === 'detailed'){
-      const candidates = buildCandidatesFor(playerData, 'stats').concat([`/players_atp/${pid}.stats.json`, `/players_atp/${slugVal}.stats.json`]);
+      const candidates = buildCandidatesFor(playerData, 'stats').concat([`/players/${pid}.stats.json`, `/players/${slugVal}.stats.json`]);
       const res = await tryCandidatesSequential(candidates);
       if(!res || !res.data){
         targetDiv.innerHTML = '<div class="no-data">Detailed statistics are not available for this player.</div>';
@@ -1108,7 +1108,7 @@ if(kind === 'detailed'){
 
 
     if(kind === 'scenarios'){
-      const candidates = buildCandidatesFor(playerData, 'scenarios').concat([`/players_atp/${pid}.scenarios.json`, `/players_atp/${slugVal}.scenarios.json`]);
+      const candidates = buildCandidatesFor(playerData, 'scenarios').concat([`/players/${pid}.scenarios.json`, `/players/${slugVal}.scenarios.json`]);
       const res = await tryCandidatesSequential(candidates);
       if(!res || !res.data){ targetDiv.innerHTML = '<div class="no-data">Scenarios are not available for this player.</div>'; return; }
       // render nicely using new renderer
@@ -1119,14 +1119,14 @@ if(kind === 'detailed'){
     // ----------------- Time Series handler (remplacer la branche timeseries) -----------------
 if(kind === 'timeseries'){
   // try to locate the stats JSON already present (playerData) or load fallback file
-  // playerData variable already exists in player.html context; otherwise fallback to /players_atp/<pid>.stats.json
+  // playerData variable already exists in player.html context; otherwise fallback to /players/<pid>.stats.json
   const tsUrlCandidates = [];
   // if playerData is the same as the JSON loaded, use it:
   if(typeof playerData === 'object' && playerData !== null && (playerData.stats_by_year || playerData.available_years)) {
     // we will use playerData directly
   } else {
-    tsUrlCandidates.push(`/players_atp/${pid}.stats.json`);
-    if(slugVal) tsUrlCandidates.push(`/players_atp/${slugVal}.stats.json`);
+    tsUrlCandidates.push(`/players/${pid}.stats.json`);
+    if(slugVal) tsUrlCandidates.push(`/players/${slugVal}.stats.json`);
   }
 
   // Helper: load JSON if needed
@@ -1471,7 +1471,7 @@ if(kind === 'timeseries'){
 
 
     if(kind === 'maps'){
-      const candidates = buildCandidatesFor(playerData, 'maps').concat([`/players_atp/${pid}.maps.json`, `/players_atp/${slugVal}.maps.json`, `/players_atp/${slugVal}.maps.json`]);
+      const candidates = buildCandidatesFor(playerData, 'maps').concat([`/players/${pid}.maps.json`, `/players/${slugVal}.maps.json`, `/players/${slugVal}.maps.json`]);
       const res = await tryCandidatesSequential(candidates);
       if(!res || !res.data){
         targetDiv.innerHTML = '<div class="sub">Maps data not found locally — attempting client-side discovery...</div>';
@@ -1679,10 +1679,10 @@ if(kind === 'timeseries'){
     const slugParam = options.slug || (location.pathname.replace(/\/$/, '').split('/').pop() || '');
     if(!slugParam){ console.warn('maps-client: could not detect slug from URL'); return; }
     const candidates = [
-      `/players_atp/${slugParam}.maps.json`,
-      `/players_atp/${slugParam.toUpperCase()}.maps.json`,
-      `/players_atp/${slugParam.toLowerCase()}.maps.json`,
-      `/players_atp/${slugParam}-maps.json`
+      `/players/${slugParam}.maps.json`,
+      `/players/${slugParam.toUpperCase()}.maps.json`,
+      `/players/${slugParam.toLowerCase()}.maps.json`,
+      `/players/${slugParam}-maps.json`
     ];
     (function tryNext(i){
       if(i >= candidates.length){
