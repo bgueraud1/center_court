@@ -953,9 +953,31 @@ function fetchJsonSafe(url){
     const slugVal = playerData.slug || slug;
 
     const targetDiv = document.getElementById('panel-' + kind);
-    if(!targetDiv) return;
+if(!targetDiv) return;
 
-    targetDiv.innerHTML = '<div class="sub">Loading…</div>';
+// For detailed panel we must not wipe the whole panel (it contains the year/surface selects).
+// Instead, put the loading indicator inside the internal container if present, otherwise fall back to replacing.
+if(kind === 'detailed'){
+  // Ensure panel-detailed retains its header/filters while we load content below it.
+  // Put loading indicator into #detailed-stats-container (create if missing).
+  let inner = targetDiv.querySelector('#detailed-stats-container');
+  if(!inner){
+    inner = document.createElement('div');
+    inner.id = 'detailed-stats-container';
+    // append after the header if present, otherwise put as only child
+    const headerNode = targetDiv.querySelector('[style*="margin-bottom:10px"], .select-year') || targetDiv.firstChild;
+    if(headerNode && headerNode.parentNode === targetDiv){
+      targetDiv.appendChild(inner);
+    } else {
+      targetDiv.appendChild(inner);
+    }
+  }
+  inner.innerHTML = '<div class="sub">Loading…</div>';
+} else {
+  // For other kinds it's ok to replace entire panel
+  targetDiv.innerHTML = '<div class="sub">Loading…</div>';
+}
+
 
     if(kind === 'detailed'){
       const candidates = buildCandidatesFor(playerData, 'stats').concat([`/players_atp/${pid}.stats.json`, `/players_atp/${slugVal}.stats.json`]);
