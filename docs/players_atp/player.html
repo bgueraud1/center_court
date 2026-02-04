@@ -192,6 +192,19 @@ function escapeHtml(s){
   if (s === null || s === undefined) return '';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
+
+// --- ADD THIS (put near the top of the <script> in player.html) ---
+const LEADERBOARD_PAGE = '/leaderboard.html';
+function openLeaderboardFor(statKey){
+  if(!statKey) return;
+  // build absolute URL relative à la racine du site (Netlify)
+  const u = new URL(LEADERBOARD_PAGE, window.location.origin);
+  u.searchParams.set('stat', String(statKey));
+  // navigate
+  window.location.href = u.toString();
+}
+
+
 function dateWithoutYear(isoDate){
   if(!isoDate) return '';
   try{
@@ -784,11 +797,14 @@ function fetchJsonSafe(url){
         // build the stats summary cards using the filtered summary values
         let html = `<div style="font-weight:700;margin-bottom:8px">Detailed statistics</div>`;
         html += `<div class="stats-summary">`;
-        html += `<div class="stat-card"><div style="font-weight:700">Matches</div><div class="sub">${escapeHtml(matchesText)}</div></div>`;
-        html += `<div class="stat-card"><div style="font-weight:700">Matches won</div><div class="sub">${escapeHtml(winsText)}</div></div>`;
-        html += `<div class="stat-card"><div style="font-weight:700">Matches lost</div><div class="sub">${escapeHtml(lossesText)}</div></div>`;
-        html += `<div class="stat-card"><div style="font-weight:700">Total time on court</div><div class="sub">${escapeHtml(totalTimeText)}</div></div>`;
+        // NOTE: les valeurs data-stat ci-dessous doivent correspondre aux stat keys attendues par votre leaderboard index.
+        // Ajustez les clés si besoin (voir point 5).
+        html += `<div class="stat-card" data-stat="matches"><div style="font-weight:700">Matches</div><div class="sub">${escapeHtml(matchesText)}</div></div>`;
+        html += `<div class="stat-card" data-stat="matches_won"><div style="font-weight:700">Matches won</div><div class="sub">${escapeHtml(winsText)}</div></div>`;
+        html += `<div class="stat-card" data-stat="matches_lost"><div style="font-weight:700">Matches lost</div><div class="sub">${escapeHtml(lossesText)}</div></div>`;
+        html += `<div class="stat-card" data-stat="total_match_time_hours"><div style="font-weight:700">Total time on court</div><div class="sub">${escapeHtml(totalTimeText)}</div></div>`;
         html += `</div>`;
+
 
         // build table header
         html += `<table class="stats-table"><thead><tr><th style="min-width:240px">Statistic</th><th>Mean</th><th>Sum</th><th>Min</th><th>Max</th></tr></thead><tbody>`;
@@ -825,19 +841,46 @@ function fetchJsonSafe(url){
             sumFmt = sum !== null && sum !== undefined ? smartNumberString(sum) : '—';
           }
 
-          html += `<tr>
-                    <td style="font-weight:700">${escapeHtml(s.label)}</td>
-                    <td>${escapeHtml(meanFmt)}</td>
-                    <td>${escapeHtml(sumFmt)}</td>
-                    <td>${escapeHtml(minFmt)}</td>
-                    <td>${escapeHtml(maxFmt)}</td>
-                   </tr>`;
+          const encodedKey = encodeURIComponent(key);
+        html += `<tr class="clickable-stat-row" data-stat-key="${escapeHtml(key)}">
+                  <td style="font-weight:700"><a class="stat-row-link" href="/leaderboard.html?stat=${encodedKey}">${escapeHtml(s.label)}</a></td>
+                  <td>${escapeHtml(meanFmt)}</td>
+                  <td>${escapeHtml(sumFmt)}</td>
+                  <td>${escapeHtml(minFmt)}</td>
+                  <td>${escapeHtml(maxFmt)}</td>
+                 </tr>`;
         }
 
         html += `</tbody></table>`;
 
         container.innerHTML = html;
       }
+
+      // after container.innerHTML = html;
+try{
+  // make summary stat-cards clickable (keyboard accessible)
+  container.querySelectorAll('.stat-card[data-stat]').forEach(el => {
+    const statKey = el.dataset.stat;
+    el.style.cursor = 'pointer';
+    el.setAttribute('role','link');
+    el.setAttribute('tabindex','0');
+    el.addEventListener('click', () => openLeaderboardFor(statKey));
+    el.addEventListener('keydown', (ev) => {
+      if(ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openLeaderboardFor(statKey); }
+    });
+  });
+
+  // make table rows clickable, but preserve real <a> default behavior
+  container.querySelectorAll('.clickable-stat-row').forEach(tr => {
+    tr.style.cursor = 'pointer';
+    tr.addEventListener('click', (ev) => {
+      // if user clicked an anchor inside, do nothing (allow link to handle)
+      if(ev.target.closest('a')) return;
+      const k = tr.dataset.statKey;
+      if(k) openLeaderboardFor(k);
+    });
+  });
+}catch(e){ console.warn('Attaching stat click handlers failed', e); }
 
 
       if(document.getElementById('stats-year-filter')) document.getElementById('stats-year-filter').addEventListener('change', renderForSelected);
