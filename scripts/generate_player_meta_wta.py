@@ -662,11 +662,11 @@ def main(matches_dir: str, out_dir: str, limit_players: int = None, player_data_
             print("ERROR", e)
             traceback.print_exc()
 
-    players_index_path = idx_dir / "players_index_wta.json"
+    players_index_path = idx_dir / "players_wta_index.json"
     with open(players_index_path, 'w', encoding='utf8') as f:
         json.dump({'players': players_index, 'generated_at': datetime.utcnow().isoformat()+'Z'}, f, ensure_ascii=False, indent=2)
 
-    print("Wrote players_index_wta:", players_index_path)
+    print("Wrote players_wta_index:", players_index_path)
     print("Wrote player data to:", players_data_dir)
     print("Legacy meta/matches written to:", players_dir)
 
