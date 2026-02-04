@@ -105,9 +105,15 @@ def scrape_and_merge_match_data(tournament_id, year, match_id):
         tournament_group = tournament_obj.get("tournamentGroup", {}) if isinstance(tournament_obj, dict) else {}
         indoor_outdoor = tournament_obj.get("inOutdoor") if isinstance(tournament_obj, dict) else None
 
-        # Players
+        # Players (names)
         player_a = f"{_safe_get(score_data,'PlayerNameFirstA','') or ''} {_safe_get(score_data,'PlayerNameLastA','') or ''}".strip()
         player_b = f"{_safe_get(score_data,'PlayerNameFirstB','') or ''} {_safe_get(score_data,'PlayerNameLastB','') or ''}".strip()
+
+        # --- NEW: capture des IDs joueurs s'ils existent ---
+        playerida = _safe_get(score_data, "PlayerIDA") or _safe_get(score_data, "PlayerIdA") or _safe_get(score_data, "playerida") or None
+        playerida2 = _safe_get(score_data, "PlayerIDA2") or _safe_get(score_data, "PlayerIdA2") or None
+        playeridb = _safe_get(score_data, "PlayerIDB") or _safe_get(score_data, "PlayerIdB") or _safe_get(score_data, "playeridb") or None
+        playeridb2 = _safe_get(score_data, "PlayerIDB2") or _safe_get(score_data, "PlayerIdB2") or None
 
         # Build set strings
         set1 = _format_set(score_data.get("ScoreSet1A"), score_data.get("ScoreSet1B"), score_data.get("ScoreTbSet1") or score_data.get("ScoreTb1"))
@@ -123,31 +129,39 @@ def scrape_and_merge_match_data(tournament_id, year, match_id):
         # If undetermined from sets, try numeric Winner field heuristics
         if winner_flag is None:
             w_raw = score_data.get("Winner")
-            # heuristics: if Winner == "1" -> A, "2" -> B (but feeds may vary); prefer sets if possible
             if w_raw is not None:
-                try:
-                    if str(w_raw).strip() == "1":
-                        winner_flag = 'A'
-                    elif str(w_raw).strip() == "2":
-                        winner_flag = 'B'
-                except Exception:
+                w_str = str(w_raw).strip()
+                if w_str in ("1", "A", "a"):
+                    winner_flag = "A"
+                elif w_str in ("2", "B", "b"):
+                    winner_flag = "B"
+                else:
+                    # sometimes Winner uses other encodings (e.g. "3" in GC) — try PID matching below
                     winner_flag = None
 
         # Fallback: try to parse ResultString like "A. Sabalenka d B. Kostyuk 6-4,6-3"
         if winner_flag is None:
             res = score_data.get("ResultString") or score_data.get("ScoreString")
-            if isinstance(res, str) and " d " in res:
-                # try to extract left of " d " as winner name
-                try:
-                    left = res.split(" d ")[0]
-                    left_clean = re.sub(r"^\[.*?\]", "", left).strip()  # remove [1] tags
-                    # compare with player names: if left starts with last/first, choose accordingly
-                    if player_a and left_clean and (player_a.split()[-1] in left_clean or player_a.split()[0] in left_clean):
-                        winner_flag = 'A'
-                    elif player_b and left_clean and (player_b.split()[-1] in left_clean or player_b.split()[0] in left_clean):
-                        winner_flag = 'B'
-                except Exception:
-                    pass
+            if isinstance(res, str):
+                # try to find winner by left side of " d " or " def " patterns
+                delim = re.search(r"\s+d\s+|\s+def\s+|def\.|def\s+", res, flags=re.IGNORECASE)
+                left = res[:delim.start()].strip() if delim else re.split(r"\d{1,2}-\d{1,2}", res)[0].strip()
+                left_clean = re.sub(r"^\[.*?\]", "", left).strip()
+                if player_a and left_clean and (player_a.split()[-1] in left_clean or player_a.split()[0] in left_clean):
+                    winner_flag = "A"
+                elif player_b and left_clean and (player_b.split()[-1] in left_clean or player_b.split()[0] in left_clean):
+                    winner_flag = "B"
+
+        # Last resort: if we still don't know winner_flag but we have PlayerIDA/PlayerIDB and a numeric Winner that equals one of those ids -> use it
+        if winner_flag is None:
+            w_raw = score_data.get("Winner")
+            if w_raw is not None and (playerida or playeridb):
+                # sometimes Winner may contain player id; try to match
+                w_str = str(w_raw).strip()
+                if playerida and w_str == str(playerida):
+                    winner_flag = "A"
+                elif playeridb and w_str == str(playeridb):
+                    winner_flag = "B"
 
         # Assign winner/loser names and seeds
         if winner_flag == 'A':
@@ -155,19 +169,25 @@ def scrape_and_merge_match_data(tournament_id, year, match_id):
             loser_name = player_b
             winner_seed = score_data.get("SeedA") or None
             loser_seed = score_data.get("SeedB") or None
+            player_id_winner = playerida
+            player_id_loser = playeridb
         elif winner_flag == 'B':
             winner_name = player_b
             loser_name = player_a
             winner_seed = score_data.get("SeedB") or None
             loser_seed = score_data.get("SeedA") or None
+            player_id_winner = playeridb
+            player_id_loser = playerida
         else:
-            # unknown -> set to None so later pipeline can decide
+            # unknown -> leave None; still add the raw PIDs if present
             winner_name = None
             loser_name = None
             winner_seed = score_data.get("SeedA") or score_data.get("SeedB") or None
             loser_seed = None
+            player_id_winner = None
+            player_id_loser = None
 
-        # Build main record
+        # Build main record (inclut maintenant PlayerIDA / PlayerIDB et player_id_winner/loser)
         match_info = {
             "event_id": _safe_get(score_data, "EventID"),
             "event_year": _safe_get(score_data, "EventYear"),
@@ -207,15 +227,22 @@ def scrape_and_merge_match_data(tournament_id, year, match_id):
             "liveScoringId": _safe_get(tournament_obj, "liveScoringId"),
             "venue_id": _safe_get(score_data, "Venue", "id"),
             "venue_name": _safe_get(score_data, "Venue", "name"),
-            "indoor_outdoor": indoor_outdoor
+            "indoor_outdoor": indoor_outdoor,
+            # RAW Player IDs from API:
+            "PlayerIDA": playerida,
+            "PlayerIDA2": playerida2,
+            "PlayerIDB": playeridb,
+            "PlayerIDB2": playeridb2,
+            # Canonical player ids according to winner/loser
+            "player_id_winner": player_id_winner,
+            "player_id_loser": player_id_loser
         }
 
-        # Stats processing: produce columns like acesa_set1, acesb_set2, etc.
+        # Stats processing (identique à avant)
         stats_processed = {}
         if stats_data:
             for stats_entry in stats_data:
                 setnum = stats_entry.get("setnum") or stats_entry.get("setNum") or stats_entry.get("set")
-                # normalize setnum: if 0 -> total, if >=1 -> set{setnum}
                 try:
                     setnum_int = int(setnum)
                 except Exception:
@@ -223,12 +250,10 @@ def scrape_and_merge_match_data(tournament_id, year, match_id):
                 for key, value in stats_entry.items():
                     if key in {"setnum", "setNum", "eventid", "eventyear", "matchid", "set"}:
                         continue
-                    # map setnum 0 -> tot_{key}, otherwise -> {key}_set{n}
                     if setnum_int == 0:
                         col = f"{key}_tot"
                     else:
                         col = f"{key}_set{setnum_int}"
-                    # avoid collisions
                     if col in stats_processed:
                         idx = 1
                         newcol = f"{col}_{idx}"
@@ -239,7 +264,6 @@ def scrape_and_merge_match_data(tournament_id, year, match_id):
                     else:
                         stats_processed[col] = value
         else:
-            # keep a few standard stat cols with None so downstream schemas are stable
             stats_processed.update({
                 "aces_set1": None, "aces_set2": None, "aces_set3": None,
                 "dblflt_set1": None, "dblflt_set2": None, "dblflt_set3": None
@@ -252,6 +276,7 @@ def scrape_and_merge_match_data(tournament_id, year, match_id):
     except Exception as e:
         print(f"Error scraping match {match_id} in {tournament_id}/{year}: {e}")
         return None
+
 
 def calculate_match_id_range(num_players):
     return range(1, int(num_players + num_players / 3) + 1)

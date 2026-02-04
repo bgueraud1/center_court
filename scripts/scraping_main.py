@@ -175,8 +175,11 @@ CORE_COLS = [
     "tourney_id","tourney_year","tourney_name","level","start_date","end_date",
     "surface","city","country","singles_draw_size","prize_money","prize_money_currency",
     "match_id","date","round","winner","loser","winner_country","loser_country",
-    "winner_seed","loser_seed","set1_score","set2_score","set3_score","indoor_outdoor"
+    "winner_seed","loser_seed","set1_score","set2_score","set3_score","indoor_outdoor",
+    # --- new canonical player id fields ---
+    "player_id_winner","player_id_loser"
 ]
+
 
 def winner_from_resultstring(result_string, nameA, nameB):
     if not result_string or not isinstance(result_string, str):
@@ -390,6 +393,32 @@ def map_core_from_gc_row(r, tournament_id, year_str):
 
     indoor = get_any(r, ["Indoor/Outdoor", "inOutdoor", "IndoorOutdoor", "indoor_outdoor"])
 
+        # --- after winner/loser resolution in map_core_from_gc_row ---
+    # retrieve raw A/B player ids (try multiple keys to be robust)
+    pidA = get_any(r, ["PlayerIDA", "PlayerIdA", "playerida", "PlayerIDA1"]) or r.get("PlayerIDA") or None
+    pidB = get_any(r, ["PlayerIDB", "PlayerIdB", "playeridb", "PlayerIDB1"]) or r.get("PlayerIDB") or None
+
+    # canonical player_id_winner / player_id_loser
+    player_id_winner = None
+    player_id_loser = None
+    try:
+        if match_winner_label == 'A':
+            player_id_winner = pidA
+            player_id_loser = pidB
+        elif match_winner_label == 'B':
+            player_id_winner = pidB
+            player_id_loser = pidA
+        else:
+            # if undetermined, try to infer by comparing winner_name to A/B names
+            w_raw_name = (r.get("Winner") or r.get("winner_player_name") or "").strip() if r.get("Winner") else None
+            if w_raw_name and pidA and w_raw_name in (pA_name or ""):
+                player_id_winner = pidA; player_id_loser = pidB
+            elif w_raw_name and pidB and w_raw_name in (pB_name or ""):
+                player_id_winner = pidB; player_id_loser = pidA
+    except Exception:
+        player_id_winner = player_id_loser = None
+
+
     return {
         "tourney_id": str(tournament_id) if tournament_id is not None else str(r.get("Tournament ID") or r.get("tourney_id") or ""),
         "tourney_year": year_str,
@@ -415,7 +444,9 @@ def map_core_from_gc_row(r, tournament_id, year_str):
         "set1_score": set1,
         "set2_score": set2,
         "set3_score": set3,
-        "indoor_outdoor": indoor
+        "indoor_outdoor": indoor,
+        "player_id_winner": player_id_winner,
+        "player_id_loser": player_id_loser
     }
 
 def map_core_from_non_gc_row(r):
@@ -610,6 +641,27 @@ def map_core_from_non_gc_row(r):
     date_from_ts = parse_date_to_iso(r.get("match_timestamp") or r.get("MatchTimeStamp") or r.get("match_date"))
     indoor = r.get("indoor_outdoor") or r.get("in_indoor_outdoor") or None
 
+        # try various keys for raw player ids
+    pidA = r.get("PlayerIDA") or r.get("playerida") or r.get("player_a_id") or r.get("player_a_id_raw")
+    pidB = r.get("PlayerIDB") or r.get("playeridb") or r.get("player_b_id") or r.get("player_b_id_raw")
+
+    player_id_winner = None
+    player_id_loser = None
+    try:
+        if match_winner == 'A':
+            player_id_winner = pidA; player_id_loser = pidB
+        elif match_winner == 'B':
+            player_id_winner = pidB; player_id_loser = pidA
+        else:
+            # If winner not determined, attempt to see if winner_name matches player_a/b and use pid accordingly
+            if winner_name and player_a and winner_name == player_a:
+                player_id_winner = pidA; player_id_loser = pidB
+            elif winner_name and player_b and winner_name == player_b:
+                player_id_winner = pidB; player_id_loser = pidA
+    except Exception:
+        player_id_winner = player_id_loser = None
+
+
     return {
         "tourney_id": str(r.get("event_id") or r.get("tourney_id") or ""),
         "tourney_year": str(r.get("event_year") or r.get("tourney_year") or ""),
@@ -635,7 +687,9 @@ def map_core_from_non_gc_row(r):
         "set1_score": set1,
         "set2_score": set2,
         "set3_score": set3,
-        "indoor_outdoor": indoor
+        "indoor_outdoor": indoor,
+        "player_id_winner": player_id_winner,
+        "player_id_loser": player_id_loser
     }
 
 def normalize_preserve_all(df, is_gc=False, tournament_id=None, year_str=None):
