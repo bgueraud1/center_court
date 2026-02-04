@@ -710,27 +710,79 @@ function fetchJsonSafe(url){
         return stat_agg;
       }
 
-      function renderForSelected(){
+            function renderForSelected(){
         const year = (document.getElementById('stats-year-filter') && document.getElementById('stats-year-filter').value) || 'ALL';
         const surface = (document.getElementById('stats-surface-filter') && document.getElementById('stats-surface-filter').value) || 'ALL';
-        const agg = pickAgg(year, surface);
+
+        // filtered matches (use matches array from JSON if present)
+        const matchesList = Array.isArray(data.matches) ? data.matches : [];
+        const filteredMatches = matchesList.filter(m => {
+          // year filter: m.event_year may be '' or undefined
+          if(year !== 'ALL'){
+            const my = (m.event_year || '').toString();
+            if(my !== year) return false;
+          }
+          // surface filter: normalize to lowercase for comparison
+          if(surface !== 'ALL'){
+            const ms = (m.surface || '').toString().trim().toLowerCase();
+            if(ms !== surface) return false;
+          }
+          return true;
+        });
+
+        // compute summary values from filteredMatches
+        const hasMatches = filteredMatches.length > 0;
+        const matchesCount = hasMatches ? filteredMatches.length : null;
+        const winsCount = hasMatches ? filteredMatches.filter(m => m.is_win === true).length : null;
+        const lossesCount = hasMatches ? filteredMatches.filter(m => m.is_win === false).length : null;
+        // sum match_time_hours (fallback to match_time_seconds/3600)
+        let totalHours = 0;
+        if(hasMatches){
+          for(const fm of filteredMatches){
+            let h = null;
+            if(fm.match_time_hours !== undefined && fm.match_time_hours !== null && fm.match_time_hours !== ''){
+              const parsed = parseFloat(fm.match_time_hours);
+              if(!isNaN(parsed)) h = parsed;
+            }
+            if(h === null && fm.match_time_seconds !== undefined && fm.match_time_seconds !== null && fm.match_time_seconds !== ''){
+              const parsedS = parseFloat(fm.match_time_seconds);
+              if(!isNaN(parsedS)) h = parsedS / 3600.0;
+            }
+            if(h !== null && !isNaN(h)) totalHours += h;
+          }
+        } else {
+          totalHours = null;
+        }
+
+        // choose aggregation (may be undefined) and normalize to {}
+        const agg = pickAgg(year, surface) || {};
+
+        // update top summary (Matches / Matches won / Matches lost / Total time on court)
+        let matchesText = hasMatches ? String(matchesCount) : '—';
+        let winsText = hasMatches ? String(winsCount) : '—';
+        let lossesText = hasMatches ? String(lossesCount) : '—';
+        let totalTimeText = (hasMatches && totalHours !== null) ? smartHoursString(totalHours) + ` (${escapeHtml(daysOrHoursForTotalHours(totalHours))})` : '—';
+
         topSummary.innerHTML = `<div class="muted-small">Showing: <strong>${year==='ALL'?'All years':escapeHtml(year)}</strong> / <strong>${surface==='ALL'?'All surfaces':escapeHtml(surface)}</strong></div>`;
 
-        // build table without Count column
+        // show a small message when there are no matches for the selection
+        if(!hasMatches){
+          topSummary.innerHTML += `<div class="muted-small" style="margin-top:6px;color:var(--muted)">No matches for this year/surface combination.</div>`;
+        }
+
+        // build the stats summary cards using the filtered summary values
         let html = `<div style="font-weight:700;margin-bottom:8px">Detailed statistics</div>`;
         html += `<div class="stats-summary">`;
-        html += `<div class="stat-card"><div style="font-weight:700">Matches</div><div class="sub">${escapeHtml(String(career.matches_played || data.meta && data.meta.matches || '—'))}</div></div>`;
-        html += `<div class="stat-card"><div style="font-weight:700">Matches won</div><div class="sub">${escapeHtml(String(career.matches_won || '—'))}</div></div>`;
-        html += `<div class="stat-card"><div style="font-weight:700">Matches lost</div><div class="sub">${escapeHtml(String(career.matches_lost || '—'))}</div></div>`;
-        if(career.total_match_time_hours !== undefined && career.total_match_time_hours !== null){
-          html += `<div class="stat-card"><div style="font-weight:700">Total time on court</div><div class="sub">${escapeHtml(smartHoursString(career.total_match_time_hours))} (${escapeHtml(daysOrHoursForTotalHours(career.total_match_time_hours))})</div></div>`;
-        } else {
-          html += `<div class="stat-card"><div style="font-weight:700">Total time on court</div><div class="sub">—</div></div>`;
-        }
+        html += `<div class="stat-card"><div style="font-weight:700">Matches</div><div class="sub">${escapeHtml(matchesText)}</div></div>`;
+        html += `<div class="stat-card"><div style="font-weight:700">Matches won</div><div class="sub">${escapeHtml(winsText)}</div></div>`;
+        html += `<div class="stat-card"><div style="font-weight:700">Matches lost</div><div class="sub">${escapeHtml(lossesText)}</div></div>`;
+        html += `<div class="stat-card"><div style="font-weight:700">Total time on court</div><div class="sub">${escapeHtml(totalTimeText)}</div></div>`;
         html += `</div>`;
 
+        // build table header
         html += `<table class="stats-table"><thead><tr><th style="min-width:240px">Statistic</th><th>Mean</th><th>Sum</th><th>Min</th><th>Max</th></tr></thead><tbody>`;
 
+        // render rows using agg (if agg missing, values will be '—')
         for(const s of STATS_DEFINITION){
           const key = s.key;
           const node = agg[key] || null;
@@ -749,7 +801,12 @@ function fetchJsonSafe(url){
             meanFmt = mean !== null && mean !== undefined ? smartHoursString(mean) : '—';
             minFmt = mn !== null && mn !== undefined ? smartHoursString(mn) : '—';
             maxFmt = mx !== null && mx !== undefined ? smartHoursString(mx) : '—';
-            sumFmt = career.total_match_time_hours !== undefined && career.total_match_time_hours !== null ? smartHoursString(career.total_match_time_hours) : (sum !== null && sum !== undefined ? smartHoursString(sum) : '—');
+            // prefer aggregated totalHours for sum if selection has matches; else fallback to sum from agg or '—'
+            if(hasMatches && totalHours !== null){
+              sumFmt = smartHoursString(totalHours);
+            } else {
+              sumFmt = career.total_match_time_hours !== undefined && career.total_match_time_hours !== null ? smartHoursString(career.total_match_time_hours) : (sum !== null && sum !== undefined ? smartHoursString(sum) : '—');
+            }
           } else {
             meanFmt = mean !== null && mean !== undefined ? smartNumberString(mean) : '—';
             minFmt = mn !== null && mn !== undefined ? smartNumberString(mn) : '—';
@@ -770,6 +827,7 @@ function fetchJsonSafe(url){
 
         container.innerHTML = html;
       }
+
 
       if(document.getElementById('stats-year-filter')) document.getElementById('stats-year-filter').addEventListener('change', renderForSelected);
       if(document.getElementById('stats-surface-filter')) document.getElementById('stats-surface-filter').addEventListener('change', renderForSelected);
