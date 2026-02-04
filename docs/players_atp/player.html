@@ -85,10 +85,20 @@
     .bucket-table th, .bucket-table td { border:1px solid var(--border); padding:8px; text-align:left; font-size:13px; }
     .muted-small { color:var(--muted); font-size:13px; }
 
+    /* scenarios UI */
+    .scenarios-grid { display:grid; grid-template-columns: 1fr 1fr; gap:12px; align-items:start; }
+    .scenario-card { border:1px solid var(--border); padding:12px; border-radius:8px; background:#fff; }
+    .scenario-card h4 { margin:0 0 8px 0; font-size:16px; }
+    .scenario-table { width:100%; border-collapse:collapse; margin-top:8px; }
+    .scenario-table th, .scenario-table td { border:1px solid var(--border); padding:8px; text-align:left; font-size:13px; }
+    .sample-list { margin-top:8px; display:flex; flex-direction:column; gap:6px; }
+    .sample-item { border:1px dashed #eee; padding:8px; border-radius:6px; background:#fafafa; font-size:13px; }
+
     @media (max-width:760px){
       .player-header { flex-direction:column; }
       .player-image { width:100%; max-width:260px; }
       .map-card { min-width:100%; height:360px; }
+      .scenarios-grid { grid-template-columns: 1fr; }
     }
   </style>
   <!-- Plotly for maps (CDN) -->
@@ -330,8 +340,8 @@ function fetchJsonSafe(url){
     });
 
     for(const t of tournaments){
-      const surfClass = (t.surface ? ('surf-' + t.surface.toLowerCase()) : 'surf-other');
-      const div = document.createElement('div'); div.className = 'tourney ' + surfClass;
+      const surfaceClass = (t.surface ? ('surf-' + String(t.surface).toLowerCase()) : 'surf-other');
+      const div = document.createElement('div'); div.className = 'tourney ' + surfaceClass;
       const header = document.createElement('div'); header.className = 'tourney-header';
       const title = document.createElement('div');
       title.innerHTML = `<span class="tourney-title">${escapeHtml(t.tourney_name || 'Tournament')}</span> <span class="tourney-cat" style="background:rgba(0,0,0,0.15); color:#111;">${escapeHtml(t.category || '')}</span>`;
@@ -517,7 +527,7 @@ function fetchJsonSafe(url){
     return candidates;
   }
 
-  /* ---------- Detailed stats renderer (robust + fixed filters) ---------- */
+  /* ---------- Detailed stats renderer (robust) ---------- */
 
   function smartTrimNumber(n){
     if(n === null || n === undefined) return null;
@@ -594,92 +604,67 @@ function fetchJsonSafe(url){
   async function renderDetailedStatsFrom(statsUrl, targetDiv){
     try{
       const res = await fetch(statsUrl);
-      if(!res.ok){ const td = document.getElementById('detailed-stats-container'); if(td) td.innerHTML = '<div class="no-data">Failed to load detailed stats.</div>'; return; }
+      if(!res.ok){ targetDiv.innerHTML = '<div class="no-data">Failed to load detailed stats.</div>'; return; }
       const data = await res.json();
 
       const career = data.career || {};
       const stat_agg = career.stat_agg || data.stat_agg || {};
       const byYear = data.stats_by_year || {};
       const career_by_surface = data.career_by_surface || {};
-      // prefer server-provided available lists if present
-      const availableYears = (Array.isArray(data.available_years) && data.available_years.length) ? data.available_years.slice().sort((a,b)=>parseInt(b)-parseInt(a)) : Object.keys(byYear || {}).slice().sort((a,b)=>parseInt(b)-parseInt(a));
-      const availableSurfacesRaw = (Array.isArray(data.available_surfaces) && data.available_surfaces.length) ? data.available_surfaces.slice() : Object.keys(career_by_surface || {}).slice();
-      // normalize surfaces to lowercase keys (python uses lowercase)
-      const availableSurfaces = availableSurfacesRaw.map(s => (s || '').toString().toLowerCase()).filter(s=>s!=='').sort();
+      const availableYears = (data.available_years && data.available_years.length) ? data.available_years.slice().sort((a,b)=>parseInt(b)-parseInt(a)) : Object.keys(byYear || {}).slice().sort((a,b)=>parseInt(b)-parseInt(a));
+      const availableSurfaces = (data.available_surfaces && data.available_surfaces.length) ? data.available_surfaces.slice().sort() : Object.keys(career_by_surface || {}).slice().sort();
 
-      // find summary & container using document.getElementById (robust)
-      let topSummary = document.getElementById('detailed-stats-summary');
+      // find or create local summary & container elements inside targetDiv
+      let topSummary = targetDiv.querySelector('#detailed-stats-summary');
       if(!topSummary){
         topSummary = document.createElement('div');
         topSummary.id = 'detailed-stats-summary';
+        // insert at the top of targetDiv
         targetDiv.insertBefore(topSummary, targetDiv.firstChild);
       }
-      let container = document.getElementById('detailed-stats-container');
+      let container = targetDiv.querySelector('#detailed-stats-container');
       if(!container){
         container = document.createElement('div');
         container.id = 'detailed-stats-container';
         targetDiv.appendChild(container);
       }
 
-      // populate filters (make sure option values match python lowercasing)
+      // populate filters (they live outside targetDiv in DOM but could be absent)
       const yselGlobal = document.getElementById('stats-year-filter');
       const sselGlobal = document.getElementById('stats-surface-filter');
       if(yselGlobal){
         yselGlobal.innerHTML = '<option value="ALL">All</option>';
-        for(const y of availableYears){ const o = document.createElement('option'); o.value = String(y); o.textContent = y || 'Unknown'; yselGlobal.appendChild(o); }
+        for(const y of availableYears){ const o = document.createElement('option'); o.value = y; o.textContent = y || 'Unknown'; yselGlobal.appendChild(o); }
       }
       if(sselGlobal){
-        sselGlobal.innerHTML = '<option value="ALL">All</option>';
-        // surface display: capitalize first letter for readability
-        function displaySurfaceLabel(s){
-          if(!s) return 'Unknown';
-          if(s === 'unknown') return 'Unknown';
-          return s.charAt(0).toUpperCase() + s.slice(1);
+          sselGlobal.innerHTML = '<option value="ALL">All</option>';
+          for(const s of availableSurfaces){
+            const val = (s || '').toString();
+            // display label nicer (capitalize first letter), but keep value as the normalized key
+            const display = (val === 'unknown' || val === '') ? 'Unknown' : (val.charAt(0).toUpperCase() + val.slice(1));
+            const o = document.createElement('option');
+            o.value = val;          // e.g. "hard", "clay", "grass", "unknown"
+            o.textContent = display; // e.g. "Hard", "Clay", "Grass"
+            sselGlobal.appendChild(o);
+          }
         }
-        // ensure unique
-        const uniq = Array.from(new Set(availableSurfaces));
-        for(const s of uniq){
-          const o = document.createElement('option');
-          o.value = String((s||'').toLowerCase()); // lowercase value to match python keys
-          o.textContent = displaySurfaceLabel(s);
-          sselGlobal.appendChild(o);
-        }
-      }
 
-      // helper: try to find stat_agg for given year+surface, robust to case and multiple shapes
+
       function pickAgg(year, surface){
-        const surfaceNorm = (typeof surface === 'string') ? surface.toLowerCase() : surface;
         if(year && year !== 'ALL'){
           const sy = byYear[year];
           if(sy){
-            // direct by_surface inside year (expected shape: sy.by_surface[surface].stat_agg)
-            const byS = sy.by_surface || sy['by_surface'] || {};
-            // try exact key
             if(surface && surface !== 'ALL'){
-              if(byS[surfaceNorm] && byS[surfaceNorm].stat_agg) return byS[surfaceNorm].stat_agg;
-              // try case-insensitive search
-              const keys = Object.keys(byS || {});
-              for(const k of keys){
-                if(k.toString().toLowerCase() === surfaceNorm && byS[k] && byS[k].stat_agg) return byS[k].stat_agg;
-              }
+              const byS = sy.by_surface || {};
+              if(byS[surface] && byS[surface].stat_agg) return byS[surface].stat_agg;
             }
-            // fallback to year-level stat agg
             if(sy.stat_agg) return sy.stat_agg;
           }
         }
-
-        // if year ALL or no year found, but surface specified -> use career_by_surface
         if(surface && surface !== 'ALL'){
-          if(career_by_surface[surfaceNorm] && career_by_surface[surfaceNorm].stat_agg) return career_by_surface[surfaceNorm].stat_agg;
-          // try case-insensitive fallback
-          const keys2 = Object.keys(career_by_surface || {});
-          for(const k of keys2){
-            if(k.toString().toLowerCase() === surfaceNorm && career_by_surface[k] && career_by_surface[k].stat_agg) return career_by_surface[k].stat_agg;
-          }
+          if(career_by_surface[surface] && career_by_surface[surface].stat_agg) return career_by_surface[surface].stat_agg;
         }
-
-        // final fallback to global career stat_agg
-        return stat_agg || {};
+        return stat_agg;
       }
 
       function renderForSelected(){
@@ -689,7 +674,7 @@ function fetchJsonSafe(url){
         topSummary.innerHTML = `<div class="muted-small">Showing: <strong>${year==='ALL'?'All years':escapeHtml(year)}</strong> / <strong>${surface==='ALL'?'All surfaces':escapeHtml(surface)}</strong></div>`;
 
         // build table without Count column
-        let html = `<div style="font-weight:700;margin-bottom:8px">Detailed statistics (source: ${escapeHtml(statsUrl)})</div>`;
+        let html = `<div style="font-weight:700;margin-bottom:8px">Detailed statistics</div>`;
         html += `<div class="stats-summary">`;
         html += `<div class="stat-card"><div style="font-weight:700">Matches</div><div class="sub">${escapeHtml(String(career.matches_played || data.meta && data.meta.matches || '—'))}</div></div>`;
         html += `<div class="stat-card"><div style="font-weight:700">Matches won</div><div class="sub">${escapeHtml(String(career.matches_won || '—'))}</div></div>`;
@@ -705,7 +690,7 @@ function fetchJsonSafe(url){
 
         for(const s of STATS_DEFINITION){
           const key = s.key;
-          const node = agg && agg[key] ? agg[key] : null;
+          const node = agg[key] || null;
           const mean = node && node.mean !== undefined ? node.mean : null;
           const sum = node && node.sum !== undefined ? node.sum : null;
           const mn = node && node.min !== undefined ? node.min : null;
@@ -743,7 +728,6 @@ function fetchJsonSafe(url){
         container.innerHTML = html;
       }
 
-      // attach listeners (once)
       if(document.getElementById('stats-year-filter')) document.getElementById('stats-year-filter').addEventListener('change', renderForSelected);
       if(document.getElementById('stats-surface-filter')) document.getElementById('stats-surface-filter').addEventListener('change', renderForSelected);
 
@@ -751,8 +735,168 @@ function fetchJsonSafe(url){
 
     }catch(e){
       console.error('renderDetailedStatsFrom error', e);
-      const td = document.getElementById('detailed-stats-container');
-      if(td) td.innerHTML = '<div class="no-data">Error rendering detailed stats.</div>';
+      if(targetDiv) targetDiv.innerHTML = '<div class="no-data">Error rendering detailed stats.</div>';
+    }
+  }
+
+  /* ------------------ Scenarios renderer (new, pretty) ------------------ */
+
+  function humanizeScenarioKey(k){
+    // friendly labels for the keys produced by generate_scenarios.py
+    const map = {
+      'wins_after_losing_first_set': 'Wins after losing first set',
+      'losses_after_winning_first_set': 'Losses after winning first set',
+      'wins_in_2_sets': 'Wins in 2 sets',
+      'wins_in_3_sets': 'Wins in 3 sets',
+      'losses_in_2_sets': 'Losses in 2 sets',
+      'losses_in_3_sets': 'Losses in 3 sets',
+      'wins_after_losing_first_two_sets': 'Wins after losing first two sets',
+      'wins_after_down_2_1': 'Wins after being down 2–1',
+      'losses_after_winning_first_two_sets': 'Losses after winning first two sets',
+      'losses_after_leading_2_1': 'Losses after leading 2–1',
+      'wins_in_4_sets': 'Wins in 4 sets',
+      'wins_in_5_sets': 'Wins in 5 sets',
+      'losses_in_4_sets': 'Losses in 4 sets',
+      'losses_in_5_sets': 'Losses in 5 sets'
+    };
+    return map[k] || k.replace(/_/g, ' ');
+  }
+
+  function pctFromObj(obj){
+    // accept either object with 'pct' field, or {count, denominator} or raw number
+    if(!obj) return null;
+    if(typeof obj === 'number') return obj;
+    if(obj.pct !== undefined && obj.pct !== null) return obj.pct;
+    if(obj.denominator !== undefined && obj.denominator && obj.denominator > 0){
+      return (obj.count || 0) / obj.denominator;
+    }
+    return null;
+  }
+
+  function renderScenarios(data, sourceUrl, targetDiv){
+    try{
+      const sc = data.scenarios || data; // be forgiving
+      const non_gs = sc.non_gs || {};
+      const gs = sc.gs || {};
+      const retire = sc.retirements || {};
+      const samples = sc.samples || {};
+
+      let html = `<div style="font-weight:700;margin-bottom:8px">Scenarios (source: ${escapeHtml(sourceUrl)})</div>`;
+      html += `<div class="scenarios-grid">`;
+
+      // NON-GS card
+      html += `<div class="scenario-card"><h4>Non-Grand Slam</h4>`;
+      html += `<div class="muted-small">Metrics for non-GS matches</div>`;
+      html += `<table class="scenario-table"><thead><tr><th>Scenario</th><th>Count</th><th>Share</th></tr></thead><tbody>`;
+      const nonGsOrder = [
+        'wins_after_losing_first_set',
+        'losses_after_winning_first_set',
+        'wins_in_2_sets',
+        'wins_in_3_sets',
+        'losses_in_2_sets',
+        'losses_in_3_sets'
+      ];
+      nonGsOrder.forEach(k => {
+        const v = non_gs[k];
+        if(v === undefined) return;
+        const count = (typeof v === 'object' && v.count !== undefined) ? v.count : (typeof v === 'number' ? v : 0);
+        const pct = pctFromObj(v);
+        html += `<tr><td style="font-weight:700">${escapeHtml(humanizeScenarioKey(k))}</td><td>${escapeHtml(String(count))}</td><td>${escapeHtml(pct !== null ? smartPercentFromFraction(pct) : '—')}</td></tr>`;
+      });
+      html += `</tbody></table>`;
+      // samples for non-GS (if present)
+      html += `<div style="margin-top:8px;"><strong>Samples</strong>`;
+      const sampleKeys = Object.keys(samples || {});
+      if(sampleKeys.length){
+        html += `<div class="sample-list">`;
+        ['wins_after_losing_first_set','losses_after_winning_first_set','wins_in_2_sets','wins_in_3_sets'].forEach(sk=>{
+          if(samples[sk] && samples[sk].length){
+            html += `<div><div style="font-weight:700;margin-top:6px">${escapeHtml(humanizeScenarioKey(sk))} (${samples[sk].length})</div>`;
+            samples[sk].slice(0,6).forEach(it=>{
+              html += `<div class="sample-item"><div><strong>${escapeHtml(it.score || it.match_id || '')}</strong> — ${escapeHtml(it.start_date || '')}</div></div>`;
+            });
+            html += `</div>`;
+          }
+        });
+        html += `</div>`;
+      }
+      html += `</div></div>`;
+
+      // GS card
+      html += `<div class="scenario-card"><h4>Grand Slams (GS)</h4>`;
+      html += `<div class="muted-small">GS-specific scenarios & set-length breakdown</div>`;
+      html += `<table class="scenario-table"><thead><tr><th>Scenario</th><th>Count</th><th>Share</th></tr></thead><tbody>`;
+      const gsOrder = [
+        'wins_after_losing_first_set',
+        'wins_after_losing_first_two_sets',
+        'wins_after_down_2_1',
+        'losses_after_winning_first_two_sets',
+        'losses_after_winning_first_set',
+        'losses_after_leading_2_1',
+        'wins_in_3_sets',
+        'wins_in_4_sets',
+        'wins_in_5_sets',
+        'losses_in_3_sets',
+        'losses_in_4_sets',
+        'losses_in_5_sets'
+      ];
+      gsOrder.forEach(k => {
+        const v = gs[k];
+        if(v === undefined) return;
+        const count = (typeof v === 'object' && v.count !== undefined) ? v.count : (typeof v === 'number' ? v : 0);
+        const pct = pctFromObj(v);
+        html += `<tr><td style="font-weight:700">${escapeHtml(humanizeScenarioKey(k))}</td><td>${escapeHtml(String(count))}</td><td>${escapeHtml(pct !== null ? smartPercentFromFraction(pct) : '—')}</td></tr>`;
+      });
+      html += `</tbody></table>`;
+      // GS samples
+      html += `<div style="margin-top:8px;"><strong>Samples (GS)</strong>`;
+      if(sampleKeys.length){
+        html += `<div class="sample-list">`;
+        ['wins_after_losing_first_two_sets','wins_after_down_2_1','wins_in_5_sets'].forEach(sk=>{
+          if(samples[sk] && samples[sk].length){
+            html += `<div><div style="font-weight:700;margin-top:6px">${escapeHtml(humanizeScenarioKey(sk))} (${samples[sk].length})</div>`;
+            samples[sk].slice(0,6).forEach(it=>{
+              html += `<div class="sample-item"><div><strong>${escapeHtml(it.score || it.match_id || '')}</strong> — ${escapeHtml(it.start_date || '')}</div></div>`;
+            });
+            html += `</div>`;
+          }
+        });
+        html += `</div>`;
+      }
+      html += `</div></div>`;
+
+      html += `</div>`; // end grid
+
+      // Retirements block (separate full row)
+      html += `<div style="margin-top:12px" class="scenario-card">`;
+      html += `<h4>Retirements / abandons</h4>`;
+      html += `<div class="muted-small">Matches not finished </div>`;
+      html += `<div style="margin-top:8px">Count: <strong>${escapeHtml(String(retire.count || 0))}</strong></div>`;
+      if(retire.by_set && Object.keys(retire.by_set).length){
+        html += `<div style="margin-top:8px"><table class="scenario-table"><thead><tr><th>Set at retirement</th><th>Count</th></tr></thead><tbody>`;
+        Object.keys(retire.by_set).sort((a,b)=>Number(a)-Number(b)).forEach(setk=>{
+          html += `<tr><td>${escapeHtml(setk)}</td><td>${escapeHtml(String(retire.by_set[setk]))}</td></tr>`;
+        });
+        html += `</tbody></table></div>`;
+      }
+      
+      html += `</div>`;
+
+      // raw JSON preview toggle
+      html += `<div style="margin-top:12px" class="scenario-card"><div style="display:flex;align-items:center;gap:12px"><div style="font-weight:700">Raw scenarios JSON</div><button id="scenarios-toggle-raw" class="tab-btn" style="padding:6px 8px">Toggle</button></div><div id="scenarios-raw" style="display:none;margin-top:8px;max-height:320px;overflow:auto;border:1px solid var(--border);padding:8px;background:#fff"><pre class="muted-small">${escapeHtml(JSON.stringify(data, null, 2).slice(0,20000))}${String(JSON.stringify(data).length>20000 ? '…' : '')}</pre></div></div>`;
+
+      targetDiv.innerHTML = html;
+
+      const toggle = document.getElementById('scenarios-toggle-raw');
+      if(toggle){
+        toggle.addEventListener('click', ()=>{
+          const pre = document.getElementById('scenarios-raw');
+          if(pre) pre.style.display = (pre.style.display === 'none' ? 'block' : 'none');
+        });
+      }
+    }catch(e){
+      console.error('renderScenarios error', e);
+      targetDiv.innerHTML = '<div class="no-data">Error rendering scenarios.</div>';
     }
   }
 
@@ -781,37 +925,8 @@ function fetchJsonSafe(url){
       const candidates = buildCandidatesFor(playerData, 'scenarios').concat([`/players_atp/${pid}.scenarios.json`, `/players_atp/${slugVal}.scenarios.json`]);
       const res = await tryCandidatesSequential(candidates);
       if(!res || !res.data){ targetDiv.innerHTML = '<div class="no-data">Scenarios are not available for this player.</div>'; return; }
-      const data = res.data;
-      let html = `<div style="font-weight:700;margin-bottom:8px">Scenarios (source: ${escapeHtml(res.url)})</div>`;
-      if(data && data.scenarios && typeof data.scenarios === 'object'){
-        // pretty display of scenario counts + samples if provided
-        html += '<div style="display:flex;flex-direction:column;gap:8px">';
-        for(const k of Object.keys(data.scenarios).sort()){
-          const v = data.scenarios[k];
-          if(v && typeof v === 'object'){
-            const count = v.count !== undefined ? v.count : (Array.isArray(v) ? v.length : null);
-            html += `<div style="border:1px solid var(--border);padding:10px;border-radius:8px"><div style="font-weight:700">${escapeHtml(k.replace(/_/g,' '))} — ${count !== null ? 'Count: '+escapeHtml(String(count)) : ''}</div>`;
-            if(v.sample && Array.isArray(v.sample) && v.sample.length){
-              html += `<div class="sub" style="margin-top:6px">Examples:</div><ul>`;
-              for(const ex of v.sample.slice(0,6)){
-                html += `<li class="sub">${escapeHtml((ex.score||ex['score']||'')+' — '+(ex.match_date||ex.start_date||''))} — ${escapeHtml(String(ex.opponent||ex.opponent||''))}</li>`;
-              }
-              html += `</ul>`;
-            }
-            html += `</div>`;
-          }
-        }
-        html += '</div>';
-      } else if(Array.isArray(data.scenarios) && data.scenarios.length){
-        html += '<div style="display:flex;flex-direction:column;gap:8px">';
-        data.scenarios.forEach(s => {
-          html += `<div style="border:1px solid var(--border);padding:10px;border-radius:8px"><div style="font-weight:700">${escapeHtml(s.title || s.name || 'Scenario')}</div><div class="sub">${escapeHtml(s.description || JSON.stringify(s).slice(0,300))}</div></div>`;
-        });
-        html += '</div>';
-      } else {
-        html += `<pre class="sub">${escapeHtml(JSON.stringify(data, null, 2).slice(0,2000))}${String(JSON.stringify(data).length>2000 ? '…' : '')}</pre>`;
-      }
-      targetDiv.innerHTML = html;
+      // render nicely using new renderer
+      renderScenarios(res.data, res.url, targetDiv);
       return;
     }
 
