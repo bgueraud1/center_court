@@ -81,7 +81,6 @@
     .stats-summary { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
     .stat-card { background:#fff; border:1px solid var(--border); padding:10px; border-radius:8px; min-width:140px; box-shadow:0 6px 18px rgba(10,30,80,0.02); }
 
-    .upsets { margin-top:12px; display:flex; gap:12px; flex-wrap:wrap; }
     .bucket-table { width:100%; border-collapse:collapse; margin-top:8px; }
     .bucket-table th, .bucket-table td { border:1px solid var(--border); padding:8px; text-align:left; font-size:13px; }
     .muted-small { color:var(--muted); font-size:13px; }
@@ -172,27 +171,6 @@ function escapeHtml(s){
   if (s === null || s === undefined) return '';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
-function countryCodeToFlag(code){
-  if(!code) return '';
-  const map = {'ITA':'IT','ESP':'ES','DEU':'DE','GER':'DE','USA':'US','GBR':'GB','SRB':'RS','FRA':'FR','ARG':'AR','BRA':'BR','CHE':'CH','SUI':'CH'};
-  let iso2 = code;
-  if(typeof iso2 === 'string') iso2 = iso2.trim();
-  if(!iso2) return '';
-  if(iso2.length === 3) iso2 = (map[iso2.toUpperCase()] || null);
-  if(!iso2 && iso2.length === 2) iso2 = iso2.toUpperCase();
-  if(!iso2) return '';
-  if(!/^[A-Z]{2}$/.test(iso2.toUpperCase())) return '';
-  const A = 0x1F1E6;
-  return [...iso2.toUpperCase()].map(c => String.fromCodePoint(A + c.charCodeAt(0) - 65)).join('');
-}
-function surfaceClass(surface){
-  if(!surface) return 'surf-other';
-  const s = String(surface).toLowerCase();
-  if(s.includes('hard')) return 'surf-hard';
-  if(s.includes('clay') || s.includes('red')) return 'surf-clay';
-  if(s.includes('grass')) return 'surf-grass';
-  return 'surf-other';
-}
 function dateWithoutYear(isoDate){
   if(!isoDate) return '';
   try{
@@ -231,7 +209,6 @@ function fetchJsonSafe(url){
   if(!found){ loading.textContent = 'Player not found for slug: ' + slug; return; }
 
   const pid = found.player_id;
-  // prefer explicit data_path if available
   const dataUrl = (found.data_path ? '/' + String(found.data_path).replace(/^\/+/, '') : `/players_atp/data/${slugLower}.json`);
   loading.textContent = 'Loading player data...';
 
@@ -255,7 +232,6 @@ function fetchJsonSafe(url){
     } else { loading.textContent = 'Player data unavailable.'; return; }
   }
 
-  // normalize
   combined.player_id = combined.player_id || pid;
   combined.name = combined.name || found.name || pid;
   combined.slug = combined.slug || slugLower;
@@ -266,8 +242,7 @@ function fetchJsonSafe(url){
 
   // header
   document.getElementById('player-name').textContent = combined.name;
-  const flag = countryCodeToFlag(combined.country || found.country || '');
-  document.getElementById('player-country').innerHTML = `${combined.country ? escapeHtml(combined.country) : ''} ${flag ? ' ' + flag : ''}`;
+  document.getElementById('player-country').textContent = combined.country || found.country || '';
 
   // attrs
   const attrs = document.getElementById('player-attrs'); attrs.innerHTML = '';
@@ -296,14 +271,14 @@ function fetchJsonSafe(url){
   const matchesContainer = document.getElementById('matches-container');
   let mby = combined.matches_by_year || {};
 
-  // fallback: build grouping client-side if needed (STRICT: use start_date only)
+  // fallback grouping client-side if needed
   if(Object.keys(mby).length === 0 && Array.isArray(combined.matches) && combined.matches.length){
     const map = {};
     for(const m of combined.matches){
       const y = (m.event_year || '').toString();
       if(!map[y]) map[y] = {};
       const name = (m.tourney_name || '').trim();
-      const sd = (m.start_date || '').trim(); // strict
+      const sd = (m.start_date || '').trim();
       const key = (m.event_id ? m.event_id : 'NOID') + '||' + name + '||' + sd;
       if(!map[y][key]) map[y][key] = { event_id: m.event_id || '', tourney_name: name, category: m.category || '', surface: m.surface || '', start_date: sd, matches: [] };
       map[y][key].matches.push(m);
@@ -355,8 +330,7 @@ function fetchJsonSafe(url){
     });
 
     for(const t of tournaments){
-      const surfClass = surfaceClass(t.surface || '');
-      const div = document.createElement('div'); div.className = 'tourney ' + surfClass;
+      const div = document.createElement('div'); div.className = 'tourney ' + (t.surface ? ('surf-' + t.surface.toLowerCase()) : 'surf-other');
       const header = document.createElement('div'); header.className = 'tourney-header';
       const title = document.createElement('div');
       title.innerHTML = `<span class="tourney-title">${escapeHtml(t.tourney_name || 'Tournament')}</span> <span class="tourney-cat" style="background:rgba(0,0,0,0.15); color:#111;">${escapeHtml(t.category || '')}</span>`;
@@ -409,7 +383,7 @@ function fetchJsonSafe(url){
 
   yearSelect.addEventListener('change', (e) => renderMatchesForYear(e.target.value));
 
-  // TROPHIES & BEST
+  // trophies & best
   const trophiesList = document.getElementById('trophies-list'); trophiesList.innerHTML = '';
   const trophies = (combined.trophies || []).slice();
   if(!trophies.length) trophiesList.innerHTML = '<div class="no-data">No titles recorded.</div>';
@@ -455,7 +429,7 @@ function fetchJsonSafe(url){
   loading.style.display = 'none';
   root.style.display = 'block';
 
-  // tabs behavior (top-level)
+  // tabs behavior
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -464,16 +438,11 @@ function fetchJsonSafe(url){
       document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
       const tgt = document.getElementById(target); if(tgt) tgt.classList.add('active');
 
-      // when stats panel becomes active, initialize subtabs if not yet
-      if(target === 'panel-stats'){
-        initStatsSubtabs(combined);
-      }
+      if(target === 'panel-stats'){ initStatsSubtabs(combined); }
     });
   });
 
-  if(document.getElementById('panel-stats').classList.contains('active')){
-    initStatsSubtabs(combined);
-  }
+  if(document.getElementById('panel-stats').classList.contains('active')){ initStatsSubtabs(combined); }
 
   /* ------------------ Stats subtabs + lazy loaders ------------------ */
 
@@ -501,7 +470,6 @@ function fetchJsonSafe(url){
       b.addEventListener('click', (e) => {
         document.querySelectorAll('.subtab-btn').forEach(x => x.classList.remove('active'));
         b.classList.add('active');
-        // hide panels
         document.querySelectorAll('#stats-subpanels > div').forEach(d => d.style.display = 'none');
         const tgt = document.getElementById(b.dataset.target);
         if(tgt) tgt.style.display = 'block';
@@ -510,7 +478,6 @@ function fetchJsonSafe(url){
       subtabs.appendChild(b);
     });
 
-    // show first subpanel
     document.getElementById('panel-detailed').style.display = 'block';
     loadStatsSubpanel('detailed', playerData);
   }
@@ -549,24 +516,21 @@ function fetchJsonSafe(url){
     return candidates;
   }
 
-  /* ---------- Detailed stats renderer (with filters & tidy formatting) ---------- */
+  /* ---------- Detailed stats renderer (robust) ---------- */
 
   function smartTrimNumber(n){
     if(n === null || n === undefined) return null;
     const num = Number(n);
     if(isNaN(num)) return null;
     if(Math.abs(num - Math.round(num)) < 1e-9) return Math.round(num);
-    // otherwise keep up to 2 decimals and trim trailing zeros
     return parseFloat((Math.round(num * 100) / 100).toFixed(2));
   }
   function smartPercentFromFraction(frac){
-    // input: fraction 0..1 -> returns nicely formatted string
     if(frac === null || frac === undefined) return '—';
     const f = Number(frac);
     if(isNaN(f)) return '—';
     const pct = f * 100;
     if(Math.abs(pct - Math.round(pct)) < 1e-9) return `${Math.round(pct)}%`;
-    // else keep up to 2 decimals, remove trailing zeros
     const s = (Math.round(pct * 100) / 100).toFixed(2).replace(/\.?0+$/,'');
     return `${s}%`;
   }
@@ -597,7 +561,6 @@ function fetchJsonSafe(url){
     }
   }
 
-  // which stat keys are rates/pct (we will suppress Sum column for them)
   const RATE_KEYS = new Set([
     'aces_per_service_point','doublefaults_per_service_point',
     'firstserve_percent','firstserve_points_won_percent','secondserve_points_won_percent',
@@ -629,11 +592,10 @@ function fetchJsonSafe(url){
 
   async function renderDetailedStatsFrom(statsUrl, targetDiv){
     try{
-      const r = await fetch(statsUrl);
-      if(!r.ok){ targetDiv.innerHTML = '<div class="no-data">Failed to load detailed stats.</div>'; return; }
-      const data = await r.json();
+      const res = await fetch(statsUrl);
+      if(!res.ok){ targetDiv.innerHTML = '<div class="no-data">Failed to load detailed stats.</div>'; return; }
+      const data = await res.json();
 
-      // get aggregations
       const career = data.career || {};
       const stat_agg = career.stat_agg || data.stat_agg || {};
       const byYear = data.stats_by_year || {};
@@ -641,17 +603,34 @@ function fetchJsonSafe(url){
       const availableYears = (data.available_years && data.available_years.length) ? data.available_years.slice().sort((a,b)=>parseInt(b)-parseInt(a)) : Object.keys(byYear || {}).slice().sort((a,b)=>parseInt(b)-parseInt(a));
       const availableSurfaces = (data.available_surfaces && data.available_surfaces.length) ? data.available_surfaces.slice().sort() : Object.keys(career_by_surface || {}).slice().sort();
 
-      // populate filters
-      const ysel = document.getElementById('stats-year-filter');
-      const ssel = document.getElementById('stats-surface-filter');
-      ysel.innerHTML = '<option value="ALL">All</option>';
-      ssel.innerHTML = '<option value="ALL">All</option>';
-      for(const y of availableYears){ const o = document.createElement('option'); o.value=y; o.textContent = y || 'Unknown'; ysel.appendChild(o); }
-      for(const s of availableSurfaces){ const o = document.createElement('option'); o.value=s; o.textContent = s; ssel.appendChild(o); }
+      // find or create local summary & container elements inside targetDiv
+      let topSummary = targetDiv.querySelector('#detailed-stats-summary');
+      if(!topSummary){
+        topSummary = document.createElement('div');
+        topSummary.id = 'detailed-stats-summary';
+        // insert at the top of targetDiv
+        targetDiv.insertBefore(topSummary, targetDiv.firstChild);
+      }
+      let container = targetDiv.querySelector('#detailed-stats-container');
+      if(!container){
+        container = document.createElement('div');
+        container.id = 'detailed-stats-container';
+        targetDiv.appendChild(container);
+      }
 
-      // helper: pick stat_agg according to filters
+      // populate filters (they live outside targetDiv in DOM but could be absent)
+      const yselGlobal = document.getElementById('stats-year-filter');
+      const sselGlobal = document.getElementById('stats-surface-filter');
+      if(yselGlobal){
+        yselGlobal.innerHTML = '<option value="ALL">All</option>';
+        for(const y of availableYears){ const o = document.createElement('option'); o.value = y; o.textContent = y || 'Unknown'; yselGlobal.appendChild(o); }
+      }
+      if(sselGlobal){
+        sselGlobal.innerHTML = '<option value="ALL">All</option>';
+        for(const s of availableSurfaces){ const o = document.createElement('option'); o.value = s; o.textContent = s; sselGlobal.appendChild(o); }
+      }
+
       function pickAgg(year, surface){
-        // Year+Surface -> stats_by_year[year].by_surface[surface].stat_agg
         if(year && year !== 'ALL'){
           const sy = byYear[year];
           if(sy){
@@ -665,22 +644,17 @@ function fetchJsonSafe(url){
         if(surface && surface !== 'ALL'){
           if(career_by_surface[surface] && career_by_surface[surface].stat_agg) return career_by_surface[surface].stat_agg;
         }
-        // fallback to career
         return stat_agg;
       }
 
-      const container = document.getElementById('detailed-stats-container');
-      const topSummary = document.getElementById('detailed-stats-summary');
-
       function renderForSelected(){
-        const year = ysel.value;
-        const surface = ssel.value;
+        const year = (document.getElementById('stats-year-filter') && document.getElementById('stats-year-filter').value) || 'ALL';
+        const surface = (document.getElementById('stats-surface-filter') && document.getElementById('stats-surface-filter').value) || 'ALL';
         const agg = pickAgg(year, surface);
-        topSummary.innerHTML = `<div class="muted-small">Showing: <strong>${year==='ALL'?'All years':year}</strong> / <strong>${surface==='ALL'?'All surfaces':surface}</strong></div>`;
+        topSummary.innerHTML = `<div class="muted-small">Showing: <strong>${year==='ALL'?'All years':escapeHtml(year)}</strong> / <strong>${surface==='ALL'?'All surfaces':escapeHtml(surface)}</strong></div>`;
 
-        // build table (NO Count column)
+        // build table without Count column
         let html = `<div style="font-weight:700;margin-bottom:8px">Detailed statistics (source: ${escapeHtml(statsUrl)})</div>`;
-        // top cards
         html += `<div class="stats-summary">`;
         html += `<div class="stat-card"><div style="font-weight:700">Matches</div><div class="sub">${escapeHtml(String(career.matches_played || data.meta && data.meta.matches || '—'))}</div></div>`;
         html += `<div class="stat-card"><div style="font-weight:700">Matches won</div><div class="sub">${escapeHtml(String(career.matches_won || '—'))}</div></div>`;
@@ -731,55 +705,17 @@ function fetchJsonSafe(url){
 
         html += `</tbody></table>`;
 
-        // Upsets summary (if present)
-        if(data.upsets){
-          const u = data.upsets;
-          html += `<div class="upsets"><div style="flex:1 1 360px"><h4 style="margin-top:14px">Upsets</h4>`;
-          html += `<div class="muted-small">Wins vs better (count): <strong>${escapeHtml(String(u.wins_vs_better_count || 0))}</strong></div>`;
-          html += `<div class="muted-small">Matches vs better: <strong>${escapeHtml(String(u.matches_vs_better || 0))}</strong></div>`;
-          html += `<div class="muted-small">Win rate vs better: <strong>${u.wins_vs_better_rate !== null && u.wins_vs_better_rate !== undefined ? (typeof u.wins_vs_better_rate === 'number' ? smartPercentFromFraction(u.wins_vs_better_rate) : escapeHtml(String(u.wins_vs_better_rate))) : '—'}</strong></div>`;
-          html += `<div style="height:8px"></div>`;
-          html += `<div class="muted-small">Losses vs worse (count): <strong>${escapeHtml(String(u.losses_vs_worse_count || 0))}</strong></div>`;
-          html += `<div class="muted-small">Matches vs worse: <strong>${escapeHtml(String(u.matches_vs_worse || 0))}</strong></div>`;
-          html += `<div class="muted-small">Loss rate vs worse: <strong>${u.losses_vs_worse_rate !== null && u.losses_vs_worse_rate !== undefined ? (typeof u.losses_vs_worse_rate === 'number' ? smartPercentFromFraction(u.losses_vs_worse_rate) : escapeHtml(String(u.losses_vs_worse_rate))) : '—'}</strong></div>`;
-          html += `</div></div>`;
-        }
-
-        // Ranking buckets
-        if(data.ranking_buckets && Object.keys(data.ranking_buckets).length){
-          html += `<div style="margin-top:14px"><h4>Wins by ranking bucket (opponent)</h4>`;
-          html += `<table class="bucket-table"><thead><tr><th>Bucket</th><th>Matches</th><th>Wins</th><th>Win rate</th></tr></thead><tbody>`;
-          const keys = Object.keys(data.ranking_buckets).sort((a,b)=>{
-            const ai = parseInt(a.split('-')[0].replace(/\D/g,'')) || 9999;
-            const bi = parseInt(b.split('-')[0].replace(/\D/g,'')) || 9999;
-            return ai - bi;
-          });
-          for(const k of keys){
-            const it = data.ranking_buckets[k] || {};
-            const wr = it.win_rate;
-            let wrFmt = '—';
-            if(wr !== null && wr !== undefined){
-              if(typeof wr === 'number') wrFmt = smartPercentFromFraction(wr);
-              else wrFmt = escapeHtml(String(wr));
-            }
-            html += `<tr><td style="font-weight:700">${escapeHtml(k)}</td><td>${escapeHtml(String(it.matches || 0))}</td><td>${escapeHtml(String(it.wins || 0))}</td><td>${wrFmt}</td></tr>`;
-          }
-          html += `</tbody></table></div>`;
-        }
-
         container.innerHTML = html;
       }
 
-      // two filters change
-      ysel.addEventListener('change', renderForSelected);
-      ssel.addEventListener('change', renderForSelected);
+      if(document.getElementById('stats-year-filter')) document.getElementById('stats-year-filter').addEventListener('change', renderForSelected);
+      if(document.getElementById('stats-surface-filter')) document.getElementById('stats-surface-filter').addEventListener('change', renderForSelected);
 
-      // initial render
       renderForSelected();
 
     }catch(e){
       console.error('renderDetailedStatsFrom error', e);
-      targetDiv.innerHTML = '<div class="no-data">Error rendering detailed stats.</div>';
+      if(targetDiv) targetDiv.innerHTML = '<div class="no-data">Error rendering detailed stats.</div>';
     }
   }
 
@@ -787,7 +723,7 @@ function fetchJsonSafe(url){
 
   async function loadStatsSubpanel(kind, playerData){
     if(statsLoadState[kind]) return;
-    statsLoadState[kind] = true; // avoid double load
+    statsLoadState[kind] = true;
     const pid = playerData.player_id;
     const slugVal = playerData.slug || slug;
 
@@ -881,15 +817,10 @@ function fetchJsonSafe(url){
 })();
 
 /* ------------------ maps-client (Plotly) ------------------ */
-/* (kept intact from the previous file) */
+/* (kept intact) */
 (function(){
   const RETRY_INTERVAL = 180; // ms
   const MAX_RETRIES = 20; // ~3.6s total
-
-  function slugFromLocation(){
-    const parts = location.pathname.replace(/\/$/, '').split('/');
-    return (parts[parts.length-1] || parts[parts.length-2] || '').toString();
-  }
 
   function waitForPlotly(maxRetries = MAX_RETRIES){
     return new Promise((resolve) => {
@@ -930,18 +861,13 @@ function fetchJsonSafe(url){
       op.className = 'map-card';
       op.style.minHeight = '320px';
       panelMaps.querySelector('.map-wrap') ? panelMaps.querySelector('.map-wrap').prepend(op) : panelMaps.appendChild(op);
-      console.info('maps-client: created missing #map-opponents container');
     }
     if(!host){
-      host = document.getElementById('map-hosts');
-      if(!host){
-        host = document.createElement('div');
-        host.id = 'map-hosts';
-        host.className = 'map-card';
-        host.style.minHeight = '320px';
-        panelMaps.querySelector('.map-wrap') ? panelMaps.querySelector('.map-wrap').appendChild(host) : panelMaps.appendChild(host);
-        console.info('maps-client: created missing #map-hosts container');
-      }
+      host = document.createElement('div');
+      host.id = 'map-hosts';
+      host.className = 'map-card';
+      host.style.minHeight = '320px';
+      panelMaps.querySelector('.map-wrap') ? panelMaps.querySelector('.map-wrap').appendChild(host) : panelMaps.appendChild(host);
     }
     return {op, host};
   }
@@ -1060,18 +986,14 @@ function fetchJsonSafe(url){
 
   function initMaps(options){
     options = options || {};
-    const slugParam = options.slug || slugFromLocation();
-    if(!slugParam){
-      console.warn('maps-client: could not detect slug from URL');
-      return;
-    }
+    const slugParam = options.slug || (location.pathname.replace(/\/$/, '').split('/').pop() || '');
+    if(!slugParam){ console.warn('maps-client: could not detect slug from URL'); return; }
     const candidates = [
       `/players_atp/${slugParam}.maps.json`,
       `/players_atp/${slugParam.toUpperCase()}.maps.json`,
       `/players_atp/${slugParam.toLowerCase()}.maps.json`,
       `/players_atp/${slugParam}-maps.json`
     ];
-
     (function tryNext(i){
       if(i >= candidates.length){
         const d1 = document.getElementById('map-opponents');
