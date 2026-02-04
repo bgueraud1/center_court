@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Leaderboard - Center Court</title>
+<style>
+  :root{
+    --bg:#ffffff; --muted:#666; --accent:#2b63c6;
+    --row-base-h:210; /* bluish hue base (can change) */
+    --row-base-s:18%;
+    --row-light-1:96%;
+    --row-light-2:92%;
+  }
+  body{ font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin:20px; color:#111; background:var(--bg); }
+  .container{ max-width:1100px; margin:0 auto; }
+  h1{ font-size:20px; margin-bottom:10px; }
+  .controls{ display:flex; gap:12px; align-items:center; margin-bottom:12px; flex-wrap:wrap;}
+  select, .search{ padding:8px 10px; border:1px solid #ddd; border-radius:6px; }
+  .table{ border-collapse:collapse; width:100%; box-shadow:0 2px 8px rgba(0,0,0,0.04); border-radius:8px; overflow:hidden; }
+  .table thead th{ text-align:left; background:#fafafa; padding:10px 12px; font-weight:600; border-bottom:1px solid #eee; }
+  .table tbody td{ padding:10px 12px; border-bottom:1px solid rgba(0,0,0,0.04); vertical-align:middle; }
+  .player-link{ text-decoration:none; color:inherit; display:flex; gap:8px; align-items:center; }
+  .flag{ font-size:18px; }
+  .rank-badge{ min-width:36px; text-align:center; padding:6px 8px; border-radius:6px; background:rgba(0,0,0,0.04); font-weight:700; }
+  /* row shading via HSL variations computed in JS and applied inline; fallback zebra */
+  .even-fallback{ background: #fff; }
+  .odd-fallback{ background: #fbfbff; }
+  /* responsive small */
+  @media (max-width:720px){
+    .table thead th:nth-child(5), .table tbody td:nth-child(5){ display:none; }
+  }
+  .muted{ color:var(--muted); font-size:13px; }
+  .empty-note{ padding:18px; color:var(--muted); }
+  .clickable-row{ cursor:pointer; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Leaderboard</h1>
+  <div class="controls">
+    <label>Statistique:
+      <select id="stat-select"></select>
+    </label>
+    <input id="search" class="search" placeholder="Rechercher un joueur..." />
+    <div class="muted" id="total-count"></div>
+  </div>
+
+  <div id="table-wrap">
+    <table class="table" id="leaderboard-table" aria-describedby="total-count">
+      <thead>
+        <tr>
+          <th style="width:80px">Rank</th>
+          <th>Player</th>
+          <th style="width:60px">Pays</th>
+          <th style="width:140px">Valeur</th>
+          <th class="muted">Profil</th>
+        </tr>
+      </thead>
+      <tbody id="leaderboard-body">
+        <tr><td colspan="5" class="empty-note">Chargement…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+(async function(){
+  const LEADERBOARDS_BASE = './dist/leaderboards'; // adjust si nécessaire
+  const indexUrl = `${LEADERBOARDS_BASE}/index.json`;
+
+  // utility: fetch JSON
+  async function fetchJson(u){ const r = await fetch(u); if(!r.ok) throw new Error('fetch failed'); return r.json(); }
+
+  // country code -> emoji flag
+  function countryCodeToFlagEmoji(code){
+    if(!code) return '';
+    const c = String(code).trim().toUpperCase();
+    if(c.length !== 2) return '';
+    const OFFSET = 0x1F1E6 - 'A'.charCodeAt(0);
+    const first = c.charCodeAt(0) + OFFSET;
+    const second = c.charCodeAt(1) + OFFSET;
+    return String.fromCodePoint(first, second);
+  }
+
+  // shade generator: from base hue, vary lightness by index to ensure consecutive rows differ
+  // returns CSS HSL string
+  function rowShade(index){
+    // parameters: tune as desired
+    const hue = getComputedStyle(document.documentElement).getPropertyValue('--row-base-h') || 210;
+    const sat = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--row-base-s')) || 18;
+    // alternate lightness between values but also slightly vary by index to avoid same neighbors
+    const baseLight = 96; // very light
+    const delta = 2.6; // per-row variation
+    const alt = (index % 2 === 0) ? baseLight - (index % 5) * delta : baseLight - ((index+1) % 5) * delta;
+    return `hsl(${hue} ${sat}% ${Math.max(88, alt)}%)`;
+  }
+
+  // format value based on type (type from index entry)
+  function formatValue(v, type){
+    if(v === null || v === undefined || v === '') return '';
+    if(type === 'int'){
+      try{ return String(Math.round(Number(v))); }catch(e){ return String(v); }
+    }
+    if(type === 'pct'){
+      try{
+        let n = Number(v);
+        if(Math.abs(n) <= 1.0) n = n * 100.0;
+        return (Math.round(n*100)/100).toFixed(2) + '%';
+      }catch(e){ return String(v); }
+    }
+    if(type === 'float'){
+      try{ return (Math.round(Number(v)*1000)/1000).toFixed(3); }catch(e){ return String(v); }
+    }
+    return String(v);
+  }
+
+  // load index
+  let index;
+  try{
+    index = await fetchJson(indexUrl);
+  }catch(e){
+    document.getElementById('leaderboard-body').innerHTML = `<tr><td colspan="5" class="empty-note">Impossible de charger l'index des leaderboards (${indexUrl}).</td></tr>`;
+    console.error(e);
+    return;
+  }
+  const stats = index.stats || [];
+  // populate select
+  const select = document.getElementById('stat-select');
+  stats.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.stat_key;
+    opt.textContent = s.label;
+    opt.dataset.type = s.type || 'float';
+    select.appendChild(opt);
+  });
+
+  // helper load and render a stat json
+  let currentData = null;
+
+  async function loadAndRender(statKey){
+    const url = `${LEADERBOARDS_BASE}/${statKey}.json`;
+    let data;
+    try{
+      data = await fetchJson(url);
+    }catch(e){
+      document.getElementById('leaderboard-body').innerHTML = `<tr><td colspan="5" class="empty-note">Impossible de charger ${url}</td></tr>`;
+      console.error(e);
+      return;
+    }
+    currentData = data;
+    renderTable(data);
+  }
+
+  function renderTable(data){
+    const tbody = document.getElementById('leaderboard-body');
+    tbody.innerHTML = '';
+    const t = data;
+    const typ = t.type || 'float';
+    document.getElementById('total-count').textContent = `${t.total_players || t.entries.length} joueurs`;
+    if(!Array.isArray(t.entries) || t.entries.length === 0){
+      tbody.innerHTML = `<tr><td colspan="5" class="empty-note">Aucune donnée pour cette statistique.</td></tr>`;
+      return;
+    }
+    // build rows with shading
+    for(let i=0;i<t.entries.length;i++){
+      const e = t.entries[i];
+      const tr = document.createElement('tr');
+      tr.className = 'clickable-row';
+      // apply background shade
+      tr.style.background = rowShade(i);
+      // rank
+      const tdRank = document.createElement('td'); tdRank.innerHTML = `<div class="rank-badge">${e.rank}</div>`;
+      // player cell
+      const tdPlayer = document.createElement('td');
+      const link = document.createElement('a');
+      link.className = 'player-link';
+      link.href = e.profile_url || '#';
+      link.target = '_self';
+      link.rel = 'noopener';
+      const flag = document.createElement('span'); flag.className='flag'; flag.textContent = countryCodeToFlagEmoji(e.country_code) || '';
+      const name = document.createElement('span'); name.textContent = e.player_name || e.player_id;
+      link.appendChild(flag); link.appendChild(name);
+      tdPlayer.appendChild(link);
+      // country short
+      const tdCountry = document.createElement('td'); tdCountry.style.textAlign='center'; tdCountry.textContent = e.country_code || '';
+      // value
+      const tdVal = document.createElement('td'); tdVal.style.fontWeight='700';
+      tdVal.textContent = formatValue(e.value, typ);
+      // profile link cell
+      const tdProfile = document.createElement('td'); tdProfile.innerHTML = `<a href="${e.profile_url}" target="_self" rel="noopener">Voir profil</a>`;
+      // click row -> go to profile
+      tr.addEventListener('click', (ev) => {
+        // if clicked a real link, allow default
+        if(ev.target.tagName.toLowerCase() === 'a') return;
+        if(e.profile_url) window.location.href = e.profile_url;
+      });
+
+      tr.appendChild(tdRank); tr.appendChild(tdPlayer); tr.appendChild(tdCountry); tr.appendChild(tdVal); tr.appendChild(tdProfile);
+      tbody.appendChild(tr);
+    }
+  }
+
+  // wire select change
+  select.addEventListener('change', async (ev) => {
+    const key = select.value;
+    await loadAndRender(key);
+    // update url param
+    const u = new URL(window.location.href);
+    u.searchParams.set('stat', key);
+    history.replaceState({}, '', u.toString());
+  });
+
+  // search
+  const searchInput = document.getElementById('search');
+  searchInput.addEventListener('input', function(){
+    const q = this.value.trim().toLowerCase();
+    if(!currentData) return;
+    const filtered = Object.assign({}, currentData);
+    filtered.entries = currentData.entries.filter(e => (e.player_name || '').toLowerCase().includes(q) || (e.player_id || '').toLowerCase().includes(q));
+    renderTable(filtered);
+  });
+
+  // initial chosen stat from URL or first
+  const params = new URLSearchParams(window.location.search);
+  const initial = params.get('stat') || (select.options.length ? select.options[0].value : null);
+  if(initial){
+    select.value = initial;
+    await loadAndRender(initial);
+  } else {
+    document.getElementById('leaderboard-body').innerHTML = `<tr><td colspan="5" class="empty-note">Aucune statistique trouvée.</td></tr>`;
+  }
+
+})();
+</script>
+</body>
+</html>
