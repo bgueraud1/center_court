@@ -59,6 +59,53 @@ def parse_date_only(val: Optional[str]) -> str:
     except Exception:
         return ''
 
+
+# ----------------- IOC -> ISO3 mapping -----------------
+IOC_TO_ISO3 = {
+    "RSA":"ZAF", "GER":"DEU", "NED":"NLD", "INA":"IDN",
+    "PHI":"PHL", "POR":"PRT", "GRE":"GRC", "BUL":"BGR",
+    "LAT":"LVA", "MAD":"MDG", "ALG":"DZA", "CHI":"CHL",
+    "GUA":"GTM", "ESA":"SLV", "SUI":"CHE", "SLO":"SVN",
+    "CRO":"HRV", "URU":"URY", "PAR":"PRY", "NGR":"NGA",
+    "DEN":"DNK", "GBR":"GBR", "USA":"USA", "ARG":"ARG",
+    "ESP":"ESP", "FRA":"FRA", "ITA":"ITA", "BRA":"BRA",
+    # extend as needed...
+}
+
+# common ISO2 -> ISO3 map (partial; pandas may contain 2-letter codes)
+ISO2_TO_ISO3_COMMON = {
+    "DE":"DEU", "CH":"CHE", "NL":"NLD", "ES":"ESP", "FR":"FRA",
+    "IT":"ITA", "GB":"GBR", "US":"USA", "AR":"ARG", "BR":"BRA",
+    # extend if needed
+}
+
+def to_iso3(code: Optional[str]) -> str:
+    """
+    Normalize a country code (IOC / ISO2 / ISO3 / name-like) into ISO3 (3-letter) or ''
+    """
+    if not code:
+        return ''
+    s = str(code).strip().upper()
+    if not s:
+        return ''
+    # already ISO3
+    if len(s) == 3 and s.isalpha():
+        return s
+    # IOC provided in mapping
+    if s in IOC_TO_ISO3:
+        return IOC_TO_ISO3[s]
+    # common ISO2 -> ISO3 fallback
+    if len(s) == 2 and s.isalpha():
+        return ISO2_TO_ISO3_COMMON.get(s, '')
+    # sometimes codes contain extra chars (e.g. "GBR " or "GBR\n")
+    s2 = re.sub(r'[^A-Z]', '', s)
+    if len(s2) == 3:
+        return s2
+    # final fallback: empty to indicate unknown
+    return ''
+
+
+
 def normalize_event_token(val: Optional[Any]) -> str:
     """
     Normalize event identifiers / years read by pandas.
@@ -279,25 +326,33 @@ def build_maps_for_player(matches_df: pd.DataFrame,
         stored_event_id = normalize_event_token(row.get('event_id') if 'event_id' in row.index else None)
         stored_event_year = normalize_event_token(row.get('event_year') if 'event_year' in row.index else None)
 
+                # normalise les codes pour stockage/aggregation
+        opp_iso3 = to_iso3(opp_country)
+        host_iso3 = to_iso3(host_country)
+
         match_entry = {
             'match_id': str(row.get('match_id') or ''),
             'event_id': stored_event_id,
             'event_year': stored_event_year,
             'match_date': parse_date_only(row.get('start_date') or row.get('match_date') or ''),
             'tourney_name': str(row.get('tourney_name') or '')[:250],
+            # keep original fields for sample/debug but we will aggregate on ISO3 keys
             'opponent_country': opp_country,
+            'opponent_country_iso3': opp_iso3,
             'host_country': host_country,
+            'host_country_iso3': host_iso3,
             'is_win': True if is_win is True else (False if is_win is False else None),
             'score': str(row.get('score_string') or row.get('score') or '')
         }
         matches_out.append(match_entry)
+
 
     # Build aggregates
     opp_map: Dict[str, Dict[str, Any]] = {}
     host_map: Dict[str, Dict[str, Any]] = {}
 
     for m in matches_out:
-        oc = (m.get('opponent_country') or '').strip().upper()
+        oc = (m.get('opponent_country_iso3') or '').strip().upper()
         if oc:
             o = opp_map.get(oc, {'wins': 0, 'losses': 0, 'matches': 0, 'sample_matches': []})
             if m.get('is_win') is True:
@@ -306,17 +361,23 @@ def build_maps_for_player(matches_df: pd.DataFrame,
                 o['losses'] += 1
             o['matches'] += 1
             if len(o['sample_matches']) < sample_limit:
+                # include the original readable host/opponent and event info in sample
                 o['sample_matches'].append({
+                    'match_id': m.get('match_id'),
                     'event_id': m.get('event_id'),
                     'event_year': m.get('event_year'),
                     'tourney_name': m.get('tourney_name'),
                     'match_date': m.get('match_date'),
+                    'opponent_country': m.get('opponent_country'),          # original code
+                    'opponent_country_iso3': m.get('opponent_country_iso3'),# iso3
+                    'host_country': m.get('host_country'),
+                    'host_country_iso3': m.get('host_country_iso3'),
                     'is_win': bool(m.get('is_win')) if m.get('is_win') is not None else None,
                     'score': m.get('score')
                 })
             opp_map[oc] = o
 
-        hc = (m.get('host_country') or '').strip().upper()
+        hc = (m.get('host_country_iso3') or '').strip().upper()
         if hc:
             h = host_map.get(hc, {'wins': 0, 'losses': 0, 'matches': 0, 'titles': 0, 'sample_matches': []})
             if m.get('is_win') is True:
@@ -326,14 +387,20 @@ def build_maps_for_player(matches_df: pd.DataFrame,
             h['matches'] += 1
             if len(h['sample_matches']) < sample_limit:
                 h['sample_matches'].append({
+                    'match_id': m.get('match_id'),
                     'event_id': m.get('event_id'),
                     'event_year': m.get('event_year'),
                     'tourney_name': m.get('tourney_name'),
                     'match_date': m.get('match_date'),
+                    'opponent_country': m.get('opponent_country'),
+                    'opponent_country_iso3': m.get('opponent_country_iso3'),
+                    'host_country': m.get('host_country'),
+                    'host_country_iso3': m.get('host_country_iso3'),
                     'is_win': bool(m.get('is_win')) if m.get('is_win') is not None else None,
                     'score': m.get('score')
                 })
             host_map[hc] = h
+
 
     # Titles: detect unique event_id+year where player won final/title
     title_event_ids = set()
