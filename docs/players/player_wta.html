@@ -1,0 +1,1721 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Player profile - Center Court</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    :root{ --gap:12px; --muted:#666; --border:#e6e6e6; --card:#fff; --glass:#fafafa; --accent:#1366d6; }
+    body { font-family: Arial, Helvetica, sans-serif; margin:18px; color:#222; background:#f6f7fb; }
+    #loading { font-size:16px; color:#333; }
+    #player-root { display:none; max-width:1100px; margin:0 auto; }
+
+    /* header */
+    .player-header { display:flex; gap:var(--gap); align-items:flex-start; margin-bottom:14px; }
+    .player-meta { flex:1; min-width:0; }
+    h1#player-name { margin:0; font-size:26px; }
+    .sub { color:var(--muted); margin-top:6px; font-size:14px; }
+    .attr-row { margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; }
+    .attr { background:var(--glass); padding:8px 10px; border:1px solid var(--border); border-radius:8px; font-size:13px; min-width:140px; }
+
+    /* image */
+    .player-image { width:150px; flex-shrink:0; border:1px solid var(--border); border-radius:8px; overflow:hidden; background:#fff; display:flex; align-items:center; justify-content:center; }
+    .player-image img { width:100%; height:auto; object-fit:cover; display:block; }
+
+    /* tabs */
+    .tabs { display:flex; gap:8px; margin:12px 0; }
+    .tab-btn { padding:8px 12px; border:1px solid var(--border); background:#fff; cursor:pointer; border-radius:8px; }
+    .tab-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+
+    .panel { display:none; border:1px solid var(--border); padding:12px; border-radius:8px; background:#fff; }
+    .panel.active { display:block; }
+
+    /* tournaments */
+    .tourney { border-radius:10px; padding:12px; margin-bottom:12px; border:1px solid #eee; background:#fff; box-shadow:0 4px 10px rgba(20,20,40,0.03); }
+    .tourney-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+    .tourney-title { font-weight:700; font-size:15px; }
+    .tourney-cat { font-size:13px; color:#fff; padding:4px 10px; border-radius:999px; margin-left:8px; font-weight:700; }
+
+    .match-line { display:flex; gap:12px; align-items:center; padding:8px 6px; border-radius:8px; }
+    .match-line.win { color: #0b7a33; background: linear-gradient(90deg, rgba(11,122,51,0.03), transparent); }
+    .match-line.loss { color: #b71c1c; background: linear-gradient(90deg, rgba(183,28,28,0.03), transparent); }
+    .match-opponent { flex:1; }
+    .match-score { min-width:120px; text-align:left; font-family: monospace; font-weight:700; }
+    .match-date { min-width:120px; text-align:left; color:var(--muted); }
+    .match-round { min-width:80px; text-align:left; color:var(--muted); font-size:13px; }
+
+    /* surfaces */
+    .surf-hard { border-left:6px solid #2b63c6; }
+    .surf-clay { border-left:6px solid #d2483b; }
+    .surf-grass { border-left:6px solid #2ea24e; }
+    .surf-other { border-left:6px solid #999; }
+
+    /* selectors */
+    .year-selector { margin-bottom:12px; display:flex; gap:8px; align-items:center; }
+    .select-year { padding:6px 8px; border-radius:6px; border:1px solid var(--border); background:#fff; }
+
+    .no-data { color:var(--muted); padding:12px; }
+
+    a.player-link { color:inherit; text-decoration:underline; font-weight:700; }
+
+    /* trophy / best fancy */
+    .trophy-card { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px; border-radius:12px; background: linear-gradient(180deg,#fff,#fbfcff); border:1px solid #eef3ff; box-shadow:0 6px 18px rgba(10,30,80,0.04); }
+    .trophy-left { display:flex; gap:12px; align-items:center; }
+    .trophy-badge { font-size:22px; }
+    .points-pill { background:linear-gradient(90deg,var(--accent),#103f8a); color:#fff; padding:6px 10px; border-radius:999px; font-weight:800; min-width:64px; text-align:center; }
+
+    .best-item { display:flex; justify-content:space-between; align-items:center; padding:10px; border-radius:10px; border:1px solid #f0f0f0; background:#fff; }
+    .round-badge { padding:4px 8px; border-radius:8px; background:#f1f5ff; font-weight:700; color:var(--accent); }
+
+    .subtabs { display:flex; gap:8px; margin-bottom:12px; }
+    .subtab-btn { padding:6px 10px; border:1px solid var(--border); background:#fff; cursor:pointer; border-radius:8px; font-size:13px; }
+    .subtab-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+
+    .map-wrap { display:flex; gap:12px; flex-wrap:wrap; }
+    .map-card { flex:1 1 480px; min-width:280px; border:1px solid var(--border); border-radius:8px; padding:8px; background:#fff; height:420px; }
+
+    /* detailed stats table */
+    .stats-table { width:100%; border-collapse:collapse; margin-top:8px; }
+    .stats-table th, .stats-table td { border:1px solid var(--border); padding:8px; text-align:left; font-size:13px; vertical-align:middle; }
+    .stats-table th { background:#fafafa; font-weight:700; }
+    .stats-summary { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+    .stat-card { background:#fff; border:1px solid var(--border); padding:10px; border-radius:8px; min-width:140px; box-shadow:0 6px 18px rgba(10,30,80,0.02); }
+
+    .bucket-table { width:100%; border-collapse:collapse; margin-top:8px; }
+    .bucket-table th, .bucket-table td { border:1px solid var(--border); padding:8px; text-align:left; font-size:13px; }
+    .muted-small { color:var(--muted); font-size:13px; }
+
+    /* scenarios UI */
+    .scenarios-grid { display:grid; grid-template-columns: 1fr 1fr; gap:12px; align-items:start; }
+    .scenario-card { border:1px solid var(--border); padding:12px; border-radius:8px; background:#fff; }
+    .scenario-card h4 { margin:0 0 8px 0; font-size:16px; }
+    .scenario-table { width:100%; border-collapse:collapse; margin-top:8px; }
+    .scenario-table th, .scenario-table td { border:1px solid var(--border); padding:8px; text-align:left; font-size:13px; }
+    .sample-list { margin-top:8px; display:flex; flex-direction:column; gap:6px; }
+    .sample-item { border:1px dashed #eee; padding:8px; border-radius:6px; background:#fafafa; font-size:13px; }
+
+    /* ---------------- Time Series UI ---------------- */
+    .ts-controls { display:flex; gap:12px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
+    .ts-controls .ts-left { display:flex; gap:8px; align-items:center; }
+    .ts-controls .ts-surfaces { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .ts-surface { display:flex; gap:6px; align-items:center; font-size:13px; }
+    .ts-surface .swatch { width:12px; height:12px; border-radius:3px; display:inline-block; border:1px solid rgba(0,0,0,0.08); box-shadow:0 1px 0 rgba(0,0,0,0.03); }
+    #ts-chart { min-height:360px; width:100%; }
+    .ts-controls .muted-small { color:var(--muted); font-size:13px; }
+    .ts-legend-note { font-size:13px; color:var(--muted); margin-left:8px; }
+
+
+    @media (max-width:760px){
+      .player-header { flex-direction:column; }
+      .player-image { width:100%; max-width:260px; }
+      .map-card { min-width:100%; height:360px; }
+      .scenarios-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+  <!-- Plotly for maps (CDN) -->
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body>
+  <div id="loading">Loading…</div>
+
+  <div id="player-root" aria-live="polite">
+    <div class="player-header">
+      <div class="player-meta">
+        <h1 id="player-name">Player Name</h1>
+        <div class="sub" id="player-country">Country</div>
+        <div class="attr-row" id="player-attrs"></div>
+      </div>
+      <div class="player-image" id="player-image"></div>
+    </div>
+
+    <div class="tabs" role="tablist" aria-label="Player tabs">
+      <button class="tab-btn active" data-target="panel-matches" role="tab" aria-selected="true">Matches by year</button>
+      <button class="tab-btn" data-target="panel-trophies" role="tab" aria-selected="false">Tournaments & best results</button>
+      <button class="tab-btn" data-target="panel-stats" role="tab" aria-selected="false">Statistics</button>
+    </div>
+
+    <div id="panel-matches" class="panel active" role="tabpanel">
+      <div class="year-selector">
+        <label class="muted">Select year:</label>
+        <select id="year-select" class="select-year"></select>
+      </div>
+      <div id="matches-container"></div>
+    </div>
+
+    <div id="panel-trophies" class="panel" role="tabpanel">
+      <h3>Titles won</h3>
+      <div id="trophies-list"></div>
+
+      <h3 style="margin-top:14px;">Best performances (year)</h3>
+      <div style="margin-bottom:8px;">
+        <label class="muted">Year:</label>
+        <select id="best-year-select" class="select-year"></select>
+      </div>
+      <div id="best-list"></div>
+    </div>
+
+    <div id="panel-stats" class="panel" role="tabpanel">
+      <!-- subtabs for stats -->
+      <div class="subtabs" id="stats-subtabs"></div>
+      <div id="stats-subpanels">
+        <!-- DETAILED panel contains the filters and the container; it's empty until loaded -->
+        <div id="panel-detailed" style="display:none; padding:8px;">
+          <div style="display:flex;gap:12px;align-items:center;margin-bottom:10px;">
+            <div>
+              <label class="muted">Year:</label>
+              <select id="stats-year-filter" class="select-year"><option value="ALL">All</option></select>
+            </div>
+            <div>
+              <label class="muted">Surface:</label>
+              <select id="stats-surface-filter" class="select-year"><option value="ALL">All</option></select>
+            </div>
+            <div style="margin-left:auto;" id="detailed-stats-summary"></div>
+          </div>
+          <div id="detailed-stats-container"></div>
+        </div>
+
+        <div id="panel-scenarios" style="display:none; padding:8px;"></div>
+        <div id="panel-timeseries" style="display:none; padding:8px;"></div>
+        <div id="panel-maps" style="display:none; padding:8px;">
+          <div class="map-wrap">
+            <div id="map-opponents" class="map-card"></div>
+            <div id="map-hosts" class="map-card"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* ---------------- common helpers ---------------- */
+function escapeHtml(s){
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// --- ADD THIS (put near the top of the <script> in player.html) ---
+const LEADERBOARD_PAGE = '/leaderboard.html';
+function openLeaderboardFor(statKey){
+  if(!statKey) return;
+  // build absolute URL relative à la racine du site (Netlify)
+  const u = new URL(LEADERBOARD_PAGE, window.location.origin);
+  u.searchParams.set('stat', String(statKey));
+  // navigate
+  window.location.href = u.toString();
+}
+
+
+function dateWithoutYear(isoDate){
+  if(!isoDate) return '';
+  try{
+    const d = new Date(isoDate);
+    if(isNaN(d)) {
+      const m = isoDate.match(/^\d{4}-(\d{2}-\d{2})/);
+      if(m) {
+        const parts = m[1].split('-');
+        const mock = new Date(`${new Date().getFullYear()}-${parts[0]}-${parts[1]}`);
+        try{ return new Intl.DateTimeFormat('en', { day: '2-digit', month: 'long' }).format(mock); }catch(e){ return `${parts[1]}-${parts[0]}`; }
+      }
+      return isoDate;
+    }
+    return new Intl.DateTimeFormat('en', { day: '2-digit', month: 'long' }).format(d);
+  }catch(e){ return isoDate; }
+}
+function fetchJsonSafe(url){
+  try{ return fetch(url).then(r => { if(!r.ok) return null; return r.json().catch(()=>null); }).catch(()=>null); }
+  catch(e){ console.warn('fetch failed',url,e); return Promise.resolve(null); }
+}
+
+/* ----------------- main loader for player data ----------------- */
+(async function(){
+  const loading = document.getElementById('loading');
+  const root = document.getElementById('player-root');
+  const parts = location.pathname.replace(/\/$/, '').split('/');
+  const slug = parts[parts.length - 1] || parts[parts.length - 2] || '';
+  if(!slug){ loading.textContent = 'Slug not found in URL.'; return; }
+
+  loading.textContent = 'Loading players index...';
+  const index = await fetchJsonSafe('/index/players_index.json');
+  if(!index || !Array.isArray(index.players)){ loading.textContent = 'Index unavailable (/index/players_index.json).'; return; }
+  const players = index.players;
+  const slugLower = slug.toLowerCase();
+  const found = players.find(p => (p.slug && p.slug.toLowerCase() === slugLower) || (((''+(p.player_id||'')).toLowerCase() + '-' + (p.slug||'')).toLowerCase() === slugLower));
+  if(!found){ loading.textContent = 'Player not found for slug: ' + slug; return; }
+
+  const pid = found.player_id;
+  const dataUrl = (found.data_path ? '/' + String(found.data_path).replace(/^\/+/, '') : `/players_atp/data/${slugLower}.json`);
+  loading.textContent = 'Loading player data...';
+
+  let combined = await fetchJsonSafe(dataUrl);
+  if(!combined){
+    const legacyMeta = await fetchJsonSafe(`/players_atp/${pid}.meta.json`);
+    const legacyMatches = await fetchJsonSafe(`/players_atp/${pid}.matches.json`);
+    if(legacyMeta || legacyMatches){
+      combined = {
+        player_id: pid,
+        name: (legacyMeta && legacyMeta.name) || found.name || pid,
+        slug: legacyMeta && legacyMeta.slug ? legacyMeta.slug : (found.slug || `${pid.toLowerCase()}`),
+        country: legacyMeta && legacyMeta.country ? legacyMeta.country : found.country || null,
+        summary: legacyMeta && legacyMeta.summary ? legacyMeta.summary : null,
+        matches: legacyMatches && legacyMatches.matches ? legacyMatches.matches : [],
+        matches_by_year: {},
+        trophies: [],
+        best_by_year: {},
+        total_points_by_year: {}
+      };
+    } else { loading.textContent = 'Player data unavailable.'; return; }
+  }
+
+  combined.player_id = combined.player_id || pid;
+  combined.name = combined.name || found.name || pid;
+  combined.slug = combined.slug || slugLower;
+  combined.matches_by_year = combined.matches_by_year || {};
+  combined.trophies = combined.trophies || [];
+  combined.best_by_year = combined.best_by_year || {};
+  combined.total_points_by_year = combined.total_points_by_year || {};
+
+  // header
+  document.getElementById('player-name').textContent = combined.name;
+  document.getElementById('player-country').textContent = combined.country || found.country || '';
+
+  // attrs
+  const attrs = document.getElementById('player-attrs'); attrs.innerHTML = '';
+  const makeAttr = (label, val) => {
+    const d = document.createElement('div'); d.className = 'attr';
+    d.innerHTML = `<div style="font-weight:600">${escapeHtml(label)}</div><div class="sub" style="margin-top:4px;">${escapeHtml(val || '—')}</div>`;
+    return d;
+  };
+  if(combined.birthdate) attrs.appendChild(makeAttr('Birth date', combined.birthdate));
+  if(combined.birthplace) attrs.appendChild(makeAttr('Birth place', combined.birthplace));
+  if(combined.height_cm) attrs.appendChild(makeAttr('Height (cm)', combined.height_cm));
+  if(combined.hand) attrs.appendChild(makeAttr('Hand', combined.hand));
+  if(combined.backhand) attrs.appendChild(makeAttr('Backhand', combined.backhand));
+  if(combined.best_rank) attrs.appendChild(makeAttr('Best rank', combined.best_rank));
+  if(combined.first_appearance) attrs.appendChild(makeAttr('First appearance', combined.first_appearance));
+  if(combined.last_appearance) attrs.appendChild(makeAttr('Last appearance', combined.last_appearance));
+
+  // image
+  const imageWrap = document.getElementById('player-image');
+  imageWrap.innerHTML = '';
+  if(combined.image){
+    const img = document.createElement('img'); img.src = combined.image; img.alt = combined.name; img.loading = 'lazy'; imageWrap.appendChild(img);
+  } else imageWrap.innerHTML = '<div class="sub">No image</div>';
+
+  // Matches by year (client)
+  const matchesContainer = document.getElementById('matches-container');
+  let mby = combined.matches_by_year || {};
+
+  // fallback grouping client-side if needed
+  if(Object.keys(mby).length === 0 && Array.isArray(combined.matches) && combined.matches.length){
+    const map = {};
+    for(const m of combined.matches){
+      const y = (m.event_year || '').toString();
+      if(!map[y]) map[y] = {};
+      const name = (m.tourney_name || '').trim();
+      const sd = (m.start_date || '').trim();
+      const key = (m.event_id ? m.event_id : 'NOID') + '||' + name + '||' + sd;
+      if(!map[y][key]) map[y][key] = { event_id: m.event_id || '', tourney_name: name, category: m.category || '', surface: m.surface || '', start_date: sd, matches: [] };
+      map[y][key].matches.push(m);
+    }
+    const conv = {};
+    for(const y in map){
+      conv[y] = Object.values(map[y]).map(t => {
+        t.matches = t.matches.sort((a,b)=> {
+          const oa = a.start_date || '';
+          const ob = b.start_date || '';
+          if(oa < ob) return 1;
+          if(oa > ob) return -1;
+          return 0;
+        });
+        return t;
+      });
+    }
+    mby = conv;
+  }
+
+  const years = Object.keys(mby).filter(k=>k!=='').sort((a,b)=>parseInt(b||0)-parseInt(a||0));
+  if(mby[''] && !years.includes('')) years.push('');
+  const yearSelect = document.getElementById('year-select');
+  yearSelect.innerHTML = '';
+  if(years.length === 0){
+    matchesContainer.innerHTML = '<div class="no-data">No matches available.</div>';
+  } else {
+    for(const y of years){
+      const opt = document.createElement('option'); opt.value = y; opt.textContent = y ? y : 'Unknown year'; yearSelect.appendChild(opt);
+    }
+    const selectedYear = years[0];
+    yearSelect.value = selectedYear;
+    renderMatchesForYear(selectedYear);
+  }
+
+  function renderMatchesForYear(year){
+    matchesContainer.innerHTML = '';
+    const tournaments = (mby[year] || []);
+    if(!tournaments || tournaments.length === 0){ matchesContainer.innerHTML = '<div class="no-data">No matches for this year.</div>'; return; }
+    tournaments.sort((a,b) => {
+      const aDate = a.start_date || '';
+      const bDate = b.start_date || '';
+      if(aDate && bDate){
+        if(aDate < bDate) return 1;
+        if(aDate > bDate) return -1;
+      } else if(aDate && !bDate) return -1;
+      else if(!aDate && bDate) return 1;
+      return (a.tourney_name || '').localeCompare(b.tourney_name || '');
+    });
+
+    for(const t of tournaments){
+      const surfaceClass = (t.surface ? ('surf-' + String(t.surface).toLowerCase()) : 'surf-other');
+      const div = document.createElement('div'); div.className = 'tourney ' + surfaceClass;
+      const header = document.createElement('div'); header.className = 'tourney-header';
+      const title = document.createElement('div');
+      title.innerHTML = `<span class="tourney-title">${escapeHtml(t.tourney_name || 'Tournament')}</span> <span class="tourney-cat" style="background:rgba(0,0,0,0.15); color:#111;">${escapeHtml(t.category || '')}</span>`;
+      header.appendChild(title);
+      const info = document.createElement('div'); info.className = 'small muted';
+      info.textContent = t.surface ? `Surface: ${t.surface}` : '';
+      header.appendChild(info);
+      div.appendChild(header);
+
+      const mm = (t.matches || []).slice();
+      mm.sort((a,b) => {
+        const order = {'W':0,'F':0,'SF':1,'QF':2,'R16':3,'R32':4,'R64':5,'R128':6,'RR':7};
+        const ra = (a.round || '').toUpperCase();
+        const rb = (b.round || '').toUpperCase();
+        const oa = (order[ra] !== undefined) ? order[ra] : 99;
+        const ob = (order[rb] !== undefined) ? order[rb] : 99;
+        if(oa !== ob) return oa - ob;
+        const da = a.start_date || '';
+        const db = b.start_date || '';
+        if(da < db) return 1;
+        if(da > db) return -1;
+        return 0;
+      });
+
+      const list = document.createElement('div');
+      for(const m of mm){
+        const isWin = m.is_win === true;
+        const line = document.createElement('div');
+        line.className = 'match-line ' + (isWin ? 'win' : (m.is_win === false ? 'loss' : ''));
+        let oppHtml = escapeHtml(m.opponent || '—');
+        if(m.opponent_id){
+          const href = `/players_atp/${String(m.opponent_id).toLowerCase()}`;
+          oppHtml = `<a class="player-link" href="${href}"><strong>${escapeHtml(m.opponent || m.opponent_id)}</strong></a>`;
+        } else {
+          oppHtml = `<strong>${escapeHtml(m.opponent || '—')}</strong>`;
+        }
+        const scoreHtml = `<strong>${escapeHtml(m.score || '')}</strong>`;
+        const dateTxt = escapeHtml(dateWithoutYear(m.start_date || ''));
+        const roundTxt = escapeHtml(m.round || '');
+        line.innerHTML = `<div class="match-opponent">${oppHtml}</div>
+                          <div class="match-score">${scoreHtml}</div>
+                          <div class="match-date">${dateTxt}</div>
+                          <div class="match-round">${roundTxt}</div>`;
+        list.appendChild(line);
+      }
+      div.appendChild(list);
+      matchesContainer.appendChild(div);
+    }
+  }
+
+  yearSelect.addEventListener('change', (e) => renderMatchesForYear(e.target.value));
+
+  // trophies & best
+  const trophiesList = document.getElementById('trophies-list'); trophiesList.innerHTML = '';
+  const trophies = (combined.trophies || []).slice();
+  if(!trophies.length) trophiesList.innerHTML = '<div class="no-data">No titles recorded.</div>';
+  else {
+    for(const t of trophies){
+      const node = document.createElement('div'); node.className = 'trophy-card';
+      node.innerHTML = `<div class="trophy-left"><div class="trophy-badge">🏆</div><div><div style="font-weight:700">${escapeHtml(t.tourney_name || '—')}</div><div class="sub">${escapeHtml(t.category || '')} — Year ${escapeHtml(t.event_year || '')}</div></div></div><div class="points-pill">${escapeHtml(String(t.points || 0))} pts</div>`;
+      trophiesList.appendChild(node);
+    }
+  }
+
+  const bestSelect = document.getElementById('best-year-select'); bestSelect.innerHTML = '';
+  const bestYears = Object.keys(combined.best_by_year || {}).filter(k => k !== '').sort((a,b)=>parseInt(b||0)-parseInt(a||0));
+  if((combined.best_by_year || {})['']) bestYears.push('');
+  if(bestYears.length === 0){
+    bestSelect.disabled = true; bestSelect.innerHTML = '<option>—</option>';
+    document.getElementById('best-list').innerHTML = '<div class="no-data">No best performances available.</div>';
+  } else {
+    for(const y of bestYears){ const o = document.createElement('option'); o.value = y; o.textContent = y ? y : 'Unknown year'; bestSelect.appendChild(o); }
+    const defaultBestYear = bestYears[0]; bestSelect.value = defaultBestYear; renderBestForYear(defaultBestYear);
+  }
+
+  function renderBestForYear(y){
+    const container = document.getElementById('best-list'); container.innerHTML = '';
+    const arr = (combined.best_by_year && combined.best_by_year[y]) ? combined.best_by_year[y] : [];
+    const total = (combined.total_points_by_year && combined.total_points_by_year[y]) ? combined.total_points_by_year[y] : null;
+    if(!arr.length){ container.innerHTML = '<div class="no-data">No performances for this year.</div>'; return; }
+    if(total !== null){ const totDiv = document.createElement('div'); totDiv.className = 'sub'; totDiv.style.marginBottom = '8px'; totDiv.textContent = `Total points year ${y}: ${total}`; container.appendChild(totDiv); }
+    const ul = document.createElement('div');
+    for(const it of arr){
+      const div = document.createElement('div'); div.className = 'best-item'; div.style.marginBottom = '8px';
+      const left = `<div><div style="font-weight:700">${escapeHtml(it.tourney_name || it.event_id || '—')}</div><div class="sub">${escapeHtml(it.category || '')} — ${escapeHtml(it.surface || '')}</div></div>`;
+      const right = `<div style="display:flex;gap:10px;align-items:center"><div class="round-badge">${escapeHtml(it.round || '')}</div><div style="font-weight:700">${escapeHtml(String(it.points || 0))} pts</div></div>`;
+      div.innerHTML = left + right;
+      ul.appendChild(div);
+    }
+    container.appendChild(ul);
+  }
+
+  bestSelect.addEventListener('change', (e) => renderBestForYear(e.target.value));
+
+  // finalize header UI
+  loading.style.display = 'none';
+  root.style.display = 'block';
+
+  // tabs behavior
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const target = btn.getAttribute('data-target');
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      const tgt = document.getElementById(target); if(tgt) tgt.classList.add('active');
+
+      if(target === 'panel-stats'){ initStatsSubtabs(combined); }
+    });
+  });
+
+  if(document.getElementById('panel-stats').classList.contains('active')){ initStatsSubtabs(combined); }
+
+  /* ------------------ Stats subtabs + lazy loaders ------------------ */
+
+  let statsSubtabsInitialized = false;
+  const statsLoadState = { detailed:false, scenarios:false, timeseries:false, maps:false };
+
+  function initStatsSubtabs(playerData){
+    if(statsSubtabsInitialized) return;
+    statsSubtabsInitialized = true;
+    const subtabs = document.getElementById('stats-subtabs');
+    subtabs.innerHTML = '';
+
+    const tabs = [
+      { id:'detailed', label:'Detailed statistics' },
+      { id:'scenarios', label:'Scenarios' },
+      { id:'timeseries', label:'Time Series' },
+      { id:'maps', label:'Maps' }
+    ];
+
+    tabs.forEach((t, idx) => {
+      const b = document.createElement('button');
+      b.className = 'subtab-btn' + (idx===0 ? ' active' : '');
+      b.textContent = t.label;
+      b.dataset.target = `panel-${t.id}`;
+      b.addEventListener('click', (e) => {
+        document.querySelectorAll('.subtab-btn').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+        document.querySelectorAll('#stats-subpanels > div').forEach(d => d.style.display = 'none');
+        const tgt = document.getElementById(b.dataset.target);
+        if(tgt) tgt.style.display = 'block';
+        loadStatsSubpanel(t.id, playerData);
+      });
+      subtabs.appendChild(b);
+    });
+
+    document.getElementById('panel-detailed').style.display = 'block';
+    loadStatsSubpanel('detailed', playerData);
+  }
+
+  // try multiple candidate URLs sequentially
+  function tryCandidatesSequential(candidates){
+  return new Promise((resolve) => {
+    (function attempt(i){
+      if(i >= candidates.length){ return resolve(null); }
+      const url = candidates[i];
+      console.debug('tryCandidatesSequential: trying', url);
+      fetchJsonSafe(url).then(d => {
+        if(d) return resolve({data:d, url:url});
+        attempt(i+1);
+      }).catch(()=> attempt(i+1));
+    })(0);
+  });
+}
+
+
+  function buildCandidatesFor(player, suffix){
+    const pid = (player && player.player_id) ? String(player.player_id) : '';
+    const slugVal = (player && player.slug) ? String(player.slug) : '';
+    const slugLower = slugVal.toLowerCase();
+    const candidates = [];
+    if(pid) {
+      candidates.push(`/players_atp/${pid}.${suffix}.json`);
+      candidates.push(`/players_atp/${pid.toUpperCase()}.${suffix}.json`);
+      candidates.push(`/players_atp/${pid.toLowerCase()}.${suffix}.json`);
+    }
+    if(slugVal){
+      candidates.push(`/players_atp/${slugVal}.${suffix}.json`);
+      candidates.push(`/players_atp/${slugLower}.${suffix}.json`);
+      candidates.push(`/players_atp/data/${slugLower}.${suffix}.json`);
+    }
+    candidates.push(`/players_atp/${slugLower}.${suffix}.json`);
+    candidates.push(`/players_atp/${slugLower}`);
+    return candidates;
+  }
+
+  /* ---------- Detailed stats renderer (robust) ---------- */
+
+  function smartTrimNumber(n){
+    if(n === null || n === undefined) return null;
+    const num = Number(n);
+    if(isNaN(num)) return null;
+    if(Math.abs(num - Math.round(num)) < 1e-9) return Math.round(num);
+    return parseFloat((Math.round(num * 100) / 100).toFixed(2));
+  }
+  function smartPercentFromFraction(frac){
+    if(frac === null || frac === undefined) return '—';
+    const f = Number(frac);
+    if(isNaN(f)) return '—';
+    const pct = f * 100;
+    if(Math.abs(pct - Math.round(pct)) < 1e-9) return `${Math.round(pct)}%`;
+    const s = (Math.round(pct * 100) / 100).toFixed(2).replace(/\.?0+$/,'');
+    return `${s}%`;
+  }
+  function smartNumberString(v){
+    if(v === null || v === undefined) return '—';
+    const n = Number(v);
+    if(isNaN(n)) return '—';
+    if(Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n));
+    return (Math.round(n * 100) / 100).toFixed(2).replace(/\.?0+$/,'');
+  }
+  function smartHoursString(h){
+    if(h === null || h === undefined) return '—';
+    const n = Number(h);
+    if(isNaN(n)) return '—';
+    if(Math.abs(n - Math.round(n)) < 1e-9) return `${Math.round(n)} h`;
+    return `${(Math.round(n * 100) / 100).toFixed(2).replace(/\.?0+$/,'')} h`;
+  }
+  function daysOrHoursForTotalHours(h){
+    if(h === null || h === undefined) return '—';
+    const n = Number(h);
+    if(isNaN(n)) return '—';
+    const days = n / 24;
+    if(days >= 1){
+      if(Math.abs(days - Math.round(days)) < 1e-9) return `${Math.round(days)} d`;
+      return `${(Math.round(days * 100) / 100).toFixed(2).replace(/\.?0+$/,'')} d`;
+    } else {
+      return smartHoursString(n);
+    }
+  }
+
+  const RATE_KEYS = new Set([
+    'aces_per_service_point','doublefaults_per_service_point',
+    'firstserve_percent','firstserve_points_won_percent','secondserve_points_won_percent',
+    'service_points_won_percent','return_points_won_percent',
+    'breakpoints_converted_rate','service_games_lost_rate','tiebreak_win_rate'
+  ]);
+
+  const STATS_DEFINITION = [
+    { label: 'Number of aces', key: 'aces', type: 'count' },
+    { label: 'Aces per service point', key: 'aces_per_service_point', type: 'rate' },
+    { label: 'Number of double faults', key: 'doublefaults', type: 'count' },
+    { label: 'Double faults per service point', key: 'doublefaults_per_service_point', type: 'rate' },
+
+    { label: 'First serve %', key: 'firstserve_percent', type: 'pct' },
+    { label: 'First serve points won %', key: 'firstserve_points_won_percent', type: 'pct' },
+    { label: 'Second serve points won %', key: 'secondserve_points_won_percent', type: 'pct' },
+    { label: 'Service points won %', key: 'service_points_won_percent', type: 'pct' },
+    { label: 'Return points won %', key: 'return_points_won_percent', type: 'pct' },
+
+    { label: 'Breakpoints faced', key: 'breakpoints_faced', type: 'count' },
+    { label: 'Breakpoints converted (count)', key: 'breakpoints_converted', type: 'count' },
+    { label: 'Breakpoints converted rate', key: 'breakpoints_converted_rate', type: 'rate' },
+
+    { label: 'Service games lost rate', key: 'service_games_lost_rate', type: 'rate' },
+    { label: 'Tie-breaks win rate', key: 'tiebreak_win_rate', type: 'rate' },
+
+    { label: 'Mean match time (hours)', key: 'match_time_hours', type: 'hours' }
+  ];
+
+      async function renderDetailedStatsFrom(statsSource, targetDiv){
+    try{
+      // accept either a URL string or an already-fetched data object
+      let data = null;
+      let sourceUrl = '(inline)';
+      if(typeof statsSource === 'string'){
+        sourceUrl = statsSource;
+        const res = await fetch(statsSource);
+        if(!res.ok){
+          targetDiv.innerHTML = '<div class="no-data">Failed to load detailed stats.</div>';
+          console.warn('renderDetailedStatsFrom: fetch failed', statsSource, res.status);
+          return;
+        }
+        data = await res.json();
+      } else if(typeof statsSource === 'object' && statsSource !== null){
+        data = statsSource;
+        sourceUrl = '(preloaded)';
+      } else {
+        targetDiv.innerHTML = '<div class="no-data">Invalid stats source.</div>';
+        console.warn('renderDetailedStatsFrom: invalid statsSource', statsSource);
+        return;
+      }
+
+      // Diagnostic log: which source and top-level keys
+      try { console.info('renderDetailedStatsFrom: source=', sourceUrl, 'keys=', Object.keys(data || {})); } catch(e){}
+
+      const career = data.career || {};
+      const stat_agg = career.stat_agg || data.stat_agg || {};
+      const byYear = data.stats_by_year || {};
+      const career_by_surface = data.career_by_surface || {};
+      let availableYears = (data.available_years && data.available_years.length) ? data.available_years.slice().sort((a,b)=>parseInt(b)-parseInt(a)) : Object.keys(byYear || {}).slice().sort((a,b)=>parseInt(b)-parseInt(a));
+      let availableSurfaces = (data.available_surfaces && data.available_surfaces.length) ? data.available_surfaces.slice().sort() : Object.keys(career_by_surface || {}).slice().sort();
+
+      // Fallback: if still empty, try derive from matches list (event_year / start_date / surface)
+      if((!availableYears || availableYears.length === 0) && Array.isArray(data.matches) && data.matches.length){
+        const yearsSet = new Set();
+        for(const m of data.matches){
+          const y = (m.event_year || '').toString().trim();
+          if(y) yearsSet.add(y);
+          else if(m.start_date){
+            const mm = (''+m.start_date).match(/^(\d{4})/);
+            if(mm) yearsSet.add(mm[1]);
+          }
+        }
+        if(yearsSet.size) availableYears = Array.from(yearsSet).sort((a,b)=>parseInt(b)-parseInt(a));
+      }
+      if((!availableSurfaces || availableSurfaces.length === 0) && Array.isArray(data.matches) && data.matches.length){
+        const surfSet = new Set();
+        for(const m of data.matches){
+          const s = (m.surface || '').toString().trim().toLowerCase();
+          if(s) surfSet.add(s);
+        }
+        if(surfSet.size) availableSurfaces = Array.from(surfSet).sort();
+      }
+
+      // find or create local summary & container elements inside targetDiv
+      let topSummary = targetDiv.querySelector('#detailed-stats-summary');
+      if(!topSummary){
+        topSummary = document.createElement('div');
+        topSummary.id = 'detailed-stats-summary';
+        // insert at the top of targetDiv
+        targetDiv.insertBefore(topSummary, targetDiv.firstChild);
+      }
+      let container = targetDiv.querySelector('#detailed-stats-container');
+      if(!container){
+        container = document.createElement('div');
+        container.id = 'detailed-stats-container';
+        targetDiv.appendChild(container);
+      }
+
+      // populate filters (they live outside targetDiv in DOM but could be absent)
+      const yselGlobal = document.getElementById('stats-year-filter');
+      const sselGlobal = document.getElementById('stats-surface-filter');
+      if(yselGlobal){
+        yselGlobal.innerHTML = '<option value="ALL">All</option>';
+        for(const y of availableYears){ const o = document.createElement('option'); o.value = y; o.textContent = y || 'Unknown'; yselGlobal.appendChild(o); }
+      }
+      if(sselGlobal){
+        sselGlobal.innerHTML = '<option value="ALL">All</option>';
+        for(const s of availableSurfaces){
+          const val = (s || '').toString();
+          const display = (val === 'unknown' || val === '') ? 'Unknown' : (val.charAt(0).toUpperCase() + val.slice(1));
+          const o = document.createElement('option');
+          o.value = val;
+          o.textContent = display;
+          sselGlobal.appendChild(o);
+        }
+      }
+
+      // same pickAgg / renderForSelected logic as before...
+      function pickAgg(year, surface){
+        if(year && year !== 'ALL'){
+          const sy = byYear[year];
+          if(sy){
+            if(surface && surface !== 'ALL'){
+              const byS = sy.by_surface || {};
+              if(byS[surface] && byS[surface].stat_agg) return byS[surface].stat_agg;
+            }
+            if(sy.stat_agg) return sy.stat_agg;
+          }
+        }
+        if(surface && surface !== 'ALL'){
+          if(career_by_surface[surface] && career_by_surface[surface].stat_agg) return career_by_surface[surface].stat_agg;
+        }
+        return stat_agg;
+      }
+
+            function renderForSelected(){
+        const year = (document.getElementById('stats-year-filter') && document.getElementById('stats-year-filter').value) || 'ALL';
+        const surface = (document.getElementById('stats-surface-filter') && document.getElementById('stats-surface-filter').value) || 'ALL';
+
+        // filtered matches (use matches array from JSON if present)
+        const matchesList = Array.isArray(data.matches) ? data.matches : [];
+        const filteredMatches = matchesList.filter(m => {
+          // year filter: m.event_year may be '' or undefined
+          if(year !== 'ALL'){
+            const my = (m.event_year || '').toString();
+            if(my !== year) return false;
+          }
+          // surface filter: normalize to lowercase for comparison
+          if(surface !== 'ALL'){
+            const ms = (m.surface || '').toString().trim().toLowerCase();
+            if(ms !== surface) return false;
+          }
+          return true;
+        });
+
+        // compute summary values from filteredMatches
+        const hasMatches = filteredMatches.length > 0;
+        const matchesCount = hasMatches ? filteredMatches.length : null;
+        const winsCount = hasMatches ? filteredMatches.filter(m => m.is_win === true).length : null;
+        const lossesCount = hasMatches ? filteredMatches.filter(m => m.is_win === false).length : null;
+        // sum match_time_hours (fallback to match_time_seconds/3600)
+        let totalHours = 0;
+        if(hasMatches){
+          for(const fm of filteredMatches){
+            let h = null;
+            if(fm.match_time_hours !== undefined && fm.match_time_hours !== null && fm.match_time_hours !== ''){
+              const parsed = parseFloat(fm.match_time_hours);
+              if(!isNaN(parsed)) h = parsed;
+            }
+            if(h === null && fm.match_time_seconds !== undefined && fm.match_time_seconds !== null && fm.match_time_seconds !== ''){
+              const parsedS = parseFloat(fm.match_time_seconds);
+              if(!isNaN(parsedS)) h = parsedS / 3600.0;
+            }
+            if(h !== null && !isNaN(h)) totalHours += h;
+          }
+        } else {
+          totalHours = null;
+        }
+
+        // choose aggregation (may be undefined) and normalize to {}
+        const agg = pickAgg(year, surface) || {};
+
+        // update top summary (Matches / Matches won / Matches lost / Total time on court)
+        let matchesText = hasMatches ? String(matchesCount) : '—';
+        let winsText = hasMatches ? String(winsCount) : '—';
+        let lossesText = hasMatches ? String(lossesCount) : '—';
+        let totalTimeText = (hasMatches && totalHours !== null) ? smartHoursString(totalHours) + ` (${escapeHtml(daysOrHoursForTotalHours(totalHours))})` : '—';
+
+        topSummary.innerHTML = `<div class="muted-small">Showing: <strong>${year==='ALL'?'All years':escapeHtml(year)}</strong> / <strong>${surface==='ALL'?'All surfaces':escapeHtml(surface)}</strong></div>`;
+
+        // show a small message when there are no matches for the selection
+        if(!hasMatches){
+          topSummary.innerHTML += `<div class="muted-small" style="margin-top:6px;color:var(--muted)">No matches for this year/surface combination.</div>`;
+        }
+
+        // build the stats summary cards using the filtered summary values
+        let html = `<div style="font-weight:700;margin-bottom:8px">Detailed statistics</div>`;
+        html += `<div class="stats-summary">`;
+        // NOTE: les valeurs data-stat ci-dessous doivent correspondre aux stat keys attendues par votre leaderboard index.
+        // Ajustez les clés si besoin (voir point 5).
+        html += `<div class="stat-card" data-stat="matches"><div style="font-weight:700">Matches</div><div class="sub">${escapeHtml(matchesText)}</div></div>`;
+        html += `<div class="stat-card" data-stat="matches_won"><div style="font-weight:700">Matches won</div><div class="sub">${escapeHtml(winsText)}</div></div>`;
+        html += `<div class="stat-card" data-stat="matches_lost"><div style="font-weight:700">Matches lost</div><div class="sub">${escapeHtml(lossesText)}</div></div>`;
+        html += `<div class="stat-card" data-stat="total_match_time_hours"><div style="font-weight:700">Total time on court</div><div class="sub">${escapeHtml(totalTimeText)}</div></div>`;
+        html += `</div>`;
+
+
+        // build table header
+        html += `<table class="stats-table"><thead><tr><th style="min-width:240px">Statistic</th><th>Mean</th><th>Sum</th><th>Min</th><th>Max</th></tr></thead><tbody>`;
+
+        // render rows using agg (if agg missing, values will be '—')
+        for(const s of STATS_DEFINITION){
+          const key = s.key;
+          const node = agg[key] || null;
+          const mean = node && node.mean !== undefined ? node.mean : null;
+          const sum = node && node.sum !== undefined ? node.sum : null;
+          const mn = node && node.min !== undefined ? node.min : null;
+          const mx = node && node.max !== undefined ? node.max : null;
+
+          let meanFmt='—', sumFmt='—', minFmt='—', maxFmt='—';
+          if(s.type === 'pct' || RATE_KEYS.has(key)){
+            meanFmt = mean !== null && mean !== undefined ? smartPercentFromFraction(mean) : '—';
+            minFmt = mn !== null && mn !== undefined ? smartPercentFromFraction(mn) : '—';
+            maxFmt = mx !== null && mx !== undefined ? smartPercentFromFraction(mx) : '—';
+            sumFmt = '—';
+          } else if(s.type === 'hours'){
+            meanFmt = mean !== null && mean !== undefined ? smartHoursString(mean) : '—';
+            minFmt = mn !== null && mn !== undefined ? smartHoursString(mn) : '—';
+            maxFmt = mx !== null && mx !== undefined ? smartHoursString(mx) : '—';
+            // prefer aggregated totalHours for sum if selection has matches; else fallback to sum from agg or '—'
+            if(hasMatches && totalHours !== null){
+              sumFmt = smartHoursString(totalHours);
+            } else {
+              sumFmt = career.total_match_time_hours !== undefined && career.total_match_time_hours !== null ? smartHoursString(career.total_match_time_hours) : (sum !== null && sum !== undefined ? smartHoursString(sum) : '—');
+            }
+          } else {
+            meanFmt = mean !== null && mean !== undefined ? smartNumberString(mean) : '—';
+            minFmt = mn !== null && mn !== undefined ? smartNumberString(mn) : '—';
+            maxFmt = mx !== null && mx !== undefined ? smartNumberString(mx) : '—';
+            sumFmt = sum !== null && sum !== undefined ? smartNumberString(sum) : '—';
+          }
+
+          const encodedKey = encodeURIComponent(key);
+        html += `<tr class="clickable-stat-row" data-stat-key="${escapeHtml(key)}">
+                  <td style="font-weight:700"><a class="stat-row-link" href="/leaderboard.html?stat=${encodedKey}">${escapeHtml(s.label)}</a></td>
+                  <td>${escapeHtml(meanFmt)}</td>
+                  <td>${escapeHtml(sumFmt)}</td>
+                  <td>${escapeHtml(minFmt)}</td>
+                  <td>${escapeHtml(maxFmt)}</td>
+                 </tr>`;
+        }
+
+        html += `</tbody></table>`;
+
+        container.innerHTML = html;
+      }
+
+      // after container.innerHTML = html;
+try{
+  // make summary stat-cards clickable (keyboard accessible)
+  container.querySelectorAll('.stat-card[data-stat]').forEach(el => {
+    const statKey = el.dataset.stat;
+    el.style.cursor = 'pointer';
+    el.setAttribute('role','link');
+    el.setAttribute('tabindex','0');
+    el.addEventListener('click', () => openLeaderboardFor(statKey));
+    el.addEventListener('keydown', (ev) => {
+      if(ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openLeaderboardFor(statKey); }
+    });
+  });
+
+  // make table rows clickable, but preserve real <a> default behavior
+  container.querySelectorAll('.clickable-stat-row').forEach(tr => {
+    tr.style.cursor = 'pointer';
+    tr.addEventListener('click', (ev) => {
+      // if user clicked an anchor inside, do nothing (allow link to handle)
+      if(ev.target.closest('a')) return;
+      const k = tr.dataset.statKey;
+      if(k) openLeaderboardFor(k);
+    });
+  });
+}catch(e){ console.warn('Attaching stat click handlers failed', e); }
+
+
+      if(document.getElementById('stats-year-filter')) document.getElementById('stats-year-filter').addEventListener('change', renderForSelected);
+      if(document.getElementById('stats-surface-filter')) document.getElementById('stats-surface-filter').addEventListener('change', renderForSelected);
+
+      renderForSelected();
+
+    }catch(e){
+      console.error('renderDetailedStatsFrom error', e);
+      if(targetDiv) targetDiv.innerHTML = '<div class="no-data">Error rendering detailed stats.</div>';
+    }
+  }
+
+
+  /* ------------------ Scenarios renderer (new, pretty) ------------------ */
+
+  function humanizeScenarioKey(k){
+    // friendly labels for the keys produced by generate_scenarios.py
+    const map = {
+      'wins_after_losing_first_set': 'Wins after losing first set',
+      'losses_after_winning_first_set': 'Losses after winning first set',
+      'wins_in_2_sets': 'Wins in 2 sets',
+      'wins_in_3_sets': 'Wins in 3 sets',
+      'losses_in_2_sets': 'Losses in 2 sets',
+      'losses_in_3_sets': 'Losses in 3 sets',
+      'wins_after_losing_first_two_sets': 'Wins after losing first two sets',
+      'wins_after_down_2_1': 'Wins after being down 2–1',
+      'losses_after_winning_first_two_sets': 'Losses after winning first two sets',
+      'losses_after_leading_2_1': 'Losses after leading 2–1',
+      'wins_in_4_sets': 'Wins in 4 sets',
+      'wins_in_5_sets': 'Wins in 5 sets',
+      'losses_in_4_sets': 'Losses in 4 sets',
+      'losses_in_5_sets': 'Losses in 5 sets'
+    };
+    return map[k] || k.replace(/_/g, ' ');
+  }
+
+  function pctFromObj(obj){
+    // accept either object with 'pct' field, or {count, denominator} or raw number
+    if(!obj) return null;
+    if(typeof obj === 'number') return obj;
+    if(obj.pct !== undefined && obj.pct !== null) return obj.pct;
+    if(obj.denominator !== undefined && obj.denominator && obj.denominator > 0){
+      return (obj.count || 0) / obj.denominator;
+    }
+    return null;
+  }
+
+  function renderScenarios(data, sourceUrl, targetDiv){
+    try{
+      const sc = data.scenarios || data; // be forgiving
+      const non_gs = sc.non_gs || {};
+      const gs = sc.gs || {};
+      const retire = sc.retirements || {};
+      const samples = sc.samples || {};
+
+      let html = `<div style="font-weight:700;margin-bottom:8px">Scenarios (source: ${escapeHtml(sourceUrl)})</div>`;
+      html += `<div class="scenarios-grid">`;
+
+      // NON-GS card
+      html += `<div class="scenario-card"><h4>Non-Grand Slam</h4>`;
+      html += `<div class="muted-small">Metrics for non-GS matches</div>`;
+      html += `<table class="scenario-table"><thead><tr><th>Scenario</th><th>Count</th><th>Share</th></tr></thead><tbody>`;
+      const nonGsOrder = [
+        'wins_after_losing_first_set',
+        'losses_after_winning_first_set',
+        'wins_in_2_sets',
+        'wins_in_3_sets',
+        'losses_in_2_sets',
+        'losses_in_3_sets'
+      ];
+      nonGsOrder.forEach(k => {
+        const v = non_gs[k];
+        if(v === undefined) return;
+        const count = (typeof v === 'object' && v.count !== undefined) ? v.count : (typeof v === 'number' ? v : 0);
+        const pct = pctFromObj(v);
+        html += `<tr><td style="font-weight:700">${escapeHtml(humanizeScenarioKey(k))}</td><td>${escapeHtml(String(count))}</td><td>${escapeHtml(pct !== null ? smartPercentFromFraction(pct) : '—')}</td></tr>`;
+      });
+      html += `</tbody></table>`;
+      // samples for non-GS (if present)
+      html += `<div style="margin-top:8px;"><strong>Samples</strong>`;
+      const sampleKeys = Object.keys(samples || {});
+      if(sampleKeys.length){
+        html += `<div class="sample-list">`;
+        ['wins_after_losing_first_set','losses_after_winning_first_set','wins_in_2_sets','wins_in_3_sets'].forEach(sk=>{
+          if(samples[sk] && samples[sk].length){
+            html += `<div><div style="font-weight:700;margin-top:6px">${escapeHtml(humanizeScenarioKey(sk))} (${samples[sk].length})</div>`;
+            samples[sk].slice(0,6).forEach(it=>{
+              html += `<div class="sample-item"><div><strong>${escapeHtml(it.score || it.match_id || '')}</strong> — ${escapeHtml(it.start_date || '')}</div></div>`;
+            });
+            html += `</div>`;
+          }
+        });
+        html += `</div>`;
+      }
+      html += `</div></div>`;
+
+      // GS card
+      html += `<div class="scenario-card"><h4>Grand Slams (GS)</h4>`;
+      html += `<div class="muted-small">GS-specific scenarios & set-length breakdown</div>`;
+      html += `<table class="scenario-table"><thead><tr><th>Scenario</th><th>Count</th><th>Share</th></tr></thead><tbody>`;
+      const gsOrder = [
+        'wins_after_losing_first_set',
+        'wins_after_losing_first_two_sets',
+        'wins_after_down_2_1',
+        'losses_after_winning_first_two_sets',
+        'losses_after_winning_first_set',
+        'losses_after_leading_2_1',
+        'wins_in_3_sets',
+        'wins_in_4_sets',
+        'wins_in_5_sets',
+        'losses_in_3_sets',
+        'losses_in_4_sets',
+        'losses_in_5_sets'
+      ];
+      gsOrder.forEach(k => {
+        const v = gs[k];
+        if(v === undefined) return;
+        const count = (typeof v === 'object' && v.count !== undefined) ? v.count : (typeof v === 'number' ? v : 0);
+        const pct = pctFromObj(v);
+        html += `<tr><td style="font-weight:700">${escapeHtml(humanizeScenarioKey(k))}</td><td>${escapeHtml(String(count))}</td><td>${escapeHtml(pct !== null ? smartPercentFromFraction(pct) : '—')}</td></tr>`;
+      });
+      html += `</tbody></table>`;
+      // GS samples
+      html += `<div style="margin-top:8px;"><strong>Samples (GS)</strong>`;
+      if(sampleKeys.length){
+        html += `<div class="sample-list">`;
+        ['wins_after_losing_first_two_sets','wins_after_down_2_1','wins_in_5_sets'].forEach(sk=>{
+          if(samples[sk] && samples[sk].length){
+            html += `<div><div style="font-weight:700;margin-top:6px">${escapeHtml(humanizeScenarioKey(sk))} (${samples[sk].length})</div>`;
+            samples[sk].slice(0,6).forEach(it=>{
+              html += `<div class="sample-item"><div><strong>${escapeHtml(it.score || it.match_id || '')}</strong> — ${escapeHtml(it.start_date || '')}</div></div>`;
+            });
+            html += `</div>`;
+          }
+        });
+        html += `</div>`;
+      }
+      html += `</div></div>`;
+
+      html += `</div>`; // end grid
+
+      // Retirements block (separate full row)
+      html += `<div style="margin-top:12px" class="scenario-card">`;
+      html += `<h4>Retirements / abandons</h4>`;
+      html += `<div class="muted-small">Matches not finished </div>`;
+      html += `<div style="margin-top:8px">Count: <strong>${escapeHtml(String(retire.count || 0))}</strong></div>`;
+      if(retire.by_set && Object.keys(retire.by_set).length){
+        html += `<div style="margin-top:8px"><table class="scenario-table"><thead><tr><th>Set at retirement</th><th>Count</th></tr></thead><tbody>`;
+        Object.keys(retire.by_set).sort((a,b)=>Number(a)-Number(b)).forEach(setk=>{
+          html += `<tr><td>${escapeHtml(setk)}</td><td>${escapeHtml(String(retire.by_set[setk]))}</td></tr>`;
+        });
+        html += `</tbody></table></div>`;
+      }
+      
+      html += `</div>`;
+
+      // raw JSON preview toggle
+      html += `<div style="margin-top:12px" class="scenario-card"><div style="display:flex;align-items:center;gap:12px"><div style="font-weight:700">Raw scenarios JSON</div><button id="scenarios-toggle-raw" class="tab-btn" style="padding:6px 8px">Toggle</button></div><div id="scenarios-raw" style="display:none;margin-top:8px;max-height:320px;overflow:auto;border:1px solid var(--border);padding:8px;background:#fff"><pre class="muted-small">${escapeHtml(JSON.stringify(data, null, 2).slice(0,20000))}${String(JSON.stringify(data).length>20000 ? '…' : '')}</pre></div></div>`;
+
+      targetDiv.innerHTML = html;
+
+      const toggle = document.getElementById('scenarios-toggle-raw');
+      if(toggle){
+        toggle.addEventListener('click', ()=>{
+          const pre = document.getElementById('scenarios-raw');
+          if(pre) pre.style.display = (pre.style.display === 'none' ? 'block' : 'none');
+        });
+      }
+    }catch(e){
+      console.error('renderScenarios error', e);
+      targetDiv.innerHTML = '<div class="no-data">Error rendering scenarios.</div>';
+    }
+  }
+
+  /* ------------------ loadStatsSubpanel (re-used) ------------------ */
+
+  async function loadStatsSubpanel(kind, playerData){
+    if(statsLoadState[kind]) return;
+    statsLoadState[kind] = true;
+    const pid = playerData.player_id;
+    const slugVal = playerData.slug || slug;
+
+    const targetDiv = document.getElementById('panel-' + kind);
+if(!targetDiv) return;
+
+// For detailed panel we must not wipe the whole panel (it contains the year/surface selects).
+// Instead, put the loading indicator inside the internal container if present, otherwise fall back to replacing.
+if(kind === 'detailed'){
+  // Ensure panel-detailed retains its header/filters while we load content below it.
+  // Put loading indicator into #detailed-stats-container (create if missing).
+  let inner = targetDiv.querySelector('#detailed-stats-container');
+  if(!inner){
+    inner = document.createElement('div');
+    inner.id = 'detailed-stats-container';
+    // append after the header if present, otherwise put as only child
+    const headerNode = targetDiv.querySelector('[style*="margin-bottom:10px"], .select-year') || targetDiv.firstChild;
+    if(headerNode && headerNode.parentNode === targetDiv){
+      targetDiv.appendChild(inner);
+    } else {
+      targetDiv.appendChild(inner);
+    }
+  }
+  inner.innerHTML = '<div class="sub">Loading…</div>';
+} else {
+  // For other kinds it's ok to replace entire panel
+  targetDiv.innerHTML = '<div class="sub">Loading…</div>';
+}
+
+
+    if(kind === 'detailed'){
+      const candidates = buildCandidatesFor(playerData, 'stats').concat([`/players_atp/${pid}.stats.json`, `/players_atp/${slugVal}.stats.json`]);
+      const res = await tryCandidatesSequential(candidates);
+      if(!res || !res.data){
+        targetDiv.innerHTML = '<div class="no-data">Detailed statistics are not available for this player.</div>';
+        console.warn('loadStatsSubpanel: no stats candidate succeeded', candidates);
+        return;
+      }
+      console.info('loadStatsSubpanel: selected stats candidate', res.url, 'top-level keys=', Object.keys(res.data || {}));
+      // pass the already-fetched data to renderDetailedStatsFrom to avoid refetch & CORS/404 surprises
+      await renderDetailedStatsFrom(res.data, targetDiv);
+      return;
+    }
+
+
+
+    if(kind === 'scenarios'){
+      const candidates = buildCandidatesFor(playerData, 'scenarios').concat([`/players_atp/${pid}.scenarios.json`, `/players_atp/${slugVal}.scenarios.json`]);
+      const res = await tryCandidatesSequential(candidates);
+      if(!res || !res.data){ targetDiv.innerHTML = '<div class="no-data">Scenarios are not available for this player.</div>'; return; }
+      // render nicely using new renderer
+      renderScenarios(res.data, res.url, targetDiv);
+      return;
+    }
+
+    // ----------------- Time Series handler (remplacer la branche timeseries) -----------------
+if(kind === 'timeseries'){
+  // try to locate the stats JSON already present (playerData) or load fallback file
+  // playerData variable already exists in player.html context; otherwise fallback to /players_atp/<pid>.stats.json
+  const tsUrlCandidates = [];
+  // if playerData is the same as the JSON loaded, use it:
+  if(typeof playerData === 'object' && playerData !== null && (playerData.stats_by_year || playerData.available_years)) {
+    // we will use playerData directly
+  } else {
+    tsUrlCandidates.push(`/players_atp/${pid}.stats.json`);
+    if(slugVal) tsUrlCandidates.push(`/players_atp/${slugVal}.stats.json`);
+  }
+
+  // Helper: load JSON if needed
+  async function loadStatsJson(){
+    if(typeof playerData === 'object' && playerData !== null && (playerData.stats_by_year || playerData.available_years)) return playerData;
+    for(const u of tsUrlCandidates){
+      try{
+        const r = await fetch(u);
+        if(!r.ok) continue;
+        const j = await r.json();
+        return j;
+      }catch(e){ continue; }
+    }
+    return null;
+  }
+
+  const statsJson = await loadStatsJson();
+  if(!statsJson){
+    targetDiv.innerHTML = '<div class="no-data">No detailed stats JSON available for time series.</div>';
+    return;
+  }
+
+  // UI container
+  targetDiv.innerHTML = `
+    <div style="font-weight:700;margin-bottom:8px">Time Series</div>
+    <div id="ts-controls" class="ts-controls"></div>
+    <div id="ts-chart" style="min-height:360px;width:100%"></div>
+  `;
+
+  // colors
+  const SURFACE_COLORS = { 'ALL':'#000000', 'grass':'#2ea24e', 'hard':'#2b63c6', 'clay':'#d2483b', 'carpet':'#8a3fae', 'other':'#999999' };
+  const CANON_SURFACES = ['ALL','grass','hard','clay','carpet','other'];
+  // Stat definition fallback if not present: use keys from stats_by_year.stat_agg
+  const statsKeysFromJson = (() => {
+    const sby = statsJson.stats_by_year || {};
+    const yearsKeys = Object.keys(sby);
+    if(yearsKeys.length){
+      // pick first year with stat_agg
+      for(const y of yearsKeys){
+        const sy = sby[y];
+        if(sy && sy.stat_agg){
+          return Object.keys(sy.stat_agg);
+        }
+      }
+    }
+    // fallback global career.stat_agg
+    if(statsJson.career && statsJson.career.stat_agg){
+      return Object.keys(statsJson.career.stat_agg);
+    }
+    return [];
+  })();
+
+  // helper to get available years (sorted)
+  function getAvailableYears(){
+    if(Array.isArray(statsJson.available_years) && statsJson.available_years.length){
+      return statsJson.available_years.map(y=>Number(y)).sort((a,b)=>a-b);
+    }
+    if(statsJson.stats_by_year){
+      return Object.keys(statsJson.stats_by_year).map(y=>Number(y)).filter(n=>!Number.isNaN(n)).sort((a,b)=>a-b);
+    }
+    // fallback from matches if present: scan matches[].event_year
+    if(Array.isArray(statsJson.matches) && statsJson.matches.length){
+      const s = new Set();
+      statsJson.matches.forEach(m => { if(m.event_year) s.add(Number(m.event_year)); });
+      return Array.from(s).sort((a,b)=>a-b);
+    }
+    return [];
+  }
+
+  const years = getAvailableYears();
+  if(!years.length){
+    document.getElementById('ts-chart').innerHTML = '<div class="no-data">Aucune année disponible dans stats_by_year.</div>';
+    return;
+  }
+
+  // detect surfaces available in json
+  function getSurfaces(){
+    const s = new Set();
+    if(Array.isArray(statsJson.available_surfaces) && statsJson.available_surfaces.length){
+      statsJson.available_surfaces.forEach(x => { if(x) s.add(String(x).toLowerCase()); });
+    }
+    // also inspect stats_by_year.by_surface
+    if(statsJson.stats_by_year){
+      Object.values(statsJson.stats_by_year).forEach(sy => {
+        if(sy && sy.by_surface){
+          Object.keys(sy.by_surface).forEach(k => s.add(String(k).toLowerCase()));
+        }
+      });
+    }
+    // map to canonical names if possible
+    const mapped = Array.from(s).map(v => {
+      const t = String(v).toLowerCase();
+      if(['all','total','overall'].includes(t)) return 'ALL';
+      if(t.includes('grass')) return 'grass';
+      if(t.includes('hard')) return 'hard';
+      if(t.includes('clay')) return 'clay';
+      if(t.includes('carpet')) return 'carpet';
+      return t;
+    });
+    // ensure canonical present
+    CANON_SURFACES.forEach(c => { if(!mapped.includes(c)) mapped.unshift(c); });
+    // unique
+    return Array.from(new Set(mapped));
+  }
+
+  const surfaces = getSurfaces();
+
+  // create controls: stat select + surface checkboxes
+  const ctrl = document.getElementById('ts-controls');
+  const statSelect = document.createElement('select'); statSelect.id = 'ts-stat-select'; statSelect.style.padding='6px 8px'; statSelect.style.border='1px solid #ddd'; statSelect.style.borderRadius='6px';
+  // fill options: prefer global STATS_DEFINITION if present else use keys
+  if(typeof STATS_DEFINITION !== 'undefined' && Array.isArray(STATS_DEFINITION) && STATS_DEFINITION.length){
+    STATS_DEFINITION.forEach(s => { const o=document.createElement('option'); o.value=s.key; o.textContent=s.label||s.key; statSelect.appendChild(o); });
+  } else {
+    statsKeysFromJson.forEach(k => { const o = document.createElement('option'); o.value=k; o.textContent=k; statSelect.appendChild(o); });
+  }
+  const leftDiv = document.createElement('div'); leftDiv.className='ts-left';
+  leftDiv.appendChild(document.createTextNode('Statistic: ')); leftDiv.appendChild(statSelect);
+  const note = document.createElement('span'); note.className='ts-legend-note'; note.textContent=' (use checkboxes to show/hide surfaces)';
+  leftDiv.appendChild(note);
+  ctrl.appendChild(leftDiv);
+
+  const surfaceDiv = document.createElement('div'); surfaceDiv.className = 'ts-surfaces';
+  surfaces.forEach(surf => {
+    const s = String(surf);
+    const lbl = document.createElement('label'); lbl.className='ts-surface';
+    const cb = document.createElement('input'); cb.type='checkbox'; cb.value=s; // default: ALL checked
+    cb.checked = (s==='ALL');
+    cb.style.marginRight='6px';
+    const sw = document.createElement('span'); sw.className='swatch'; sw.style.background = SURFACE_COLORS[s] || SURFACE_COLORS['other'];
+    const txt = document.createElement('span'); txt.textContent = ' ' + s;
+    lbl.appendChild(cb); lbl.appendChild(sw); lbl.appendChild(txt);
+    surfaceDiv.appendChild(lbl);
+  });
+  ctrl.appendChild(surfaceDiv);
+
+  // utils: safe number and normalize percent
+  function maybeNumber(v){
+    if(v === null || v === undefined) return null;
+    const n = Number(v);
+    if(Number.isFinite(n)) return n;
+    return null;
+  }
+  // decide whether stat is percentage: check STATS_DEFINITION or key heuristics
+  function isPercentStat(key){
+    if(typeof STATS_DEFINITION !== 'undefined' && Array.isArray(STATS_DEFINITION)){
+      for(const s of STATS_DEFINITION){ if(s.key === key && (s.type==='pct' || s.type==='rate')) return true; }
+    }
+    // heuristics
+    if(key && (key.toLowerCase().includes('percent') || key.toLowerCase().includes('rate') || key.toLowerCase().includes('pct') || key.toLowerCase().includes('win_rate'))) return true;
+    return false;
+  }
+  function normalizePercentValue(n, key){
+    if(n === null || n === undefined) return null;
+    const num = Number(n);
+    if(!Number.isFinite(num)) return null;
+    // if value looks like 0..1 -> convert to 0..100
+    if(Math.abs(num) <= 1.0) return num * 100.0;
+    return num;
+  }
+
+  // extract per-year value for statKey & surface (surface can be 'ALL' or canonical)
+  function getValueForYear(statKey, surface, year){
+    const ystr = String(year);
+    const sy = statsJson.stats_by_year && statsJson.stats_by_year[ystr] ? statsJson.stats_by_year[ystr] : null;
+    let raw = null;
+    if(sy){
+      if(surface && surface !== 'ALL' && sy.by_surface && (sy.by_surface[surface] || sy.by_surface[surface.toLowerCase()])){
+        const candidate = sy.by_surface[surface] || sy.by_surface[surface.toLowerCase()];
+        if(candidate && candidate.stat_agg && candidate.stat_agg[statKey]) raw = candidate.stat_agg[statKey].mean;
+      }
+      if(raw === null && sy.stat_agg && sy.stat_agg[statKey]) raw = sy.stat_agg[statKey].mean;
+    }
+    // fallback: career_by_surface if single value per career (not per-year) - don't use for per-year series
+    if(raw === undefined) raw = null;
+    return raw === null ? null : Number(raw);
+  }
+
+  // Build annual points series for given statKey + surface
+  function buildAnnualSeries(statKey, surface){
+    const pts = [];
+    for(const y of years){
+      let raw = getValueForYear(statKey, surface, y);
+      if(raw === null || raw === undefined || isNaN(Number(raw))){
+        pts.push({ year: y, value: null });
+      } else {
+        if(isPercentStat(statKey)){
+          const v = normalizePercentValue(raw, statKey);
+          pts.push({ year: y, value: (v===null ? null : Number(v)) });
+        } else {
+          pts.push({ year: y, value: Number(raw) });
+        }
+      }
+    }
+    return pts;
+  }
+
+  // ---------- Natural cubic spline interpolation (passes through points) ----------
+  // Implementation adapted to JS numeric arrays (natural boundary conditions)
+  function naturalCubicSpline(xs, ys){
+    // xs: strictly increasing, ys: numeric, length n >= 1
+    const n = xs.length;
+    if(n === 1){
+      return {
+        eval: function(xq){ return Array.isArray(xq) ? xq.map(()=>ys[0]) : ys[0]; }
+      };
+    }
+    const h = new Array(n-1);
+    for(let i=0;i<n-1;i++) h[i] = xs[i+1]-xs[i];
+    // solve tridiagonal for c
+    const alpha = new Array(n).fill(0);
+    for(let i=1;i<n-1;i++){
+      alpha[i] = (3/h[i])*(ys[i+1]-ys[i]) - (3/h[i-1])*(ys[i]-ys[i-1]);
+    }
+    const l = new Array(n).fill(0), mu = new Array(n).fill(0), z = new Array(n).fill(0);
+    l[0] = 1; mu[0]=0; z[0]=0;
+    for(let i=1;i<n-1;i++){
+      l[i] = 2*(xs[i+1]-xs[i-1]) - h[i-1]*mu[i-1];
+      mu[i] = h[i]/l[i];
+      z[i] = (alpha[i] - h[i-1]*z[i-1]) / l[i];
+    }
+    l[n-1] = 1; z[n-1]=0;
+    const c = new Array(n).fill(0), b = new Array(n-1).fill(0), d = new Array(n-1).fill(0);
+    for(let j=n-2;j>=0;j--){
+      c[j] = z[j] - mu[j]*c[j+1];
+      b[j] = (ys[j+1]-ys[j])/h[j] - h[j]*(c[j+1]+2*c[j])/3;
+      d[j] = (c[j+1]-c[j]) / (3*h[j]);
+    }
+    const a = ys.slice(0, n-1);
+    // eval function
+    function evalOne(xq){
+      // clamp to [xs[0], xs[n-1]]
+      if(xq <= xs[0]) return ys[0];
+      if(xq >= xs[n-1]) return ys[n-1];
+      // find interval i where xs[i] <= xq <= xs[i+1]
+      let i = 0; // binary search
+      let lo = 0, hi = n-2;
+      while(lo<=hi){
+        const mid = Math.floor((lo+hi)/2);
+        if(xs[mid] <= xq && xq <= xs[mid+1]) { i = mid; break; }
+        if(xq < xs[mid]) hi = mid-1; else lo = mid+1;
+      }
+      const dx = xq - xs[i];
+      return a[i] + b[i]*dx + c[i]*dx*dx + d[i]*dx*dx*dx;
+    }
+    return {
+      eval: function(xq){
+        if(Array.isArray(xq)) return xq.map(xx => evalOne(xx));
+        return evalOne(xq);
+      }
+    };
+  }
+
+  // Build smoothed sampling (100 points between min and max year), ensuring the spline passes through original points
+  function buildSmoothedFromPoints(points){
+    const known = points.filter(p => p.value !== null && p.value !== undefined && !Number.isNaN(Number(p.value)));
+    if(known.length === 0) return [];
+    if(known.length === 1) return [{x: known[0].year, y: known[0].value}];
+    const xs = known.map(p => Number(p.year));
+    const ys = known.map(p => Number(p.value));
+    // ensure xs strictly increasing
+    for(let i=1;i<xs.length;i++){ if(xs[i] <= xs[i-1]) xs[i] = xs[i-1] + 1e-6; }
+    const spline = naturalCubicSpline(xs, ys);
+    const xMin = xs[0], xMax = xs[xs.length-1];
+    const samples = 100;
+    const out = [];
+    for(let k=0;k<samples;k++){
+      const xv = xMin + (xMax - xMin) * (k/(samples-1));
+      const yv = spline.eval(xv);
+      out.push({ x: Number((Math.round(xv*10000)/10000).toFixed(4)), y: Number((Math.round(yv*10000)/10000).toFixed(4)) });
+    }
+    return out;
+  }
+
+  // Render function
+  function renderTS(){
+    const statKey = statSelect.value;
+    // which surfaces checked
+    const checked = Array.from(surfaceDiv.querySelectorAll('input[type="checkbox"]')).filter(c=>c.checked).map(c=>c.value);
+    if(checked.length === 0){
+      // default to ALL
+      const cb = surfaceDiv.querySelector('input[value="ALL"]'); if(cb) cb.checked = true; checked.push('ALL');
+    }
+    const traces = [];
+    for(const surf of checked){
+      const pts = buildAnnualSeries(statKey, surf);
+      const xPts = pts.map(p => p.year);
+      const yPts = pts.map(p => (p.value===null ? NaN : Number(p.value)));
+      const color = SURFACE_COLORS[surf] || SURFACE_COLORS['other'];
+      // markers trace
+      traces.push({
+        x: xPts,
+        y: yPts,
+        mode: 'markers',
+        marker: { color: color, size:6 },
+        name: `${statKey} — ${surf} (points)`,
+        hovertemplate: '%{x}<br>%{y:.2f}<extra></extra>',
+        type: 'scatter'
+      });
+      // smoothed (line)
+      const sm = buildSmoothedFromPoints(pts);
+      if(sm.length){
+        traces.push({
+          x: sm.map(s=>s.x),
+          y: sm.map(s=>s.y),
+          mode: 'lines',
+          line: { color: color, width: 2 },
+          name: `${statKey} — ${surf}`,
+          hoverinfo: 'x+y',
+          type: 'scatter'
+        });
+      }
+    }
+
+    const isPct = isPercentStat(statKey);
+    const yaxis = isPct ? { range: [0,100], ticksuffix: '%' } : { automargin: true };
+    const layout = {
+      margin: { t:20, r:10, l:60, b:40 },
+      xaxis: { title: 'Year', tickmode: 'linear', dtick: 1 },
+      yaxis: Object.assign({ title: (isPct ? 'Percent (%)' : statKey) }, yaxis),
+      legend: { orientation: 'h', x:0, y:1.12, bgcolor: 'rgba(0,0,0,0)' },
+      hovermode: 'closest'
+    };
+    const cfg = { responsive: true, displayModeBar: false };
+    try{
+      Plotly.react('ts-chart', traces, layout, cfg);
+      setTimeout(()=>{ try{ Plotly.Plots.resize(document.getElementById('ts-chart')); }catch(e){} }, 200);
+    }catch(e){
+      console.error('TS Plotly error', e);
+      document.getElementById('ts-chart').innerHTML = '<div class="no-data">Chart error (see console)</div>';
+    }
+  }
+
+  // wire events
+  statSelect.addEventListener('change', renderTS);
+  surfaceDiv.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.addEventListener('change', renderTS));
+  // initial choose stat: prefer first option
+  if(!statSelect.value && statSelect.options.length) statSelect.value = statSelect.options[0].value;
+  renderTS();
+  return;
+}
+
+
+    if(kind === 'maps'){
+      const candidates = buildCandidatesFor(playerData, 'maps').concat([`/players_atp/${pid}.maps.json`, `/players_atp/${slugVal}.maps.json`, `/players_atp/${slugVal}.maps.json`]);
+      const res = await tryCandidatesSequential(candidates);
+      if(!res || !res.data){
+        targetDiv.innerHTML = '<div class="sub">Maps data not found locally — attempting client-side discovery...</div>';
+        if(window.MapsClient && typeof window.MapsClient.initMaps === 'function'){
+          window.MapsClient.initMaps({ slug: slugVal });
+        } else {
+          targetDiv.innerHTML = '<div class="no-data">Maps renderer not available.</div>';
+        }
+        return;
+      }
+      const mapData = res.data;
+      const opp = mapData.map_opponent_stats || mapData.opponent_countries || {};
+      const host = mapData.map_host_stats || mapData.host_countries || {};
+      if(window.MapsClient && typeof window.MapsClient.renderOpponentMap === 'function' && typeof window.MapsClient.renderHostMap === 'function'){
+        if(Object.keys(opp).length === 0 && Object.keys(host).length === 0){
+          targetDiv.innerHTML = '<div class="no-data">Maps JSON is present but contains no data.</div>';
+          return;
+        }
+        window.MapsClient.renderOpponentMap(opp);
+        window.MapsClient.renderHostMap(host);
+        targetDiv.innerHTML = '';
+      } else {
+        targetDiv.innerHTML = `<div class="sub">Maps JSON loaded from ${escapeHtml(res.url)} — rendering...</div>`;
+        if(window.MapsClient && typeof window.MapsClient.initMaps === 'function'){
+          window.MapsClient.initMaps({ slug: slugVal });
+        }
+      }
+      return;
+    }
+  }
+
+  // end main IIFE
+})();
+
+/* ------------------ maps-client (Plotly) ------------------ */
+/* (kept intact) */
+(function(){
+  const RETRY_INTERVAL = 180; // ms
+  const MAX_RETRIES = 20; // ~3.6s total
+
+  function waitForPlotly(maxRetries = MAX_RETRIES){
+    return new Promise((resolve) => {
+      let tries = 0;
+      (function check(){
+        if(window.Plotly && typeof window.Plotly.react === 'function') return resolve(true);
+        tries++;
+        if(tries >= maxRetries) return resolve(false);
+        setTimeout(check, RETRY_INTERVAL);
+      })();
+    });
+  }
+
+  function waitForElement(id, maxRetries = MAX_RETRIES){
+    return new Promise((resolve) => {
+      let tries = 0;
+      (function poll(){
+        const el = document.getElementById(id);
+        if(el) return resolve(el);
+        tries++;
+        if(tries >= maxRetries) return resolve(null);
+        setTimeout(poll, RETRY_INTERVAL);
+      })();
+    });
+  }
+
+  function ensureMapContainers(){
+    let panelMaps = document.getElementById('panel-maps');
+    if(!panelMaps){
+      console.warn('maps-client: panel-maps not found — cannot reliably create containers');
+      return {op:null, host:null};
+    }
+    let op = document.getElementById('map-opponents');
+    let host = document.getElementById('map-hosts');
+    if(!op){
+      op = document.createElement('div');
+      op.id = 'map-opponents';
+      op.className = 'map-card';
+      op.style.minHeight = '320px';
+      panelMaps.querySelector('.map-wrap') ? panelMaps.querySelector('.map-wrap').prepend(op) : panelMaps.appendChild(op);
+    }
+    if(!host){
+      host = document.createElement('div');
+      host.id = 'map-hosts';
+      host.className = 'map-card';
+      host.style.minHeight = '320px';
+      panelMaps.querySelector('.map-wrap') ? panelMaps.querySelector('.map-wrap').appendChild(host) : panelMaps.appendChild(host);
+    }
+    return {op, host};
+  }
+
+  function buildHoverText(item, kind){
+    let pct = (typeof item.win_rate === 'number' && !isNaN(item.win_rate)) ? (item.win_rate*100) : (typeof item.win_rate === 'string' ? parseFloat(item.win_rate)*100 : null);
+    if(pct !== null && isNaN(pct)) pct = null;
+    let t = `${escapeHtml(item.iso || '')}<br>Wins: ${item.wins||0}<br>Losses: ${item.losses||0}<br>Matches: ${item.matches||0}<br>Win rate: ${pct !== null ? pct.toFixed(2)+'%' : '—'}`;
+    if(kind === 'opponent'){
+      if(item.top_opponent && item.top_opponent.name){
+        const to = item.top_opponent;
+        t += `<br>Top opponent: ${escapeHtml(to.name)} ${to.wins||0}/${to.matches||0}`;
+      }
+    } else if(kind === 'host'){
+      if(item.top_tourney && item.top_tourney.tourney_name){
+        const tt = item.top_tourney;
+        t += `<br>Top tournament: ${escapeHtml(tt.tourney_name)} ${tt.wins||0}/${tt.matches||0}`;
+      }
+    }
+    return t;
+  }
+
+  function toNumericZ(o){
+    if(!o) return null;
+    if(typeof o.win_rate === 'number' && !isNaN(o.win_rate)) return o.win_rate * 100;
+    if(typeof o.win_rate === 'string' && o.win_rate.trim() !== ''){
+      const v = parseFloat(o.win_rate);
+      if(!isNaN(v)) return v * 100;
+    }
+    const wins = Number(o.wins || 0);
+    const matches = Number(o.matches || ((o.wins||0) + (o.losses||0)));
+    if(matches && !isNaN(matches) && matches > 0) return (wins / matches) * 100;
+    return null;
+  }
+
+  function renderChoroplethSafe(targetId, mapObj, opts){
+    opts = opts || {};
+    return waitForElement(targetId, MAX_RETRIES).then((div)=> {
+      if(!div){
+        const created = ensureMapContainers();
+        div = document.getElementById(targetId);
+        if(!div){
+          console.warn('renderChoropleth: target still not found', targetId);
+          return;
+        }
+      }
+
+      const locs = [], zs = [], texts = [];
+      Object.keys(mapObj || {}).forEach(code => {
+        const item = mapObj[code] || {};
+        const zval = toNumericZ(item);
+        if(zval === null || isNaN(zval)) return;
+        const iso = (code || '').toString().trim().toUpperCase();
+        if(!iso) return;
+        locs.push(iso);
+        zs.push(Math.round(zval*100)/100);
+        const copy = Object.assign({ iso: iso }, item);
+        const kind = (targetId === 'map-opponents') ? 'opponent' : 'host';
+        texts.push(buildHoverText(copy, kind));
+      });
+
+      if(locs.length === 0){
+        div.innerHTML = '<div style="padding:12px;color:#666">No map data available.</div>';
+        return;
+      }
+
+      const colorscales = {
+        blue: [[0, 'rgb(255,255,255)'], [1, 'rgb(19,102,214)']],
+        red:  [[0, 'rgb(255,255,255)'], [1, 'rgb(180,24,24)']]
+      };
+      const colorscale = opts.colorscale === 'red' ? colorscales.red : colorscales.blue;
+
+      const trace = {
+        type: 'choropleth',
+        locations: locs,
+        z: zs,
+        text: texts,
+        locationmode: opts.locationmode || 'ISO-3',
+        colorscale: colorscale,
+        autocolorscale: false,
+        colorbar: { title: 'Win %', ticksuffix: '%' },
+        hoverinfo: 'text',
+        zmin: 0,
+        zmax: 100
+      };
+
+      const layout = {
+        title: opts.title || '',
+        geo: { projection: { type: 'natural earth' }, showframe:false },
+        margin: { t: 40, b: 0, l: 0, r: 0 }
+      };
+
+      return waitForPlotly().then((ok) => {
+        if(!ok){
+          div.innerHTML = '<div style="padding:12px;color:#b71c1c">Plotly not loaded.</div>';
+          return;
+        }
+        try {
+          Plotly.react(div, [trace], layout, {responsive:true, displayModeBar:false});
+          setTimeout(()=>{ try{ if(window.Plotly && window.Plotly.Plots && typeof window.Plotly.Plots.resize === 'function') window.Plotly.Plots.resize(div); }catch(e){console.warn('resize error',e);} }, 220);
+        } catch(e){
+          console.error('Plotly render failed', e);
+          div.innerHTML = '<div style="padding:12px;color:#b71c1c">Map rendering error (see console)</div>';
+        }
+      });
+    });
+  }
+
+  function renderOpponentMap(mapObj){
+    return renderChoroplethSafe('map-opponents', mapObj, { colorscale: 'blue', title: 'Win rate vs opponent nationality' });
+  }
+
+  function renderHostMap(mapObj){
+    return renderChoroplethSafe('map-hosts', mapObj, { colorscale: 'red', title: 'Win rate in tournaments by host country' });
+  }
+
+  function initMaps(options){
+    options = options || {};
+    const slugParam = options.slug || (location.pathname.replace(/\/$/, '').split('/').pop() || '');
+    if(!slugParam){ console.warn('maps-client: could not detect slug from URL'); return; }
+    const candidates = [
+      `/players_atp/${slugParam}.maps.json`,
+      `/players_atp/${slugParam.toUpperCase()}.maps.json`,
+      `/players_atp/${slugParam.toLowerCase()}.maps.json`,
+      `/players_atp/${slugParam}-maps.json`
+    ];
+    (function tryNext(i){
+      if(i >= candidates.length){
+        const d1 = document.getElementById('map-opponents');
+        const d2 = document.getElementById('map-hosts');
+        if(d1) d1.innerHTML = '<div style="padding:12px;color:#666">Maps not available for this player.</div>';
+        if(d2) d2.innerHTML = '<div style="padding:12px;color:#666">Maps not available for this player.</div>';
+        return;
+      }
+      const url = candidates[i];
+      fetch(url).then(r => {
+        if(!r.ok) throw r.status;
+        return r.json();
+      }).then(d => {
+        const opp = d.map_opponent_stats || d.opponent_countries || {};
+        const host = d.map_host_stats || d.host_countries || {};
+        try {
+          renderOpponentMap(opp).catch(()=>{});
+          renderHostMap(host).catch(()=>{});
+        } catch(e){
+          console.warn('maps client render error', e);
+        }
+      }).catch(()=> tryNext(i+1));
+    })(0);
+  }
+
+  window.MapsClient = {
+    initMaps: initMaps,
+    renderOpponentMap: renderOpponentMap,
+    renderHostMap: renderHostMap
+  };
+})();
+</script>
+
+</body>
+</html>
