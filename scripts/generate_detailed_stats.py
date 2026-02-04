@@ -34,6 +34,16 @@ def read_matches_from_dir(matches_dir):
     for f in files:
         try:
             df = pd.read_csv(f, low_memory=False)
+            # --- ADD: tag each row with source filename and extracted year from filename ---
+            basename = os.path.basename(f)
+            df['__src_file'] = basename
+            # extract a 4-digit year from the filename (e.g. atp_id_2025.csv or ..._2025_...)
+            m = re.search(r'_(\d{4})', basename)
+            if not m:
+                m2 = re.search(r'(\d{4})', basename)
+                m = m2
+            df['__src_year'] = m.group(1) if m else ''
+            # ---------------------------------------------------------------------------
             frames.append(df)
         except Exception as e:
             print(f"[dstats] Warning: failed to read {f}: {e}")
@@ -41,6 +51,7 @@ def read_matches_from_dir(matches_dir):
         raise RuntimeError("No CSV files could be read.")
     matches = pd.concat(frames, ignore_index=True, sort=False)
     return matches
+
 
 def normalize_player_id(pid: str) -> str:
     if pid is None:
@@ -516,7 +527,11 @@ def build_detailed_stats(matches_df, player_id, rankings_entries=None, host_even
             is_winner = False
 
         # basic metadata
-        e_year = str(r.get('event_year') or '')
+        # determine event year: prefer event_year column, otherwise fallback to __src_year extracted from filename
+        e_year = str(r.get('event_year') or '').strip()
+        if not e_year:
+            e_year = str(r.get('__src_year') or '').strip()
+
         match_date_raw = r.get('start_date') or r.get('match_date') or ''
         match_date_iso = parse_date_only(match_date_raw)
         match_date_dt = None
