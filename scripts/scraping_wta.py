@@ -238,22 +238,73 @@ def scrape_and_merge_match_data(tournament_id, year, match_id):
             "player_id_loser": player_id_loser
         }
 
-        # Stats processing (identique à avant)
         stats_processed = {}
         if stats_data:
+            # stats_data est une liste d'objets par set (ou setnum==0 pour tot)
             for stats_entry in stats_data:
                 setnum = stats_entry.get("setnum") or stats_entry.get("setNum") or stats_entry.get("set")
                 try:
                     setnum_int = int(setnum)
                 except Exception:
                     continue
+                
                 for key, value in stats_entry.items():
                     if key in {"setnum", "setNum", "eventid", "eventyear", "matchid", "set"}:
                         continue
+                    
+                    # détection clefs côté A/B dans stats: ex 'acesA' ou 'acesB' ou 'aces_a' ou 'aces_a_set1' selon API
+                    # normaliser le nom de la clef sans suffixe A/B
+                    m_ab = re.match(r"(?i)^(?P<metric>.+?)[_\-]?(?P<side>[ab])$", key) or re.match(r"(?i)^(?P<metric>.+?)(?P<side>[ab])$", key)
+                    if m_ab:
+                        metric = m_ab.group("metric").lower().rstrip("_-")
+                        side = m_ab.group("side").lower()  # 'a' ou 'b'
+                        win_col = f"winner_{metric}_set{setnum_int}" if setnum_int != 0 else f"winner_{metric}_tot"
+                        lose_col = f"loser_{metric}_set{setnum_int}" if setnum_int != 0 else f"loser_{metric}_tot"
+                        # initialisation si absent
+                        if win_col not in stats_processed:
+                            stats_processed[win_col] = None
+                        if lose_col not in stats_processed:
+                            stats_processed[lose_col] = None
+                        # assignation selon winner_flag (déduit plus haut dans la fonction)
+                        if winner_flag == 'A':
+                            if side == 'a':
+                                stats_processed[win_col] = value
+                            else:
+                                stats_processed[lose_col] = value
+                        elif winner_flag == 'B':
+                            if side == 'b':
+                                stats_processed[win_col] = value
+                            else:
+                                stats_processed[lose_col] = value
+                        else:
+                            # si unknown winner: tenter heuristique via PlayerIDA/PlayerIDB
+                            # (si impossible, on laisse None pour winner/loser)
+                            try:
+                                pidA = str(score_data.get("PlayerIDA")) if score_data.get("PlayerIDA") is not None else None
+                                pidB = str(score_data.get("PlayerIDB")) if score_data.get("PlayerIDB") is not None else None
+                                if player_id_winner and pidA and str(player_id_winner) == pidA:
+                                    if side == 'a':
+                                        stats_processed[win_col] = value
+                                    else:
+                                        stats_processed[lose_col] = value
+                                elif player_id_winner and pidB and str(player_id_winner) == pidB:
+                                    if side == 'b':
+                                        stats_processed[win_col] = value
+                                    else:
+                                        stats_processed[lose_col] = value
+                                else:
+                                    # pas de décision fiable -> noop (on évite d'écraser)
+                                    pass
+                            except Exception:
+                                pass
+                        continue
+                    
+                    # keys that are not side-specific: create per-set or tot keys as-is
                     if setnum_int == 0:
                         col = f"{key}_tot"
                     else:
                         col = f"{key}_set{setnum_int}"
+                    # si on a collisons, suffixer _1, _2 ... (gardé ta logique)
                     if col in stats_processed:
                         idx = 1
                         newcol = f"{col}_{idx}"
@@ -264,6 +315,7 @@ def scrape_and_merge_match_data(tournament_id, year, match_id):
                     else:
                         stats_processed[col] = value
         else:
+            # fallback si pas de stats
             stats_processed.update({
                 "aces_set1": None, "aces_set2": None, "aces_set3": None,
                 "dblflt_set1": None, "dblflt_set2": None, "dblflt_set3": None
