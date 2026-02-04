@@ -82,26 +82,41 @@ ISO2_TO_ISO3_COMMON = {
 def to_iso3(code: Optional[str]) -> str:
     """
     Normalize a country code (IOC / ISO2 / ISO3 / name-like) into ISO3 (3-letter) or ''
+    Behaviour:
+      - If code matches IOC_TO_ISO3 mapping => return mapped ISO3 (this is checked first)
+      - If code looks like ISO3 (3 letters) and is alpha => accept it
+      - If code looks like ISO2 (2 letters) => map via ISO2_TO_ISO3_COMMON
+      - Try to strip non-alpha and re-evaluate
+      - Otherwise return ''
     """
     if not code:
         return ''
     s = str(code).strip().upper()
     if not s:
         return ''
-    # already ISO3
-    if len(s) == 3 and s.isalpha():
-        return s
-    # IOC provided in mapping
+
+    # 1) direct mapping (IOC or known alias) - checked first so "GER" -> "DEU"
     if s in IOC_TO_ISO3:
         return IOC_TO_ISO3[s]
-    # common ISO2 -> ISO3 fallback
+
+    # 2) common ISO2 -> ISO3 fallback
     if len(s) == 2 and s.isalpha():
         return ISO2_TO_ISO3_COMMON.get(s, '')
-    # sometimes codes contain extra chars (e.g. "GBR " or "GBR\n")
+
+    # 3) if it's already an ISO3-like code (3 alpha characters), accept it
+    if len(s) == 3 and s.isalpha():
+        return s
+
+    # 4) strip non-letters and re-evaluate (handles "GER\n", "DEU " etc)
     s2 = re.sub(r'[^A-Z]', '', s)
-    if len(s2) == 3:
+    if s2 in IOC_TO_ISO3:
+        return IOC_TO_ISO3[s2]
+    if len(s2) == 2:
+        return ISO2_TO_ISO3_COMMON.get(s2, '')
+    if len(s2) == 3 and s2.isalpha():
         return s2
-    # final fallback: empty to indicate unknown
+
+    # final fallback: unknown
     return ''
 
 
