@@ -29,6 +29,483 @@ OUT_DIR = os.path.join("matches", "wta_matches")
 POTENTIAL_TEMP_DIR = "data_wta"
 
 # ---------------- utilitaires ----------------
+# -------------------- Helpers pour normalisation ATP --------------------
+def _safe_float(v):
+    try:
+        if v is None:
+            return None
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return float(v)
+    except Exception:
+        return None
+
+def _safe_int(v):
+    f = _safe_float(v)
+    if f is None:
+        return None
+    try:
+        return int(round(f))
+    except Exception:
+        return None
+
+def _sum_values_for_patterns(row, patterns, coerce=int):
+    """
+    Somme toutes les valeurs des clés du dict 'row' correspondant à l'une des regex dans patterns.
+    patterns : liste de regex (str) (ignorant la casse)
+    retourne None si aucune clé trouvée.
+    """
+    import re
+    total = 0
+    found = False
+    for k, v in row.items():
+        key = str(k)
+        for pat in patterns:
+            if re.search(pat, key, flags=re.IGNORECASE):
+                val = _safe_float(v) if coerce == float else _safe_int(v)
+                if val is not None:
+                    total += val
+                found = True
+                break
+    return total if found else None
+
+def _find_keys_for_metric(row, metric_substr, side_prefix=None):
+    """
+    Renvoie la liste des clés correspondant à une métrique:
+      - metric_substr : sous-chaîne du metric (ex: 'dblflt', 'aces', 'ptswon1stserv')
+      - side_prefix : 'winner' or 'loser' or None (si None recherche toute apparition)
+    Recherche clés contenant metric_substr et 'set' (ex: winner_aces_set1, acesa_set1, winner_aces_set_1 etc.)
+    """
+    import re
+    keys = []
+    for k in row.keys():
+        key = str(k)
+        if side_prefix and not re.search(rf"^{side_prefix}", key, flags=re.IGNORECASE):
+            # si on a un prefix (winner_ / loser_), préférer les clés préfixées
+            # mais pas strictement nécessaire : on inclut tout si pas strict trouvé plus tard
+            pass
+        if re.search(rf"{metric_substr}", key, flags=re.IGNORECASE) and re.search(r"set", key, flags=re.IGNORECASE):
+            keys.append(key)
+    return keys
+
+def _parse_set_score(s):
+    """
+    Parse '7-6(5)' ou '6-3' -> (left:int, right:int, tb:int or None)
+    Retourne (None,None,None) si parse impossible.
+    """
+    if not s:
+        return (None, None, None)
+    import re
+    s = str(s).strip()
+    m = re.match(r"^\s*(\d+)\s*-\s*(\d+)\s*(?:\(\s*(\d+)\s*\))?\s*$", s)
+    if not m:
+        # essayer d'extraire chiffres
+        nums = re.findall(r"\d+", s)
+        if len(nums) >= 2:
+            left = int(nums[0]); right = int(nums[1])
+            tb = int(nums[2]) if len(nums) >= 3 else None
+            return left, right, tb
+        return (None, None, None)
+    left, right, tb = m.group(1), m.group(2), m.group(3)
+    return int(left), int(right), int(tb) if tb else None
+
+def _compute_tiebreak_points_from_setscore(setscore):
+    """
+    Input: '7-6(5)' ou '6-7(4)' -> retourne (tb_winner_points, tb_loser_points) au niveau du set.
+    Logique : tb_loser_points = chambre parenthèses ; tb_winner_points = 7 sauf si tb_loser >=6 -> tb_loser+2
+    Retourne (None,None) si pas de tie-break
+    """
+    left, right, tb = _parse_set_score(setscore)
+    if tb is None:
+        return (None, None)
+    # parenthèse contient le nombre de points du perdant du tie-break *du set*
+    tb_loser = tb
+    tb_winner = 7 if tb_loser < 6 else (tb_loser + 2)
+    return (tb_winner, tb_loser)
+
+
+
+def compute_atp_fields(row):
+    """
+    row : dict (une ligne fusionnée contenant:
+           - champs originaux (gc / non_gc)
+           - champs canoniques déjà produits par map_core_from_* (ex: set1_score, player_id_winner, PlayerIDA, player_a, winner_player_name...)
+    Retour : dict avec colonnes ATP calculées / mappées (valeurs None si non disponibles).
+    """
+
+    out = {}
+
+    # --- identités simples / mappings 1:1 ---
+    out["event_id"] = row.get("tourney_id") or row.get("event_id") or None
+    out["event_year"] = row.get("tourney_year") or row.get("event_year") or None
+    out["tourney_name"] = row.get("tourney_name") or row.get("tournament_name") or None
+    out["level"] = row.get("level") or None
+    out["start_date"] = row.get("start_date") or None
+    out["end_date"] = row.get("end_date") or None
+    out["surface"] = row.get("surface") or None
+    out["singles_draw_size"] = row.get("singles_draw_size") or None
+    out["prize_money"] = row.get("prize_money") or None
+    out["prize_money_currency"] = row.get("prize_money_currency") or None
+    out["match_id"] = row.get("match_id") or None
+    out["round"] = row.get("round") or None
+    out["match_time_total"] = row.get("match_time_total") or None
+    out["match_message"] = row.get("match_message") or None
+    out["match_status"] = row.get("match_status") or None
+
+    # --- noms / pays / seeds / players ---
+    # winner_player_name / loser_player_name : les canonical fields existent déjà pour gc/non_gc
+    out["winner_player_name"] = row.get("winner_player_name") or row.get("winner") or row.get("player_winner") or None
+    out["loser_player_name"] = row.get("loser_player_name") or row.get("loser") or row.get("player_loser") or None
+    out["winner_seed"] = row.get("winner_seed") or row.get("seed_winner") or None
+    out["loser_seed"] = row.get("loser_seed") or row.get("seed_loser") or None
+    out["winner_country"] = row.get("winner_country") or row.get("country_winner") or None
+    out["loser_country"] = row.get("loser_country") or row.get("country_loser") or None
+    out["player_id_winner"] = row.get("player_id_winner") or row.get("winner_player_id") or row.get("winner_playerid") or None
+    out["player_id_loser"] = row.get("player_id_loser") or row.get("loser_player_id") or row.get("loser_playerid") or None
+
+    # --- sets & num_sets ---
+    out["set1_score"] = row.get("set1_score") or row.get("Set 1 Score") or None
+    out["set2_score"] = row.get("set2_score") or row.get("Set 2 Score") or None
+    out["set3_score"] = row.get("set3_score") or row.get("Set 3 Score") or None
+    out["set4_score"] = row.get("set4_score") or None
+    out["set5_score"] = row.get("set5_score") or None
+
+    # num_sets : compter le nombre de set non null parmi set1..set5
+    nsets = 0
+    for k in ("set1_score","set2_score","set3_score","set4_score","set5_score"):
+        v = out.get(k)
+        if v not in (None, ""):
+            nsets += 1
+    out["num_sets"] = nsets
+
+    # match_date : préférer match_date canonical (iso) sinon date
+    out["match_date"] = row.get("match_date") or row.get("date") or None
+
+    # winner_flag: tenter d'utiliser un champ existant
+    out["winner_flag_raw"] = row.get("winner_flag_raw") or row.get("Winner") or None
+    # normalisé : 'A' / 'B' / None ou '1'/'2'. On laisse tel quel pour compatibilité.
+    out["winner_flag"] = row.get("winner_flag") or row.get("match_winner") or None
+
+    # --- Aggregations par joueur : totals (WTA non_gc fournit généralement per-set keys winner_xxx_setN ; GC aussi dans certains cas)
+    # helper local lambda pour sommer les sets d'une metric côté winner ou loser
+    def sum_metric_side(metric_patterns_for_name, side):
+        """
+        metric_patterns_for_name : list of substring patterns to search in keys for this metric (ex ['dblflt','double_faults'])
+        side: 'winner' or 'loser' or None -> if None accept any side (fallback on a/b)
+        """
+        import re
+        # try strict winner_* keys first if side specified
+        if side in ("winner","loser"):
+            for pat in metric_patterns_for_name:
+                # typical exact patterns: f"{side}_{pat}_set"
+                res = _sum_values_for_patterns(row, [rf"^{side}.*{pat}.*set"], coerce=float)
+                if res is not None:
+                    return res
+        # fallback: search for any key containing metric patterns and 'set' and sum
+        for pat in metric_patterns_for_name:
+            res = _sum_values_for_patterns(row, [rf"{pat}.*set"], coerce=float)
+            if res is not None:
+                return res
+        # fallback to a/b keys (acesa_set1 etc.) : detect "a" vs "b" and map to winner/loser using player ids
+        # If A/B keys exist, map them to winner/loser based on player_id_winner vs PlayerIDA/ player_a names
+        # collect a-keys and b-keys for metric
+        a_keys = []
+        b_keys = []
+        for k in row.keys():
+            kn = str(k).lower()
+            for pat in metric_patterns_for_name:
+                if pat in kn and "set" in kn:
+                    if re.search(r"([_\-]|^)a[_\-]?set", kn) or re.search(r"scorea_set|scorea_set", kn) or kn.endswith("a"):
+                        a_keys.append(k)
+                    elif re.search(r"([_\-]|^)b[_\-]?set", kn) or re.search(r"scoreb_set|scoreb_set", kn) or kn.endswith("b"):
+                        b_keys.append(k)
+        if a_keys or b_keys:
+            # decide which side (A or B) corresponds to match winner
+            winner_is_A = None
+            try:
+                pidA = str(row.get("PlayerIDA") or row.get("PlayerIdA") or row.get("playerida") or "").strip() or None
+                pidB = str(row.get("PlayerIDB") or row.get("PlayerIdB") or row.get("playeridb") or "").strip() or None
+                pidW = str(out.get("player_id_winner") or "").strip() or None
+                if pidW and pidA and pidW == pidA:
+                    winner_is_A = True
+                elif pidW and pidB and pidW == pidB:
+                    winner_is_A = False
+            except Exception:
+                winner_is_A = None
+            # fallback on names
+            if winner_is_A is None:
+                try:
+                    pa = (row.get("player_a") or row.get("PlayerNameA") or "").strip()
+                    winner_name = out.get("winner_player_name") or ""
+                    if pa and winner_name and pa.strip().lower() == winner_name.strip().lower():
+                        winner_is_A = True
+                except Exception:
+                    winner_is_A = None
+            # sum
+            total = 0
+            found = False
+            # if winner_is_A => a_keys belong to winner
+            if winner_is_A is True:
+                for k in a_keys:
+                    v = _safe_float(row.get(k))
+                    if v is not None:
+                        total += v; found = True
+                for k in b_keys:
+                    v = _safe_float(row.get(k))
+                    if v is not None:
+                        # loser values
+                        pass
+            elif winner_is_A is False:
+                # b_keys => winner
+                for k in b_keys:
+                    v = _safe_float(row.get(k))
+                    if v is not None:
+                        total += v; found = True
+            else:
+                # unknown mapping A/B -> safer to return None
+                return None
+            return total if found else None
+        return None
+
+    # --- specific aggregate metrics (winner side) ---
+    # doublefaults_tot_winner = sum of winner_dblflt_setN OR winner_double_faults in GC ...
+    doublefaults = sum_metric_side(['dblflt','double_fault','doublefault'], 'winner')
+    out["doublefaults_tot_winner"] = _safe_int(doublefaults) if doublefaults is not None else None
+    doublefaults_l = sum_metric_side(['dblflt','double_fault','doublefault'], 'loser')
+    out["doublefaults_tot_loser"] = _safe_int(doublefaults_l) if doublefaults_l is not None else None
+
+    # aces tot
+    aces = sum_metric_side(['ace','aces'], 'winner')
+    out["aces_tot_winner"] = _safe_int(aces) if aces is not None else None
+    aces_l = sum_metric_side(['ace','aces'], 'loser')
+    out["aces_tot_loser"] = _safe_int(aces_l) if aces_l is not None else None
+
+    # firstserve_dividend_tot_winner = sum winner_ptsplayed1stserv_setN
+    fv = sum_metric_side(['ptsplayed1stserv','ptsplayed1st'], 'winner')
+    out["firstserve_dividend_tot_winner"] = _safe_int(fv) if fv is not None else None
+    fv_l = sum_metric_side(['ptsplayed1stserv','ptsplayed1st'], 'loser')
+    out["firstserve_dividend_tot_loser"] = _safe_int(fv_l) if fv_l is not None else None
+
+    # firstserve_divisor_tot_winner = sum winner_totservplayed_setN
+    fd = sum_metric_side(['totservplayed','totservplayeda','totservplayed'], 'winner')
+    out["firstserve_divisor_tot_winner"] = _safe_int(fd) if fd is not None else None
+    fd_l = sum_metric_side(['totservplayed','totservplayedb','totservplayed'], 'loser')
+    out["firstserve_divisor_tot_loser"] = _safe_int(fd_l) if fd_l is not None else None
+
+    # firstserve_percent_tot_winner = dividend/divisor
+    try:
+        if out["firstserve_divisor_tot_winner"]:
+            out["firstserve_percent_tot_winner"] = float(out["firstserve_dividend_tot_winner"]) / float(out["firstserve_divisor_tot_winner"])
+        else:
+            out["firstserve_percent_tot_winner"] = None
+    except Exception:
+        out["firstserve_percent_tot_winner"] = None
+
+    try:
+        if out["firstserve_divisor_tot_loser"]:
+            out["firstserve_percent_tot_loser"] = float(out["firstserve_dividend_tot_loser"]) / float(out["firstserve_divisor_tot_loser"])
+        else:
+            out["firstserve_percent_tot_loser"] = None
+    except Exception:
+        out["firstserve_percent_tot_loser"] = None
+
+    # firstservepointswon_dividend_tot_winner = sum winner_ptswon1stserv_setN
+    fpw = sum_metric_side(['ptswon1stserv','ptswon1st'], 'winner')
+    out["firstservepointswon_dividend_tot_winner"] = _safe_int(fpw) if fpw is not None else None
+    fpw_l = sum_metric_side(['ptswon1stserv','ptswon1st'], 'loser')
+    out["firstservepointswon_dividend_tot_loser"] = _safe_int(fpw_l) if fpw_l is not None else None
+
+    # firstservepointswon_divisor_tot_winner = same as firstserve_dividend (pts played 1st serve)
+    out["firstservepointswon_divisor_tot_winner"] = out["firstserve_dividend_tot_winner"]
+    out["firstservepointswon_divisor_tot_loser"] = out["firstserve_dividend_tot_loser"]
+
+    # percent
+    try:
+        if out["firstservepointswon_divisor_tot_winner"]:
+            out["firstservepointswon_percent_tot_winner"] = float(out["firstservepointswon_dividend_tot_winner"]) / float(out["firstservepointswon_divisor_tot_winner"])
+        else:
+            out["firstservepointswon_percent_tot_winner"] = None
+    except Exception:
+        out["firstservepointswon_percent_tot_winner"] = None
+
+    try:
+        if out["firstservepointswon_divisor_tot_loser"]:
+            out["firstservepointswon_percent_tot_loser"] = float(out["firstservepointswon_dividend_tot_loser"]) / float(out["firstservepointswon_divisor_tot_loser"])
+        else:
+            out["firstservepointswon_percent_tot_loser"] = None
+    except Exception:
+        out["firstservepointswon_percent_tot_loser"] = None
+
+    # secondservepointswon_* : souvent indisponible -> None
+    out["secondservepointswon_percent_tot_winner"] = None
+    out["secondservepointswon_dividend_tot_winner"] = None
+    out["secondservepointswon_divisor_tot_winner"] = None
+    out["secondservepointswon_percent_tot_loser"] = None
+    out["secondservepointswon_dividend_tot_loser"] = None
+    out["secondservepointswon_divisor_tot_loser"] = None
+
+    # breakpointssaved: dividend = sum (loser_breakptsplayed - loser_breakptsconv) across sets for the *winner*
+    def _sum_breakpoint_saved_for_winner():
+        tot_num = 0
+        found = False
+        for i in (1,2,3,4,5):
+            played_k = None
+            conv_k = None
+            # loser_breakptsplayed_set1 keys
+            for k in row.keys():
+                kn = str(k).lower()
+                if f"breakptsplayed_set{i}" in kn and "loser" in kn:
+                    played_k = k; break
+                if f"breakptsplayed_set{i}" in kn and "winner" in kn and played_k is None:
+                    # sometimes labels different; keep searching
+                    played_k = k
+            for k in row.keys():
+                kn = str(k).lower()
+                if f"breakptsconv_set{i}" in kn and "loser" in kn:
+                    conv_k = k; break
+                if f"breakptsconv_set{i}" in kn and "winner" in kn and conv_k is None:
+                    conv_k = k
+            if played_k:
+                p = _safe_float(row.get(played_k)) or 0.0
+            else:
+                p = None
+            if conv_k:
+                c = _safe_float(row.get(conv_k)) or 0.0
+            else:
+                c = None
+            if p is not None:
+                found = True
+                # if conv is missing, we cannot compute saved for this set -> ignore contribution
+                if c is not None:
+                    tot_num += (p - c)
+        return tot_num if found else None
+
+    bpsaved_div = _sum_breakpoint_saved_for_winner()
+    out["breakpointssaved_dividend_tot_winner"] = _safe_int(bpsaved_div) if bpsaved_div is not None else None
+
+    # divisor = sum loser_breakptsplayed_setN
+    bp_divisor = _sum_values_for_patterns(row, [r"loser.*breakptsplayed.*set", r"breakptsplayed.*set.*loser", r"breakptsplayed_set"], coerce=int)
+    out["breakpointssaved_divisor_tot_winner"] = _safe_int(bp_divisor) if bp_divisor is not None else None
+
+    try:
+        if out["breakpointssaved_divisor_tot_winner"] and out["breakpointssaved_dividend_tot_winner"] is not None:
+            out["breakpointssaved_percent_tot_winner"] = float(out["breakpointssaved_dividend_tot_winner"]) / float(out["breakpointssaved_divisor_tot_winner"])
+        else:
+            out["breakpointssaved_percent_tot_winner"] = None
+    except Exception:
+        out["breakpointssaved_percent_tot_winner"] = None
+
+    # servicegamesplayed_tot_winner : somme des winner_servgamesplayed_setN
+    sgp = sum_metric_side(['servgamesplayed','servgamesplayed_set','servgamesplayed_set'], 'winner')
+    out["servicegamesplayed_tot_winner"] = _safe_int(sgp) if sgp is not None else None
+    sgl = sum_metric_side(['servgamesplayed','servgamesplayed_set'], 'loser')
+    out["servicegamesplayed_tot_loser"] = _safe_int(sgl) if sgl is not None else None
+
+    # serverating & link fields : souvent non disponibles -> tenter detection de clés 'serverating'/'serveratinglink'
+    sr = None
+    for k in row.keys():
+        if 'serverating' in str(k).lower() and 'winner' in str(k).lower():
+            sr = row.get(k); break
+    out["serverating_tot_winner"] = sr or None
+    sr_l = None
+    for k in row.keys():
+        if 'serverating' in str(k).lower() and 'loser' in str(k).lower():
+            sr_l = row.get(k); break
+    out["serverating_tot_loser"] = sr_l or None
+
+    # totalservicepointswon and totalreturnpointswon, totalpointswon : impossible if not present -> try to detect i.e. winner_points_won or winner_total_points etc.
+    total_service_w = _sum_values_for_patterns(row, [r"winner.*servicepoints.*", r"winner.*service_points.*", r"winner.*service_points_won"], coerce=float)
+    out["totalservicepointswon_dividend_tot_winner"] = total_service_w if total_service_w is not None else None
+    # percent/divisors left as None unless clear fields exist
+    out["totalservicepointswon_percent_tot_winner"] = None
+    out["totalreturnpointswon_percent_tot_winner"] = None
+    out["totalpointswon_percent_tot_winner"] = None
+
+    # tiebreak extraction:
+    # For each set 1..3: on va essayer de récupérer tb points pour le *match winner* et pour le match loser
+    # Priorité: utiliser les clés raw ScoreSet{n}A/ScoreSet{n}B / scorea_setN / scoreb_setN (orientation A/B).
+    # Sinon tenter d'interpréter setN_score comme winner-loser (si on est certain du format)
+    tb_map = {}
+    for i in (1,2,3):
+        s_key = f"set{i}_score"
+        # check canonical names variants
+        s_val = row.get(s_key) or row.get(f"Set {i} Score") or row.get(f"Set {i} Score".replace(" ", " ")) or row.get(f"set{i}_score")
+        # find raw A/B keys if present
+        rawA = None
+        rawB = None
+        for cand in (f"ScoreSet{i}A", f"ScoreSet{i}a", f"scorea_set{i}", f"scorea_set{i}", f"scorea_set{i}"):
+            if cand in row:
+                rawA = row.get(cand); break
+        for cand in (f"ScoreSet{i}B", f"ScoreSet{i}b", f"scoreb_set{i}", f"scoreb_set{i}", f"scoreb_set{i}"):
+            if cand in row:
+                rawB = row.get(cand); break
+
+        tb_winner_points = None
+        tb_loser_points = None
+        # prefer raw A/B orientation if available
+        if rawA is not None and rawB is not None:
+            # rawA/rawB likely numbers "6" "7(5)" etc ; try parse A,B,tb where tb is the in-parenthesis number if exists
+            a_left, a_right, a_tb = _parse_set_score(rawA)
+            b_left, b_right, b_tb = _parse_set_score(rawB)
+            # but usually rawA is a single integer; instead use s_val since map_core builds set strings; fallback to s_val
+            s_val_local = s_val or f"{rawA}-{rawB}"
+            tw, tl = _compute_tiebreak_points_from_setscore(s_val_local)
+            # determine if A is match winner
+            winner_is_A = None
+            try:
+                pidA = str(row.get("PlayerIDA") or row.get("PlayerIdA") or row.get("playerida") or "").strip() or None
+                pidB = str(row.get("PlayerIDB") or row.get("PlayerIdB") or row.get("playeridb") or "").strip() or None
+                pidW = str(row.get("player_id_winner") or "").strip() or None
+                if pidW and pidA and pidW == pidA:
+                    winner_is_A = True
+                elif pidW and pidB and pidW == pidB:
+                    winner_is_A = False
+            except Exception:
+                winner_is_A = None
+            # fallback on names
+            if winner_is_A is None:
+                pa = (row.get("player_a") or row.get("PlayerNameA") or "").strip()
+                winner_name = (row.get("winner_player_name") or "").strip()
+                if pa and winner_name and pa.lower() == winner_name.lower():
+                    winner_is_A = True
+                else:
+                    winner_is_A = False if (row.get("player_b") and (row.get("player_b") or "").strip().lower() == (row.get("winner_player_name") or "").strip().lower()) else None
+            if tw is not None:
+                if winner_is_A is True:
+                    tb_winner_points = tw
+                    tb_loser_points = tl
+                elif winner_is_A is False:
+                    # A is not match winner -> then match winner is B
+                    tb_winner_points = tl
+                    tb_loser_points = tw
+                else:
+                    # cannot map A/B -> leave None to avoid errors
+                    tb_winner_points = None
+                    tb_loser_points = None
+        else:
+            # no raw A/B keys -> try to interpret s_val as winner-loser format (user assumption)
+            tw, tl = _compute_tiebreak_points_from_setscore(s_val)
+            if tw is not None:
+                # but we cannot be certain the set-winner equals match-winner: best-effort:
+                # check whether the left score equals the match winner's games if we can deduce orientation:
+                # Try to deduce by comparing set game counts with match outcome by counting overall sets distribution:
+                # Simpler: if the set winner (left side) obviously the overall match winner (i.e. majority sets belong to match winner),
+                # but it's complex; therefore we *conservatively* set tiebreak_set{i}_winner to tb_winner_points
+                # assuming set-score string is in winner-loser format (this follows user's note).
+                tb_winner_points = tw
+                tb_loser_points = tl
+            else:
+                tb_winner_points = None; tb_loser_points = None
+
+        out[f"tiebreak_set{i}_winner"] = _safe_int(tb_winner_points)
+        out[f"tiebreak_set{i}_loser"] = _safe_int(tb_loser_points)
+
+    # Score string / score_string
+    out["score_string"] = row.get("score_string") or row.get("ScoreString") or row.get("ScoreString") or None
+
+    return out
+
+
 
 def ensure_out_dir():
     """Crée OUT_DIR si nécessaire."""
@@ -724,7 +1201,8 @@ def map_core_from_non_gc_row(r):
         player_id_winner = player_id_loser = None
 
 
-    return {
+     # --- (après tes calculs existants) ---
+    result_core = {
         "tourney_id": str(r.get("event_id") or r.get("tourney_id") or ""),
         "tourney_year": str(r.get("event_year") or r.get("tourney_year") or ""),
         "tourney_name": r.get("tournament_name") or r.get("tournament_title") or r.get("tourney_name"),
@@ -754,6 +1232,101 @@ def map_core_from_non_gc_row(r):
         "player_id_loser": player_id_loser
     }
 
+    # ---------------------- NOUVEAU : réattribution A/B -> winner/loser ----------------------
+    # But: on veut mapper toute clef '<metric>a_setN' / '<metric>b_setN' -> winner_<metric>_setN / loser_<metric>_setN
+    import re
+    out = dict(result_core)  # base de retour
+
+    # heuristiques pour déterminer match_winner s'il est encore None
+    # (pidA/pidB ont été récupérés plus haut dans la fonction)
+    try:
+        if 'match_winner' in locals():
+            mw = match_winner
+        else:
+            mw = None
+    except Exception:
+        mw = None
+
+    # si match_winner non déterminé : essayer d'inférer à partir des player ids ou des noms
+    if not mw:
+        try:
+            pidA = str(r.get("PlayerIDA")) if r.get("PlayerIDA") is not None else None
+            pidB = str(r.get("PlayerIDB")) if r.get("PlayerIDB") is not None else None
+            if player_id_winner and pidA and player_id_winner == pidA:
+                mw = 'A'
+            elif player_id_winner and pidB and player_id_winner == pidB:
+                mw = 'B'
+            else:
+                # fallback sur noms
+                pa = (player_a or "").strip()
+                pb = (player_b or "").strip()
+                if pa and winner_name and winner_name.strip() == pa:
+                    mw = 'A'
+                elif pb and winner_name and winner_name.strip() == pb:
+                    mw = 'B'
+        except Exception:
+            mw = None
+
+    # regex pour trouver metrics '...a_setN' ou '...b_setN' (insensible à la casse)
+    pat = re.compile(r"(?i)^(?P<metric>.+?)(?P<side>[ab])_set(?P<setnum>[1-5])$")
+
+    # collect present a/b metrics
+    grouped = {}
+    for k, v in r.items():
+        if not isinstance(k, str):
+            continue
+        m = pat.match(k)
+        if not m:
+            continue
+        metric = m.group("metric").rstrip("_")
+        side = m.group("side").lower()  # 'a' ou 'b'
+        setnum = m.group("setnum")
+        key_metric = (metric.lower(), setnum)
+        if key_metric not in grouped:
+            grouped[key_metric] = {"a": None, "b": None}
+        grouped[key_metric][side] = v if v not in ("", None) else None
+
+    # create winner_/loser_ columns according to mw (match_winner)
+    for (metric, setnum), sides in grouped.items():
+        win_col = f"winner_{metric}_set{setnum}"
+        lose_col = f"loser_{metric}_set{setnum}"
+        # si on sait qui a gagné
+        if mw == 'A':
+            out[win_col] = sides.get("a")
+            out[lose_col] = sides.get("b")
+        elif mw == 'B':
+            out[win_col] = sides.get("b")
+            out[lose_col] = sides.get("a")
+        else:
+            # si on n'a pas de vainqueur, tente heuristiques avec PlayerIDA/PlayerIDB
+            try:
+                pidA = str(r.get("PlayerIDA")) if r.get("PlayerIDA") is not None else None
+                pidB = str(r.get("PlayerIDB")) if r.get("PlayerIDB") is not None else None
+                if player_id_winner and pidA and player_id_winner == pidA:
+                    out[win_col] = sides.get("a"); out[lose_col] = sides.get("b")
+                elif player_id_winner and pidB and player_id_winner == pidB:
+                    out[win_col] = sides.get("b"); out[lose_col] = sides.get("a")
+                else:
+                    # pas de décision fiable -> on préfère garder None pour winner/loser (évite fausses assignations)
+                    out[win_col] = None
+                    out[lose_col] = None
+            except Exception:
+                out[win_col] = None
+                out[lose_col] = None
+
+    # Optionnel : supprime les clés A/B originales pour éviter doublons dans le CSV final
+    # Si tu veux conserver les colonnes originales, commente la boucle suivante
+    remove_pat = re.compile(r"(?i).+[ab]_set[1-5]$")
+    for k in list(r.keys()):
+        if isinstance(k, str) and remove_pat.match(k):
+            # si tu veux aussi conserver la valeur originale, tu peux la copier ailleurs avant la suppression
+            # ici on supprime de out si présent (on n'a pas ajouté ces clés à out donc safe)
+            pass  # rien à faire : on ne rajoute pas les clés 'a'/'b' originales dans out
+
+    # retourne out (core canon + winner_/loser_ stats)
+    return out
+
+    
 def normalize_preserve_all(df, is_gc=False, tournament_id=None, year_str=None):
     """Normalise chaque ligne en conservant toutes les colonnes originales + colonnes CORE."""
     if df is None:
@@ -769,8 +1342,51 @@ def normalize_preserve_all(df, is_gc=False, tournament_id=None, year_str=None):
             core = {}
         merged = dict(orig)
         merged.update(core)
+        # --- NOUVEAU: calculer et ajouter colonnes ATP (si possible) ---
+        try:
+            atp_fields = compute_atp_fields(merged)
+            if atp_fields:
+                merged.update(atp_fields)
+        except Exception as e:
+            # ne bloque pas la normalisation si erreur: log si tu veux
+            # print("compute_atp_fields error:", e)
+            pass
         rows.append(merged)
+
     result = pd.DataFrame(rows)
+        # --- assurer colonnes ATP (référence) présentes (même si None) ---
+    ATP_REFERENCE_COLS = [
+        "event_id","event_year","tourney_name","level","start_date","end_date","surface",
+        "singles_draw_size","prize_money","prize_money_currency","match_id","round",
+        "match_time_total","match_message","match_status","num_sets","winner_flag_raw",
+        "score_string","winner_player_name","loser_player_name","winner_seed","loser_seed",
+        "winner_country","loser_country","set1_score","set2_score","set3_score","set4_score",
+        "set5_score","match_date","winner_flag","player_winner","player_loser","country_winner",
+        "country_loser","seed_winner","seed_loser","serverating_tot_winner","serveratinglink_tot_winner",
+        "doublefaults_tot_winner","aces_tot_winner","firstserve_percent_tot_winner",
+        "firstserve_dividend_tot_winner","firstserve_divisor_tot_winner","firstservepointswon_percent_tot_winner",
+        "firstservepointswon_dividend_tot_winner","firstservepointswon_divisor_tot_winner",
+        "secondservepointswon_percent_tot_winner","secondservepointswon_dividend_tot_winner","secondservepointswon_divisor_tot_winner",
+        "breakpointssaved_percent_tot_winner","breakpointssaved_dividend_tot_winner","breakpointssaved_divisor_tot_winner",
+        "servicegamesplayed_tot_winner","serverating_tot_loser","serveratinglink_tot_loser",
+        "doublefaults_tot_loser","aces_tot_loser","firstserve_percent_tot_loser",
+        "firstserve_dividend_tot_loser","firstserve_divisor_tot_loser","firstservepointswon_percent_tot_loser",
+        "firstservepointswon_dividend_tot_loser","firstservepointswon_divisor_tot_loser",
+        "secondservepointswon_percent_tot_loser","secondservepointswon_dividend_tot_loser","secondservepointswon_divisor_tot_loser",
+        "breakpointssaved_percent_tot_loser","breakpointssaved_dividend_tot_loser","breakpointssaved_divisor_tot_loser",
+        "servicegamesplayed_tot_loser",
+        # tiebreaks
+        "tiebreak_set1_winner","tiebreak_set1_loser",
+        "tiebreak_set2_winner","tiebreak_set2_loser",
+        "tiebreak_set3_winner","tiebreak_set3_loser",
+        # minimal IDs
+        "player_id_winner","player_id_loser"
+    ]
+    for c in ATP_REFERENCE_COLS:
+        if c not in result.columns:
+            result[c] = None
+
+
     for c in CORE_COLS:
         if c not in result.columns:
             result[c] = None
