@@ -7,7 +7,7 @@
 <style>
   :root{
     --bg:#ffffff; --muted:#666; --accent:#2b63c6;
-    --row-base-h:210; /* bluish hue base (can change) */
+    --row-base-h:210;
     --row-base-s:70%;
   }
   body{ font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin:20px; color:#111; background:var(--bg); }
@@ -20,7 +20,6 @@
   .table thead th{ text-align:left; background:#fafafa; padding:10px 12px; font-weight:600; border-bottom:1px solid #eee; }
   .table tbody td{ padding:10px 12px; border-bottom:1px solid rgba(0,0,0,0.04); vertical-align:middle; }
   .player-text{ display:flex; gap:8px; align-items:center; color:inherit; }
-  /* ensure emoji fonts are used for flags */
   .flag{ font-size:18px; font-family: "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji", sans-serif; line-height:1; }
   .rank-badge{ min-width:36px; text-align:center; padding:6px 8px; border-radius:6px; background:rgba(0,0,0,0.04); font-weight:700; }
   .muted{ color:var(--muted); font-size:13px; }
@@ -74,7 +73,7 @@
 
 <script>
 (async function(){
-  const LEADERBOARDS_BASE = './leaderboards'; // unchanged by request
+  const LEADERBOARDS_BASE = './leaderboards';
   const indexUrl = `${LEADERBOARDS_BASE}/index.json`;
 
   async function fetchJson(u){
@@ -83,7 +82,6 @@
     return r.json();
   }
 
-  // robust country code -> emoji flag
   function countryCodeToFlagEmoji(code){
     if(!code) return '';
     const c = String(code).trim().toUpperCase();
@@ -92,7 +90,6 @@
     return String.fromCodePoint(c.charCodeAt(0) + OFFSET, c.charCodeAt(1) + OFFSET);
   }
 
-  // blue shades, consecutive lines different
   function rowShade(index){
     const hue = 210;
     const sat = 70;
@@ -122,7 +119,6 @@
     return String(v);
   }
 
-  // index load
   let index;
   try{
     index = await fetchJson(indexUrl);
@@ -141,7 +137,6 @@
     select.appendChild(opt);
   });
 
-  // try many field names for matches count
   function getMatchesCount(entry){
     if(!entry) return null;
     const cand = ['matches', 'matches_count', 'matches_played', 'total_matches', 'n_matches'];
@@ -163,40 +158,34 @@
     return null;
   }
 
-  // careful slugify (remove diacritics, keep alnum & '-')
   function slugifyForPlayers(id, name){
-    // if slug already provided elsewhere prefer that (handled before calling)
     const pid = (id || '').toString().toLowerCase();
-    const n = (name || '').toString().toLowerCase()
-                .normalize('NFD').replace(/\p{Diacritic}/gu, '') // remove accents
-                .replace(/[^a-z0-9]+/g, '-') // non-alnum -> dash
-                .replace(/^-+|-+$/g, '') // trim dashes
-                .replace(/-{2,}/g, '-'); // collapse
+    let n = (name || '').toString().toLowerCase();
+    n = n.normalize('NFD').replace(/\p{Diacritic}/gu, '');
+    n = n.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').replace(/-{2,}/g, '-');
     if(pid && n) return `${pid}-${n}`;
     if(n) return n;
     if(pid) return pid;
     return null;
   }
 
-  // build player URL according to your working example: /players_atp/<slug>
+  // build player URL: FIRST prefer entry.profile_url (if present), else try slug fields, else fallback slugify
   function playerUrlFromEntry(entry){
     if(!entry) return null;
-    // try explicit slug fields first
+    if(entry.profile_url && String(entry.profile_url).trim()){
+      return String(entry.profile_url);
+    }
     const slugFields = ['slug', 'player_slug', 'profile_slug'];
     for(const f of slugFields){
       if(entry[f]) return `/players_atp/${encodeURIComponent(String(entry[f]))}`;
     }
-    // fallback: player_id + name
     const id = entry.player_id || entry.player || entry.id || null;
     const name = entry.player_name || entry.name || null;
     const fallback = slugifyForPlayers(id, name);
     if(fallback) return `/players_atp/${encodeURIComponent(fallback)}`;
-    // if still nothing, fallback to profile_url if present (absolute/relative)
-    if(entry.profile_url) return entry.profile_url;
     return null;
   }
 
-  // load + render helpers
   let currentData = null;
   async function loadAndRender(statKey){
     const url = `${LEADERBOARDS_BASE}/${statKey}.json`;
@@ -218,21 +207,17 @@
     const t = data;
     const typ = t.type || 'float';
     let entries = Array.isArray(t.entries) ? t.entries.slice() : [];
-
     const totalBefore = entries.length;
 
-    // min matches filter
     const useMin = document.getElementById('filter-min-matches').checked;
     const minMatches = Math.max(0, Number(document.getElementById('min-matches').value) || 0);
     if(useMin && minMatches > 0){
       entries = entries.filter(e => {
         const n = getMatchesCount(e);
-        // if unknown, keep to be safe
         return (n === null) || (n >= minMatches);
       });
     }
 
-    // search
     const q = (document.getElementById('search').value || '').trim().toLowerCase();
     if(q){
       entries = entries.filter(e => {
@@ -258,10 +243,8 @@
       tr.setAttribute('tabindex','0');
       tr.setAttribute('role','link');
 
-      // rank
       const tdRank = document.createElement('td'); tdRank.innerHTML = `<div class="rank-badge">${e.rank != null ? e.rank : ''}</div>`;
 
-      // player cell: NO anchor, just plain text (flag + name)
       const tdPlayer = document.createElement('td');
       const span = document.createElement('span');
       span.className = 'player-text';
@@ -270,23 +253,20 @@
       span.appendChild(flag); span.appendChild(name);
       tdPlayer.appendChild(span);
 
-      // country
       const tdCountry = document.createElement('td'); tdCountry.style.textAlign='center'; tdCountry.textContent = e.country_code || '';
-
-      // value
       const tdVal = document.createElement('td'); tdVal.style.fontWeight='700'; tdVal.textContent = formatValue(e.value, typ);
 
-      // assemble and append
       tr.appendChild(tdRank); tr.appendChild(tdPlayer); tr.appendChild(tdCountry); tr.appendChild(tdVal);
 
-      // navigation target (players_atp/<slug>)
+      // IMPORTANT: prefer profile_url from the JSON
       const targetUrl = playerUrlFromEntry(e);
 
-      // click -> navigate (no anchor handling)
       tr.addEventListener('click', (ev) => {
-        if(targetUrl) window.location.href = targetUrl;
+        if(targetUrl) {
+          // navigate directly; this mirrors your working players_atp/<slug> routing
+          window.location.href = targetUrl;
+        }
       });
-      // keyboard accessibility: Enter -> navigate
       tr.addEventListener('keydown', (ev) => {
         if(ev.key === 'Enter' && targetUrl){
           ev.preventDefault();
@@ -298,7 +278,6 @@
     }
   }
 
-  // wiring
   select.addEventListener('change', async (ev) => {
     const key = select.value;
     await loadAndRender(key);
@@ -310,7 +289,6 @@
   document.getElementById('filter-min-matches').addEventListener('change', function(){ if(currentData) renderTable(currentData); });
   document.getElementById('min-matches').addEventListener('input', function(){ if(currentData) renderTable(currentData); });
 
-  // initial
   const params = new URLSearchParams(window.location.search);
   const initial = params.get('stat') || (select.options.length ? select.options[0].value : null);
   if(initial){

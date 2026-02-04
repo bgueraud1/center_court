@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 generate_stats_leaderboards.py
-Parcourt dist/players_atp/*.stats.json (générés par generate_detailed_stats.py)
-et produit des leaderboards JSON triés par statistique dans dist/leaderboards/.
+Parcourt players_dir/*.stats.json (générés par generate_detailed_stats.py)
+et produit des leaderboards JSON triés par statistique dans out_dir.
 
 Usage:
-  python generate_stats_leaderboards.py --players-dir ./dist/players_atp --out-dir ./dist/leaderboards
+  python generate_stats_leaderboards.py --players-dir ./dist/players_atp --out-dir ./dist/leaderboards --players-csv ./player_data_atp.csv
 """
 import os
 import glob
@@ -14,31 +14,30 @@ import json
 import argparse
 import math
 import re
+import unicodedata
+import csv
 from collections import OrderedDict
 
 # ---------------- Config des statistiques ----------------
-# key -> metadata: label, type, higher_is_better (bool)
 STATS_META = OrderedDict([
-    # 4 principales
     ("matches_played", {"label": "Matches", "type": "int", "higher_is_better": True}),
     ("matches_won", {"label": "Matches won", "type": "int", "higher_is_better": True}),
-    ("matches_lost", {"label": "Matches lost", "type": "int", "higher_is_better": False}),  # lower better
+    ("matches_lost", {"label": "Matches lost", "type": "int", "higher_is_better": False}),
     ("win_rate", {"label": "Win rate", "type": "pct", "higher_is_better": True}),
 
-    # 15 career stats (use career.stat_agg.mean or career.stat_agg.sum for counts if preferable)
     ("aces", {"label": "Number of aces (career)", "type": "int", "higher_is_better": True}),
     ("aces_per_service_point", {"label": "Aces per service point", "type": "float", "higher_is_better": True}),
-    ("doublefaults", {"label": "Number of double faults (career)", "type": "int", "higher_is_better": False}),  # negative per user
+    ("doublefaults", {"label": "Number of double faults (career)", "type": "int", "higher_is_better": False}),
     ("doublefaults_per_service_point", {"label": "Double faults per service point", "type": "float", "higher_is_better": False}),
     ("firstserve_percent", {"label": "First serve %", "type": "pct", "higher_is_better": True}),
     ("firstserve_points_won_percent", {"label": "First serve points won %", "type": "pct", "higher_is_better": True}),
     ("secondserve_points_won_percent", {"label": "Second serve points won %", "type": "pct", "higher_is_better": True}),
     ("service_points_won_percent", {"label": "Service points won %", "type": "pct", "higher_is_better": True}),
     ("return_points_won_percent", {"label": "Return points won %", "type": "pct", "higher_is_better": True}),
-    ("breakpoints_faced", {"label": "Breakpoints faced (career)", "type": "int", "higher_is_better": False}),  # negative
+    ("breakpoints_faced", {"label": "Breakpoints faced (career)", "type": "int", "higher_is_better": False}),
     ("breakpoints_converted", {"label": "Breakpoints converted (career)", "type": "int", "higher_is_better": True}),
     ("breakpoints_converted_rate", {"label": "Breakpoints converted rate", "type": "pct", "higher_is_better": True}),
-    ("service_games_lost_rate", {"label": "Service games lost rate", "type": "pct", "higher_is_better": False}),  # negative
+    ("service_games_lost_rate", {"label": "Service games lost rate", "type": "pct", "higher_is_better": False}),
     ("tiebreak_win_rate", {"label": "Tie-break win rate", "type": "pct", "higher_is_better": True}),
     ("match_time_hours", {"label": "Mean match time (hours)", "type": "float", "higher_is_better": False})
 ])
@@ -56,7 +55,6 @@ def load_json_path(path):
         return None
 
 def maybe_get_country_code(j):
-    # try multiple candidate keys, return uppercase 2-letter if plausible else None
     if not isinstance(j, dict):
         return None
     for k in ('country_code', 'iso2', 'country', 'nationality', 'nation'):
@@ -64,21 +62,24 @@ def maybe_get_country_code(j):
         if not v:
             continue
         s = str(v).strip()
-        # if it's like "US" or "GB", or "USA" -> try first 2 letters
         if len(s) == 2 and s.isalpha():
             return s.upper()
         if len(s) == 3 and s.isalpha():
             return s[:2].upper()
-        # sometimes "United States" -> we cannot reliably map without a lookup; skip
     return None
 
 def slugify(name):
+    """Robust slugification: remove accents, keep a-z0-9 and '-', collapse duplicates."""
     if not name:
         return ''
     s = str(name).strip().lower()
-    s = re.sub(r'[^a-z0-9\s\-]', '', s)
-    s = re.sub(r'\s+', '-', s)
-    s = re.sub(r'\-+', '-', s)
+    # normalize unicode and remove diacritics
+    s = unicodedata.normalize('NFD', s)
+    s = ''.join(ch for ch in s if not unicodedata.category(ch).startswith('M'))
+    # remove undesired characters, keep letters/numbers/space/dash
+    s = re.sub(r"[^a-z0-9\s\-]", "", s)
+    s = re.sub(r"\s+", "-", s)
+    s = re.sub(r"\-+", "-", s)
     return s.strip('-')
 
 def is_number(v):
@@ -95,7 +96,6 @@ def to_number(v):
         if v is None: return None
         n = float(v)
         if math.isnan(n) or math.isinf(n): return None
-        # if integer-like
         if abs(n - round(n)) < 1e-9:
             return int(round(n))
         return n
@@ -111,10 +111,8 @@ def format_value_for_type(v, typ):
         except:
             return str(v)
     if typ == 'pct':
-        # value should be 0..100
         try:
             val = float(v)
-            # if looks like 0..1 -> multiply
             if abs(val) <= 1.0:
                 val = val * 100.0
             return f"{round(val,2)}%"
@@ -127,37 +125,69 @@ def format_value_for_type(v, typ):
             return str(v)
     return str(v)
 
+def load_player_csv(players_csv_path):
+    """Load CSV mapping player_id -> full_name (full_name header expected)."""
+    mapping = {}
+    try:
+        with open(players_csv_path, 'r', encoding='utf8') as fh:
+            reader = csv.DictReader(fh)
+            for row in reader:
+                pid = (row.get('player_id') or '').strip()
+                full_name = (row.get('full_name') or '').strip()
+                if pid and full_name:
+                    mapping[pid] = full_name
+    except Exception as e:
+        print(f"[warn] could not load players CSV '{players_csv_path}': {e}")
+    return mapping
+
 # ---------------- Build leaderboards ----------------
-def build_leaderboards(players_dir, out_dir):
+def build_leaderboards(players_dir, out_dir, players_csv_path=None):
     safe_mkdir(out_dir)
     files = sorted(glob.glob(os.path.join(players_dir, "*.stats.json")))
     players = []
-    # read all JSONs
+
+    # optional mapping player_id -> full_name
+    players_map = {}
+    if players_csv_path:
+        players_map = load_player_csv(players_csv_path)
+
+    # read all player stats JSONs to get base info and json path
     for f in files:
         j = load_json_path(f)
         if not j:
             continue
         pid = (j.get('player_id') or os.path.splitext(os.path.basename(f))[0]).strip()
-        name = j.get('player_name') or j.get('slug') or pid
+        # prefer full_name from CSV mapping (if available) to avoid short/inital names
+        full_from_csv = players_map.get(pid)
+        # prefer explicit slug field if present in stats json
+        name_field = j.get('player_name') or j.get('slug') or full_from_csv or pid
         country_code = maybe_get_country_code(j)
-        slug_part = slugify(name)
-        profile_url = f"https://www.center-court.net/players_atp/{pid.lower()}-{slug_part}"
+        # slug_part computed from full_from_csv if available else from name_field
+        slug_source = full_from_csv or name_field
+        slug_part = slugify(slug_source)
+        # profile_url: prefer existing profile_url in stats json (if present and non-empty)
+        profile_url = None
+        if j.get('profile_url'):
+            profile_url = j.get('profile_url')
+        else:
+            # create canonical profile url
+            # use pid lower-case prefix then slug_part
+            profile_url = f"https://www.center-court.net/players_atp/{pid.lower()}-{slug_part}"
         players.append({
             "player_id": pid,
-            "player_name": name,
+            "player_name": name_field,
             "country_code": country_code,
             "profile_url": profile_url,
             "json_path": f
         })
 
-    # function to extract stat value from a player's stats json
+    # helper to extract stat values from player's JSON
     def get_stat_value_for_player(j, stat_key, meta):
-        # special computed stats
         if stat_key == 'win_rate':
-            # compute from career matches
             try:
-                mp = j.get('career', {}).get('matches_played') if j.get('career') else None
-                mw = j.get('career', {}).get('matches_won') if j.get('career') else None
+                career = j.get('career') or {}
+                mp = career.get('matches_played') if career else None
+                mw = career.get('matches_won') if career else None
                 if mp is None and isinstance(j.get('meta',{}).get('matches'), int):
                     mp = j['meta']['matches']
                 if mp:
@@ -166,9 +196,7 @@ def build_leaderboards(players_dir, out_dir):
                     return val if not math.isnan(val) else None
             except:
                 return None
-        # matches_played / won / lost come from career top-level keys OR meta.matches or career.stat_agg counts
         if stat_key in ('matches_played','matches_won','matches_lost'):
-            # try top-level
             if j.get('career'):
                 if stat_key == 'matches_played' and j['career'].get('matches_played') is not None:
                     return to_number(j['career'].get('matches_played'))
@@ -176,28 +204,21 @@ def build_leaderboards(players_dir, out_dir):
                     return to_number(j['career'].get('matches_won'))
                 if stat_key == 'matches_lost' and j['career'].get('matches_lost') is not None:
                     return to_number(j['career'].get('matches_lost'))
-            # fallback meta.matches
             if stat_key == 'matches_played' and isinstance(j.get('meta',{}).get('matches'), int):
                 return to_number(j['meta']['matches'])
-        # general career.stat_agg mean or sum
         career = j.get('career') or {}
         stat_agg = career.get('stat_agg') if career else None
         if stat_agg and stat_key in stat_agg:
-            # prefer sum for counts if available (aces, doublefaults)
-            # detect int-like by meta type in STATS_META
             mp = stat_agg.get(stat_key)
             if isinstance(mp, dict):
-                # prefer 'sum' for counts
                 if STATS_META.get(stat_key,{}).get('type') == 'int' and mp.get('sum') is not None:
                     return to_number(mp.get('sum'))
-                # otherwise prefer 'mean'
                 if mp.get('mean') is not None:
                     return to_number(mp.get('mean'))
                 if mp.get('sum') is not None:
                     return to_number(mp.get('sum'))
             else:
                 return to_number(mp)
-        # fallback None
         return None
 
     # build per-stat leaderboards
@@ -208,7 +229,6 @@ def build_leaderboards(players_dir, out_dir):
             j = load_json_path(p['json_path'])
             if not j: continue
             raw = get_stat_value_for_player(j, stat_key, meta)
-            # For percent fields, career.stat_agg.mean may be 0..1 -> we keep raw numeric (0..1) and format later
             entries.append({
                 "player_id": p['player_id'],
                 "player_name": p['player_name'],
@@ -216,18 +236,14 @@ def build_leaderboards(players_dir, out_dir):
                 "profile_url": p['profile_url'],
                 "value": raw
             })
-        # filter out players with None values
         entries_with_val = [e for e in entries if e['value'] is not None]
-        # sorting
         reverse = bool(meta.get('higher_is_better', True))
-        # if sorting by value numeric; treat None as lowest
         try:
             entries_with_val.sort(key=lambda x: (float(x['value']) if x['value'] is not None else float('-inf')), reverse=reverse)
         except Exception:
-            # fallback to string
             entries_with_val.sort(key=lambda x: (str(x.get('value'))), reverse=reverse)
 
-        # generate ranks (dense ranking by value)
+        # dense ranking
         ranked = []
         last_val = None
         last_rank = 0
@@ -248,7 +264,6 @@ def build_leaderboards(players_dir, out_dir):
                 "value": e['value']
             })
 
-        # write leaderboard file
         out = {
             "stat_key": stat_key,
             "label": meta.get('label'),
@@ -261,7 +276,7 @@ def build_leaderboards(players_dir, out_dir):
         with open(out_path, 'w', encoding='utf8') as fh:
             json.dump(out, fh, ensure_ascii=False, indent=2)
         print(f"[ok] wrote {out_path} ({len(ranked)} entries)")
-        # add to index
+
         index.append({
             "stat_key": stat_key,
             "label": meta.get('label'),
@@ -270,7 +285,6 @@ def build_leaderboards(players_dir, out_dir):
             "url": os.path.basename(out_path)
         })
 
-    # write index
     idx_path = os.path.join(out_dir, "index.json")
     with open(idx_path, 'w', encoding='utf8') as fh:
         json.dump({"stats": index}, fh, ensure_ascii=False, indent=2)
@@ -281,8 +295,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--players-dir", default="./players_atp", help="Directory with player stats JSON files")
     ap.add_argument("--out-dir", default="./leaderboards", help="Output directory for leaderboards")
+    ap.add_argument("--players-csv", default="./player_data_atp.csv", help="CSV file mapping player_id -> full_name (full_name header)")
     args = ap.parse_args()
-    build_leaderboards(args.players_dir, args.out_dir)
+    build_leaderboards(args.players_dir, args.out_dir, args.players_csv)
 
 if __name__ == "__main__":
     main()
