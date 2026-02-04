@@ -74,6 +74,18 @@
     .map-wrap { display:flex; gap:12px; flex-wrap:wrap; }
     .map-card { flex:1 1 480px; min-width:280px; border:1px solid var(--border); border-radius:8px; padding:8px; background:#fff; height:420px; }
 
+    /* detailed stats table */
+    .stats-table { width:100%; border-collapse:collapse; margin-top:8px; }
+    .stats-table th, .stats-table td { border:1px solid var(--border); padding:8px; text-align:left; font-size:13px; vertical-align:middle; }
+    .stats-table th { background:#fafafa; font-weight:700; }
+    .stats-summary { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+    .stat-card { background:#fff; border:1px solid var(--border); padding:10px; border-radius:8px; min-width:140px; box-shadow:0 6px 18px rgba(10,30,80,0.02); }
+
+    .upsets { margin-top:12px; display:flex; gap:12px; flex-wrap:wrap; }
+    .bucket-table { width:100%; border-collapse:collapse; margin-top:8px; }
+    .bucket-table th, .bucket-table td { border:1px solid var(--border); padding:8px; text-align:left; font-size:13px; }
+    .muted-small { color:var(--muted); font-size:13px; }
+
     @media (max-width:760px){
       .player-header { flex-direction:column; }
       .player-image { width:100%; max-width:260px; }
@@ -445,14 +457,12 @@ function fetchJsonSafe(url){
   });
 
   // If user lands directly on stats tab (rare), init it
-  // (do not auto-open; only if panel-stats is active)
   if(document.getElementById('panel-stats').classList.contains('active')){
     initStatsSubtabs(combined);
   }
 
   /* ------------------ Stats subtabs + lazy loaders ------------------ */
 
-  // We'll create subtabs only once and load each resource on demand.
   let statsSubtabsInitialized = false;
   const statsLoadState = { detailed:false, scenarios:false, timeseries:false, maps:false };
 
@@ -493,7 +503,6 @@ function fetchJsonSafe(url){
 
   // helper: try multiple candidate URLs for a given base name
   function tryCandidatesSequential(candidates){
-    // returns Promise resolving to parsed JSON or null
     return new Promise((resolve) => {
       (function attempt(i){
         if(i >= candidates.length){ return resolve(null); }
@@ -507,12 +516,10 @@ function fetchJsonSafe(url){
   }
 
   function buildCandidatesFor(player, suffix){
-    // player may have player_id and slug
     const pid = (player && player.player_id) ? String(player.player_id) : '';
     const slugVal = (player && player.slug) ? String(player.slug) : '';
     const slugLower = slugVal.toLowerCase();
     const candidates = [];
-    // common locations: /players_atp/{PID}.{suffix}.json , /players_atp/{slug}.{suffix}.json , /players_atp/{slug}.json (legacy)
     if(pid) {
       candidates.push(`/players_atp/${pid}.${suffix}.json`);
       candidates.push(`/players_atp/${pid.toUpperCase()}.${suffix}.json`);
@@ -523,16 +530,191 @@ function fetchJsonSafe(url){
       candidates.push(`/players_atp/${slugLower}.${suffix}.json`);
       candidates.push(`/players_atp/data/${slugLower}.${suffix}.json`);
     }
-    // fallback generic
     candidates.push(`/players_atp/${slugLower}.${suffix}.json`);
     candidates.push(`/players_atp/${slugLower}`);
     return candidates;
   }
 
+  /* ---------- New: detailed stats renderer (core addition) ---------- */
+
+  // map of stat labels -> stat keys inside career.stat_agg
+  const STATS_DEFINITION = [
+    { label: 'Number of aces', key: 'aces', type: 'count' },
+    { label: 'Aces per service point', key: 'aces_per_service_point', type: 'rate' },
+    { label: 'Number of double faults', key: 'doublefaults', type: 'count' },
+    { label: 'Double faults per service point', key: 'doublefaults_per_service_point', type: 'rate' },
+
+    { label: 'First serve %', key: 'firstserve_percent', type: 'pct' },
+    { label: 'First serve points won %', key: 'firstserve_points_won_percent', type: 'pct' },
+    { label: 'Second serve points won %', key: 'secondserve_points_won_percent', type: 'pct' },
+    { label: 'Service points won %', key: 'service_points_won_percent', type: 'pct' },
+    { label: 'Return points won %', key: 'return_points_won_percent', type: 'pct' },
+
+    { label: 'Breakpointss faced', key: 'breakpoints_faced', type: 'count' },
+    { label: 'Breakpoints converted (count)', key: 'breakpoints_converted', type: 'count' },
+    { label: 'Breakpoints converted rate', key: 'breakpoints_converted_rate', type: 'rate' },
+
+    { label: 'Service games lost rate', key: 'service_games_lost_rate', type: 'rate' },
+    { label: 'Tie-breaks win rate', key: 'tiebreak_win_rate', type: 'rate' },
+
+    { label: 'Mean match time (hours)', key: 'match_time_hours', type: 'hours' }
+  ];
+
+  function formatNumber(v){
+    if(v === null || v === undefined) return '—';
+    if(typeof v === 'number'){
+      if(Math.abs(v - Math.round(v)) < 1e-9) return String(Math.round(v));
+      return (Math.round(v * 100) / 100).toFixed( (Math.abs(v - Math.round(v))<1e-9) ? 0 : 2 ).replace(/\.00$/,'');
+    }
+    return String(v);
+  }
+  function formatPercentFromFraction(v){
+    if(v === null || v === undefined) return '—';
+    const num = Number(v);
+    if(isNaN(num)) return '—';
+    return (Math.round((num*100) * 100) / 100).toFixed(2) + '%';
+  }
+  function formatHours(v){
+    if(v === null || v === undefined) return '—';
+    const num = Number(v);
+    if(isNaN(num)) return '—';
+    // show hours with 2 decimals max; if integer -> no decimals
+    if(Math.abs(num - Math.round(num)) < 1e-9) return String(Math.round(num)) + ' h';
+    return (Math.round(num * 100) / 100).toFixed(2) + ' h';
+  }
+  function formatDaysFromHours(hours){
+    if(hours === null || hours === undefined) return '—';
+    const h = Number(hours);
+    if(isNaN(h)) return '—';
+    const days = h / 24.0;
+    if(days < 1) return (Math.round((days*24)*100)/100).toFixed(2) + ' h';
+    if(Math.abs(days - Math.round(days)) < 1e-9) return String(Math.round(days)) + ' d';
+    return (Math.round(days * 100) / 100).toFixed(2) + ' d';
+  }
+
+  // detect if a stat key is a rate type (no Sum column)
+  const RATE_KEYS = new Set([
+    'aces_per_service_point','doublefaults_per_service_point',
+    'firstserve_percent','firstserve_points_won_percent','secondserve_points_won_percent',
+    'service_points_won_percent','return_points_won_percent',
+    'breakpoints_converted_rate','service_games_lost_rate','tiebreak_win_rate'
+  ]);
+
+  async function renderDetailedStatsFrom(statsUrl, container){
+    try{
+      const res = await fetch(statsUrl);
+      if(!res.ok) { container.innerHTML = '<div class="no-data">Failed to load detailed stats.</div>'; return; }
+      const data = await res.json();
+      const career = data.career || {};
+      const stat_agg = (career.stat_agg) ? career.stat_agg : (data.stat_agg || {});
+      const total_match_time_hours = career.total_match_time_hours || (career.total_match_time_hours === 0 ? 0 : null);
+
+      // Top summary cards
+      const summaryHtml = [];
+      summaryHtml.push(`<div class="stats-summary">`);
+      summaryHtml.push(`<div class="stat-card"><div style="font-weight:700">Matches</div><div class="sub">${escapeHtml(String(career.matches_played || data.meta && data.meta.matches || '—'))}</div></div>`);
+      summaryHtml.push(`<div class="stat-card"><div style="font-weight:700">Matches won</div><div class="sub">${escapeHtml(String(career.matches_won || '—'))}</div></div>`);
+      summaryHtml.push(`<div class="stat-card"><div style="font-weight:700">Matches lost</div><div class="sub">${escapeHtml(String(career.matches_lost || '—'))}</div></div>`);
+      if(total_match_time_hours !== null){
+        summaryHtml.push(`<div class="stat-card"><div style="font-weight:700">Total time on court</div><div class="sub">${escapeHtml(formatHours(total_match_time_hours))} (${escapeHtml(formatDaysFromHours(total_match_time_hours))})</div></div>`);
+      } else {
+        summaryHtml.push(`<div class="stat-card"><div style="font-weight:700">Total time on court</div><div class="sub">—</div></div>`);
+      }
+      summaryHtml.push(`</div>`);
+
+      // build stats table header
+      let html = `<div style="font-weight:700;margin-bottom:8px">Detailed statistics (source: ${escapeHtml(statsUrl)})</div>`;
+      html += summaryHtml.join('');
+      html += `<table class="stats-table"><thead><tr><th style="min-width:230px">Statistic</th><th>Count</th><th>Mean</th><th>Sum</th><th>Min</th><th>Max</th></tr></thead><tbody>`;
+
+      // iterate STAT_DEFINITION to keep ordering
+      for(const s of STATS_DEFINITION){
+        const key = s.key;
+        const agg = stat_agg[key] || null;
+        const count = agg && agg.count !== undefined ? agg.count : (agg ? agg.count : null);
+        const mean = agg && ('mean' in agg) ? agg.mean : null;
+        const sum = agg && ('sum' in agg) ? agg.sum : null;
+        const mn = agg && ('min' in agg) ? agg.min : null;
+        const mx = agg && ('max' in agg) ? agg.max : null;
+
+        // presentation formatting depending on type
+        let meanFmt = '—', sumFmt = '—', minFmt = '—', maxFmt = '—';
+        if(s.type === 'pct' || RATE_KEYS.has(key)){
+          // mean is fraction (0..1) -> show percent
+          meanFmt = mean !== null && mean !== undefined ? formatPercentFromFraction(mean) : '—';
+          minFmt = mn !== null && mn !== undefined ? formatPercentFromFraction(mn) : '—';
+          maxFmt = mx !== null && mx !== undefined ? formatPercentFromFraction(mx) : '—';
+          // sum omitted for rates
+          sumFmt = '—';
+        } else if(s.type === 'hours'){
+          meanFmt = mean !== null && mean !== undefined ? formatHours(mean) : '—';
+          minFmt = mn !== null && mn !== undefined ? formatHours(mn) : '—';
+          maxFmt = mx !== null && mx !== undefined ? formatHours(mx) : '—';
+          sumFmt = (total_match_time_hours !== null && total_match_time_hours !== undefined) ? formatHours(total_match_time_hours) : (sum !== null && sum !== undefined ? formatHours(sum) : '—');
+        } else {
+          // counts / raw numeric
+          meanFmt = mean !== null && mean !== undefined ? formatNumber(mean) : '—';
+          minFmt = mn !== null && mn !== undefined ? formatNumber(mn) : '—';
+          maxFmt = mx !== null && mx !== undefined ? formatNumber(mx) : '—';
+          sumFmt = sum !== null && sum !== undefined ? formatNumber(sum) : '—';
+        }
+
+        html += `<tr>
+                  <td style="font-weight:700">${escapeHtml(s.label)}</td>
+                  <td>${count !== null && count !== undefined ? escapeHtml(String(count)) : '—'}</td>
+                  <td>${escapeHtml(String(meanFmt))}</td>
+                  <td>${escapeHtml(String(sumFmt))}</td>
+                  <td>${escapeHtml(String(minFmt))}</td>
+                  <td>${escapeHtml(String(maxFmt))}</td>
+                 </tr>`;
+      }
+
+      html += `</tbody></table>`;
+
+      // Upsets block (if present)
+      if(data.upsets || data.ranking_buckets || data.ranking_buckets){
+        html += `<div class="upsets"><div style="flex:1 1 360px"><h4 style="margin-top:14px">Upsets</h4>`;
+        const u = data.upsets || {};
+        html += `<div class="muted-small">Wins vs better (count): <strong>${escapeHtml(String(u.wins_vs_better_count || 0))}</strong></div>`;
+        html += `<div class="muted-small">Matches vs better: <strong>${escapeHtml(String(u.matches_vs_better || 0))}</strong></div>`;
+        html += `<div class="muted-small">Win rate vs better: <strong>${u.wins_vs_better_rate !== null && u.wins_vs_better_rate !== undefined ? ( (typeof u.wins_vs_better_rate === 'number') ? ( (Math.round(u.wins_vs_better_rate*100)/100).toFixed(2)+'%' ) : escapeHtml(String(u.wins_vs_better_rate)) ) : '—' }</strong></div>`;
+        html += `<div style="height:8px"></div>`;
+        html += `<div class="muted-small">Losses vs worse (count): <strong>${escapeHtml(String(u.losses_vs_worse_count || 0))}</strong></div>`;
+        html += `<div class="muted-small">Matches vs worse: <strong>${escapeHtml(String(u.matches_vs_worse || 0))}</strong></div>`;
+        html += `<div class="muted-small">Loss rate vs worse: <strong>${u.losses_vs_worse_rate !== null && u.losses_vs_worse_rate !== undefined ? ( (typeof u.losses_vs_worse_rate === 'number') ? ( (Math.round(u.losses_vs_worse_rate*100)/100).toFixed(2)+'%' ) : escapeHtml(String(u.losses_vs_worse_rate)) ) : '—' }</strong></div>`;
+        html += `</div>`;
+      }
+
+      // Ranking buckets table
+      if(data.ranking_buckets && Object.keys(data.ranking_buckets).length){
+        html += `<div style="flex:1 1 360px"><h4 style="margin-top:14px">Wins by ranking bucket (opponent)</h4>`;
+        html += `<table class="bucket-table"><thead><tr><th>Bucket</th><th>Matches</th><th>Wins</th><th>Win rate</th></tr></thead><tbody>`;
+        const keys = Object.keys(data.ranking_buckets);
+        // sort bucket labels by sensible order (1-10, 11-20..). We'll try to sort by numerical start if possible
+        keys.sort((a,b)=>{
+          const aNum = parseInt(a.split('-')[0].replace(/\D/g,'')) || 9999;
+          const bNum = parseInt(b.split('-')[0].replace(/\D/g,'')) || 9999;
+          return aNum - bNum;
+        });
+        for(const k of keys){
+          const item = data.ranking_buckets[k] || {};
+          html += `<tr><td style="font-weight:700">${escapeHtml(k)}</td><td>${escapeHtml(String(item.matches || 0))}</td><td>${escapeHtml(String(item.wins || 0))}</td><td>${item.win_rate !== null && item.win_rate !== undefined ? ( (typeof item.win_rate === 'number') ? ( (Math.round(item.win_rate*100)/100).toFixed(2)+'%' ) : escapeHtml(String(item.win_rate)) ) : '—'}</td></tr>`;
+        }
+        html += `</tbody></table></div>`;
+      }
+
+      container.innerHTML = html;
+    }catch(e){
+      console.error('renderDetailedStatsFrom error', e);
+      container.innerHTML = '<div class="no-data">Error rendering detailed stats.</div>';
+    }
+  }
+
+  /* ------------------ loadStatsSubpanel (re-used with detailed renderer) ------------------ */
+
   async function loadStatsSubpanel(kind, playerData){
-    // kind in: detailed | scenarios | timeseries | maps
     if(statsLoadState[kind]) return;
-    statsLoadState[kind] = true; // mark loading to avoid double calls
+    statsLoadState[kind] = true;
     const pid = playerData.player_id;
     const slugVal = playerData.slug || slug;
 
@@ -542,29 +724,14 @@ function fetchJsonSafe(url){
     targetDiv.innerHTML = '<div class="sub">Loading…</div>';
 
     if(kind === 'detailed'){
-      // try possible filenames for detailed stats JSON
-      const candidates = buildCandidatesFor(playerData, 'stats').concat([`/players_atp/${pid}.stats.json`, `/players_atp/${slugVal}.stats.json`]);
+      const candidates = buildCandidatesFor(playerData, 'stats').concat([`/players_atp/${pid}.stats.json`, `/players_atp/${slugVal}.stats.json`, `/players_atp/${slugVal}.stats.json`]);
+      // attempt sequential fetch
       const res = await tryCandidatesSequential(candidates);
-      if(!res || !res.data){ targetDiv.innerHTML = '<div class="no-data">Detailed statistics are not available for this player.</div>'; return; }
-      // present a simple summary (the real renderer might be complex; we keep this generic)
-      const data = res.data;
-      const html = [];
-      html.push(`<div style="font-weight:700;margin-bottom:8px">Detailed statistics (source: ${escapeHtml(res.url)})</div>`);
-      if(data.summary){
-        html.push(`<div class="sub" style="margin-bottom:8px">${escapeHtml(data.summary)}</div>`);
+      if(!res || !res.data){
+        targetDiv.innerHTML = '<div class="no-data">Detailed statistics are not available for this player.</div>'; return;
       }
-      // show some top-level keys as a table if available
-      const keys = Object.keys(data).filter(k => ['summary','meta','player_id','player_name'].indexOf(k)===-1).slice(0,20);
-      if(keys.length){
-        html.push('<div style="display:flex;flex-direction:column;gap:8px">');
-        keys.forEach(k => {
-          html.push(`<div style="border:1px solid var(--border);padding:8px;border-radius:6px;background:#fafafa"><div style="font-weight:700">${escapeHtml(k)}</div><div class="sub">${escapeHtml(JSON.stringify(data[k]).slice(0,600))}${String(JSON.stringify(data[k]).length>600 ? '…' : '')}</div></div>`);
-        });
-        html.push('</div>');
-      } else {
-        html.push('<div class="no-data">No detailed stats fields to display.</div>');
-      }
-      targetDiv.innerHTML = html.join('');
+      // use improved renderer
+      await renderDetailedStatsFrom(res.url, targetDiv);
       return;
     }
 
@@ -573,7 +740,6 @@ function fetchJsonSafe(url){
       const res = await tryCandidatesSequential(candidates);
       if(!res || !res.data){ targetDiv.innerHTML = '<div class="no-data">Scenarios are not available for this player.</div>'; return; }
       const data = res.data;
-      // simple render: list scenarios
       let html = `<div style="font-weight:700;margin-bottom:8px">Scenarios (source: ${escapeHtml(res.url)})</div>`;
       if(Array.isArray(data.scenarios) && data.scenarios.length){
         html += '<div style="display:flex;flex-direction:column;gap:8px">';
@@ -594,7 +760,6 @@ function fetchJsonSafe(url){
       if(!res || !res.data){ targetDiv.innerHTML = '<div class="no-data">Time series data not available.</div>'; return; }
       const data = res.data;
       let html = `<div style="font-weight:700;margin-bottom:8px">Time Series (source: ${escapeHtml(res.url)})</div>`;
-      // If there is a small table-like structure, show it
       if(Array.isArray(data.series) && data.series.length){
         html += '<div class="sub" style="margin-bottom:8px">Showing the first 100 points (if many)</div>';
         const rows = data.series.slice(0,100);
@@ -611,13 +776,10 @@ function fetchJsonSafe(url){
     }
 
     if(kind === 'maps'){
-      // maps: try to load .maps.json and then render using Plotly (maps-client integrated below)
       const candidates = buildCandidatesFor(playerData, 'maps').concat([`/players_atp/${pid}.maps.json`, `/players_atp/${slugVal}.maps.json`, `/players_atp/${slugVal}.maps.json`]);
       const res = await tryCandidatesSequential(candidates);
       if(!res || !res.data){
-        // still attempt to initialize maps client which will try multiple fallback filenames
         targetDiv.innerHTML = '<div class="sub">Maps data not found locally — attempting client-side discovery...</div>';
-        // initialize client render (MapsClient defined below)
         if(window.MapsClient && typeof window.MapsClient.initMaps === 'function'){
           window.MapsClient.initMaps({ slug: slugVal });
         } else {
@@ -625,23 +787,18 @@ function fetchJsonSafe(url){
         }
         return;
       }
-      // we have data in res.data; render directly by calling MapsClient.render functions (they accept raw objects)
       const mapData = res.data;
-      // try to normalize both possible key schemes
       const opp = mapData.map_opponent_stats || mapData.opponent_countries || {};
       const host = mapData.map_host_stats || mapData.host_countries || {};
-      // ensure MapsClient available
       if(window.MapsClient && typeof window.MapsClient.renderOpponentMap === 'function' && typeof window.MapsClient.renderHostMap === 'function'){
         if(Object.keys(opp).length === 0 && Object.keys(host).length === 0){
           targetDiv.innerHTML = '<div class="no-data">Maps JSON is present but contains no data.</div>';
           return;
         }
-        // render via exposed functions
         window.MapsClient.renderOpponentMap(opp);
         window.MapsClient.renderHostMap(host);
-        targetDiv.innerHTML = ''; // clear loading message
+        targetDiv.innerHTML = '';
       } else {
-        // fallback: write the raw JSON for debug and call the init (client will try to fetch on its own)
         targetDiv.innerHTML = `<div class="sub">Maps JSON loaded from ${escapeHtml(res.url)} — rendering...</div>`;
         if(window.MapsClient && typeof window.MapsClient.initMaps === 'function'){
           window.MapsClient.initMaps({ slug: slugVal });
@@ -655,12 +812,7 @@ function fetchJsonSafe(url){
 })();
 
 /* ------------------ maps-client (Plotly) ------------------ */
-/* Robust maps client: waits for Plotly, creates containers, renders choropleth.
-   Hover text shows: iso, wins, losses, matches, win rate, plus:
-     - opponents map: Top opponent Name wins/matches
-     - hosts map: Top tournament Name wins/matches
-*/
-
+/* (same as earlier — kept intact) */
 (function(){
   const RETRY_INTERVAL = 180; // ms
   const MAX_RETRIES = 20; // ~3.6s total
@@ -696,13 +848,11 @@ function fetchJsonSafe(url){
   }
 
   function ensureMapContainers(){
-    // ensure panel-maps exists
     let panelMaps = document.getElementById('panel-maps');
     if(!panelMaps){
       console.warn('maps-client: panel-maps not found — cannot reliably create containers');
       return {op:null, host:null};
     }
-    // create container if missing
     let op = document.getElementById('map-opponents');
     let host = document.getElementById('map-hosts');
     if(!op){
@@ -728,7 +878,6 @@ function fetchJsonSafe(url){
   }
 
   function buildHoverText(item, kind){
-    // item: { iso, wins, losses, matches, win_rate, top_opponent?, top_tourney? }
     let pct = (typeof item.win_rate === 'number' && !isNaN(item.win_rate)) ? (item.win_rate*100) : (typeof item.win_rate === 'string' ? parseFloat(item.win_rate)*100 : null);
     if(pct !== null && isNaN(pct)) pct = null;
     let t = `${escapeHtml(item.iso || '')}<br>Wins: ${item.wins||0}<br>Losses: ${item.losses||0}<br>Matches: ${item.matches||0}<br>Win rate: ${pct !== null ? pct.toFixed(2)+'%' : '—'}`;
@@ -748,14 +897,11 @@ function fetchJsonSafe(url){
 
   function toNumericZ(o){
     if(!o) return null;
-    // prefer explicit win_rate (0..1)
     if(typeof o.win_rate === 'number' && !isNaN(o.win_rate)) return o.win_rate * 100;
-    // if win_rate stored as string "0.75"
     if(typeof o.win_rate === 'string' && o.win_rate.trim() !== ''){
       const v = parseFloat(o.win_rate);
       if(!isNaN(v)) return v * 100;
     }
-    // fallback to wins / matches
     const wins = Number(o.wins || 0);
     const matches = Number(o.matches || ((o.wins||0) + (o.losses||0)));
     if(matches && !isNaN(matches) && matches > 0) return (wins / matches) * 100;
@@ -764,7 +910,7 @@ function fetchJsonSafe(url){
 
   function renderChoroplethSafe(targetId, mapObj, opts){
     opts = opts || {};
-    return waitForElement(targetId, MAX_RETRIES).then((div)=>{
+    return waitForElement(targetId, MAX_RETRIES).then((div)=> {
       if(!div){
         const created = ensureMapContainers();
         div = document.getElementById(targetId);
@@ -777,14 +923,13 @@ function fetchJsonSafe(url){
       const locs = [], zs = [], texts = [];
       Object.keys(mapObj || {}).forEach(code => {
         const item = mapObj[code] || {};
-        const zval = toNumericZ(item); // renvoie 0..100 ou null
+        const zval = toNumericZ(item);
         if(zval === null || isNaN(zval)) return;
         const iso = (code || '').toString().trim().toUpperCase();
         if(!iso) return;
         locs.push(iso);
         zs.push(Math.round(zval*100)/100);
         const copy = Object.assign({ iso: iso }, item);
-        // determine kind by targetId
         const kind = (targetId === 'map-opponents') ? 'opponent' : 'host';
         texts.push(buildHoverText(copy, kind));
       });
@@ -794,7 +939,6 @@ function fetchJsonSafe(url){
         return;
       }
 
-      // custom colorscales: white -> color (blue/red)
       const colorscales = {
         blue: [[0, 'rgb(255,255,255)'], [1, 'rgb(19,102,214)']],
         red:  [[0, 'rgb(255,255,255)'], [1, 'rgb(180,24,24)']]
@@ -874,7 +1018,6 @@ function fetchJsonSafe(url){
       }).then(d => {
         const opp = d.map_opponent_stats || d.opponent_countries || {};
         const host = d.map_host_stats || d.host_countries || {};
-        // render, but don't fail if one of them errors
         try {
           renderOpponentMap(opp).catch(()=>{});
           renderHostMap(host).catch(()=>{});

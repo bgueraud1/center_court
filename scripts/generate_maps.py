@@ -432,6 +432,18 @@ def build_maps_for_player(matches_df: pd.DataFrame,
                 })
             opp_map[oc] = o
 
+            # --- mettre à jour les compteurs par nom d'adversaire pour ce pays (top opponent)
+        opp_name = (m.get('opponent_name') or '').strip()
+        try:
+            if opp_name:
+                opp_name_matches[oc][opp_name] += 1
+                if m.get('is_win') is True:
+                    opp_name_wins[oc][opp_name] += 1
+        except Exception:
+            # sécurité : si quelque chose casse, ne pas stopper la génération
+            pass
+
+
         hc = (m.get('host_country_iso3') or '').strip().upper()
         if hc:
             h = host_map.get(hc, {'wins': 0, 'losses': 0, 'matches': 0, 'titles': 0, 'sample_matches': []})
