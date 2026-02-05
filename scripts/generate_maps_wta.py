@@ -274,12 +274,12 @@ def build_maps_for_player(matches_df: pd.DataFrame,
         try:
             if is_win is True:
                 # opponent is loser
-                for col in ('country_loser','loser_country','country_loser_1','loser_country_1','country_loser1'):
+                for col in ('loser_country','country_loser_1','loser_country_1','country_loser1'):
                     if col in row.index and str(row.get(col, '')).strip():
                         opp_country = str(row.get(col, '')).strip().upper()
                         break
             elif is_win is False:
-                for col in ('country_winner','winner_country','country_winner_1','winner_country_1','country_winner1'):
+                for col in ('winner_country','country_winner_1','winner_country_1','country_winner1'):
                     if col in row.index and str(row.get(col, '')).strip():
                         opp_country = str(row.get(col, '')).strip().upper()
                         break
