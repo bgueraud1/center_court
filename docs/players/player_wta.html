@@ -941,21 +941,84 @@ try{
   }
 
   function renderScenarios(data, sourceUrl, targetDiv){
-    try{
-      const sc = data.scenarios || data; // be forgiving
-      const non_gs = sc.non_gs || {};
-      const gs = sc.gs || {};
+  try{
+    // tolerant read
+    const sc = (data && data.scenarios) ? data.scenarios : data || {};
+
+    // safe escapeHtml fallback (will not override global if exists)
+    const _escapeHtml = (typeof escapeHtml === 'function') ? escapeHtml : function (s) {
+      if (s === null || s === undefined) return '';
+      return String(s).replace(/[&<>"'`]/g, function (ch) {
+        return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;'})[ch];
+      });
+    };
+
+    let html = `<div style="font-weight:700;margin-bottom:8px">Scenarios (source: ${_escapeHtml(sourceUrl || '')})</div>`;
+    html += `<div class="scenarios-grid">`;
+
+    // NEW: If generator produced profile_by_set -> render the new "Profile by set" card
+    if (sc.profile_by_set && sc.profile_by_set.sets){
+      const profile = sc.profile_by_set;
+      const sets = profile.sets || {};
+      const patterns = profile.patterns || {};
+      const matches2 = profile.matches_2_sets || 0;
+      const matches3 = profile.matches_3_sets || 0;
       const retire = sc.retirements || {};
-      const samples = sc.samples || {};
 
-      let html = `<div style="font-weight:700;margin-bottom:8px">Scenarios (source: ${escapeHtml(sourceUrl)})</div>`;
-      html += `<div class="scenarios-grid">`;
+      // Profile by set card
+      html += `<div class="scenario-card"><h4>Profile by set</h4>`;
+      html += `<div class="muted-small">Per-set averages and set-pattern distribution (W = set won, P = set lost)</div>`;
 
-      // NON-GS card
-      html += `<div class="scenario-card"><h4>Non-Grand Slam</h4>`;
-      html += `<div class="muted-small">Metrics for non-GS matches</div>`;
-      html += `<table class="scenario-table"><thead><tr><th>Scenario</th><th>Count</th><th>Share</th></tr></thead><tbody>`;
-      const nonGsOrder = [
+      // sets table
+      html += `<table class="scenario-table" style="margin-top:8px"><thead><tr><th>Set</th><th>Avg time</th><th>Avg breaks suffered</th><th>1st serve %</th><th>1st serve win %</th><th>Avg aces</th><th>Avg double faults</th><th>Matches with set</th></tr></thead><tbody>`;
+      [1,2,3].forEach(i=>{
+        const s = sets[String(i)] || {};
+        html += `<tr>
+          <td style="font-weight:700">Set ${i}</td>
+          <td>${_escapeHtml(s.avg_set_time_hms || '-')}${s.avg_set_time_sec ? ' ('+_escapeHtml(String(s.avg_set_time_sec))+'s)' : ''}</td>
+          <td>${s.avg_breaks_suffered != null ? _escapeHtml(String(s.avg_breaks_suffered)) : '-'}</td>
+          <td>${s.first_serve_pct != null ? _escapeHtml(String(s.first_serve_pct)) + '%' : '-'}</td>
+          <td>${s.first_serve_win_pct != null ? _escapeHtml(String(s.first_serve_win_pct)) + '%' : '-'}</td>
+          <td>${s.avg_aces != null ? _escapeHtml(String(s.avg_aces)) : '-'}</td>
+          <td>${s.avg_doublefaults != null ? _escapeHtml(String(s.avg_doublefaults)) : '-'}</td>
+          <td>${s.matches_with_set != null ? _escapeHtml(String(s.matches_with_set)) : '-'}</td>
+        </tr>`;
+      });
+      html += `</tbody></table>`;
+
+      // patterns table
+      html += `<h4 style="margin-top:12px">Set patterns</h4>`;
+      html += `<table class="scenario-table" style="margin-top:8px"><thead><tr><th>Pattern</th><th>Count</th><th>Denominator</th><th>Ratio</th></tr></thead><tbody>`;
+      const knownPatterns = ['VV','PP','PVP','PVV','VPV','VPP'];
+      knownPatterns.forEach(k=>{
+        const v = patterns[k] || {count:0, denominator: (k.length===2 ? matches2 : matches3)};
+        const denom = (v.denominator || (k.length===2 ? matches2 : matches3) || 0);
+        const cnt = (typeof v.count === 'number') ? v.count : (v.count ? Number(v.count) : 0);
+        const ratio = (denom && denom>0) ? ((cnt/denom)*100).toFixed(1)+'%' : '-';
+        html += `<tr><td style="font-weight:700">${_escapeHtml(k)}</td><td>${_escapeHtml(String(cnt))}</td><td>${_escapeHtml(String(denom))}</td><td>${_escapeHtml(ratio)}</td></tr>`;
+      });
+      html += `</tbody></table>`;
+
+      // retirements block (inside same card)
+      html += `<h4 style="margin-top:12px">Retirements</h4>`;
+      html += `<div>Count: <strong>${_escapeHtml(String((retire && retire.count) || 0))}</strong></div>`;
+      if (retire && retire.by_set && Object.keys(retire.by_set).length){
+        html += `<div style="margin-top:8px"><table class="scenario-table"><thead><tr><th>Set at retirement</th><th>Count</th></tr></thead><tbody>`;
+        Object.keys(retire.by_set).sort((a,b)=>Number(a)-Number(b)).forEach(setk=>{
+          html += `<tr><td>${_escapeHtml(setk)}</td><td>${_escapeHtml(String(retire.by_set[setk]))}</td></tr>`;
+        });
+        html += `</tbody></table></div>`;
+      }
+      html += `</div>`; // end profile card
+
+    } else {
+      // FALLBACK: older format support (non_gs / retirements) BUT we remove GS and samples as requested
+      const non_gs = sc.non_gs || {};
+      const retire = sc.retirements || {};
+      html += `<div class="scenario-card"><h4>Scenarios</h4>`;
+      html += `<div class="muted-small">Metrics aggregated (GS split removed)</div>`;
+      html += `<table class="scenario-table" style="margin-top:8px"><thead><tr><th>Scenario</th><th>Count</th><th>Share</th></tr></thead><tbody>`;
+      const keys = [
         'wins_after_losing_first_set',
         'losses_after_winning_first_set',
         'wins_in_2_sets',
@@ -963,109 +1026,44 @@ try{
         'losses_in_2_sets',
         'losses_in_3_sets'
       ];
-      nonGsOrder.forEach(k => {
+      keys.forEach(k=>{
         const v = non_gs[k];
         if(v === undefined) return;
         const count = (typeof v === 'object' && v.count !== undefined) ? v.count : (typeof v === 'number' ? v : 0);
-        const pct = pctFromObj(v);
-        html += `<tr><td style="font-weight:700">${escapeHtml(humanizeScenarioKey(k))}</td><td>${escapeHtml(String(count))}</td><td>${escapeHtml(pct !== null ? smartPercentFromFraction(pct) : '—')}</td></tr>`;
+        // try compute share if denominator present
+        let share = '—';
+        if (v && typeof v === 'object' && v.denominator) {
+          const d = Number(v.denominator) || 0;
+          share = d>0 ? ((Number(count)/d*100).toFixed(1) + '%') : '—';
+        }
+        html += `<tr><td style="font-weight:700">${_escapeHtml(k)}</td><td>${_escapeHtml(String(count))}</td><td>${_escapeHtml(share)}</td></tr>`;
       });
-      html += `</tbody></table>`;
-      // samples for non-GS (if present)
-      html += `<div style="margin-top:8px;"><strong>Samples</strong>`;
-      const sampleKeys = Object.keys(samples || {});
-      if(sampleKeys.length){
-        html += `<div class="sample-list">`;
-        ['wins_after_losing_first_set','losses_after_winning_first_set','wins_in_2_sets','wins_in_3_sets'].forEach(sk=>{
-          if(samples[sk] && samples[sk].length){
-            html += `<div><div style="font-weight:700;margin-top:6px">${escapeHtml(humanizeScenarioKey(sk))} (${samples[sk].length})</div>`;
-            samples[sk].slice(0,6).forEach(it=>{
-              html += `<div class="sample-item"><div><strong>${escapeHtml(it.score || it.match_id || '')}</strong> — ${escapeHtml(it.start_date || '')}</div></div>`;
-            });
-            html += `</div>`;
-          }
-        });
-        html += `</div>`;
-      }
-      html += `</div></div>`;
+      html += `</tbody></table></div>`;
 
-      // GS card
-      html += `<div class="scenario-card"><h4>Grand Slams (GS)</h4>`;
-      html += `<div class="muted-small">GS-specific scenarios & set-length breakdown</div>`;
-      html += `<table class="scenario-table"><thead><tr><th>Scenario</th><th>Count</th><th>Share</th></tr></thead><tbody>`;
-      const gsOrder = [
-        'wins_after_losing_first_set',
-        'wins_after_losing_first_two_sets',
-        'wins_after_down_2_1',
-        'losses_after_winning_first_two_sets',
-        'losses_after_winning_first_set',
-        'losses_after_leading_2_1',
-        'wins_in_3_sets',
-        'wins_in_4_sets',
-        'wins_in_5_sets',
-        'losses_in_3_sets',
-        'losses_in_4_sets',
-        'losses_in_5_sets'
-      ];
-      gsOrder.forEach(k => {
-        const v = gs[k];
-        if(v === undefined) return;
-        const count = (typeof v === 'object' && v.count !== undefined) ? v.count : (typeof v === 'number' ? v : 0);
-        const pct = pctFromObj(v);
-        html += `<tr><td style="font-weight:700">${escapeHtml(humanizeScenarioKey(k))}</td><td>${escapeHtml(String(count))}</td><td>${escapeHtml(pct !== null ? smartPercentFromFraction(pct) : '—')}</td></tr>`;
-      });
-      html += `</tbody></table>`;
-      // GS samples
-      html += `<div style="margin-top:8px;"><strong>Samples (GS)</strong>`;
-      if(sampleKeys.length){
-        html += `<div class="sample-list">`;
-        ['wins_after_losing_first_two_sets','wins_after_down_2_1','wins_in_5_sets'].forEach(sk=>{
-          if(samples[sk] && samples[sk].length){
-            html += `<div><div style="font-weight:700;margin-top:6px">${escapeHtml(humanizeScenarioKey(sk))} (${samples[sk].length})</div>`;
-            samples[sk].slice(0,6).forEach(it=>{
-              html += `<div class="sample-item"><div><strong>${escapeHtml(it.score || it.match_id || '')}</strong> — ${escapeHtml(it.start_date || '')}</div></div>`;
-            });
-            html += `</div>`;
-          }
-        });
-        html += `</div>`;
-      }
-      html += `</div></div>`;
-
-      html += `</div>`; // end grid
-
-      // Retirements block (separate full row)
-      html += `<div style="margin-top:12px" class="scenario-card">`;
-      html += `<h4>Retirements / abandons</h4>`;
-      html += `<div class="muted-small">Matches not finished </div>`;
-      html += `<div style="margin-top:8px">Count: <strong>${escapeHtml(String(retire.count || 0))}</strong></div>`;
-      if(retire.by_set && Object.keys(retire.by_set).length){
+      // retirements (fallback)
+      html += `<div class="scenario-card" style="margin-top:12px"><h4>Retirements</h4>`;
+      html += `<div>Count: <strong>${_escapeHtml(String((retire && retire.count) || 0))}</strong></div>`;
+      if (retire && retire.by_set && Object.keys(retire.by_set).length){
         html += `<div style="margin-top:8px"><table class="scenario-table"><thead><tr><th>Set at retirement</th><th>Count</th></tr></thead><tbody>`;
         Object.keys(retire.by_set).sort((a,b)=>Number(a)-Number(b)).forEach(setk=>{
-          html += `<tr><td>${escapeHtml(setk)}</td><td>${escapeHtml(String(retire.by_set[setk]))}</td></tr>`;
+          html += `<tr><td>${_escapeHtml(setk)}</td><td>${_escapeHtml(String(retire.by_set[setk]))}</td></tr>`;
         });
         html += `</tbody></table></div>`;
       }
-      
       html += `</div>`;
-
-      // raw JSON preview toggle
-      html += `<div style="margin-top:12px" class="scenario-card"><div style="display:flex;align-items:center;gap:12px"><div style="font-weight:700">Raw scenarios JSON</div><button id="scenarios-toggle-raw" class="tab-btn" style="padding:6px 8px">Toggle</button></div><div id="scenarios-raw" style="display:none;margin-top:8px;max-height:320px;overflow:auto;border:1px solid var(--border);padding:8px;background:#fff"><pre class="muted-small">${escapeHtml(JSON.stringify(data, null, 2).slice(0,20000))}${String(JSON.stringify(data).length>20000 ? '…' : '')}</pre></div></div>`;
-
-      targetDiv.innerHTML = html;
-
-      const toggle = document.getElementById('scenarios-toggle-raw');
-      if(toggle){
-        toggle.addEventListener('click', ()=>{
-          const pre = document.getElementById('scenarios-raw');
-          if(pre) pre.style.display = (pre.style.display === 'none' ? 'block' : 'none');
-        });
-      }
-    }catch(e){
-      console.error('renderScenarios error', e);
-      targetDiv.innerHTML = '<div class="no-data">Error rendering scenarios.</div>';
     }
+
+    html += `</div>`; // end grid
+
+    // inject
+    targetDiv.innerHTML = html;
+
+  }catch(e){
+    console.error('renderScenarios error', e);
+    targetDiv.innerHTML = '<div class="no-data">Error rendering scenarios.</div>';
   }
+}
+
 
   /* ------------------ loadStatsSubpanel (re-used) ------------------ */
 
