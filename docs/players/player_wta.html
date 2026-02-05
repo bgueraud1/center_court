@@ -222,9 +222,20 @@ function dateWithoutYear(isoDate){
   }catch(e){ return isoDate; }
 }
 function fetchJsonSafe(url){
-  try{ return fetch(url).then(r => { if(!r.ok) return null; return r.json().catch(()=>null); }).catch(()=>null); }
-  catch(e){ console.warn('fetch failed',url,e); return Promise.resolve(null); }
+  try{
+    return fetch(url).then(async r => {
+      if(!r.ok) return null;
+      const txt = await r.text();
+      // Remplacer les tokens NaN non-entre-guillemets par null (heuristique)
+      const clean = txt.replace(/\bNaN\b/g, 'null');
+      try { return JSON.parse(clean); } catch(e) { return null; }
+    }).catch(()=>null);
+  } catch(e) {
+    console.warn('fetch failed', url, e);
+    return Promise.resolve(null);
+  }
 }
+
 
 /* ----------------- main loader for player data ----------------- */
 (async function(){
