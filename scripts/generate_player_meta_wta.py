@@ -85,65 +85,150 @@ def read_matches_from_dir(matches_dir):
 
 # Points mapping (updated using supplied table)
 POINTS_TABLE = {
-    'grand_slam': {'W':2000,'F':1300,'SF':800,'QF':400,'R16':200,'R32':100,'R64':50,'R128':10},
-    'wta_1000': {'W':1000,'F':650,'SF':400,'QF':200,'R16':100,'R32':50,'R64':30,'R128':10},
-    'wta_500': {'W':500,'F':330,'SF':200,'QF':100,'R16':50,'R32':25,'R64':0},
-    'wta_250': {'W':250,'F':165,'SF':100,'QF':50,'R16':25,'R32':13,'R64':0},
-    'wta_finals': {'W':500,'F':400,'SF':400,'RR_WIN':200},
-    'default': {'W':0,'F':0,'SF':0,'QF':0,'R16':0,'R32':0,'R64':0,'R128':0}
+    'grand_slam': {
+        'W': 2000, 'F': 1300, 'S': 780, 'Q': 430,
+        '4': 240, '3': 130, '2': 70, '1': 10,
+        '1Q': 40, 'Q3': 30, 'Q2': 20, 'Q1': 2
+    },
+    'wta_1000': {
+        'W': 1000, 'F': 650, 'S': 390, 'Q': 215,
+        '4': 120, '3': 65, '2': 35, '1': 10,
+        # some 1000 events may not have Q3; set to 0 if not applicable
+        '1Q': 30, 'Q3': 0, 'Q2': 20, 'Q1': 2
+    },
+    'wta_500': {
+        'W': 500, 'F': 325, 'S': 195, 'Q': 108,
+        '4': 60, '3': 32, '2': 1, '1': 1,
+        '1Q': 25, 'Q3': 0, 'Q2': 13, 'Q1': 1
+    },
+    'wta_250': {
+        'W': 250, 'F': 163, 'S': 98, 'Q': 54,
+        '4': 30, '3': 1, '2': 1, '1': 1,
+        '1Q': 18, 'Q3': 0, 'Q2': 12, 'Q1': 1
+    },
+    'wta_125': {
+        'W': 125, 'F': 81, 'S': 49, 'Q': 27,
+        '4': 15, '3': 1, '2': 1, '1': 1,
+        '1Q': 6, 'Q3': 0, 'Q2': 4, 'Q1': 1
+    },
+    'default': {
+        'W': 0, 'F': 0, 'S': 0, 'Q': 0,
+        '4': 0, '3': 0, '2': 0, '1': 0,
+        '1Q': 0, 'Q3': 0, 'Q2': 0, 'Q1': 0
+    }
 }
 
-
 def detect_category_key(cat_str):
+    """Map many possible category/level strings to canonical keys used in POINTS_TABLE."""
     if not cat_str:
         return 'default'
     s = str(cat_str).lower()
-    s = s.replace('-', ' ')
-    if 'grand' in s or 'slam' in s or 'major' in s or '\bgs\b' in s:
+    s = s.replace('-', ' ').replace('_', ' ')
+    # common synonyms / historical names
+    if 'grand' in s or 'slam' in s or 'major' in s or re.search(r'\bgs\b', s):
         return 'grand_slam'
-    if 'final' in s and ('wta' in s or 'finals' in s):
-        return 'wta_finals'
-    if 'masters' in s or '1000' in s or 'wta 1000' in s:
+    # WTA 1000 synonyms
+    if any(x in s for x in ('1000', 'wta 1000', 'tier i', 'tier1', 'premier mandatory', 'premier 5', 'premier 5', 'mandatory', 'masters')):
         return 'wta_1000'
-    if '500' in s and 'wta' in s:
+    # WTA 500 synonyms
+    if any(x in s for x in ('500', 'wta 500', 'tier ii', 'tier2', 'premier')):
         return 'wta_500'
-    if '250' in s and 'wta' in s:
+    # WTA 250 synonyms (and older tiers)
+    if any(x in s for x in ('250', 'wta 250', 'international', 'tier iii', 'tier iv', 'tier v')):
         return 'wta_250'
-    # catch some abbreviations
-    if s.strip() in ('gs','grand slam'):
-        return 'grand_slam'
+    # WTA 125 / challenger-like
+    if any(x in s for x in ('125', 'wta 125', '125k')):
+        return 'wta_125'
+    # fallback
     return 'default'
 
 
+
 def normalize_round_token(round_tok):
+    """
+    Normalize various round formats into canonical tokens:
+    'W','F','S','Q','4','3','2','1','1Q','Q3','Q2','Q1','RR', or ''.
+    """
     if round_tok is None:
         return ''
     r = str(round_tok).strip().upper()
-    if r in ('W','WIN'):
+
+    # direct canonical
+    if r in ('W', 'WIN'):
         return 'W'
-    if r in ('F','FINAL'):
+    if r in ('F', 'FINAL', 'FINALIST'):
         return 'F'
-    if r in ('SF','SEMI','SEMI-FINAL','S'):
-        return 'SF'
-    if r in ('QF','QUARTER','QUARTER-FINAL','Q'):
-        return 'QF'
-    if r.startswith('R') and r[1:].isdigit():
-        return r
-    if 'ROUND' in r and '16' in r:
-        return 'R16'
-    if 'ROUND' in r and '32' in r:
-        return 'R32'
-    if 'ROUND' in r and '64' in r:
-        return 'R64'
+    if r in ('SF', 'SEMI', 'SEMI-FINAL', 'S', 'SF.'):
+        return 'S'
+    # quarter
+    if r in ('QF', 'QUARTER', 'QUARTER-FINAL', 'Q', 'QTR'):
+        return 'Q'
+    # qualifying rounds explicit
+    if r.startswith('Q3') or r == 'Q3':
+        return 'Q3'
+    if r.startswith('Q2') or r == 'Q2':
+        return 'Q2'
+    if r.startswith('Q1') or r == 'Q1':
+        return 'Q1'
+    # Some sources mark "Q" differently like "Q3(qual)" or "Qualifying Q2"
+    if 'QUAL' in r and '3' in r:
+        return 'Q3'
+    if 'QUAL' in r and '2' in r:
+        return 'Q2'
+    if 'QUAL' in r and re.search(r'\b1\b', r):
+        return 'Q1'
+
+    # Round numbers — try to reduce to the canonical small set (4,3,2,1):
+    # Accept formats like R16, R32, R4, 4R, R-4, '4'
+    m = re.match(r'^R?(\d+)$', r)
+    if m:
+        try:
+            n = int(m.group(1))
+            # Heuristic mapping:
+            # - if n <= 4 -> map to the same number string '4','3','2','1'
+            # - if n == 8 -> map to '4' (quarter-ish), n==16 -> '4' or '3' depending on convention
+            # We'll use a pragmatic mapping:  (you can tweak if needed)
+            if n <= 4:
+                return str(n)
+            if n <= 8:
+                return '4'
+            if n <= 16:
+                return '3'
+            if n <= 32:
+                return '2'
+            return '1'
+        except Exception:
+            pass
+
+    # Some datasets use "R1", "R2" etc.
+    if r in ('R1', 'R2', 'R3', 'R4'):
+        return r[1:]
+
+    # "1 after qualifications" token mapping heuristics:
+    if 'AFTER' in r and 'QUAL' in r:
+        return '1Q'
+    if '1(A' in r or '1(' in r and 'QUAL' in r:
+        return '1Q'
+    if r in ('1Q', '1+Q', '1_AQ', '1_AFTER_QUALS', '1_AFTER_QUAL'):
+        return '1Q'
+
+    # Round robin special
     if r in ('RR','RR1','RR2'):
         return 'RR'
-    return r
+
+    # Fallback: if it looks like a plain digit '1','2','3','4' return it
+    if re.match(r'^[1-9]$', r):
+        return r
+
+    return r  # return as-is if unknown — caller will fallback to default table
+
 
 
 def points_for_match_row(rr):
     if rr is None:
         return 0
-    # prefer explicit numeric columns
+
+    # prefer explicit numeric columns if present
     for c in ('points_for_result','points','ranking_points','points_won'):
         try:
             if c in rr.index and rr.get(c) not in (None, ''):
@@ -154,6 +239,7 @@ def points_for_match_row(rr):
                     pass
         except Exception:
             pass
+
     # fallback to calculation by category + round
     cat = None
     for c in ('category','level','tourney_level','category_name','tourney_name'):
@@ -164,24 +250,63 @@ def points_for_match_row(rr):
         except Exception:
             pass
     cat_key = detect_category_key(cat)
-    round_tok = normalize_round_token(rr.get('round') if 'round' in rr.index else '')
+    # normalize round token from the row
+    raw_round = rr.get('round') if 'round' in rr.index else ''
+    round_tok = normalize_round_token(raw_round)
+
     table = POINTS_TABLE.get(cat_key, POINTS_TABLE['default'])
-    # If the row represents a winner but round token is 'F', prefer winner points
-    is_win = False
+
+    # Determine whether the match row indicates the player was the winner.
+    is_win = None
     try:
         if 'player_id_winner' in rr.index and str(rr.get('player_id_winner')).strip() != '':
-            # this function doesn't know the player of interest; keep generic behavior
+            # not deciding here which player of interest — caller may handle
+            # Keep generic behavior: we cannot decide "this player" is winner without context.
             pass
     except Exception:
         pass
-    if round_tok in table and table.get(round_tok) is not None:
-        return int(table.get(round_tok) or 0)
-    if round_tok.startswith('R'):
+
+    # If the table contains an explicit entry for the normalized round, use it.
+    # Special rule: if the round is 'F' but the player actually won the match, prefer 'W' points.
+    try:
+        # if row contains 'is_win' field (our internal index entries do), respect it
+        maybe_is_win = None
+        try:
+            if 'is_win' in rr.index:
+                maybe_is_win = rr.get('is_win')
+        except Exception:
+            maybe_is_win = None
+
+        # Some CSVs don't have is_win – try to infer from winner/loser columns (best-effort)
+        inferred_is_win = None
+        try:
+            if 'player_id_winner' in rr.index and 'player_id' in rr.index:
+                # only meaningful when rr contains both fields; keep generic
+                inferred_is_win = None
+        except Exception:
+            inferred_is_win = None
+
+        # if round is 'F' (final) and this row indicates a win for the player, return 'W' (winner) points
+        if round_tok in ('F',) and (maybe_is_win is True):
+            return int(table.get('W') or 0)
+
+        # regular lookup: prefer the exact token
         if round_tok in table:
             return int(table.get(round_tok) or 0)
-        if 'R32' in table and 'R16' not in table:
-            return int(table.get('R32') or 0)
-    return int(table.get('W') or 0) if round_tok == 'W' else int(table.get('F') or 0) if round_tok == 'F' else 0
+
+        # If round token is 'W' and present, return it
+        if 'W' in table and round_tok == 'W':
+            return int(table.get('W') or 0)
+
+        # fallback heuristics: if token like 'R16' was normalized to digits earlier we should already hit above.
+        # final fallback: try to find nearest reasonable mapping: e.g. if token starts with 'R' -> map by size
+        # otherwise return 0
+    except Exception:
+        pass
+
+    # final fallback: 0
+    return 0
+
 
 # build_matches_index_for_player: **only** use start_date for dates
 def build_matches_index_for_player(matches_df: pd.DataFrame, player_id: str, max_matches: int = None):
@@ -285,20 +410,27 @@ def choose_most_likely_name(cands):
         return ''
     return counts.most_common(1)[0][0]
 
-# Round ordering helper (F/W > SF > QF > R16 > R32 > R64 > R128 > others)
+# Round ordering helper (higher priority = smaller number for sorting)
 ROUND_ORDER = {
-    'W': 0, 'WIN': 0, 'F': 0,
-    'SF': 1, 'S': 1,
-    'QF': 2,
-    'R16': 3, '4R': 3,
-    'R32': 4,
-    'R64': 5,
-    'R128': 6,
-    'RR': 7
+    'W': 0,    # winner (if present)
+    'F': 0,    # finalist treated with top priority (same as winner for listing)
+    'S': 1,
+    'Q': 2,
+    '4': 3,
+    '3': 4,
+    '2': 5,
+    '1': 6,
+    '1Q': 7,   # round 1 after qualifications
+    'Q3': 8,
+    'Q2': 9,
+    'Q1': 10,
+    'RR': 11
 }
+
 def round_sort_index(tok):
     t = normalize_round_token(tok)
     return ROUND_ORDER.get(t, 99)
+
 
 # build_player_combined: use start_date everywhere (no fallback)
 def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_df: pd.DataFrame = None):
@@ -494,17 +626,19 @@ def build_player_combined(matches_df: pd.DataFrame, player_id: str, player_data_
 
             # Determine points for trophy / best: if player won the match and round is final ('F'), treat as winner 'W' to give winner points
             # Compute points from m.get('points') if present, otherwise derive from table but prefer winner points when appropriate
+            # Compute pts: prefer explicit 'points' in match record
             pts = int(m.get('points') or 0)
             if pts == 0:
-                # derive
                 cat_key = detect_category_key(m.get('category') or '')
                 table = POINTS_TABLE.get(cat_key, POINTS_TABLE['default'])
-                # if winner and final, give W points
-                if is_win and rtok in ('F',''):
+                rtok = normalize_round_token(m.get('round') or '')
+                # If player won and round is 'F', give winner points
+                if is_win and rtok in ('F',):
                     pts = int(table.get('W') or 0)
                 else:
-                    # if round present in table use it, otherwise fallback
-                    pts = int(table.get(rtok) or table.get('W') or 0)
+                    # try to get exact mapping; if not present, fallback to 0
+                    pts = int(table.get(rtok) or 0)
+
 
             # Only consider *actual winners* as trophies. A finalist who lost shouldn't be recorded as winner.
             if is_win and rtok in ('W','WIN','F'):
