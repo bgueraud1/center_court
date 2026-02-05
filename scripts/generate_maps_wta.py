@@ -176,7 +176,7 @@ def load_host_event_map(path: Optional[str]) -> Dict[str, Dict[str, str]]:
             # expecting mapping { event_id: { year: ISO_CODE, ... }, ... }
             return d if isinstance(d, dict) else {}
     except Exception as e:
-        print(f"[generate_maps] Could not load host_event_map.json at {path}: {e}")
+        print(f"[generate_maps] Could not load host_event_map_wta.json at {path}: {e}")
         return {}
 
 # ----------------- Core builder -----------------
