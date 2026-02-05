@@ -368,30 +368,75 @@ def build_scenarios_for_player(matches_df, player_id, sample_limit=6):
             opp_set_wins = None
 
         # retirement detection (as before): if player didn't reach 2 and there is set data or explicit RET
+                # retirement detection: WTA is best-of-3 => req_to_win = 2
         req_to_win = 2
+
+        # explicit retire markers
         explicit_ret = False
-        match_msg = (r.get('match_message') or '') or ''
-        match_status = (r.get('match_status') or '') or ''
-        if isinstance(match_msg, str) and match_msg.strip().lower().startswith('ret'): explicit_ret = True
-        if isinstance(match_status, str) and 'ret' in match_status.strip().lower(): explicit_ret = True
+        match_msg = str_safe(r.get('match_message') or r.get('match_status') or '')
+        if isinstance(match_msg, str) and 'ret' in match_msg.strip().lower():
+            explicit_ret = True
+
+        # compute winner/loser sets from parsed_sets (these are counts for row-winner)
+        winner_sets = sum(1 for a,b in parsed_sets[:5] if a is not None and b is not None and a > b)
+        loser_sets  = sum(1 for a,b in parsed_sets[:5] if a is not None and b is not None and a < b)
+
+        # map to player perspective if possible
+        if player_is_winner is True:
+            player_set_wins = winner_sets
+            opp_set_wins = loser_sets
+        elif player_is_winner is False:
+            player_set_wins = loser_sets
+            opp_set_wins = winner_sets
+        else:
+            player_set_wins = None
+            opp_set_wins = None
+
+        # If either side already reached req_to_win, match is finished -> NOT a retirement
+        match_finished = (winner_sets >= req_to_win) or (loser_sets >= req_to_win)
 
         is_retire = False
         retire_set_number = None
-        if player_set_wins is not None and player_set_wins < req_to_win:
-            if complete_sets_count > 0 or explicit_ret:
+
+        if not match_finished:
+            # Only consider retire if explicit marker OR some evidence the match stopped before a winner reached 2 sets.
+            # Evidence = at least one set recorded and either: an incomplete (raw) set present OR explicit RET flag.
+            if explicit_ret:
                 is_retire = True
-                # retirement set heuristics: first incomplete set index with a raw set present else next set after complete
+            else:
+                # check for incomplete set presence (raw set field present but not parsable as complete)
                 found_incomplete = False
                 for i in range(1,6):
                     a,b = parsed_sets[i-1]
-                    if a is None or b is None:
-                        gen = f"set{i}_score"
-                        if gen in r.index and str_safe(r.get(gen)).strip() != '':
-                            retire_set_number = i
+                    gen = f"set{i}_score"
+                    # raw present?
+                    if gen in r.index and str_safe(r.get(gen)).strip() != '':
+                        # if parsed set is incomplete (a or b None) then it's an incomplete set => retirement here
+                        if a is None or b is None:
                             found_incomplete = True
+                            retire_set_number = i
                             break
+                # also consider: if there are complete sets but neither side reached req_to_win and there's no raw incomplete set,
+                # then retirement likely happened *after* the last complete set -> mark next set index
                 if not found_incomplete:
-                    retire_set_number = complete_sets_count + 1
+                    if complete_sets_count > 0:
+                        is_retire = True
+                        retire_set_number = complete_sets_count + 1
+                    else:
+                        # no set info and no explicit flag => don't call it a retirement (insufficient evidence)
+                        is_retire = False
+
+        # Ensure retire_set_number in 1..3 (WTA has no set 4/5)
+        if is_retire and retire_set_number is not None:
+            try:
+                retire_set_number = int(retire_set_number)
+                if retire_set_number < 1:
+                    retire_set_number = 1
+                if retire_set_number > 3:
+                    retire_set_number = 3
+            except Exception:
+                retire_set_number = 1
+
 
         if is_retire:
             retire_count += 1
