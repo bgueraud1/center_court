@@ -306,11 +306,82 @@ function fetchJsonSafe(url){
   if(combined.last_appearance) attrs.appendChild(makeAttr('Last appearance', combined.last_appearance));
 
   // image
+    // image (improved: combined.image -> manifest -> quick-cloudinary fallback)
   const imageWrap = document.getElementById('player-image');
   imageWrap.innerHTML = '';
-  if(combined.image){
-    const img = document.createElement('img'); img.src = combined.image; img.alt = combined.name; img.loading = 'lazy'; imageWrap.appendChild(img);
-  } else imageWrap.innerHTML = '<div class="sub">No image</div>';
+
+  // Helper: try to fetch manifest and resolve candidate ids
+  async function resolvePlayerImageUrl(combined, found) {
+    // 1) explicit URL present in combined
+    if (combined && combined.image) return combined.image;
+
+    // Build candidate public_ids to look for in manifest (normalize to lower-case)
+    const pid = String((combined && combined.player_id) || (found && found.player_id) || '').trim();
+    const slug = String((combined && combined.slug) || (found && found.slug) || '').trim().toLowerCase();
+    const candidates = [];
+    if (pid && slug) candidates.push(`players/${pid.toLowerCase()}-${slug}`);
+    if (slug) candidates.push(`players/${slug}`);
+    if (pid) candidates.push(`players/${pid.toLowerCase()}`);
+    // optionally allow variants without 'players/' prefix in manifest
+    const candidatesNoPrefix = candidates.map(x => (x.startsWith('players/') ? x.replace(/^players\//,'') : x));
+
+    // 2) try manifest (generated at build): /index/players_images_manifest.json
+    try {
+      const res = await fetch('/index/players_images_manifest.json');
+      if (res && res.ok) {
+        const manifest = await res.json();
+        if (Array.isArray(manifest)) {
+          for (const item of manifest) {
+            if (!item || !item.id) continue;
+            const idn = String(item.id || '').toLowerCase();
+            if (candidates.includes(idn) || candidatesNoPrefix.includes(idn)) {
+              if (item.url) return item.url;
+              // if manifest entry doesn't include url, try to build one from public id field (rare)
+              if (window.CLOUDINARY_CLOUD_NAME) {
+                const safeId = encodeURIComponent(idn);
+                return `https://res.cloudinary.com/${window.CLOUDINARY_CLOUD_NAME}/image/upload/f_auto,q_auto/${safeId}`;
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // manifest missing or parse error; fallthrough to fallback
+      console.warn('players manifest fetch failed', e);
+    }
+
+    // 3) quick fallback: create predictable Cloudinary URL if cloud name is set globally.
+    // Warning: this may 404 if image absent. Use manifest generation (preferred).
+    try {
+      if (window.CLOUDINARY_CLOUD_NAME) {
+        // pick best candidate
+        const pick = candidates[0] || candidatesNoPrefix[0];
+        if (pick) {
+          const safeId = encodeURIComponent(pick);
+          // simple transform: auto format + quality
+          return `https://res.cloudinary.com/${window.CLOUDINARY_CLOUD_NAME}/image/upload/f_auto,q_auto/${safeId}`;
+        }
+      }
+    } catch (e) {}
+
+    // nothing found
+    return null;
+  }
+
+  // resolve and render
+  (async () => {
+    const url = await resolvePlayerImageUrl(combined, found);
+    if (url) {
+      const img = document.createElement('img');
+      img.src = url;
+      img.alt = combined.name || '';
+      img.loading = 'lazy';
+      imageWrap.appendChild(img);
+    } else {
+      imageWrap.innerHTML = '<div class="sub">No image</div>';
+    }
+  })();
+
 
   // Matches by year (client)
   const matchesContainer = document.getElementById('matches-container');
