@@ -942,10 +942,8 @@ try{
 
   function renderScenarios(data, sourceUrl, targetDiv){
   try{
-    // tolerant read
     const sc = (data && data.scenarios) ? data.scenarios : data || {};
-
-    // safe escapeHtml fallback (will not override global if exists)
+    // helper escape
     const _escapeHtml = (typeof escapeHtml === 'function') ? escapeHtml : function (s) {
       if (s === null || s === undefined) return '';
       return String(s).replace(/[&<>"'`]/g, function (ch) {
@@ -956,27 +954,52 @@ try{
     let html = `<div style="font-weight:700;margin-bottom:8px">Scenarios (source: ${_escapeHtml(sourceUrl || '')})</div>`;
     html += `<div class="scenarios-grid">`;
 
-    // NEW: If generator produced profile_by_set -> render the new "Profile by set" card
+    // -> 1) Legacy Non-GS card (restored)
+    const non_gs = sc.non_gs || {};
+    html += `<div class="scenario-card"><h4>Non-Grand Slam</h4>`;
+    html += `<div class="muted-small">Metrics for non-GS matches</div>`;
+    html += `<table class="scenario-table" style="margin-top:8px"><thead><tr><th>Scenario</th><th>Count</th><th>Share</th></tr></thead><tbody>`;
+    const nonGsOrder = [
+      'wins_after_losing_first_set',
+      'losses_after_winning_first_set',
+      'wins_in_2_sets',
+      'wins_in_3_sets',
+      'losses_in_2_sets',
+      'losses_in_3_sets'
+    ];
+    nonGsOrder.forEach(k => {
+      const v = non_gs[k];
+      if(v === undefined) return;
+      const count = (typeof v === 'object' && v.count !== undefined) ? v.count : (typeof v === 'number' ? v : 0);
+      let share = '—';
+      if (v && typeof v === 'object' && v.denominator) {
+        const d = Number(v.denominator) || 0;
+        share = d>0 ? ((Number(count)/d*100).toFixed(1) + '%') : '—';
+      }
+      html += `<tr><td style="font-weight:700">${_escapeHtml(k)}</td><td>${_escapeHtml(String(count))}</td><td>${_escapeHtml(share)}</td></tr>`;
+    });
+    html += `</tbody></table>`;
+    html += `</div>`; // end non-gs card
+
+    // -> 2) Profile by set card (new)
     if (sc.profile_by_set && sc.profile_by_set.sets){
       const profile = sc.profile_by_set;
       const sets = profile.sets || {};
       const patterns = profile.patterns || {};
       const matches2 = profile.matches_2_sets || 0;
       const matches3 = profile.matches_3_sets || 0;
-      const retire = sc.retirements || {};
-
-      // Profile by set card
       html += `<div class="scenario-card"><h4>Profile by set</h4>`;
       html += `<div class="muted-small">Per-set averages and set-pattern distribution (W = set won, P = set lost)</div>`;
 
       // sets table
-      html += `<table class="scenario-table" style="margin-top:8px"><thead><tr><th>Set</th><th>Avg time</th><th>Avg breaks suffered</th><th>1st serve %</th><th>1st serve win %</th><th>Avg aces</th><th>Avg double faults</th><th>Matches with set</th></tr></thead><tbody>`;
+      html += `<table class="scenario-table" style="margin-top:8px"><thead><tr><th>Set</th><th>Avg time</th><th>Avg breaks suffered</th><th>Avg breaks obtained</th><th>1st serve %</th><th>1st serve win %</th><th>Avg aces</th><th>Avg double faults</th><th>Matches with set</th></tr></thead><tbody>`;
       [1,2,3].forEach(i=>{
         const s = sets[String(i)] || {};
         html += `<tr>
           <td style="font-weight:700">Set ${i}</td>
           <td>${_escapeHtml(s.avg_set_time_hms || '-')}${s.avg_set_time_sec ? ' ('+_escapeHtml(String(s.avg_set_time_sec))+'s)' : ''}</td>
           <td>${s.avg_breaks_suffered != null ? _escapeHtml(String(s.avg_breaks_suffered)) : '-'}</td>
+          <td>${s.avg_breaks_obtained != null ? _escapeHtml(String(s.avg_breaks_obtained)) : '-'}</td>
           <td>${s.first_serve_pct != null ? _escapeHtml(String(s.first_serve_pct)) + '%' : '-'}</td>
           <td>${s.first_serve_win_pct != null ? _escapeHtml(String(s.first_serve_win_pct)) + '%' : '-'}</td>
           <td>${s.avg_aces != null ? _escapeHtml(String(s.avg_aces)) : '-'}</td>
@@ -988,6 +1011,7 @@ try{
 
       // patterns table
       html += `<h4 style="margin-top:12px">Set patterns</h4>`;
+      html += `<div class="muted-small" style="margin-bottom:6px">Patterns: 2-set patterns (VV, PP) denom = number of 2-set matches; 3-set patterns denom = number of 3-set matches.</div>`;
       html += `<table class="scenario-table" style="margin-top:8px"><thead><tr><th>Pattern</th><th>Count</th><th>Denominator</th><th>Ratio</th></tr></thead><tbody>`;
       const knownPatterns = ['VV','PP','PVP','PVV','VPV','VPP'];
       knownPatterns.forEach(k=>{
@@ -998,64 +1022,26 @@ try{
         html += `<tr><td style="font-weight:700">${_escapeHtml(k)}</td><td>${_escapeHtml(String(cnt))}</td><td>${_escapeHtml(String(denom))}</td><td>${_escapeHtml(ratio)}</td></tr>`;
       });
       html += `</tbody></table>`;
-
-      // retirements block (inside same card)
-      html += `<h4 style="margin-top:12px">Retirements</h4>`;
-      html += `<div>Count: <strong>${_escapeHtml(String((retire && retire.count) || 0))}</strong></div>`;
-      if (retire && retire.by_set && Object.keys(retire.by_set).length){
-        html += `<div style="margin-top:8px"><table class="scenario-table"><thead><tr><th>Set at retirement</th><th>Count</th></tr></thead><tbody>`;
-        Object.keys(retire.by_set).sort((a,b)=>Number(a)-Number(b)).forEach(setk=>{
-          html += `<tr><td>${_escapeHtml(setk)}</td><td>${_escapeHtml(String(retire.by_set[setk]))}</td></tr>`;
-        });
-        html += `</tbody></table></div>`;
-      }
       html += `</div>`; // end profile card
+    }
 
-    } else {
-      // FALLBACK: older format support (non_gs / retirements) BUT we remove GS and samples as requested
-      const non_gs = sc.non_gs || {};
-      const retire = sc.retirements || {};
-      html += `<div class="scenario-card"><h4>Scenarios</h4>`;
-      html += `<div class="muted-small">Metrics aggregated (GS split removed)</div>`;
-      html += `<table class="scenario-table" style="margin-top:8px"><thead><tr><th>Scenario</th><th>Count</th><th>Share</th></tr></thead><tbody>`;
-      const keys = [
-        'wins_after_losing_first_set',
-        'losses_after_winning_first_set',
-        'wins_in_2_sets',
-        'wins_in_3_sets',
-        'losses_in_2_sets',
-        'losses_in_3_sets'
-      ];
-      keys.forEach(k=>{
-        const v = non_gs[k];
-        if(v === undefined) return;
-        const count = (typeof v === 'object' && v.count !== undefined) ? v.count : (typeof v === 'number' ? v : 0);
-        // try compute share if denominator present
-        let share = '—';
-        if (v && typeof v === 'object' && v.denominator) {
-          const d = Number(v.denominator) || 0;
-          share = d>0 ? ((Number(count)/d*100).toFixed(1) + '%') : '—';
-        }
-        html += `<tr><td style="font-weight:700">${_escapeHtml(k)}</td><td>${_escapeHtml(String(count))}</td><td>${_escapeHtml(share)}</td></tr>`;
+    // -> 3) Retirements block (global, full width)
+    const retire = sc.retirements || {};
+    html += `<div style="margin-top:12px" class="scenario-card">`;
+    html += `<h4>Retirements / abandons</h4>`;
+    html += `<div class="muted-small">Matches not finished</div>`;
+    html += `<div style="margin-top:8px">Count: <strong>${_escapeHtml(String(retire.count || 0))}</strong></div>`;
+    if(retire.by_set && Object.keys(retire.by_set).length){
+      html += `<div style="margin-top:8px"><table class="scenario-table"><thead><tr><th>Set at retirement</th><th>Count</th></tr></thead><tbody>`;
+      Object.keys(retire.by_set).sort((a,b)=>Number(a)-Number(b)).forEach(setk=>{
+        html += `<tr><td>${_escapeHtml(setk)}</td><td>${_escapeHtml(String(retire.by_set[setk]))}</td></tr>`;
       });
       html += `</tbody></table></div>`;
-
-      // retirements (fallback)
-      html += `<div class="scenario-card" style="margin-top:12px"><h4>Retirements</h4>`;
-      html += `<div>Count: <strong>${_escapeHtml(String((retire && retire.count) || 0))}</strong></div>`;
-      if (retire && retire.by_set && Object.keys(retire.by_set).length){
-        html += `<div style="margin-top:8px"><table class="scenario-table"><thead><tr><th>Set at retirement</th><th>Count</th></tr></thead><tbody>`;
-        Object.keys(retire.by_set).sort((a,b)=>Number(a)-Number(b)).forEach(setk=>{
-          html += `<tr><td>${_escapeHtml(setk)}</td><td>${_escapeHtml(String(retire.by_set[setk]))}</td></tr>`;
-        });
-        html += `</tbody></table></div>`;
-      }
-      html += `</div>`;
     }
+    html += `</div>`; // end retirements
 
     html += `</div>`; // end grid
 
-    // inject
     targetDiv.innerHTML = html;
 
   }catch(e){
@@ -1063,6 +1049,7 @@ try{
     targetDiv.innerHTML = '<div class="no-data">Error rendering scenarios.</div>';
   }
 }
+
 
 
   /* ------------------ loadStatsSubpanel (re-used) ------------------ */
