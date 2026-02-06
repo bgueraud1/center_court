@@ -16,6 +16,7 @@
     --midblock-width:160px;  /* width of mid-block (centered at midX) */
     --line-color:#797979;
     --seed-blue:#0b3d91;
+    --mid-offset: 200px; /* -> augmente pour pousser le mid-block vers la droite (px). */
   }
 
   html,body{height:100%;margin:0;font-family:Arial,Helvetica,sans-serif;background:#fff;color:#111}
@@ -362,8 +363,18 @@ async function render(){
 
       /* MID BLOCK (centered at midX) - winner above bar, score below bar */
       // midX - halfway between this column left and previous column right
-      const prevColRight = colIndex === 0 ? (left + width) : ((colIndex - 1) * (colWidthSmall + colGap) + (colWidth - colWidthSmall) + (colIndex - 1 === 0 ? colWidth : colWidthSmall));
-      const midX = left - Math.round(colGap / 2);
+      // read CSS offset (px) to nudge mid-block horizontally (positive => shift right)
+const midOffsetCss = getComputedStyle(document.documentElement).getPropertyValue('--mid-offset') || '0px';
+const midOffsetPx = parseInt(midOffsetCss, 10) || 0;
+
+// compute previous column right edge (real numeric coordinate)
+const prevColRight = (colIndex === 0)
+  ? (left + width) // if no previous column, take right edge of current col as fallback
+  : ((colIndex - 1) * (colWidthSmall + colGap) + (colWidth - colWidthSmall) + ((colIndex - 1) === 0 ? colWidth : colWidthSmall));
+
+// midX := exact middle between prevColRight and current column left, then add offset
+const midX = Math.round((prevColRight + left) / 2) + midOffsetPx;
+
 
       const midBlock = document.createElement('div');
       midBlock.className = 'mid-block';
