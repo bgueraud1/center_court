@@ -242,7 +242,26 @@ async function render(){
     return u;
   }
 
-  const matches = (json.matches || []).map(m => Object.assign({}, m));
+  // validation des match_id : seulement MSXXX ou LSXXX (trois chiffres)
+  function isValidMatchId(mid){
+    if(!mid) return false;
+    const s = String(mid).trim().toUpperCase();
+    return /^[ML]S\d{3}$/.test(s);
+  }
+  // extraire numéro de match depuis match_id (ex: MS016 -> 16)
+  function matchIdNumber(mid){
+    if(!mid) return Number.MAX_SAFE_INTEGER;
+    const m = String(mid).toUpperCase().match(/^[ML]S0*([0-9]+)$/);
+    if(m && m[1]) return parseInt(m[1], 10);
+    // fallback: extract any digits
+    const d = String(mid).match(/\d+/);
+    return d ? parseInt(d[0], 10) : Number.MAX_SAFE_INTEGER;
+  }
+
+  // ne garder que les matchs avec un match_id valide (MSXXX ou LSXXX)
+  const rawMatches = (json.matches || []).map(m => Object.assign({}, m));
+  const matches = rawMatches.filter(m => isValidMatchId(m.match_id));
+
   const groups = {};
   matches.forEach(m => {
     const r = norm(m.round || '');
@@ -279,11 +298,11 @@ async function render(){
 
   rounds.forEach((rnd, colIndex) => {
     const matchesInRound = groups[rnd];
-    // sort stable — if match_id numeric order available use it
-    matchesInRound.sort((a,b)=>{
-      const aa = (a.match_id||'').replace(/[^0-9]/g,''), bb = (b.match_id||'').replace(/[^0-9]/g,'');
-      const ia = aa ? parseInt(aa,10) : 0, ib = bb ? parseInt(bb,10) : 0;
-      return ia - ib;
+
+    // sort stable by numéro extrait de match_id (MS/LS numbering)
+    matchesInRound.sort((a,b) => {
+      const na = matchIdNumber(a.match_id), nb = matchIdNumber(b.match_id);
+      return na - nb;
     });
 
     // compute columnHeight and topOffset to center vertically (as before)
