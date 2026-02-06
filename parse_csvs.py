@@ -56,11 +56,13 @@ def player_present_in_matches(pid, name, matches_list):
 # === Nouveau : détecter interruptions LS/MS et insérer match factice BYE ===
 id_suffix_re = re.compile(r'([A-Za-z]+)(\d+)$')
 
+
+
 def insert_missing_sequential_matches(groups):
     """
     Pour chaque paire de rounds consécutifs (left -> right), détecte les trous
     dans la numérotation des match_id de la round de gauche (ex: MS001..MS032).
-    Pour chaque numéro manquant N, calcule child = floor(N/2) et cherche le match
+    Pour chaque numéro manquant N, calcule child = ceil(N/2) et cherche le match
     correspondant dans le round de droite. Si trouvé, regarde les deux joueurs du
     match enfant et identifie lequel des deux n'apparaît pas dans la round de gauche.
     Pour ce joueur absent, insère un match synthétique (victoire vs BYE) dans la
@@ -113,8 +115,8 @@ def insert_missing_sequential_matches(groups):
             if n in nums_present:
                 continue  # existant -> rien à faire
 
-            # enfant correspondant : floor(n/2)
-            child_num = n // 2
+            # enfant correspondant : ceil(n/2)
+            child_num = (n + 1) // 2
             if child_num < 1:
                 continue
 
@@ -194,7 +196,7 @@ def insert_missing_sequential_matches(groups):
                 return 10**9
             cur_matches_sorted = sorted(cur_matches, key=cur_key_fn)
             groups[cur_key] = cur_matches_sorted
-# === fin du nouvel ajout ===
+
 
 def augment_byes(groups):
     """ groups: dict round -> list(matches)
