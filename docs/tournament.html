@@ -16,7 +16,7 @@
     --midblock-width:160px;
     --line-color:#797979;
     --seed-blue:#0b3d91;
-    --mid-offset: 220px; /* ajuste ici le décalage horizontal du mid-block */
+    --mid-offset: 220px;
   }
 
   html,body{height:100%;margin:0;font-family:Arial,Helvetica,sans-serif;background:#fff;color:#111}
@@ -179,18 +179,20 @@ async function render(){
       const wClass = 'j_' + String(wId);
       const lClass = 'j_' + String(lId);
 
-      /* --- TOP ROW (placeholder/full only for leftmost col) --- */
+      /* --- TOP ROW (only full/interactive for leftmost col) --- */
       const topDiv = document.createElement('div');
-      topDiv.className = wClass + ' match-row row-top';
+      // base class always 'match-row'; only add row-top in first column
+      topDiv.className = wClass + ' match-row' + (colIndex === 0 ? ' row-top' : '');
       topDiv.style.top = topRowTop + 'px';
       topDiv.style.left = left + 'px';
       topDiv.style.height = winnerH + 'px';
       topDiv.style.width = width + 'px';
-      topDiv.setAttribute('onmouseover', `highlight_player(1,'${wClass}'); highlight_player(1,'${lClass}');`);
-      topDiv.setAttribute('onmouseout',  `highlight_player(2,'${wClass}'); highlight_player(2,'${lClass}');`);
 
       if(colIndex === 0){
-        // leftmost column: render full player info
+        // leftmost column: render full player info and add hover handlers
+        topDiv.setAttribute('onmouseover', `highlight_player(1,'${wClass}'); highlight_player(1,'${lClass}');`);
+        topDiv.setAttribute('onmouseout',  `highlight_player(2,'${wClass}'); highlight_player(2,'${lClass}');`);
+
         const wseedRaw = m.winner_seed || m.winnerSeed || '';
         const wseed = formatSeed(wseedRaw);
         const seedNode = document.createElement('div');
@@ -205,22 +207,23 @@ async function render(){
         wA.innerHTML = `<strong style="font-size:11px">${(wlast||'—').toUpperCase()}</strong><span class="player-first">${ wfirstInitial ? ', ' + wfirstInitial : '' }</span>`;
         topDiv.appendChild(wA);
       } else {
-        // Not leftmost: DO NOT render name/flag/seed here — leave placeholder to keep border alignment
-        topDiv.innerHTML = '&nbsp;'; // empty placeholder (no content -> avoids duplication)
+        // placeholder only (no hover handlers, no row-top class)
+        topDiv.innerHTML = '&nbsp;';
       }
       container.appendChild(topDiv);
 
-      /* --- BOTTOM ROW (loser row) --- */
+      /* --- BOTTOM ROW (only full/interactive for leftmost col) --- */
       const bottomDiv = document.createElement('div');
+      bottomDiv.className = lClass + ' match-row' + (colIndex === 0 ? ' row-bottom' : '');
       bottomDiv.style.top = bottomRowTop + 'px';
       bottomDiv.style.left = left + 'px';
       bottomDiv.style.height = loserH + 'px';
       bottomDiv.style.width = width + 'px';
-      bottomDiv.setAttribute('onmouseover', `highlight_player(1,'${lClass}');`);
-      bottomDiv.setAttribute('onmouseout',  `highlight_player(2,'${lClass}');`);
 
-      // For bottom row we keep the loser only in the leftmost column (first round). For other columns we keep placeholder.
       if(colIndex === 0){
+        bottomDiv.setAttribute('onmouseover', `highlight_player(1,'${lClass}');`);
+        bottomDiv.setAttribute('onmouseout',  `highlight_player(2,'${lClass}');`);
+
         const lseedRaw = m.loser_seed || m.loserSeed || '';
         const lseed = formatSeed(lseedRaw);
         const seedNode2 = document.createElement('div');
@@ -239,11 +242,12 @@ async function render(){
           bottomDiv.appendChild(lA);
         }
       } else {
-        bottomDiv.innerHTML = '&nbsp;'; // placeholder only
+        // placeholder only (no handlers)
+        bottomDiv.innerHTML = '&nbsp;';
       }
       container.appendChild(bottomDiv);
 
-      /* --- MID-BLOCK : unique winner representation --- */
+      /* --- MID-BLOCK (keep hover as before) --- */
       const midOffsetCss = getComputedStyle(document.documentElement).getPropertyValue('--mid-offset') || '0px';
       const midOffsetPx = parseInt(midOffsetCss, 10) || 0;
       const prevColRight = (colIndex === 0)
@@ -258,7 +262,6 @@ async function render(){
       midBlock.style.width = midWidth + 'px';
       midBlock.style.marginLeft = (-Math.round(midWidth/2)) + 'px';
 
-      // winner area (seed + flag + link) inside mid-block — THIS is the authoritative winner display
       const wname_full = m.winner_player_name || m.winner_name || '';
       const winnerHref = m.player_id_winner ? `/player/${slugify(wname_full)}/${m.player_id_winner}/` : '#';
       const winnerContain = document.createElement('a');
@@ -267,7 +270,6 @@ async function render(){
       winnerContain.style.color = 'inherit';
       winnerContain.className = 'mid-winner player-link';
 
-      // seed
       const wseedRaw2 = m.winner_seed || m.winnerSeed || '';
       const wseed2 = formatSeed(wseedRaw2);
       if(wseed2 && /^\d+$/.test(wseed2)){
@@ -276,10 +278,8 @@ async function render(){
         const sn2 = document.createElement('div'); sn2.className='seed-text'; sn2.innerHTML = (wseed2 ? wseed2 : '\u00A0'); winnerContain.appendChild(sn2);
       }
 
-      // flag
       winnerContain.appendChild(makeFlagElem(m.winner_country || m.winner_nationality || m.winner_country_code || ''));
 
-      // name
       const { last: wlast2, firstInitial: wfirstInitial2 } = splitNameToLastAndInitial(wname_full);
       const nameSpan = document.createElement('strong');
       nameSpan.style.fontSize = '11px';
@@ -290,13 +290,11 @@ async function render(){
       }
       midBlock.appendChild(winnerContain);
 
-      // bar and score
       const midBar = document.createElement('div'); midBar.className='mid-bar'; midBlock.appendChild(midBar);
       const scoreLabel = document.createElement('div'); scoreLabel.className='mid-score';
       scoreLabel.innerHTML = scoreToHtml(m.score_string || m.score || '') || '\u00A0';
       midBlock.appendChild(scoreLabel);
 
-      // hover behaviour
       midBlock.onmouseover = () => { highlight_player(1, wClass); highlight_player(1, lClass); };
       midBlock.onmouseout  = () => { highlight_player(2, wClass); highlight_player(2, lClass); };
 
@@ -308,7 +306,7 @@ async function render(){
     positionsByRound.push(thisPositions);
   });
 
-  /* draw connectors (grouped spines + horizontals, connect to mid-bar) */
+  /* draw connectors (kept as in previous step) */
   function drawPolyline(points, strokeWidth){
     const reduced = points.filter((p,i,arr) => { if(i===0) return true; const prev = arr[i-1]; return !(prev[0]===p[0] && prev[1]===p[1]); });
     if(reduced.length < 2) return;
@@ -327,7 +325,6 @@ async function render(){
     const parents = positionsByRound[colIndex + 1];
     if(!children || !parents) continue;
 
-    // build mapping from parent index to array of child indices
     const mapping = new Array(parents.length).fill(0).map(()=>[]);
     for(let i=0;i<children.length;i++){
       const parentIndex = Math.floor(i * parents.length / children.length);
@@ -335,33 +332,25 @@ async function render(){
       mapping[idx].push(i);
     }
 
-    // draw per parent: a vertical spine connecting all its children and reaching the mid-bar of parent
     for(let p=0;p<parents.length;p++){
       const childIndices = mapping[p];
       if(!childIndices || childIndices.length===0) continue;
       const parent = parents[p];
 
-      // compute spine X and vertical extents
       let minY = Infinity, maxY = -Infinity, sumX = 0;
       childIndices.forEach(ci => { const c = children[ci]; minY = Math.min(minY,c.center); maxY = Math.max(maxY,c.center); sumX += c.midX; });
       const avgChildX = Math.round(sumX / childIndices.length);
       const spineX = Math.round((avgChildX + parent.midX) / 2);
 
-      // compute the parent's mid-bar Y inside the mid-block (approx middle of mid-block)
       const parentBarY = parent.midTop + Math.round((parent.midBottom - parent.midTop)/2);
-
-      // extend spine so it reaches the parent's mid-bar
       const vTop = Math.min(minY, parentBarY);
       const vBottom = Math.max(maxY, parentBarY);
       if(vBottom - vTop > 0) drawPolyline([[spineX, vTop], [spineX, vBottom]], 1);
 
-      // connect each child horizontally to spine (at child's center)
       childIndices.forEach(ci =>{
         const c = children[ci];
         drawPolyline([[c.midX, c.center], [spineX, c.center]], 1);
       });
-
-      // do NOT draw a horizontal from the parent to the spine — keep only the mid-block internal bar as the visual horizontal
     }
   }
 
