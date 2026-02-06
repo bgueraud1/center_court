@@ -1,355 +1,459 @@
-#!/usr/bin/env python3
-"""
-inject_missing_matches.py
+# parse_csvs.py
+# Usage: python parse_csvs.py
+# Writes JSON into docs/data/tournaments/
 
-Script complet : parcourt les dossiers ./matches/atp_matches et ./matches/wta_matches,
-construit les matches, détecte les interruptions dans les identifiants du type
-LSxxx / MSxxx (ou toute paire préfixe+numérique similaire) et insère des matchs
-synthétiques (BYE) dans le round précédent quand cela est possible.
-
-Usage: placer les CSVs dans ./matches/atp_matches/*.csv et ./matches/wta_matches/*.csv
-puis lancer : python inject_missing_matches.py
-
-Le comportement suit exactement ta demande : si un identifiant attendu est manquant
-(par ex. MS016 absent alors que MS015 et MS017 existent conformément à la numérotation),
-on regarde le match "parent" dans le round suivant (floor(parent_num/2) relation)
-et on crée un faux match BYE dans le round précédent si on détecte qu'un des deux
-joueurs du parent n'a pas de match au round précédent.
-
-Les placeholders pour l'adversaire manquant sont : player_id_loser='XXXX', loser_country='XXX'.
-
-"""
-
+import csv, json, random, re
 from pathlib import Path
 from collections import defaultdict
-import csv
-import json
-import re
-import random
 from datetime import datetime
 
-# --- Configuration ---
-MATCHES_DIR = Path('./matches')
-OUTPUT_DIR = Path('./out')
+ROOT = Path('.')
+MATCHES_DIR = ROOT / 'matches'
+OUTPUT_DIR = ROOT / 'docs' / 'data' / 'tournaments'
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-# --- Helpers ---
-
-def normalize_name(n):
-    return (n or '').strip().lower()
-
+IOC_ATP = ROOT / 'ioc_places_atp.json'
 
 def read_csv_rows(path):
-    """Lit un CSV et renvoie une liste de dicts (empty list si erreur)."""
-    try:
-        with open(path, newline='', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            return [dict(row) for row in reader]
-    except Exception as e:
-        print(f"Erreur lecture CSV {path}: {e}")
-        return []
+    with open(path, newline='', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        return list(reader)
 
+# load IOC mapping if present
+if IOC_ATP.exists():
+    with open(IOC_ATP, 'r', encoding='utf-8') as f:
+        ioc_atp = json.load(f)
+else:
+    ioc_atp = {}
 
-def parse_match_id(mid):
-    """Retourne (prefix, num, width) pour un identifiant comme 'MS016' ou 'LS31'.
-    width est la largeur des chiffres trouvée (pour zero-padding preservation).
-    Si mid invalide, retourne (None, None, 3).
-    """
-    if not mid:
-        return None, None, 3
-    s = str(mid).strip()
-    m = re.match(r'^([^0-9]*?)(0*)(\d+)$', s)
-    if not m:
-        return None, None, 3
-    prefix = m.group(1) or ''
-    leading = m.group(2) or ''
-    digits = m.group(3)
-    width = max(len(leading + digits), 3)
-    try:
-        num = int(digits)
-    except Exception:
-        num = None
-    return prefix, num, width
+index = defaultdict(list)
+calendar_list = []
 
+def match_sort_key(m):
+    mid = m.get('match_id') or ''
+    mnum = re.sub(r'[^0-9]', '', mid) if mid else ''
+    return int(mnum) if mnum.isdigit() else 10**9
 
-def format_match_id(prefix, num, width=3):
-    if prefix is None:
-        prefix = ''
-    return f"{prefix}{str(num).zfill(width)}"
+def normalize_name(n):
+    if not n:
+        return ''
+    return re.sub(r'\s+', ' ', str(n).strip()).lower()
 
-
-def player_present_in_matches(pid, pname, matches):
-    """Vérifie présence par id (si fourni) ou par nom normalisé."""
-    if not matches:
-        return False
-    pn = normalize_name(pname) if pname else ''
-    for m in matches:
-        # check ids
-        for k in ('player_id_winner','player_id_loser','player_winner_id','player_loser_id','winner_id','loser_id'):
-            if pid and m.get(k) and str(m.get(k)) == str(pid):
+def player_present_in_matches(pid, name, matches_list):
+    """Return True if player (by id or by normalized name) occurs in any match in matches_list."""
+    nnorm = normalize_name(name)
+    for pm in matches_list:
+        # check ids for
+        for k in ('player_id_winner', 'player_id_loser', 'player_winner_id', 'player_loser_id', 'winner_id', 'loser_id'):
+            if pm.get(k) and pid and str(pm.get(k)) == str(pid):
                 return True
         # check names
-        for k in ('winner_player_name','loser_player_name','winner_name','loser_name','player_winner','player_loser'):
-            if pn and m.get(k) and normalize_name(m.get(k)) == pn:
-                return True
+        wn = pm.get('winner_player_name') or pm.get('winner') or pm.get('player_winner') or pm.get('player_winner_name')
+        ln = pm.get('loser_player_name') or pm.get('loser') or pm.get('player_loser') or pm.get('player_loser_name')
+        if nnorm and (normalize_name(wn) == nnorm or normalize_name(ln) == nnorm):
+            return True
     return False
 
+# === Nouveau : détecter interruptions LS/MS et insérer match factice BYE ===
+id_suffix_re = re.compile(r'([A-Za-z]+)(\d+)$')
 
-def find_match_by_id_num(num, matches):
-    for m in matches:
-        _, n, _ = parse_match_id(m.get('match_id') or m.get('match') or '')
-        if n is not None and n == num:
-            return m
-    return None
-
-
-# --- Core: injection des synthétiques (BYE) ---
-
-def inject_missing_ms_ls(groups):
+def insert_missing_sequential_matches(groups):
     """
-    Pour chaque colonne (prev = round avec plus de matchs, curr = round suivant),
-    on vérifie pour chaque match 'parent' du round curr que les enfants (2*p, 2*p+1)
-    existent dans prev. Si l'un des enfants est absent et qu'exactement l'un des deux
-    joueurs du parent n'a pas de match dans prev, on crée un match synthétique BYE
-    dans prev pour ce joueur.
+    Pour chaque paire de rounds consécutifs (left -> right), détecte les trous
+    dans la numérotation des match_id de la round de gauche (ex: MS001..MS032).
+    Pour chaque numéro manquant N, calcule child = floor(N/2) et cherche le match
+    correspondant dans le round de droite. Si trouvé, regarde les deux joueurs du
+    match enfant et identifie lequel des deux n'apparaît pas dans la round de gauche.
+    Pour ce joueur absent, insère un match synthétique (victoire vs BYE) dans la
+    round de gauche avec les champs demandés.
     """
     rounds = sorted(groups.keys(), key=lambda k: len(groups[k]), reverse=True)
+    if len(rounds) < 2:
+        return
+
+    for idx in range(len(rounds) - 1):
+        cur_key = rounds[idx]
+        next_key = rounds[idx + 1]
+        cur_matches = groups.get(cur_key, [])[:]  # copie de travail
+        next_matches = groups.get(next_key, [])[:]
+        if not cur_matches or not next_matches:
+            continue
+
+        # construire map des matchs du round suivant par (prefix, num)
+        next_map = {}
+        for nm in next_matches:
+            mid = nm.get('match_id') or ''
+            m = id_suffix_re.search(mid)
+            if m:
+                prefix = m.group(1)
+                num = int(m.group(2))
+                next_map[(prefix, num)] = nm
+
+        # retrouver le préfixe et la largeur des chiffres du round courant si possible
+        nums_present = set()
+        prefix_used = None
+        num_width = None
+        for cm in cur_matches:
+            mid = cm.get('match_id') or ''
+            m = id_suffix_re.search(mid)
+            if m:
+                prefix_used = m.group(1)
+                num = int(m.group(2))
+                nums_present.add(num)
+                num_width = max(num_width or 0, len(m.group(2)))
+
+        if not nums_present or not prefix_used:
+            # si on ne peut pas déterminer, on ne modifie pas ce round
+            continue
+
+        min_n = min(nums_present)
+        max_n = max(nums_present)
+        added_any = False
+
+        for n in range(min_n, max_n + 1):
+            if n in nums_present:
+                continue  # existant -> rien à faire
+
+            # enfant correspondant : floor(n/2)
+            child_num = n // 2
+            if child_num < 1:
+                continue
+
+            # Chercher d'abord avec même préfixe
+            child_match = next_map.get((prefix_used, child_num))
+            # si pas trouvé, tenter n'importe quel préfixe avec ce numéro (tolérance)
+            if not child_match:
+                for (pfx, num), nm in next_map.items():
+                    if num == child_num:
+                        child_match = nm
+                        break
+            if not child_match:
+                continue  # on ne peut pas reconstruire sans le match enfant
+
+            # extraire joueurs du match enfant
+            w_id = child_match.get('player_id_winner') or child_match.get('winner_id') or child_match.get('player_winner_id') or ''
+            w_name = child_match.get('winner_player_name') or child_match.get('winner') or ''
+            l_id = child_match.get('player_id_loser') or child_match.get('loser_id') or child_match.get('player_loser_id') or ''
+            l_name = child_match.get('loser_player_name') or child_match.get('loser') or ''
+
+            # déterminer lequel des deux n'apparaît pas (ou apparait moins) dans cur_matches
+            w_present = player_present_in_matches(w_id, w_name, cur_matches)
+            l_present = player_present_in_matches(l_id, l_name, cur_matches)
+
+            # si exactement l'un des deux est absent, on crée le match fictif où ce joueur "gagne" contre BYE
+            synth_winner_id = ''
+            synth_winner_name = ''
+            synth_winner_country = ''
+            synth_winner_seed = ''
+            if (not w_present) and l_present:
+                synth_winner_id = w_id or ''
+                synth_winner_name = w_name or ''
+                synth_winner_country = child_match.get('winner_country') or ''
+                synth_winner_seed = child_match.get('winner_seed') or ''
+            elif (not l_present) and w_present:
+                synth_winner_id = l_id or ''
+                synth_winner_name = l_name or ''
+                synth_winner_country = child_match.get('loser_country') or ''
+                synth_winner_seed = child_match.get('loser_seed') or ''
+            else:
+                # cas : soit les deux absents, soit les deux présents -> on ne crée rien
+                continue
+
+            # construire match_id synthétique (respecter padding si possible)
+            num_str = str(n).zfill(num_width or len(str(n)))
+            synth_id = f"{prefix_used}{num_str}"
+
+            synth = {
+                'match_id': synth_id,
+                'round': cur_key,
+                'winner_player_name': synth_winner_name,
+                'loser_player_name': 'BYE',
+                'score_string': '',
+                'player_id_winner': synth_winner_id,
+                'player_id_loser': 'XXXX',
+                'winner_country': synth_winner_country or '',
+                'loser_country': 'XXX',
+                'winner_seed': synth_winner_seed or '',
+                'loser_seed': ''
+            }
+
+            # insérer (on ajoute puis on tri par numéro pour garder un ordre stable)
+            cur_matches.append(synth)
+            nums_present.add(n)
+            added_any = True
+
+        if added_any:
+            # trier cur_matches par numéro extrait de match_id quand c'est possible
+            def cur_key_fn(m):
+                mid = m.get('match_id') or ''
+                mm = id_suffix_re.search(mid)
+                if mm:
+                    try:
+                        return int(mm.group(2))
+                    except Exception:
+                        return 10**9
+                return 10**9
+            cur_matches_sorted = sorted(cur_matches, key=cur_key_fn)
+            groups[cur_key] = cur_matches_sorted
+# === fin du nouvel ajout ===
+
+def augment_byes(groups):
+    """ groups: dict round -> list(matches)
+    Strategy:
+    - determine rounds ordered by size (desc) consistent with frontend
+    - for each column index starting at 1 (i.e. for each pair prev/curr):
+      * bucket prev matches into child buckets
+      * for each match in curr (top->down) check winner then loser:
+        - if player not present in original prev, create a synth match in prev (player vs BYE)
+        - insert synth before bucket content for that child (so synth are local)
+    """
+    rounds = sorted(groups.keys(), key=lambda k: len(groups[k]), reverse=True)
+
+    # iterate columns
     for col_index in range(1, len(rounds)):
         prev_key = rounds[col_index - 1]
         curr_key = rounds[col_index]
-        prev_matches = groups.get(prev_key, [])
-        curr_matches = groups.get(curr_key, [])
+        prev_matches = groups.get(prev_key, [])[:]
+        curr_matches = groups.get(curr_key, [])[:]
+        prev_count = len(prev_matches)
+        curr_count = len(curr_matches)
 
-        # compute digit width from existing ids
-        digit_width = 3
-        for m in (prev_matches + curr_matches):
-            _, _, w = parse_match_id(m.get('match_id') or m.get('match') or '')
-            if w and w > digit_width:
-                digit_width = w
+        # build buckets: distribute prev_matches into curr_count buckets to preserve vertical locality
+        buckets = [[] for _ in range(max(1, curr_count))]
+        if prev_count > 0 and curr_count > 0:
+            for i, pm in enumerate(prev_matches):
+                child_idx = int(i * curr_count / prev_count)
+                if child_idx < 0:
+                    child_idx = 0
+                if child_idx >= curr_count:
+                    child_idx = curr_count - 1
+                buckets[child_idx].append(pm)
+        else:
+            # keep buckets empty (will add synth if needed)
+            pass
 
-        # set of existing numeric ids in prev
-        prev_nums = set()
-        for pm in prev_matches:
-            _, num, _ = parse_match_id(pm.get('match_id') or pm.get('match') or '')
-            if num is not None:
-                prev_nums.add(num)
+        new_prev = []
+        inserted_for_prev = set()
 
-        synthetics = []
+        # helper to extract participant id/name/country/seed from a match row
+        def get_part_from_match(match_row, role):
+            # role is 'winner' or 'loser'
+            id_keys = [f'player_id_{role}', f'{role}_player_id', f'{role}_id', f'{role}Id', f'PlayerID{role[0].upper()}{role[0]}']
+            name_keys = [f'{role}_player_name', f'{role}_name', role, f'player_{role}', f'player_{role}_name']
+            country_keys = [f'{role}_country', f'{role}_nationality', f'{role}_country_code', f'country_{role}']
+            seed_keys = [f'{role}_seed', f'seed_{role}']
+            pid = ''
+            pname = ''
+            pcountry = ''
+            pseed = ''
+            for k in id_keys:
+                if match_row.get(k):
+                    pid = match_row.get(k)
+                    break
+            for k in name_keys:
+                if match_row.get(k):
+                    pname = match_row.get(k)
+                    break
+            for k in country_keys:
+                if match_row.get(k):
+                    pcountry = match_row.get(k)
+                    break
+            for k in seed_keys:
+                if match_row.get(k):
+                    pseed = match_row.get(k)
+                    break
+            return {'id': pid, 'name': pname, 'country': pcountry, 'seed': pseed}
 
-        for parent in curr_matches:
-            pmid = parent.get('match_id') or parent.get('match') or ''
-            prefix, pnum, _ = parse_match_id(pmid)
-            if pnum is None:
-                continue
-            children = [2 * pnum, 2 * pnum + 1]
-
-            for child_num in children:
-                if child_num in prev_nums:
+        for j, cm in enumerate(curr_matches):
+            # collect winner then loser per your requested priority
+            for role in ('winner', 'loser'):
+                part = get_part_from_match(cm, role)
+                pid = part.get('id') or ''
+                pname = part.get('name') or ''
+                unique_key = str(pid) if pid else normalize_name(pname)
+                if not unique_key:
                     continue
-                if find_match_by_id_num(child_num, prev_matches):
-                    prev_nums.add(child_num)
+                if unique_key in inserted_for_prev:
                     continue
-
-                # Determine parent players
-                winner_name = parent.get('winner_player_name') or parent.get('player_winner') or parent.get('winner') or ''
-                loser_name = parent.get('loser_player_name') or parent.get('player_loser') or parent.get('loser') or ''
-                winner_id = parent.get('player_id_winner') or parent.get('player_winner_id') or parent.get('winner_id') or ''
-                loser_id = parent.get('player_id_loser') or parent.get('player_loser_id') or parent.get('loser_id') or ''
-
-                winner_has_prev = player_present_in_matches(winner_id, winner_name, prev_matches)
-                loser_has_prev = player_present_in_matches(loser_id, loser_name, prev_matches)
-
-                missing_player = None
-                if not winner_has_prev and loser_has_prev:
-                    missing_player = {
-                        'id': winner_id or '',
-                        'name': winner_name or '',
-                        'country': parent.get('winner_country') or parent.get('winner_nationality') or '',
-                        'seed': parent.get('winner_seed') or ''
+                # check if present in original prev by id or name
+                if not player_present_in_matches(pid, pname, prev_matches):
+                    # create synthetic match where this player "won" vs BYE
+                    # synth id includes some digits to help sorting later
+                    synth_id = f"synth{col_index}{j}{random.randint(1,9999)}"
+                    synth = {
+                        'match_id': synth_id,
+                        'round': prev_key,
+                        'player_id_winner': pid or '',
+                        'winner_player_name': pname or '',
+                        'winner_country': part.get('country') or '',
+                        'winner_seed': part.get('seed') or '',
+                        'player_id_loser': '',
+                        'loser_player_name': '',
+                        'loser_country': '',
+                        'loser_seed': '',
+                        'score_string': ''
                     }
-                elif not loser_has_prev and winner_has_prev:
-                    missing_player = {
-                        'id': loser_id or '',
-                        'name': loser_name or '',
-                        'country': parent.get('loser_country') or parent.get('loser_nationality') or '',
-                        'seed': parent.get('loser_seed') or ''
-                    }
-                else:
-                    # si les deux sont présents ou les deux absents, on skip (trop ambigu)
-                    continue
+                    new_prev.append(synth)
+                    inserted_for_prev.add(unique_key)
 
-                synth_mid = format_match_id(prefix or 'MS', child_num, digit_width)
-                synth = {
-                    'match_id': synth_mid,
-                    'round': prev_key,
-                    'winner_player_name': missing_player['name'] or '',
-                    'loser_player_name': 'BYE',
-                    'score_string': '',
-                    'player_id_winner': missing_player['id'] or '',
-                    'player_id_loser': 'XXXX',
-                    'winner_country': missing_player.get('country') or '',
-                    'loser_country': 'XXX',
-                    'winner_seed': missing_player.get('seed') or '',
-                    'loser_seed': ''
-                }
+            # after synthetic inserts for this child, append the original prev matches bucket for this child (if any)
+            if curr_count > 0:
+                bucket = buckets[j] if j < len(buckets) else []
+                for pm in bucket:
+                    new_prev.append(pm)
 
-                synthetics.append((child_num, synth))
-                prev_nums.add(child_num)
-
-        # Insérer synthétiques dans groups[prev_key]
-        if synthetics:
-            # pour garder un ordre raisonnable, on insère triés par child_num
-            synthetics.sort(key=lambda t: t[0])
-            for _, s in synthetics:
-                groups[prev_key].append(s)
-
-
-# --- Flatten helper ---
+        # edge case: if curr_count == 0 we keep prev as-is
+        if curr_count == 0:
+            groups[prev_key] = prev_matches
+        else:
+            groups[prev_key] = new_prev
 
 def flatten_groups_to_matches(groups):
+    """Return a flat list of matches by iterating groups in order of descending size (left->right)."""
     rounds = sorted(groups.keys(), key=lambda k: len(groups[k]), reverse=True)
     out = []
     for r in rounds:
         out.extend(groups[r])
     return out
 
+for kind in ('atp_matches','wta_matches'):
+    d = MATCHES_DIR / kind
+    if not d.exists():
+        continue
 
-# --- Main processing loop (lit CSVs et écrit JSONs) ---
-
-def main():
-    index = defaultdict(list)
-    calendar_list = []
-
-    for kind in ('atp_matches', 'wta_matches'):
-        d = MATCHES_DIR / kind
-        if not d.exists():
-            print(f"Folder not found: {d} -> skipping")
+    for csvfile in d.glob('*.csv'):
+        rows = read_csv_rows(csvfile)
+        if not rows:
             continue
 
-        for csvfile in sorted(d.glob('*.csv')):
-            rows = read_csv_rows(csvfile)
-            if not rows:
-                continue
+        name_parts = csvfile.stem.split('_')
+        if len(name_parts) >= 3:
+            _, tourney_id_str, year_str = name_parts[:3]
+        else:
+            tourney_id_str = rows[0].get('tourney_id') or rows[0].get('event_id') or 'unknown'
+            year_str = rows[0].get('tourney_year') or rows[0].get('event_year') or 'unknown'
 
-            name_parts = csvfile.stem.split('_')
-            if len(name_parts) >= 3:
-                _, tourney_id_str, year_str = name_parts[:3]
-            else:
-                tourney_id_str = rows[0].get('tourney_id') or rows[0].get('event_id') or 'unknown'
-                year_str = rows[0].get('tourney_year') or rows[0].get('event_year') or 'unknown'
-
-            tourney_id = tourney_id_str
-            year = year_str
-
-            first = rows[0]
-            raw_start = first.get('start_date') or first.get('tourney_start_date') or ''
-            start_date = ''
-            if raw_start:
-                try:
-                    dt = datetime.fromisoformat(raw_start)
-                    start_date = dt.date().isoformat()
-                except Exception:
-                    try:
-                        start_date = datetime.strptime(raw_start[:10], '%Y-%m-%d').date().isoformat()
-                    except Exception:
-                        start_date = raw_start
-
-            meta = {
-                'source': 'ATP' if kind.startswith('atp') else 'WTA',
-                'tourney_id': tourney_id,
-                'year': int(year) if str(year).isdigit() else year,
-                'tourney_name': first.get('tourney_name') or first.get('tournament_name') or '',
-                'tourney_title': first.get('tournament_title') or first.get('tourney_title') or '',
-                'surface': (first.get('surface') or '').title(),
-                'level': first.get('level') or '',
-                'prize_money': first.get('prize_money') or '',
-                'prize_money_currency': first.get('prize_money_currency') or '',
-                'singles_draw_size': int(first.get('singles_draw_size')) if first.get('singles_draw_size') and str(first.get('singles_draw_size')).isdigit() else None,
-                'city': first.get('city') or '',
-                'country': first.get('country') or '',
-                'start_date': start_date
-            }
-
-            # build matches array with normalized field names
-            matches = []
-            for r in rows:
-                m = {
-                    'match_id': r.get('match_id') or r.get('match') or r.get('event_id') or '',
-                    'round': (r.get('round') or r.get('round_name') or '').strip(),
-                    'winner_player_name': r.get('winner_player_name') or r.get('player_winner') or r.get('winner') or '',
-                    'loser_player_name': r.get('loser_player_name') or r.get('player_loser') or r.get('loser') or '',
-                    'score_string': r.get('score_string') or r.get('score') or r.get('score_str') or '',
-                    'player_id_winner': r.get('player_id_winner') or r.get('player_winner_id') or r.get('winner_id') or r.get('PlayerIDA') or r.get('PlayerIDA2') or '',
-                    'player_id_loser': r.get('player_id_loser') or r.get('player_loser_id') or r.get('loser_id') or r.get('PlayerIDB') or r.get('PlayerIDB2') or '',
-                    'winner_country': r.get('winner_country') or r.get('country_winner') or r.get('winner_country_code') or r.get('country_a') or r.get('country_b') or '',
-                    'loser_country': r.get('loser_country') or r.get('country_loser') or r.get('loser_country_code') or '',
-                    'winner_seed': r.get('winner_seed') or r.get('seed_winner') or r.get('seed_a') or r.get('seed_winner') or '',
-                    'loser_seed': r.get('loser_seed') or r.get('seed_loser') or r.get('seed_b') or r.get('seed_loser') or ''
-                }
-                matches.append(m)
-
-            # group by round
-            groups = defaultdict(list)
-            for m in matches:
-                rk = m.get('round') or ''
-                groups[rk].append(m)
-
-            # --- INJECTION : insérer BYE synthétiques si nécessaire ---
-            inject_missing_ms_ls(groups)
-
-            # flatten groups into final matches in order left->right
-            final_matches = flatten_groups_to_matches(groups)
-
-            # deterministic sort fallback: by round name then numeric match id
-            def match_sort_key(m):
-                r = m.get('round') or ''
-                _, num, _ = parse_match_id(m.get('match_id') or m.get('match') or '')
-                return (r, num if num is not None else 0)
-
-            final_matches_sorted = sorted(final_matches, key=match_sort_key)
-
-            out = {'meta': meta, 'matches': final_matches_sorted}
-            out_name = f"{meta['source'].lower()}_{tourney_id}_{year}.json"
-            out_path = OUTPUT_DIR / out_name
-            with open(out_path, 'w', encoding='utf-8') as f:
-                json.dump(out, f, ensure_ascii=False, indent=2)
-
-            index_key = f"{meta['source'].lower()}_{tourney_id}"
-            index[index_key].append(int(year) if str(year).isdigit() else year)
-            calendar_list.append({
-                'source': meta['source'].lower(),
-                'tourney_id': tourney_id,
-                'year': int(year) if str(year).isdigit() else year,
-                'tourney_name': meta['tourney_name'],
-                'start_date': meta['start_date'] or '',
-                'surface': meta['surface'],
-                'level': meta['level']
-            })
-
-    # write index
-    index_out = {k: sorted(v) for k, v in index.items()}
-    with open(OUTPUT_DIR / 'tournaments_index.json', 'w', encoding='utf-8') as f:
-        json.dump(index_out, f, ensure_ascii=False, indent=2)
-
-    # write calendar
-    def sort_key(item):
-        d = item.get('start_date')
-        try:
-            if not d:
-                return datetime.max
-            return datetime.fromisoformat(d)
-        except Exception:
+        tourney_id = tourney_id_str
+        year = year_str
+        first = rows[0]
+        raw_start = first.get('start_date') or first.get('tourney_start_date') or ''
+        start_date = ''
+        if raw_start:
             try:
-                return datetime.strptime(d[:10], '%Y-%m-%d')
+                dt = datetime.fromisoformat(raw_start)
+                start_date = dt.date().isoformat()
             except Exception:
-                return datetime.max
+                try:
+                    start_date = datetime.strptime(raw_start[:10], '%Y-%m-%d').date().isoformat()
+                except Exception:
+                    start_date = raw_start
 
-    calendar_sorted = sorted(calendar_list, key=sort_key)
-    with open(OUTPUT_DIR / 'tournaments_calendar.json', 'w', encoding='utf-8') as f:
-        json.dump(calendar_sorted, f, ensure_ascii=False, indent=2)
+        meta = {
+            'source': 'ATP' if kind.startswith('atp') else 'WTA',
+            'tourney_id': tourney_id,
+            'year': int(year) if str(year).isdigit() else year,
+            'tourney_name': first.get('tourney_name') or first.get('tournament_name') or '',
+            'tourney_title': first.get('tournament_title') or first.get('tourney_title') or '',
+            'surface': (first.get('surface') or '').title(),
+            'level': first.get('level') or '',
+            'prize_money': first.get('prize_money') or '',
+            'prize_money_currency': first.get('prize_money_currency') or '',
+            'singles_draw_size': int(first.get('singles_draw_size')) if first.get('singles_draw_size') and str(first.get('singles_draw_size')).isdigit() else None,
+            'city': first.get('city') or '',
+            'country': first.get('country') or '',
+            'start_date': start_date
+        }
 
-    print('Done — JSON files written to', OUTPUT_DIR)
+        # Fill ATP missing info from ioc.json
+        if meta['source'] == 'ATP' and tourney_id in ioc_atp:
+            years_map = ioc_atp.get(tourney_id, {})
+            ystr = str(year)
+            if ystr in years_map:
+                place = years_map[ystr]
+                if len(place) >= 1 and not meta['city']:
+                    meta['city'] = place[0]
+                if len(place) >= 2 and not meta['country']:
+                    meta['country'] = place[1]
+                if len(place) >= 3 and not meta['tourney_title']:
+                    meta['tourney_title'] = place[2]
 
+        matches = []
+        for r in rows:
+            # collect also ids, seeds and countries when present
+            m = {
+                'match_id': r.get('match_id') or r.get('match') or r.get('event_id') or '',
+                'round': (r.get('round') or r.get('round_name') or '').strip(),
+                'winner_player_name': r.get('winner_player_name') or r.get('player_winner') or r.get('winner') or r.get('winner_player_name') or '',
+                'loser_player_name': r.get('loser_player_name') or r.get('player_loser') or r.get('loser') or r.get('loser_player_name') or '',
+                'score_string': r.get('score_string') or r.get('score') or r.get('score_str') or '',
+                'player_id_winner': r.get('player_id_winner') or r.get('player_winner_id') or r.get('winner_id') or r.get('PlayerIDA') or r.get('PlayerIDA2') or '',
+                'player_id_loser': r.get('player_id_loser') or r.get('player_loser_id') or r.get('loser_id') or r.get('PlayerIDB') or r.get('PlayerIDB2') or '',
+                'winner_country': r.get('winner_country') or r.get('country_winner') or r.get('winner_country_code') or r.get('country_a') or r.get('country_b') or '',
+                'loser_country': r.get('loser_country') or r.get('country_loser') or r.get('loser_country_code') or '',
+                'winner_seed': r.get('winner_seed') or r.get('seed_winner') or r.get('seed_a') or r.get('seed_winner') or '',
+                'loser_seed': r.get('loser_seed') or r.get('seed_loser') or r.get('seed_b') or r.get('seed_loser') or ''
+            }
+            matches.append(m)
 
-if __name__ == '__main__':
-    main()
+        # group by round
+        groups = defaultdict(list)
+        for m in matches:
+            rk = m.get('round') or ''
+            groups[rk].append(m)
+
+        # order rounds left->right (most matches at left)
+        rounds_order = sorted(groups.keys(), key=lambda k: len(groups[k]), reverse=True)
+
+        # === APPEL: réparer interruptions séquentielles LS/MS en insérant match BYE ===
+        insert_missing_sequential_matches(groups)
+        # === FIN APPEL ===
+
+        # AUGMENTATION : insérer BYE synthétiques dans groups (localement) si un joueur apparait en T2 sans avoir T1
+        augment_byes(groups)
+
+        # flatten groups back into matches array in rounds order (left->right)
+        final_matches = flatten_groups_to_matches(groups)
+
+        # as a safe step, sort final_matches with match_sort_key to keep deterministic order (but grouped order is preserved because synth ids have digits)
+        final_matches_sorted = sorted(final_matches, key=match_sort_key)
+
+        out = {'meta': meta, 'matches': final_matches_sorted}
+        out_name = f"{meta['source'].lower()}_{tourney_id}_{year}.json"
+        out_path = OUTPUT_DIR / out_name
+        with open(out_path, 'w', encoding='utf-8') as f:
+            json.dump(out, f, ensure_ascii=False, indent=2)
+
+        index_key = f"{meta['source'].lower()}_{tourney_id}"
+        index[index_key].append(int(year) if str(year).isdigit() else year)
+        calendar_list.append({
+            'source': meta['source'].lower(),
+            'tourney_id': tourney_id,
+            'year': int(year) if str(year).isdigit() else year,
+            'tourney_name': meta['tourney_name'],
+            'start_date': meta['start_date'] or '',
+            'surface': meta['surface'],
+            'level': meta['level']
+        })
+
+# write index
+index_out = {k: sorted(v) for k, v in index.items()}
+with open(OUTPUT_DIR / 'tournaments_index.json', 'w', encoding='utf-8') as f:
+    json.dump(index_out, f, ensure_ascii=False, indent=2)
+
+# write calendar
+def sort_key(item):
+    d = item.get('start_date')
+    try:
+        if not d:
+            return datetime.max
+        return datetime.fromisoformat(d)
+    except Exception:
+        try:
+            return datetime.strptime(d[:10], '%Y-%m-%d')
+        except Exception:
+            return datetime.max
+
+calendar_sorted = sorted(calendar_list, key=sort_key)
+with open(OUTPUT_DIR / 'tournaments_calendar.json', 'w', encoding='utf-8') as f:
+    json.dump(calendar_sorted, f, ensure_ascii=False, indent=2)
+
+print('Done — JSON files written to', OUTPUT_DIR)
