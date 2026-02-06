@@ -64,7 +64,7 @@ function highlight_player(mode, className, v){
   }
 }
 
-/* mapping IOC/ISO3 -> alpha-2 (vérifier / compléter si besoin) */
+/* IOC/ISO3 -> alpha2 mapping (courant, peut être complété) */
 const iocToAlpha2 = {
   "AFG":"AF","ALB":"AL","DZA":"DZ","AND":"AD","AGO":"AO","ARG":"AR","ARM":"AM","AUS":"AU","AUT":"AT","AZE":"AZ",
   "BHS":"BS","BHR":"BH","BGD":"BD","BRB":"BB","BLR":"BY","BEL":"BE","BEN":"BJ","BOL":"BO","BIH":"BA","BWA":"BW",
@@ -73,11 +73,10 @@ const iocToAlpha2 = {
   "DEU":"DE","GRC":"GR","HUN":"HU","ISL":"IS","IND":"IN","IDN":"ID","IRL":"IE","IRN":"IR","ISR":"IL","ITA":"IT",
   "JPN":"JP","KAZ":"KZ","KEN":"KE","KOR":"KR","KGZ":"KG","LVA":"LV","LBN":"LB","LTU":"LT","LUX":"LU","MYS":"MY",
   "MEX":"MX","MDA":"MD","MCO":"MC","MAR":"MA","NLD":"NL","NZL":"NZ","NOR":"NO","PAK":"PK","PER":"PE","PHI":"PH",
-  "POL":"PL","PRT":"PT","ROU":"RO","RUS":"RU","RSA":"ZA","SRB":"RS","SVK":"SK","SVN":"SI","SWE":"SE","CHE":"CH",
-  "TUR":"TR","UKR":"UA","USA":"US","UZB":"UZ","VEN":"VE","VNM":"VN","ZAF":"ZA","ZMB":"ZM","ZWE":"ZW","XKX":"XK"
+  "POL":"PL","PRT":"PT","ROU":"RO","RUS":"RU","ZAF":"ZA","SRB":"RS","SVK":"SK","SVN":"SI","SWE":"SE","TUR":"TR",
+  "UKR":"UA","USA":"US","UZB":"UZ","VEN":"VE","VNM":"VN","ZMB":"ZM","ZWE":"ZW","XKX":"XK"
 };
 
-/* quelques conversions à partir de noms usuels */
 const nameToAlpha2 = {
   "UNITED STATES":"US","UNITED KINGDOM":"GB","ENGLAND":"GB","RUSSIA":"RU","CHINA":"CN","UAE":"AE",
   "SOUTH KOREA":"KR","NORTH KOREA":"KP","SOUTH AFRICA":"ZA"
@@ -94,13 +93,13 @@ function toAlpha2(input){
   return '';
 }
 
-/* crée un span.flag contenant <img> vers flagcdn ; fallback emoji/text si échec */
 function alpha2ToFlagEmoji(alpha2){
   if(!alpha2 || alpha2.length !== 2) return '';
   const A = 0x1F1E6;
   const chars = [...alpha2.toUpperCase()].map(ch => A + (ch.charCodeAt(0) - 65));
   try { return String.fromCodePoint(...chars); } catch(e){ return ''; }
 }
+
 function makeFlagElem(countryInput){
   const alpha2 = toAlpha2(countryInput || '');
   const span = document.createElement('span');
@@ -130,10 +129,10 @@ function makeFlagElem(countryInput){
   return span;
 }
 
+/* format seed: supprime trailing .0 si entier */
 function formatSeed(raw){
   if(raw === null || raw === undefined) return '';
   const s = String(raw).trim();
-  // accept direct integer-like strings (e.g. "1.0"), numbers, or empty
   const n = typeof raw === 'number' ? raw : parseFloat(s.replace(',', '.'));
   if(isNaN(n)) {
     return s.length ? s : '';
@@ -142,6 +141,7 @@ function formatSeed(raw){
   return String(n);
 }
 
+/* format first initial */
 function formatFirstInitial(fullFirst){
   if(!fullFirst) return '';
   const tokens = String(fullFirst).trim().split(/\s+/);
@@ -149,6 +149,7 @@ function formatFirstInitial(fullFirst){
   return tokens[0].charAt(0).toUpperCase() + '.';
 }
 
+/* split name to last + firstInitial */
 function splitNameToLastAndInitial(rawName){
   if(!rawName) return { last:'', firstInitial:'' };
   let name = String(rawName).trim();
@@ -166,95 +167,96 @@ function splitNameToLastAndInitial(rawName){
 }
 
 /* ---------------------------
-   AUGMENTATION : INSÉRER DES MATCHES "BYE" SYNTHÉTIQUES
+   NOUVELLE LOGIQUE D'INSERTION DES BYE (corrigée)
+   ---------------------------
+   - Calculer la position "cible" (preferredIndex) pour chaque match enfant j
+   - Collecter toutes les insertions synthétiques (avec index cible)
+   - Trier les insertions par index et insérer en une passe (en tenant compte du nombre
+     d'insertions déjà réalisées) pour préserver l'ordre logique.
    --------------------------- */
-/*
-  groups : { roundKey: [match, ...], ... }
-  rounds : ordered array of roundKeys (gauche -> droite)
-  Cette fonction modifie groups en insérant des matches synthétiques dans les rounds précédents
-  pour représenter les BYE (players qui apparaissent au round n mais n'ont pas de match au round n-1).
-*/
+
 function augmentByes(groups, rounds){
-  // for each column starting at index 1, compare players in current round with prev round matches
   for(let colIndex = 1; colIndex < rounds.length; colIndex++){
     const prevKey = rounds[colIndex - 1];
     const currKey = rounds[colIndex];
     const prevMatches = groups[prevKey] = groups[prevKey] || [];
     const currMatches = groups[currKey] = groups[currKey] || [];
 
-    // set to track inserted player ids for prev round to avoid duplicate synthetic for same id
+    const prevCountOriginal = prevMatches.length;
+    const currCount = currMatches.length || 1; // avoid div by 0
+
+    // helper: does this player appear in prevMatches?
+    const playerExistsInPrev = (pid) => {
+      if(!pid) return true;
+      for(const pm of prevMatches){
+        if(pm.player_id_winner && String(pm.player_id_winner) === String(pid)) return true;
+        if(pm.player_id_loser  && String(pm.player_id_loser)  === String(pid)) return true;
+        // alternative fields
+        if(pm.winner_player_name && String(pm.player_id_winner) === String(pid)) return true;
+      }
+      return false;
+    };
+
+    // collect insertions: array of { index: integer, synth: object, tieBreaker: integer }
+    const inserts = [];
     const insertedForPrev = new Set();
 
-    // we will update prevMatches in-place using splice; track base prevCount as we insert
-    // iterate matches in currMatches and check both participants
     for(let j = 0; j < currMatches.length; j++){
       const cm = currMatches[j];
-      const currCount = currMatches.length;
-      let prevCount = prevMatches.length;
 
-      // helper to test whether player exists in prevMatches
-      const playerExistsInPrev = (pid) => {
-        if(!pid) return true; // absent player => treat as exist to avoid synthetic
-        for(const pm of prevMatches){
-          if(pm.player_id_winner && String(pm.player_id_winner) === String(pid)) return true;
-          if(pm.player_id_loser && String(pm.player_id_loser) === String(pid)) return true;
-          // also check alternative field names
-          if(pm.winner && String(pm.winner) === String(pid)) return true;
-        }
-        return false;
-      };
-
-      // compute insertion index estimate for synthetic matches corresponding to this child j
-      // use current prevCount (it grows as we insert)
-      prevCount = prevMatches.length;
-      let insertIndexBase = Math.floor(j * prevCount / Math.max(1, currCount));
-      if(insertIndexBase < 0) insertIndexBase = 0;
-      if(insertIndexBase > prevCount) insertIndexBase = prevCount;
-
-      // check both player slots: winner and loser as represented in current match
-      const plids = [
-        { id: cm.player_id_winner || cm.player_id_winner || cm.winner_player_id || cm.player_id_winner, name: cm.winner_player_name || cm.winner_name || cm.winner_player_name },
-        { id: cm.player_id_loser  || cm.player_id_loser  || cm.loser_player_id  || cm.player_id_loser,  name: cm.loser_player_name  || cm.loser_name  || cm.loser_player_name }
+      // preferred insertion index (center of the bucket for child j)
+      // use prevCountOriginal so mapping is stable relative to initial layout
+      const preferredIndex = Math.max(0, Math.min(prevCountOriginal, Math.floor((j + 0.5) * prevCountOriginal / currCount)));
+      // two participants
+      const participants = [
+        { id: cm.player_id_winner || cm.winner_player_id || cm.player_id_winner, name: cm.winner_player_name || cm.winner_name || '' },
+        { id: cm.player_id_loser  || cm.loser_player_id  || cm.player_id_loser,  name: cm.loser_player_name  || cm.loser_name  || '' }
       ];
-
-      // for each participant, if no prev match has them, insert synthetic match into prevMatches
-      for(const part of plids){
-        const pid = part.id;
-        const pname = part.name || '';
-        if(!pid) continue; // empty participant (it might already be a BYE in data)
-        // avoid reinserting same synthetic for same pid
+      for(const p of participants){
+        const pid = p.id;
+        const pname = p.name || '';
+        if(!pid) continue;
         if(insertedForPrev.has(String(pid))) continue;
         if(!playerExistsInPrev(pid)){
-          // build synthetic match object
+          // build synthetic match
           const synth = {
             match_id: 'synth_' + String(pid) + '_' + colIndex + '_' + j + '_' + Math.floor(Math.random()*1000000),
             round: prevKey,
-            // winner is the real player, loser is empty to render BYE
             player_id_winner: pid,
-            winner_player_name: pname || '',
-            winner_country: cm.winner_country || cm.winner_nationality || cm.winner_country_code || '',
+            winner_player_name: pname,
+            winner_country: cm.winner_country || cm.winner_nationality || '',
             winner_seed: cm.winner_seed || '',
-            player_id_loser: '', // no opponent
-            loser_player_name: '', // empty -> rendered as BYE
+            player_id_loser: '',
+            loser_player_name: '',
             loser_country: '',
             loser_seed: ''
           };
-          // splice into prevMatches at the computed insertion point
-          // If insertIndexBase is within array, we keep that position; otherwise push
-          const idx = Math.min(Math.max(0, insertIndexBase), prevMatches.length);
-          prevMatches.splice(idx, 0, synth);
-
-          // mark inserted and increase insertIndexBase so next synthetic for the same child sits after
+          // add to inserts with preferred index and tie breaker to keep order
+          inserts.push({ index: preferredIndex, synth: synth, tie: j });
           insertedForPrev.add(String(pid));
-          insertIndexBase++; // to keep siblings ordered
         }
-      } // end for participants
-    } // end currMatches loop
+      }
+    } // end curr matches loop
+
+    if(inserts.length === 0) continue;
+
+    // sort inserts by index asc, then by tie asc (so siblings keep order)
+    inserts.sort((a,b)=>{
+      if(a.index !== b.index) return a.index - b.index;
+      return a.tie - b.tie;
+    });
+
+    // perform insertions in one pass, adjusting for already inserted count
+    for(let k = 0; k < inserts.length; k++){
+      const target = inserts[k].index + k; // shift by number of previous insertions
+      const idx = Math.min(Math.max(0, target), prevMatches.length);
+      prevMatches.splice(idx, 0, inserts[k].synth);
+    }
   } // end colIndex loop
 }
 
 /* ---------------------------
-   RENDERING
+   RENDERING PRINCIPAL
    --------------------------- */
 async function render(){
   const params = new URLSearchParams(location.search);
@@ -301,10 +303,10 @@ async function render(){
   // order rounds left->right (most matches at left)
   const rounds = Object.keys(groups).sort((a,b) => groups[b].length - groups[a].length);
 
-  // AUGMENTATION : insérer les BYE synthétiques
+  // insert BYE synthetic matches in logical positions
   augmentByes(groups, rounds);
 
-  // layout constants
+  // layout
   const cellWidth = 220;
   const cellHeight = 20;
   const perMatchBlock = 60;
@@ -343,7 +345,7 @@ async function render(){
       if(colIndex === 0){
         winnerTop = topOffset + j * perMatchBlock;
       } else {
-        // compute mapping in prevPositions similar to augment logic
+        // compute preferred mapping into prevPositions using prevCount as baseline
         const startIndex = Math.floor(j * prevCount / Math.max(1, currCount));
         let endIndex = Math.floor(((j+1) * prevCount) / Math.max(1, currCount)) - 1;
         if(endIndex < startIndex) endIndex = startIndex;
@@ -366,8 +368,9 @@ async function render(){
       const loserTop = winnerTop + cellHeight;
       thisPositions.push({ winnerTop, loserTop, matchRef: m });
 
-      // render winner
+      /* render */
       const left = colIndex * (cellWidth + colGap);
+
       const winnerId = m.player_id_winner || m.player_id_winner || ('pwin_' + colIndex + '_' + j);
       const winnerClass = 'j_' + String(winnerId);
       const winnerDiv = document.createElement('div');
@@ -407,7 +410,7 @@ async function render(){
       winnerDiv.appendChild(wAnchor);
       container.appendChild(winnerDiv);
 
-      // render loser
+      // loser
       const loserId = m.player_id_loser || m.player_id_loser || ('plos_' + colIndex + '_' + j);
       const loserClass = 'j_' + String(loserId);
       const loserDiv = document.createElement('div');
@@ -458,7 +461,7 @@ async function render(){
     positionsByRound.push(thisPositions);
   });
 
-  // FIN
+  // done
 } // end render
 
 render();
