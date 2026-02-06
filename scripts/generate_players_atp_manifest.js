@@ -8,7 +8,7 @@ const path = require('path');
 const cloudinary = require('cloudinary').v2;
 
 const INDEX_JSON = path.join(__dirname, '..', 'docs', 'index', 'players_index.json'); // adapte si besoin
-const OUT_JSON = path.join(__dirname, '..', 'docs', 'index', 'players_images_manifest.json');
+const OUT_JSON = path.join(__dirname, '..', 'docs', 'index', 'players_atp_images_manifest.json');
 
 if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
   console.error('Missing Cloudinary credentials in env. Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET.');
