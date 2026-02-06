@@ -3,30 +3,30 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Bracket — barres top/bottom + connecteurs propres</title>
+<title>Bracket — score sous barre médiane (victoire au-dessus)</title>
 <style>
   :root{
     --winner-h:20px;
-    --score-h:18px;
     --loser-h:20px;
-    --match-gap:36px;       /* augmenter si besoin d'espace vertical */
+    --match-gap:36px;
     --col-gap:34px;
-    --col-width:180px;      /* largeur colonne 0 */
-    --col-width-small:130px;/* largeur colonnes suivantes */
+    --col-width:180px;
+    --col-width-small:130px;
+    --midblock-width:150px;
     --line-color:#797979;
     --seed-blue:#0b3d91;
   }
 
   html,body{height:100%;margin:0;font-family:Arial,Helvetica,sans-serif;background:#fff;color:#111}
   .hero{padding:14px;color:#fff;background:#2b6cb0}
-  .container-main{max-width:1200px;margin:12px auto;padding:0 12px}
-  #bracketContainer{position:relative; background:transparent; overflow:visible;}
+  .container-main{max-width:1300px;margin:12px auto;padding:0 12px}
+  #bracketContainer{position:relative;background:transparent;overflow:visible}
 
-  /* flag */
+  /* flags */
   .flag{display:inline-block;width:22px;height:14px;margin-right:8px;vertical-align:middle;overflow:hidden;border-radius:2px;background:#f5f5f5;line-height:14px;text-align:center}
   .flag img{width:100%;height:100%;object-fit:cover;display:block}
 
-  /* seed */
+  /* seeds */
   .seed-num{float:left;width:22px;color:var(--seed-blue);font-size:11px;padding:2px 4px;font-weight:700;}
   .seed-text{float:left;width:22px;color:#808080;font-size:11px;padding:2px 4px;}
 
@@ -34,249 +34,160 @@
   .player-first{font-size:11px;color:#565656;font-style:italic;margin-left:4px}
   .bye{color:#808080;font-size:11px;padding-left:22px}
 
-  /* rows (position absolute) */
-  .match-row{box-sizing:border-box;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px;padding:0 6px;background:#fff; z-index:3; position:absolute;}
-  .row-top{height:var(--winner-h); border-top:1px solid var(--line-color);}   /* barre AU DESSUS du joueur du haut */
-  .row-score{height:var(--score-h); display:flex;align-items:center;padding-left:28px;font-size:11px;color:#515151;font-style:italic; background:#fff; z-index:3; position:absolute;}
-  .row-bottom{height:var(--loser-h); border-bottom:1px solid var(--line-color);} /* barre EN DESSOUS du joueur du bas */
+  /* rows for players (absolute) */
+  .match-row{box-sizing:border-box;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 6px;background:#fff;z-index:3;position:absolute;display:flex;align-items:center;gap:6px;}
+  .row-top{height:var(--winner-h); border-top:1px solid var(--line-color);}   /* top border above upper player */
+  .row-bottom{height:var(--loser-h); border-bottom:1px solid var(--line-color);}/* bottom border below lower player */
 
-  /* connectors placed behind rows */
-  .connector { position:absolute; pointer-events:none; z-index:1; }
-  .hline { height:1px; background:var(--line-color); }
-  .vline { width:1px; background:var(--line-color); }
+  /* mid block placed at mid-axis; contains winner above line and score below */
+  .mid-block{position:absolute;width:var(--midblock-width);text-align:left;transform:translateX(-50%);z-index:4;background:#fff;pointer-events:none;}
+  .mid-winner{font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-left:6px;padding-right:6px}
+  .mid-bar{height:1px;background:var(--line-color);margin:2px 0;}
+  .mid-score{font-size:11px;color:#515151;font-style:italic;padding-left:6px;padding-right:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
-  .highlight{ background: rgba(255,235,59,0.15) !important; }
+  /* connectors behind everything */
+  .connector{position:absolute;pointer-events:none;z-index:2}
+  .hline{height:1px;background:var(--line-color)}
+  .vline{width:1px;background:var(--line-color)}
+
+  .highlight{background: rgba(255,235,59,0.15) !important}
 
   @media (max-width:800px){
-    :root{ --col-width:160px; --col-width-small:120px; --col-gap:20px; --match-gap:20px; }
+    :root{ --col-width:160px; --col-width-small:120px; --col-gap:20px; --match-gap:20px; --midblock-width:120px; }
   }
 </style>
 </head>
 <body>
   <div class="hero"><div class="container-main"><h1 id="tourney-title" style="margin:0;color:#fff">Tournament</h1></div></div>
-
-  <div class="container-main" style="padding-top:12px">
-    <div id="bracketContainer" style="min-height:600px"></div>
-  </div>
+  <div class="container-main" style="padding-top:12px"><div id="bracketContainer" style="min-height:640px"></div></div>
 
 <script>
 /* -------------------------
-   UTILITAIRES (flags, noms, seed)
-   ------------------------- */
-
-/* mapping abrégé IOC->alpha2 (ajoute les codes manquants si besoin) */
+ UTILITAIRES (flags, noms, formats)
+ ------------------------- */
 const iocToAlpha2 = {"ITA":"IT","ARG":"AR","FRA":"FR","HKG":"HK","CAN":"CA","NED":"NL","RUS":"RU","USA":"US","POR":"PT","CHN":"CN","JPN":"JP","KAZ":"KZ"};
 const nameToAlpha2 = {"UNITED STATES":"US","UNITED KINGDOM":"GB","ENGLAND":"GB","RUSSIA":"RU","CHINA":"CN"};
 
-function toAlpha2(input){
-  if(!input) return '';
-  let s = String(input).trim().toUpperCase();
-  if(/^[A-Z]{2}$/.test(s)) return s;
-  if(s.length===3 && iocToAlpha2[s]) return iocToAlpha2[s];
-  if(nameToAlpha2[s]) return nameToAlpha2[s];
-  const letters = s.replace(/[^A-Z]/g,'');
-  if(letters.length===2) return letters;
-  return '';
-}
-function alpha2ToFlagEmoji(alpha2){
-  if(!alpha2 || alpha2.length !== 2) return '';
-  const A = 0x1F1E6;
-  const chars = [...alpha2.toUpperCase()].map(ch => A + (ch.charCodeAt(0) - 65));
-  try { return String.fromCodePoint(...chars); } catch(e){ return ''; }
-}
-function makeFlagElem(countryInput){
-  const alpha2 = toAlpha2(countryInput||'');
-  const span = document.createElement('span');
-  span.className = 'flag';
-  if(alpha2){
-    const code = alpha2.toLowerCase();
-    const img = document.createElement('img');
-    img.alt = alpha2;
-    img.src = `https://flagcdn.com/w40/${code}.png`;
-    img.onload = ()=>{};
-    img.onerror = ()=>{ img.remove(); const emoji = alpha2ToFlagEmoji(alpha2); if(emoji) span.textContent = emoji; else { span.textContent = alpha2; span.style.fontSize='11px'; span.style.color='#666'; } };
-    span.appendChild(img);
-  } else {
-    span.textContent = countryInput ? String(countryInput).toUpperCase().slice(0,3) : '';
-    span.style.fontSize='11px'; span.style.color='#666';
-  }
-  return span;
-}
+function toAlpha2(input){ if(!input) return ''; let s=String(input).trim().toUpperCase(); if(/^[A-Z]{2}$/.test(s)) return s; if(s.length===3 && iocToAlpha2[s]) return iocToAlpha2[s]; if(nameToAlpha2[s]) return nameToAlpha2[s]; const letters=s.replace(/[^A-Z]/g,''); if(letters.length===2) return letters; return ''; }
+function alpha2ToFlagEmoji(alpha2){ if(!alpha2||alpha2.length!==2) return ''; const A=0x1F1E6; const chars=[...alpha2.toUpperCase()].map(ch=>A+(ch.charCodeAt(0)-65)); try{return String.fromCodePoint(...chars);}catch(e){return'';} }
+function makeFlagElem(countryInput){ const alpha2=toAlpha2(countryInput||''); const span=document.createElement('span'); span.className='flag'; if(alpha2){ const code=alpha2.toLowerCase(); const img=document.createElement('img'); img.alt=alpha2; img.src=`https://flagcdn.com/w40/${code}.png`; img.onload=()=>{}; img.onerror=()=>{ img.remove(); const emoji=alpha2ToFlagEmoji(alpha2); if(emoji) span.textContent=emoji; else{ span.textContent=alpha2; span.style.fontSize='11px'; span.style.color='#666'; } }; span.appendChild(img); } else { span.textContent = countryInput ? String(countryInput).toUpperCase().slice(0,3) : ''; span.style.fontSize='11px'; span.style.color='#666'; } return span; }
 
-function slugify(name){
-  if(!name) return '';
-  name = name.trim();
-  if(name.indexOf(',') !== -1){
-    const parts = name.split(',');
-    const last = parts[0].trim();
-    const rest = parts.slice(1).join(',').trim();
-    name = rest + ' ' + last;
-  }
-  return name.toLowerCase().replace(/[^a-z0-9\s-]/g,'').replace(/\s+/g,'-');
-}
-function formatSeed(raw){
-  if(raw === null || raw === undefined) return '';
-  const n = typeof raw === 'number' ? raw : parseFloat(String(raw).trim().replace(',', '.'));
-  if(isNaN(n)){ const s = String(raw).trim(); return s.length ? s : ''; }
-  if(Number.isInteger(n)) return String(n);
-  return String(n);
-}
-function formatFirstInitial(fullFirst){
-  if(!fullFirst) return '';
-  const tokens = String(fullFirst).trim().split(/\s+/);
-  return tokens.length? tokens[0].charAt(0).toUpperCase()+'.' : '';
-}
-function splitNameToLastAndInitial(rawName){
-  if(!rawName) return { last:'', firstInitial:'' };
-  let name = String(rawName).trim();
-  if(name.indexOf(',') !== -1){
-    const parts = name.split(',');
-    const last = parts[0].trim();
-    const first = (parts[1] || '').trim();
-    return { last: last, firstInitial: formatFirstInitial(first) };
-  }
-  const parts = name.split(/\s+/);
-  if(parts.length===1) return { last: parts[0], firstInitial: '' };
-  const last = parts[parts.length-1];
-  const firstTokens = parts.slice(0, parts.length-1).join(' ');
-  return { last: last, firstInitial: formatFirstInitial(firstTokens) };
-}
+function slugify(name){ if(!name) return ''; name=name.trim(); if(name.indexOf(',')!==-1){ const parts=name.split(','); const last=parts[0].trim(); const rest=parts.slice(1).join(',').trim(); name=rest+' '+last; } return name.toLowerCase().replace(/[^a-z0-9\s-]/g,'').replace(/\s+/g,'-'); }
+function formatSeed(raw){ if(raw===null||raw===undefined) return ''; const n=typeof raw==='number'?raw:parseFloat(String(raw).trim().replace(',','.')); if(isNaN(n)){ const s=String(raw).trim(); return s.length? s : ''; } if(Number.isInteger(n)) return String(n); return String(n); }
+function formatFirstInitial(fullFirst){ if(!fullFirst) return ''; const tokens=String(fullFirst).trim().split(/\s+/); return tokens.length? tokens[0].charAt(0).toUpperCase()+'.' : ''; }
+function splitNameToLastAndInitial(rawName){ if(!rawName) return {last:'', firstInitial:''}; let name=String(rawName).trim(); if(name.indexOf(',')!==-1){ const parts=name.split(','); const last=parts[0].trim(); const first=(parts[1]||'').trim(); return {last:last, firstInitial:formatFirstInitial(first)} } const parts=name.split(/\s+/); if(parts.length===1) return {last:parts[0], firstInitial:''}; const last=parts[parts.length-1]; const firstTokens=parts.slice(0, parts.length-1).join(' '); return {last:last, firstInitial:formatFirstInitial(firstTokens)} }
 
-/* normalize/validate match_id */
-function isValidMatchId(mid){ if(!mid) return false; const s = String(mid).trim().toUpperCase(); return /^[ML]S\d{3}$/.test(s); }
-function matchIdNumber(mid){ if(!mid) return Number.MAX_SAFE_INTEGER; const m = String(mid).toUpperCase().match(/^[ML]S0*([0-9]+)$/); if(m && m[1]) return parseInt(m[1],10); const d = String(mid).match(/\d+/); return d?parseInt(d[0],10):Number.MAX_SAFE_INTEGER; }
+function isValidMatchId(mid){ if(!mid) return false; const s=String(mid).trim().toUpperCase(); return /^[ML]S\d{3}$/.test(s); }
+function matchIdNumber(mid){ if(!mid) return Number.MAX_SAFE_INTEGER; const m=String(mid).toUpperCase().match(/^[ML]S0*([0-9]+)$/); if(m&&m[1]) return parseInt(m[1],10); const d=String(mid).match(/\d+/); return d?parseInt(d[0],10):Number.MAX_SAFE_INTEGER; }
 
-/* sanitize score_string -> allow 7(3) -> 7<sup>3</sup> */
-function scoreToHtml(s){
-  if(!s) return '';
-  // replace N(M) with N<sup>M</sup>, keep existing spaces
-  return String(s).replace(/(\d+)\((\d+)\)/g, '$1<sup>$2</sup>');
-}
+function scoreToHtml(s){ if(!s) return ''; return String(s).replace(/(\d+)\((\d+)\)/g,'$1<sup>$2</sup>'); }
 
-/* highlight used in onmouseover attrs */
+/* highlight */
 function highlight_player(mode, className){
-  const els = document.querySelectorAll('.' + className);
-  if(mode === 1) els.forEach(e=>e.classList.add('highlight'));
+  const els=document.querySelectorAll('.'+className);
+  if(mode===1) els.forEach(e=>e.classList.add('highlight'));
   else els.forEach(e=>e.classList.remove('highlight'));
 }
 
 /* -------------------------
-   RENDER (positions + connectors)
-   ------------------------- */
+ RENDER
+ ------------------------- */
 async function render(){
-  const params = new URLSearchParams(location.search);
-  const source = (params.get('source') || 'wta').toLowerCase();
-  const id = params.get('t') || params.get('id') || '';
-  const year = params.get('year') || '';
+  const params=new URLSearchParams(location.search);
+  const source=(params.get('source')||'wta').toLowerCase();
+  const id=params.get('t')||params.get('id')||'';
+  const year=params.get('year')||'';
 
-  if(!id || !year){
-    document.getElementById('bracketContainer').innerHTML = '<div style="padding:12px;color:#666">Missing tournament id or year. Use ?source=wta&t=528&year=2025</div>';
+  if(!id||!year){
+    document.getElementById('bracketContainer').innerHTML='<div style="padding:12px;color:#666">Missing tournament id or year. Use ?source=wta&t=528&year=2025</div>';
     return;
   }
-
-  const path = `/data/tournaments/${source}_${id}_${year}.json`;
+  const path=`/data/tournaments/${source}_${id}_${year}.json`;
   let json;
-  try{ const resp = await fetch(path); if(!resp.ok) throw new Error('JSON not found: '+path); json = await resp.json(); }
-  catch(err){ document.getElementById('bracketContainer').innerHTML = '<div style="padding:12px;color:red">Error loading JSON: '+err.message+'</div>'; console.error(err); return; }
+  try{ const resp=await fetch(path); if(!resp.ok) throw new Error('JSON not found: '+path); json=await resp.json(); }
+  catch(err){ document.getElementById('bracketContainer').innerHTML='<div style="padding:12px;color:red">Error loading JSON: '+err.message+'</div>'; console.error(err); return; }
 
   document.getElementById('tourney-title').textContent = json.meta?.tourney_name || (source.toUpperCase()+' '+id);
 
   // group rounds
-  function norm(r){ if(!r) return 'Unknown'; r = r.trim(); const u = r.toUpperCase(); if(u==='F' || u.startsWith('FINAL')) return 'F'; if(u==='SF' || u.startsWith('SEMIF')) return 'SF'; if(u==='QF' || u.startsWith('QUART')) return 'QF'; return u; }
+  function norm(r){ if(!r) return 'Unknown'; r=r.trim(); const u=r.toUpperCase(); if(u==='F'||u.startsWith('FINAL')) return 'F'; if(u==='SF'||u.startsWith('SEMIF')) return 'SF'; if(u==='QF'||u.startsWith('QUART')) return 'QF'; return u; }
+  const rawMatches=(json.matches||[]).map(m=>Object.assign({},m));
+  const matches=rawMatches.filter(m=>isValidMatchId(m.match_id));
+  const groups={};
+  matches.forEach(m=>{ const r=norm(m.round||''); (groups[r]=groups[r]||[]).push(m); });
+  const rounds=Object.keys(groups).sort((a,b)=>groups[b].length-groups[a].length);
 
-  const rawMatches = (json.matches || []).map(m => Object.assign({}, m));
-  const matches = rawMatches.filter(m => isValidMatchId(m.match_id));
-  const groups = {};
-  matches.forEach(m => { const r = norm(m.round || ''); (groups[r] = groups[r]||[]).push(m); });
-
-  const rounds = Object.keys(groups).sort((a,b) => groups[b].length - groups[a].length);
-
-  // layout constants from :root
+  // layout constants
   const winnerH = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--winner-h')) || 20;
-  const scoreH  = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--score-h')) || 18;
   const loserH  = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--loser-h')) || 20;
+  const scoreH   = 18; // mid-block score height approx
   const matchGap = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--match-gap')) || 36;
   const colGap = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--col-gap')) || 34;
   const colWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--col-width')) || 180;
   const colWidthSmall = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--col-width-small')) || 130;
+  const midWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--midblock-width')) || 150;
 
   const cellWidth = colWidth;
   const cellWidthSmall = colWidthSmall;
 
   // container sizing
-  let maxBlocks = 0;
-  rounds.forEach(r => maxBlocks = Math.max(maxBlocks, groups[r].length));
+  let maxBlocks=0; rounds.forEach(r=>maxBlocks=Math.max(maxBlocks, groups[r].length));
   const perMatchBlock = (winnerH + scoreH + loserH) + matchGap;
-  const containerHeight = Math.max(600, maxBlocks * perMatchBlock + 80);
+  const containerHeight = Math.max(600, maxBlocks*perMatchBlock + 80);
   const container = document.getElementById('bracketContainer');
   container.style.height = containerHeight + 'px';
   container.innerHTML = '';
 
-  // store positions (center, topBarY (top border), bottomBarY (bottom border))
+  // store positions by round to compute connectors
   const positionsByRound = [];
 
   rounds.forEach((rnd, colIndex) => {
     const matchesInRound = groups[rnd].slice();
-    matchesInRound.sort((a,b) => matchIdNumber(a.match_id) - matchIdNumber(b.match_id));
-
+    matchesInRound.sort((a,b)=>matchIdNumber(a.match_id) - matchIdNumber(b.match_id));
     const n = matchesInRound.length;
     const columnHeight = (n - 1) * perMatchBlock + (winnerH + scoreH + loserH) + 20;
     const topOffset = Math.max(8, Math.round((containerHeight - columnHeight) / 2));
-
-    const prevPositions = colIndex > 0 ? positionsByRound[colIndex - 1] : null;
+    const prevPositions = colIndex > 0 ? positionsByRound[colIndex-1] : null;
     const prevCount = prevPositions ? prevPositions.length : 0;
     const currCount = matchesInRound.length;
 
     const thisPositions = [];
 
-    matchesInRound.forEach((m,j) => {
-      // compute block top for this match
+    matchesInRound.forEach((m, j) => {
+      // compute top block position
       let topBlock;
-      if(colIndex === 0){
-        topBlock = topOffset + j * perMatchBlock;
-      } else {
-        // map proportionally to prev centers and align to their midpoint
+      if(colIndex === 0) topBlock = topOffset + j * perMatchBlock;
+      else {
         let startIndex = Math.floor(j * prevCount / currCount);
         let endIndex = Math.floor(((j+1)*prevCount)/currCount) - 1;
         if(endIndex < startIndex) endIndex = startIndex;
         if(startIndex >= prevCount) startIndex = prevCount - 1;
         if(endIndex >= prevCount) endIndex = prevCount - 1;
-        let sum = 0, cnt = 0;
-        for(let k = startIndex; k <= endIndex; k++){
-          if(prevPositions[k]){ sum += prevPositions[k].center; cnt++; }
-        }
-        if(cnt === 0) topBlock = topOffset + j * perMatchBlock;
-        else {
-          const avgCenter = Math.round(sum/cnt);
-          topBlock = avgCenter - Math.floor((winnerH + scoreH + loserH)/2);
-        }
+        let sum=0, cnt=0;
+        for(let k=startIndex;k<=endIndex;k++){ if(prevPositions[k]){ sum+=prevPositions[k].center; cnt++; } }
+        if(cnt===0) topBlock = topOffset + j * perMatchBlock;
+        else topBlock = Math.round(sum/cnt) - Math.floor((winnerH + scoreH + loserH)/2);
       }
 
-      // positions of the three rows
-      const topRowTop = topBlock;                       // border-top sits at topRowTop (top border)
-      const scoreTop  = topRowTop + winnerH;
-      const bottomRowTop = scoreTop + scoreH;          // border-bottom sits at bottomRowTop + loserH
-      const center = Math.round((topRowTop + (bottomRowTop + loserH)) / 2);
+      const topRowTop = topBlock;                // y of top border
+      const bottomRowTop = topBlock + winnerH + scoreH; // bottom row top
+      const bottomRowBottom = bottomRowTop + loserH;    // y of bottom border
+      const center = Math.round((topRowTop + bottomRowBottom)/2);
 
-      thisPositions.push({
-        topRowTop,               // y of the top horizontal (border-top)
-        bottomRowBottom: bottomRowTop + loserH, // y of bottom horizontal (border-bottom)
-        center,
-        matchRef: m
-      });
+      thisPositions.push({ topRowTop, bottomRowBottom, center, matchRef: m });
 
-      // column left positioning: first column uses full cellWidth, later ones use smaller width (like your sample)
+      // left & width of column
       const colLeft = colIndex === 0 ? 0 : colIndex * (cellWidthSmall + colGap) + (cellWidth - cellWidthSmall);
       const left = colLeft;
       const width = colIndex === 0 ? cellWidth : cellWidthSmall;
 
-      // classes
+      // css classes for hover
       const wId = m.player_id_winner || ('pwin_'+colIndex+'_'+j);
       const lId = m.player_id_loser  || ('plos_'+colIndex+'_'+j);
       const wClass = 'j_' + String(wId);
       const lClass = 'j_' + String(lId);
 
-      // TOP ROW (border-top)
+      // TOP player row (with top border)
       const topDiv = document.createElement('div');
       topDiv.className = wClass + ' match-row row-top';
       topDiv.style.top = topRowTop + 'px';
@@ -285,41 +196,24 @@ async function render(){
       topDiv.style.width = width + 'px';
       topDiv.setAttribute('onmouseover', `highlight_player(1,'${wClass}'); highlight_player(1,'${lClass}');`);
       topDiv.setAttribute('onmouseout',  `highlight_player(2,'${wClass}'); highlight_player(2,'${lClass}');`);
-
-      // seed
+      // seed / flag / name
       const wseedRaw = m.winner_seed || m.winnerSeed || '';
       const wseed = formatSeed(wseedRaw);
       const seedNode = document.createElement('div');
       if(wseed && /^\d+$/.test(wseed)){ seedNode.className='seed-num'; seedNode.textContent = wseed; }
       else { seedNode.className='seed-text'; seedNode.innerHTML = (wseed? wseed : '\u00A0'); }
       topDiv.appendChild(seedNode);
-
-      // flag and name
       topDiv.appendChild(makeFlagElem(m.winner_country || m.winner_nationality || m.winner_country_code || ''));
       const wname = m.winner_player_name || m.winner_name || '';
       const { last: wlast, firstInitial: wfirstInitial } = splitNameToLastAndInitial(wname);
       const wA = document.createElement('a');
-      const wSlug = slugify(wname);
-      wA.href = m.player_id_winner ? `/player/${wSlug}/${m.player_id_winner}/` : '#';
+      wA.href = m.player_id_winner ? `/player/${slugify(wname)}/${m.player_id_winner}/` : '#';
       wA.className = 'player-link';
       wA.innerHTML = `<strong style="font-size:11px">${(wlast||'—').toUpperCase()}</strong><span class="player-first">${ wfirstInitial ? ', ' + wfirstInitial : '' }</span>`;
       topDiv.appendChild(wA);
       container.appendChild(topDiv);
 
-      // SCORE row (placed between)
-      const sDiv = document.createElement('div');
-      sDiv.className = wClass + ' ' + lClass + ' row-score';
-      sDiv.style.top = scoreTop + 'px';
-      sDiv.style.left = left + 'px';
-      sDiv.style.height = scoreH + 'px';
-      sDiv.style.width = width + 'px';
-      sDiv.setAttribute('onmouseover', `highlight_player(1,'${wClass}'); highlight_player(1,'${lClass}');`);
-      sDiv.setAttribute('onmouseout',  `highlight_player(2,'${wClass}'); highlight_player(2,'${lClass}');`);
-      const scoreString = scoreToHtml(m.score_string || m.score || '');
-      sDiv.innerHTML = scoreString ? `<a href="${m.match_url||'#'}" style="color:#515151;font-size:11px;font-style:italic;padding-left:2px;text-decoration:none">${scoreString}</a>` : '&nbsp;';
-      container.appendChild(sDiv);
-
-      // BOTTOM ROW (border-bottom)
+      // BOTTOM player row (with bottom border)
       const bottomDiv = document.createElement('div');
       bottomDiv.className = lClass + ' match-row row-bottom';
       bottomDiv.style.top = bottomRowTop + 'px';
@@ -328,53 +222,82 @@ async function render(){
       bottomDiv.style.width = width + 'px';
       bottomDiv.setAttribute('onmouseover', `highlight_player(1,'${lClass}');`);
       bottomDiv.setAttribute('onmouseout',  `highlight_player(2,'${lClass}');`);
-
       const lseedRaw = m.loser_seed || m.loserSeed || '';
       const lseed = formatSeed(lseedRaw);
       const seedNode2 = document.createElement('div');
       if(lseed && /^\d+$/.test(lseed)){ seedNode2.className='seed-num'; seedNode2.textContent = lseed; }
       else { seedNode2.className='seed-text'; seedNode2.innerHTML = (lseed? lseed : '\u00A0'); }
       bottomDiv.appendChild(seedNode2);
-
       bottomDiv.appendChild(makeFlagElem(m.loser_country || m.loser_nationality || m.loser_country_code || ''));
       const lname = m.loser_player_name || m.loser_name || '';
-      if(!lname || /^BYE$/i.test(lname)){
-        const byeSpan = document.createElement('span'); byeSpan.className='bye'; byeSpan.textContent='BYE'; bottomDiv.appendChild(byeSpan);
+      if(!lname||/^BYE$/i.test(lname)){
+        const byeSpan=document.createElement('span'); byeSpan.className='bye'; byeSpan.textContent='BYE'; bottomDiv.appendChild(byeSpan);
       } else {
         const { last: llast, firstInitial: lfirstInitial } = splitNameToLastAndInitial(lname);
         const lA = document.createElement('a');
-        const lSlug = slugify(lname);
-        lA.href = m.player_id_loser ? `/player/${lSlug}/${m.player_id_loser}/` : '#';
+        lA.href = m.player_id_loser ? `/player/${slugify(lname)}/${m.player_id_loser}/` : '#';
         lA.className = 'player-link';
         lA.innerHTML = `<strong style="font-size:11px">${(llast||'—').toUpperCase()}</strong><span class="player-first">${ lfirstInitial ? ', ' + lfirstInitial : '' }</span>`;
         bottomDiv.appendChild(lA);
       }
       container.appendChild(bottomDiv);
 
-      // CONNECTORS (if not first column)
+      // mid-block: place at midX (between columns) and vertical position = center
+      // midX computed relative to column left
+      const prevColRight = colIndex === 0 ? left + width : (colIndex - 1) * (cellWidthSmall + colGap) + (cellWidth - cellWidthSmall) + (colIndex-1 === 0 ? cellWidth : cellWidthSmall);
+      const midX = left - Math.round(colGap/2);
+      const midBlock = document.createElement('div');
+      midBlock.className = 'mid-block';
+      midBlock.style.left = midX + 'px';
+      // top: center - (approx height/2). We'll compute height of mid-block as  (winnerLabel + bar + score) ~ winner(16) + 4 + score(16) = ~36
+      const midHeight = 36;
+      midBlock.style.top = (center - Math.round(midHeight/2)) + 'px';
+
+      // winner label (above mid-bar)
+      const winnerLabel = document.createElement('div');
+      winnerLabel.className = 'mid-winner';
+      // show winner surname + initial like elsewhere
+      winnerLabel.textContent = ((wlast||'—').toUpperCase()) + (wfirstInitial ? ', ' + wfirstInitial : '');
+      midBlock.appendChild(winnerLabel);
+
+      // mid bar
+      const midBar = document.createElement('div');
+      midBar.className = 'mid-bar';
+      midBlock.appendChild(midBar);
+
+      // score
+      const scoreHtml = scoreToHtml(m.score_string || m.score || '');
+      const scoreLabel = document.createElement('div');
+      scoreLabel.className = 'mid-score';
+      scoreLabel.innerHTML = scoreHtml ? scoreHtml : '&nbsp;';
+      midBlock.appendChild(scoreLabel);
+
+      // pointer-events none to avoid interfering with hover on players; but we want highlight on hover over mid also
+      container.appendChild(midBlock);
+
+      // store mid info for connector drawing later (we need midX & centerY)
+      thisPositions[thisPositions.length - 1].midX = midX;
+      thisPositions[thisPositions.length - 1].midTop = center - Math.round(midHeight/2);
+      thisPositions[thisPositions.length - 1].midBottom = center + Math.round(midHeight/2);
+
+      // draw horizontal small line from previous column right edge to midX (for each prev feeder)
       if(colIndex > 0 && prevPositions && prevPositions.length){
-        // compute prev feed indices (same mapping as earlier)
         let startIndex = Math.floor(j * prevCount / currCount);
         let endIndex = Math.floor(((j+1)*prevCount)/currCount) - 1;
         if(endIndex < startIndex) endIndex = startIndex;
         if(startIndex >= prevCount) startIndex = prevCount - 1;
         if(endIndex >= prevCount) endIndex = prevCount - 1;
 
-        // compute prev column right X
         const prevColLeft = (colIndex - 1) === 0 ? 0 : (colIndex - 1) * (cellWidthSmall + colGap) + (cellWidth - cellWidthSmall);
         const prevWidth = (colIndex - 1) === 0 ? cellWidth : cellWidthSmall;
         const prevRightX = prevColLeft + prevWidth;
 
-        // mid vertical axis X between prevRightX and this left
-        const midX = left - Math.round(colGap / 2);
-
-        // collect prev centers and draw horizontal from prevRightX -> midX at each prev center
         let minC = Number.MAX_SAFE_INTEGER, maxC = -1;
-        for(let k = startIndex; k <= endIndex; k++){
+        for(let k=startIndex;k<=endIndex;k++){
           const p = prevPositions[k];
           if(!p) continue;
           const y = p.center;
-          minC = Math.min(minC, y); maxC = Math.max(maxC, y);
+          minC = Math.min(minC,y); maxC = Math.max(maxC,y);
           const hW = Math.max(4, midX - prevRightX - 4);
           const h = document.createElement('div');
           h.className = 'connector hline';
@@ -385,93 +308,48 @@ async function render(){
         }
 
         if(minC <= maxC){
-          // vertical line at midX connecting feeders
           const v = document.createElement('div');
           v.className = 'connector vline';
-          v.style.left = (midX) + 'px';
-          v.style.top  = (minC) + 'px';
+          v.style.left = midX + 'px';
+          v.style.top = minC + 'px';
           v.style.height = Math.max(1, maxC - minC) + 'px';
           container.appendChild(v);
         }
 
-        // Now draw vertical from current child's midpoint to parent's top-bar Y.
-        // Parent is in positionsByRound[colIndex+?], but we want vertical to the parent's top-bar
-        // We'll draw a vertical from this match's midpoint (center) up to parent's topRowTop.
-        // Locate the parent position in next round (colIndex+1) at the matching index mapping:
-        const nextPositions = positionsByRound[colIndex + 1]; // may be undefined now if we haven't processed it
-        // Instead we connect to the parent target computed by mapping this match to its position in next round.
-        // Compute parent column and its left for target X:
-        const parentColLeft = (colIndex + 1) === 0 ? 0 : (colIndex + 1) * (cellWidthSmall + colGap) + (cellWidth - cellWidthSmall);
-        const parentLeft = parentColLeft; // not used for vertical Y; we need parent's topRowTop Y.
-        // We can't reliably access nextPositions because we build left->right; so we'll connect child midpoint up to
-        // the *top-line of the parent* computed from positionsByRound[colIndex+1] once available.
-        // To keep connectors consistent and non-broken, we instead connect child's midpoint horizontally to midX, we already drew hline to midX,
-        // and vertical from midX to parent's target will be drawn when parent's block is created (below).
-        // But to ensure a solid vertical from child's mid to parent's top we will draw the *downwards* vertical here if parent already exists.
-        // So if parent exists (we processed it earlier), connect; otherwise leave the upward segment to be drawn later when parent is processed.
-        // (This prevents broken lines.)
-        // Draw horizontal from midX to this match's center (small join) - already done above (h2)
-        const centerY = center;
-        const h2 = document.createElement('div');
-        h2.className = 'connector hline';
-        h2.style.left = (midX) + 'px';
-        h2.style.top  = (centerY) + 'px';
-        h2.style.width = Math.max(4, left - midX - 2) + 'px';
-        container.appendChild(h2);
-
-        // If next round positions exist, draw vertical from midX at child's midpoint to parent's topRowTop
-        const next = positionsByRound[colIndex + 1];
-        if(next && next.length){
-          // find which parent index this child maps to (same mapping formula)
-          const parentIndex = Math.floor(j * next.length / currCount);
-          const parent = next[parentIndex];
-          if(parent){
-            const parentTopLineY = parent.topRowTop; // y of parent's top horizontal (border-top)
-            const minY = Math.min(center, parentTopLineY);
-            const maxY = Math.max(center, parentTopLineY);
-            // vertical
-            const v2 = document.createElement('div');
-            v2.className = 'connector vline';
-            v2.style.left = (midX) + 'px';
-            v2.style.top  = (minY) + 'px';
-            v2.style.height = Math.max(1, maxY - minY) + 'px';
-            container.appendChild(v2);
-          }
-        }
-      } // end if colIndex > 0
+        // small horizontal from midX to this match's mid center (already satisfied by placing mid-block at midX)
+        // we'll draw the small horizontal joining midX to the mid-block center (visual gap), but mid-block's bar visually sits at midX, so it's fine
+      } // end if colIndex>0
 
     }); // matchesInRound.forEach
 
     positionsByRound.push(thisPositions);
   }); // rounds.forEach
 
-  // Second pass to ensure vertical connectors up to parents are drawn (covers cases where parent was created after children)
-  // For each column except last, for each match, compute midX and draw vertical from center to parent.topRowTop
+  // second pass: draw verticals from each mid-block (child) to parent top-bar (parent.topRowTop)
   for(let colIndex=0; colIndex<positionsByRound.length-1; colIndex++){
-    const prev = positionsByRound[colIndex];
+    const cur = positionsByRound[colIndex];
     const next = positionsByRound[colIndex+1];
-    if(!prev || !next) continue;
-    for(let j=0; j<prev.length; j++){
-      const child = prev[j];
-      // midX for this child
-      const childColLeft = colIndex === 0 ? 0 : colIndex * (cellWidthSmall + colGap) + (cellWidth - cellWidthSmall);
-      const left = childColLeft;
-      const midX = left - Math.round(colGap/2);
-      // compute parent index mapping
-      const parentIndex = Math.floor(j * next.length / prev.length);
+    if(!cur || !next) continue;
+    for(let i=0;i<cur.length;i++){
+      const child = cur[i];
+      const midX = child.midX;
+      const childCenter = child.center;
+      // parent mapping
+      const parentIndex = Math.floor(i * next.length / cur.length);
       const parent = next[parentIndex];
       if(!parent) continue;
-      const centerY = child.center;
+      // parent's topRowTop
       const parentTopY = parent.topRowTop;
-      // draw vertical if not already present - we'll just add (duplicates are invisible)
-      const minY = Math.min(centerY, parentTopY);
-      const maxY = Math.max(centerY, parentTopY);
+      // draw vertical from child's center (mid) up to parent's topRowTop
+      const minY = Math.min(childCenter, parentTopY);
+      const maxY = Math.max(childCenter, parentTopY);
       const v = document.createElement('div');
       v.className = 'connector vline';
-      v.style.left = (midX) + 'px';
-      v.style.top  = (minY) + 'px';
+      v.style.left = midX + 'px';
+      v.style.top = minY + 'px';
       v.style.height = Math.max(1, maxY - minY) + 'px';
       container.appendChild(v);
+      // optionally draw a small horizontal to parent's left (already drawn by parent's feeders); parent has its own mid-block placed when processed.
     }
   }
 
