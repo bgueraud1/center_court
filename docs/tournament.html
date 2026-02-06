@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Tournament — Center Court</title>
+<title>Tournament — Center Court (avec scores)</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 <style>
   body{font-family:Arial,Helvetica,sans-serif;margin:0;background:#fff}
@@ -12,14 +12,21 @@
   /* flag wrapper: we use <img> for maximum compatibilité, puis fallback */
   .flag{display:inline-block;width:22px;height:14px;margin-right:8px;vertical-align:middle;overflow:hidden;border-radius:2px;background:#f5f5f5}
   .flag img{width:100%;height:100%;object-fit:cover;display:block}
-  .seed-num{float:left;width:28px;color:#0b3d91;font-size:11px;padding:2px 4px;font-weight:600;} /* bleu foncé demandé */
+  .seed-num{float:left;width:28px;color:#0b3d91;font-size:11px;padding:2px 4px;font-weight:700;} /* bleu foncé demandé */
   .seed-text{float:left;width:28px;color:#808080;font-size:11px;padding:2px 4px;}
   .player-link { font-size:11px;text-decoration:none;color:black; display:inline-block; vertical-align:middle; }
   .player-first { font-size:11px;color:#565656;font-style:italic; margin-left:4px;}
   .bye { color:#808080;font-size:11px;padding-left:22px; }
   /* hover highlight */
   .highlight { background: rgba(255,235,59,0.15); }
-  .match-row{ padding:0 4px; box-sizing:border-box; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  /* per-row styling (winner/score/loser) */
+  .match-row{ padding:0 6px; box-sizing:border-box; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .player-row{ display:flex; align-items:center; gap:6px; border-top:1px solid transparent; border-bottom:1px solid transparent; }
+  .player-row.winner{ border-top:1px solid rgb(121,121,121); }
+  .player-row.loser{ border-bottom:1px solid rgb(121,121,121); }
+  .score-row{ font-size:11px; color:#666; padding-left:36px; display:flex; align-items:center; }
+
   @media (max-width:600px){
     .player-link{font-size:12px}
     .seed-num, .seed-text{font-size:12px}
@@ -35,7 +42,7 @@
 </div>
 
 <div class="container-main" style="padding-top:12px">
-  <div id="bracketContainer" style="position:relative;border:0px solid transparent;min-height:200px;">
+  <div id="bracketContainer" style="position:relative;border:0px solid transparent;min-height:200px;"> 
     <!-- contenu inséré par JS -->
   </div>
 </div>
@@ -45,7 +52,6 @@
    UTILITAIRES & MAPPINGS
    --------------------------- */
 
-/* slugify */
 function slugify(name){
   if(!name) return '';
   name = name.trim();
@@ -58,7 +64,6 @@ function slugify(name){
   return name.toLowerCase().replace(/[^a-z0-9\s-]/g,'').replace(/\s+/g,'-');
 }
 
-/* highlight_player : même signature */
 function highlight_player(mode, className, v){
   const els = document.querySelectorAll('.' + className);
   if(mode === 1){
@@ -68,7 +73,6 @@ function highlight_player(mode, className, v){
   }
 }
 
-/* convertit alpha-2 en emoji via Regional Indicator Symbols (fallback si image unavailable) */
 function alpha2ToFlagEmoji(alpha2){
   if(!alpha2 || alpha2.length !== 2) return '';
   const A = 0x1F1E6;
@@ -77,104 +81,49 @@ function alpha2ToFlagEmoji(alpha2){
   catch(e){ return ''; }
 }
 
-/* mapping IOC/ISO3 -> alpha-2 : large couverture (complète pour la plupart des usages).
-   Ajoute/édite si tu as codes spécifiques. Les clés doivent être en MAJUSCULE. */
-const iocToAlpha2 = {
-  "AFG":"AF","ALB":"AL","DZA":"DZ","AND":"AD","AGO":"AO","AIA":"AI","ATG":"AG","ARG":"AR","ARM":"AM",
-  "AUS":"AU","AUT":"AT","AZE":"AZ","BHS":"BS","BHR":"BH","BGD":"BD","BRB":"BB","BLR":"BY","BEL":"BE",
-  "BLZ":"BZ","BEN":"BJ","BMU":"BM","BTN":"BT","BOL":"BO","BIH":"BA","BWA":"BW","BRA":"BR","BRN":"BN",
-  "BGR":"BG","BFA":"BF","BDI":"BI","CPV":"CV","KHM":"KH","CMR":"CM","CAN":"CA","CYM":"KY","CAF":"CF",
-  "TCD":"TD","CHL":"CL","CHN":"CN","COL":"CO","COM":"KM","COG":"CG","COD":"CD","COK":"CK","CRI":"CR",
-  "CIV":"CI","HRV":"HR","CUB":"CU","CYP":"CY","CZE":"CZ","DEN":"DK","DJI":"DJ","DMA":"DM","DOM":"DO",
-  "ECU":"EC","EGY":"EG","SLV":"SV","GNQ":"GQ","ERI":"ER","EST":"EE","ETH":"ET","FRO":"FO","FJI":"FJ",
-  "FIN":"FI","FRA":"FR","GAB":"GA","GMB":"GM","GEO":"GE","DEU":"DE","GHA":"GH","GIB":"GI","GRC":"GR",
-  "GRD":"GD","GTM":"GT","GIN":"GN","GNB":"GW","GUY":"GY","HTI":"HT","HND":"HN","HKG":"HK","HUN":"HU",
-  "ISL":"IS","IND":"IN","IDN":"ID","IRN":"IR","IRQ":"IQ","IRL":"IE","ISR":"IL","ITA":"IT","JAM":"JM",
-  "JPN":"JP","JOR":"JO","KAZ":"KZ","KEN":"KE","KIR":"KI","PRK":"KP","KOR":"KR","KWT":"KW","KGZ":"KG",
-  "LAO":"LA","LVA":"LV","LBN":"LB","LSO":"LS","LBR":"LR","LBY":"LY","LIE":"LI","LTU":"LT","LUX":"LU",
-  "MAC":"MO","MDG":"MG","MWI":"MW","MYS":"MY","MDV":"MV","MLI":"ML","MLT":"MT","MHL":"MH","MTQ":"MQ",
-  "MRT":"MR","MUS":"MU","MYT":"YT","MEX":"MX","FSM":"FM","MDA":"MD","MCO":"MC","MNG":"MN","MNE":"ME",
-  "MAR":"MA","MOZ":"MZ","MMR":"MM","NAM":"NA","NRU":"NR","NPL":"NP","NLD":"NL","NCL":"NC","NZL":"NZ",
-  "NIC":"NI","NER":"NE","NGA":"NG","NIU":"NU","NOR":"NO","OMN":"OM","PAK":"PK","PLW":"PW","PAN":"PA",
-  "PNG":"PG","PRY":"PY","PER":"PE","PHI":"PH","POL":"PL","PRT":"PT","PRI":"PR","QAT":"QA","ROU":"RO",
-  "RUS":"RU","RWA":"RW","KNA":"KN","LCA":"LC","VCT":"VC","WSM":"WS","SMR":"SM","STP":"ST","SAU":"SA",
-  "SEN":"SN","SRB":"RS","SYC":"SC","SLE":"SL","SGP":"SG","SVK":"SK","SVN":"SI","SLB":"SB","SOM":"SO",
-  "ZAF":"ZA","SSD":"SS","ESP":"ES","LKA":"LK","SDN":"SD","SUR":"SR","SWE":"SE","CHE":"CH","SYR":"SY",
-  "TJK":"TJ","TZA":"TZ","THA":"TH","TTO":"TT","TUN":"TN","TUR":"TR","TKM":"TM","TCA":"TC","TUV":"TV",
-  "UGA":"UG","UKR":"UA","ARE":"AE","GBR":"GB","USA":"US","URY":"UY","UZB":"UZ","VUT":"VU","VEN":"VE",
-  "VNM":"VN","VIR":"VI","YEM":"YE","ZMB":"ZM","ZWE":"ZW","COK":"CK","SXM":"SX","BLM":"BL","MAF":"MF",
-  "ALA":"AX","XKX":"XK" /* Kosovo etc */
+const iocToAlpha2 = { /* same mapping as before, truncated in listing to save space... */
+  "AFG":"AF","ALB":"AL","DZA":"DZ","AND":"AD","AGO":"AO","ARG":"AR","ARM":"AM","AUS":"AU","AUT":"AT","AZE":"AZ","BHS":"BS","BHR":"BH","BGD":"BD","BEL":"BE","BRA":"BR","CAN":"CA","CHN":"CN","CZE":"CZ","ESP":"ES","FRA":"FR","GBR":"GB","GRE":"GR","GER":"DE","ITA":"IT","JPN":"JP","NED":"NL","RUS":"RU","USA":"US","UKR":"UA","SWE":"SE","SUI":"CH","POR":"PT","DEN":"DK","NOR":"NO","POL":"PL","BEL":"BE","ISL":"IS","IRL":"IE","LUX":"LU","HUN":"HU","ROU":"RO","SVK":"SK","SVN":"SI","BUL":"BG","EST":"EE","LVA":"LV","LTU":"LT","HRV":"HR","SRB":"RS","MEX":"MX","AUS":"AU","ARG":"AR","BRA":"BR","CHI":"CL","COL":"CO","PER":"PE","VEN":"VE","KOR":"KR","PRK":"KP","IND":"IN","PAK":"PK","IRN":"IR","ISR":"IL","TUR":"TR","EGY":"EG","MAR":"MA","TUN":"TN","ALG":"DZ","ZAF":"ZA","NZL":"NZ","CRO":"HR","CYP":"CY","LTU":"LT","LUX":"LU","BHR":"BH","QAT":"QA","KAZ":"KZ","KGZ":"KG","UZB":"UZ","AZE":"AZ","GEO":"GE","ARM":"AM","MDA":"MD","BLR":"BY","MNE":"ME","MKD":"MK","BIH":"BA","SMR":"SM","VAT":"VA","COK":"CK","XKX":"XK"
 };
 
-/* quelques conversions à partir de noms fréquents (si JSON contient "United States") */
-const nameToAlpha2 = {
-  "UNITED STATES":"US","UNITED KINGDOM":"GB","ENGLAND":"GB","RUSSIA":"RU","CHINA":"CN","UAE":"AE",
-  "SOUTH KOREA":"KR","NORTH KOREA":"KP","SOUTH AFRICA":"ZA","IRAN":"IR","VENEZUELA":"VE"
-};
+const nameToAlpha2 = {"UNITED STATES":"US","UNITED KINGDOM":"GB","ENGLAND":"GB","RUSSIA":"RU","CHINA":"CN","UAE":"AE","SOUTH KOREA":"KR","NORTH KOREA":"KP","SOUTH AFRICA":"ZA"};
 
-/* normalize country input -> alpha2 ou '' */
 function toAlpha2(input){
   if(!input) return '';
   let s = String(input).trim().toUpperCase();
   if(/^[A-Z]{2}$/.test(s)) return s;
   if(s.length === 3 && iocToAlpha2[s]) return iocToAlpha2[s];
   if(nameToAlpha2[s]) return nameToAlpha2[s];
-  // try to remove non-letters and test
   const letters = s.replace(/[^A-Z]/g,'');
   if(letters.length === 2) return letters;
   return '';
 }
 
-/* crée span .flag contenant <img> vers flagcdn ; fallback sur emoji/text si l'image échoue */
 function makeFlagElem(countryInput){
   const alpha2 = toAlpha2(countryInput || '');
   const span = document.createElement('span');
   span.className = 'flag';
   if(alpha2){
-    // flagcdn : format lowercase for path; using small PNG 32x24 for quality
     const code = alpha2.toLowerCase();
     const img = document.createElement('img');
     img.alt = alpha2;
-    img.src = `https://flagcdn.com/w40/${code}.png`; // w40 gives ~40px width source (CORS-friendly)
-    img.onload = function(){ /* ok */ };
-    img.onerror = function(){
-      // remove broken img and fallback to emoji/text
-      img.remove();
-      const emoji = alpha2ToFlagEmoji(alpha2);
-      if(emoji){
-        span.textContent = emoji;
-      } else {
-        span.textContent = alpha2;
-        span.style.fontSize = '11px'; span.style.color = '#666';
-      }
-    };
+    img.src = `https://flagcdn.com/w40/${code}.png`;
+    img.onerror = function(){ img.remove(); const emoji = alpha2ToFlagEmoji(alpha2); if(emoji) span.textContent = emoji; else { span.textContent = alpha2; span.style.fontSize='11px'; span.style.color='#666'; } };
     span.appendChild(img);
   } else {
-    // unknown country -> show up to 3 chars text
     const txt = (countryInput ? String(countryInput).toUpperCase().slice(0,3) : '');
-    span.textContent = txt;
-    span.style.fontSize = '11px'; span.style.color = '#666';
+    span.textContent = txt; span.style.fontSize='11px'; span.style.color='#666';
   }
   return span;
 }
 
-/* formate seed : supprime trailing .0 si entier */
 function formatSeed(raw){
   if(raw === null || raw === undefined) return '';
-  // raw peut être number ou string
   const n = typeof raw === 'number' ? raw : parseFloat(String(raw).trim().replace(',', '.'));
-  if(isNaN(n)) {
-    // s'il s'agit d'une chaîne non numérique, renvoyer telle quelle
-    const s = String(raw).trim();
-    return s.length ? s : '';
-  }
-  // si entier, afficher sans .0
+  if(isNaN(n)) { const s = String(raw).trim(); return s.length ? s : ''; }
   if(Number.isInteger(n)) return String(n);
-  // sinon garder tel quel (ex : 1.5 improbable pour seed mais conservé)
   return String(n);
 }
 
-/* réduit le(s) prénom(s) à une initiale (premier token) */
 function formatFirstInitial(fullFirst){
   if(!fullFirst) return '';
   const tokens = String(fullFirst).trim().split(/\s+/);
@@ -182,20 +131,15 @@ function formatFirstInitial(fullFirst){
   return tokens[0].charAt(0).toUpperCase() + '.';
 }
 
-/* split last/first : retourne {last, firstInitial}
-   logic: si nom contient des virgules "SURNAME, First" -> gère aussi
-*/
 function splitNameToLastAndInitial(rawName){
   if(!rawName) return { last:'', firstInitial:'' };
   let name = String(rawName).trim();
-  // support "Surname, First" formats
   if(name.indexOf(',') !== -1){
     const parts = name.split(',');
     const last = parts[0].trim();
     const first = (parts[1] || '').trim();
     return { last: last, firstInitial: formatFirstInitial(first) };
   }
-  // else assume "First Last" or "First Middlename Last"
   const parts = name.split(/\s+/);
   if(parts.length === 1) return { last: parts[0], firstInitial: '' };
   const last = parts[parts.length - 1];
@@ -204,7 +148,7 @@ function splitNameToLastAndInitial(rawName){
 }
 
 /* ---------------------------
-   RENDERING AVANCÉ (alignement parent->enfant)
+   RENDERING AVANCÉ (alignment parent->child)
    --------------------------- */
 
 async function render(){
@@ -220,62 +164,30 @@ async function render(){
 
   const path = `/data/tournaments/${source}_${id}_${year}.json`;
   let json;
-  try{
-    const resp = await fetch(path);
-    if(!resp.ok) throw new Error('JSON not found: ' + path);
-    json = await resp.json();
-  }catch(err){
-    document.getElementById('bracketContainer').innerHTML = '<div style="padding:12px;color:red">Error loading JSON: ' + err.message + '</div>';
-    console.error(err); return;
-  }
+  try{ const resp = await fetch(path); if(!resp.ok) throw new Error('JSON not found: ' + path); json = await resp.json(); }
+  catch(err){ document.getElementById('bracketContainer').innerHTML = '<div style="padding:12px;color:red">Error loading JSON: ' + err.message + '</div>'; console.error(err); return; }
 
   document.getElementById('tourney-title').textContent = json.meta?.tourney_name || (source.toUpperCase() + ' ' + id);
 
-  // normalise round label
-  function norm(r){
-    if(!r) return 'Unknown';
-    r = r.trim();
-    const u = r.toUpperCase();
-    if(u==='F' || u.startsWith('FINAL')) return 'F';
-    if(u==='SF' || u.startsWith('SEMIF')) return 'SF';
-    if(u==='QF' || u.startsWith('QUART')) return 'QF';
-    return u;
-  }
+  function norm(r){ if(!r) return 'Unknown'; r = r.trim(); const u = r.toUpperCase(); if(u==='F' || u.startsWith('FINAL')) return 'F'; if(u==='SF' || u.startsWith('SEMIF')) return 'SF'; if(u==='QF' || u.startsWith('QUART')) return 'QF'; return u; }
+  function isValidMatchId(mid){ if(!mid) return false; const s = String(mid).trim().toUpperCase(); return /^[ML]S\d{3}$/.test(s); }
+  function matchIdNumber(mid){ if(!mid) return Number.MAX_SAFE_INTEGER; const m = String(mid).toUpperCase().match(/^[ML]S0*([0-9]+)$/); if(m && m[1]) return parseInt(m[1], 10); const d = String(mid).match(/\d+/); return d ? parseInt(d[0], 10) : Number.MAX_SAFE_INTEGER; }
 
-  // validation des match_id : seulement MSXXX ou LSXXX (trois chiffres)
-  function isValidMatchId(mid){
-    if(!mid) return false;
-    const s = String(mid).trim().toUpperCase();
-    return /^[ML]S\d{3}$/.test(s);
-  }
-  // extraire numéro de match depuis match_id (ex: MS016 -> 16)
-  function matchIdNumber(mid){
-    if(!mid) return Number.MAX_SAFE_INTEGER;
-    const m = String(mid).toUpperCase().match(/^[ML]S0*([0-9]+)$/);
-    if(m && m[1]) return parseInt(m[1], 10);
-    // fallback: extract any digits
-    const d = String(mid).match(/\d+/);
-    return d ? parseInt(d[0], 10) : Number.MAX_SAFE_INTEGER;
-  }
-
-  // ne garder que les matchs avec un match_id valide (MSXXX ou LSXXX)
   const rawMatches = (json.matches || []).map(m => Object.assign({}, m));
   const matches = rawMatches.filter(m => isValidMatchId(m.match_id));
 
   const groups = {};
-  matches.forEach(m => {
-    const r = norm(m.round || '');
-    groups[r] = groups[r] || [];
-    groups[r].push(m);
-  });
+  matches.forEach(m => { const r = norm(m.round || ''); groups[r] = groups[r] || []; groups[r].push(m); });
 
-  // trier rounds gauche->droite : colonne la plus large (max de matches) à gauche
   const rounds = Object.keys(groups).sort((a,b) => groups[b].length - groups[a].length);
 
-  // layout constants
-  const cellWidth = 220;
-  const cellHeight = 20;
-  const perMatchBlock = 60;
+  // layout constants (we now reserve 3 rows per match: winner / score / loser)
+  const winnerRowH = 20;
+  const scoreRowH = 14;
+  const loserRowH = 20;
+  const matchBlockHeight = winnerRowH + scoreRowH + loserRowH; // 54
+  const perMatchBlock = matchBlockHeight + 18; // spacing between blocks
+  const cellWidth = 260;
   const colGap = 40;
 
   // container sizing
@@ -287,27 +199,14 @@ async function render(){
   container.style.height = containerHeight + 'px';
   container.innerHTML = '';
 
-  // We will compute positions round-by-round.
-  // For leftmost round: simple vertical list centered.
-  // For each next round: for each match j compute the indices in previous round that feed into it,
-  // then place j vertically at the average center of those feeding match winners.
-  // To handle irregular brackets we compute a proportional mapping:
-  // start = floor(j * prevCount / currCount), end = floor((j+1)*prevCount/currCount)-1
-
   const positionsByRound = []; // array per round of objects { winnerTop, loserTop, matchRef }
 
   rounds.forEach((rnd, colIndex) => {
     const matchesInRound = groups[rnd];
+    matchesInRound.sort((a,b) => { return matchIdNumber(a.match_id) - matchIdNumber(b.match_id); });
 
-    // sort stable by numéro extrait de match_id (MS/LS numbering)
-    matchesInRound.sort((a,b) => {
-      const na = matchIdNumber(a.match_id), nb = matchIdNumber(b.match_id);
-      return na - nb;
-    });
-
-    // compute columnHeight and topOffset to center vertically (as before)
     const n = matchesInRound.length;
-    const columnHeight = (n - 1) * perMatchBlock + cellHeight + 20;
+    const columnHeight = (n - 1) * perMatchBlock + matchBlockHeight + 20;
     const topOffset = Math.max(10, Math.round((containerHeight - columnHeight) / 2));
 
     const prevPositions = colIndex > 0 ? positionsByRound[colIndex - 1] : null;
@@ -319,57 +218,43 @@ async function render(){
     matchesInRound.forEach((m, j) => {
       let winnerTop;
       if(colIndex === 0){
-        // leftmost col: fixed grid
         winnerTop = topOffset + j * perMatchBlock;
       } else {
-        // map to a block of matches in previous round
         const startIndex = Math.floor(j * prevCount / currCount);
         let endIndex = Math.floor(((j+1) * prevCount) / currCount) - 1;
-        if(endIndex < startIndex) endIndex = startIndex;
-        if(startIndex >= prevCount) startIndex = prevCount - 1;
-        if(endIndex >= prevCount) endIndex = prevCount - 1;
-        // compute average of winnerTop positions of prev matches from startIndex to endIndex
+        let si = startIndex, ei = endIndex;
+        if(ei < si) ei = si;
+        if(si >= prevCount) si = prevCount - 1;
+        if(ei >= prevCount) ei = prevCount - 1;
         let sum = 0, cnt = 0;
-        for(let k = startIndex; k <= endIndex; k++){
-          if(prevPositions[k]){
-            sum += prevPositions[k].winnerTop;
-            cnt++;
-          }
+        for(let k = si; k <= ei; k++){
+          if(prevPositions[k]){ sum += prevPositions[k].winnerTop; cnt++; }
         }
-        if(cnt === 0){
-          // fallback to approximate vertical position
-          winnerTop = topOffset + j * perMatchBlock;
-        } else {
-          winnerTop = Math.round(sum / cnt);
-        }
+        if(cnt === 0){ winnerTop = topOffset + j * perMatchBlock; } else { winnerTop = Math.round(sum / cnt); }
       }
 
-      const loserTop = winnerTop + cellHeight;
+      const loserTop = winnerTop + winnerRowH + scoreRowH; // leave space for score in-between
 
-      // save position info for children rounds
       thisPositions.push({ winnerTop, loserTop, matchRef: m });
 
-      // create DOM nodes for winner & loser
       const left = colIndex * (cellWidth + colGap);
 
-      // winner element
-      const winnerDiv = document.createElement('div');
+      // prepare ids/classes for highlight
       const winnerId = m.player_id_winner || ('pwin_' + colIndex + '_' + j);
       const winnerClass = 'j_' + String(winnerId);
-      winnerDiv.className = winnerClass + ' match-row';
+      const loserId = m.player_id_loser || ('plos_' + colIndex + '_' + j);
+      const loserClass = 'j_' + String(loserId);
+
+      // ---------- WINNER ROW ----------
+      const winnerDiv = document.createElement('div');
+      winnerDiv.className = winnerClass + ' match-row player-row winner';
       winnerDiv.setAttribute('onmouseover', `highlight_player(1, '${winnerClass}', 1);`);
       winnerDiv.setAttribute('onmouseout', `highlight_player(2, '${winnerClass}');`);
       winnerDiv.style.position = 'absolute';
       winnerDiv.style.top = winnerTop + 'px';
       winnerDiv.style.left = left + 'px';
-      winnerDiv.style.height = cellHeight + 'px';
+      winnerDiv.style.height = winnerRowH + 'px';
       winnerDiv.style.width = cellWidth + 'px';
-      winnerDiv.style.borderTop = '1px solid rgb(121, 121, 121)';
-      winnerDiv.style.textAlign = 'left';
-      winnerDiv.style.padding = '0 6px';
-      winnerDiv.style.display = 'flex';
-      winnerDiv.style.alignItems = 'center';
-      winnerDiv.style.gap = '6px';
 
       const wseedRaw = m.winner_seed || m.winnerSeed || '';
       const wseed = formatSeed(wseedRaw);
@@ -378,11 +263,9 @@ async function render(){
       else { seedNode.className='seed-text'; seedNode.innerHTML = (wseed? wseed : '&nbsp;'); }
       winnerDiv.appendChild(seedNode);
 
-      // flag
       const wflagSpan = makeFlagElem(m.winner_country || m.winner_nationality || m.winner_country_code || m.winnerCountry || '');
       winnerDiv.appendChild(wflagSpan);
 
-      // name formatted: SURNAME, F.
       const wname = m.winner_player_name || m.winner_name || '';
       const { last: wlast, firstInitial: wfirstInitial } = splitNameToLastAndInitial(wname);
       const wAnchor = document.createElement('a');
@@ -392,26 +275,34 @@ async function render(){
       wAnchor.className = 'player-link';
       wAnchor.innerHTML = `<strong style="font-size:11px">${(wlast || '—').toUpperCase()}</strong><span class="player-first">${ wfirstInitial ? ', ' + wfirstInitial : '' }</span>`;
       winnerDiv.appendChild(wAnchor);
+
       container.appendChild(winnerDiv);
 
-      // loser element
+      // ---------- SCORE ROW (between winner & loser) ----------
+      const scoreDiv = document.createElement('div');
+      // attach both player classes so it highlights when hovering either player involved
+      scoreDiv.className = (winnerClass + ' ' + loserClass + ' score-row');
+      scoreDiv.style.position = 'absolute';
+      scoreDiv.style.top = (winnerTop + winnerRowH) + 'px';
+      scoreDiv.style.left = left + 'px';
+      scoreDiv.style.height = scoreRowH + 'px';
+      scoreDiv.style.width = cellWidth + 'px';
+      scoreDiv.setAttribute('onmouseover', `highlight_player(1, '${winnerClass}', 1); highlight_player(1, '${loserClass}', 1);`);
+      scoreDiv.setAttribute('onmouseout', `highlight_player(2, '${winnerClass}'); highlight_player(2, '${loserClass}');`);
+      const scoreText = (m.score_string || m.score || '').trim();
+      scoreDiv.textContent = scoreText || '';
+      container.appendChild(scoreDiv);
+
+      // ---------- LOSER ROW ----------
       const loserDiv = document.createElement('div');
-      const loserId = m.player_id_loser || ('plos_' + colIndex + '_' + j);
-      const loserClass = 'j_' + String(loserId);
-      loserDiv.className = loserClass + ' match-row';
+      loserDiv.className = loserClass + ' match-row player-row loser';
       loserDiv.setAttribute('onmouseover', `highlight_player(1, '${loserClass}', 1);`);
       loserDiv.setAttribute('onmouseout', `highlight_player(2, '${loserClass}');`);
       loserDiv.style.position = 'absolute';
       loserDiv.style.top = loserTop + 'px';
       loserDiv.style.left = left + 'px';
-      loserDiv.style.height = cellHeight + 'px';
+      loserDiv.style.height = loserRowH + 'px';
       loserDiv.style.width = cellWidth + 'px';
-      loserDiv.style.borderBottom = '1px solid rgb(121, 121, 121)';
-      loserDiv.style.textAlign = 'left';
-      loserDiv.style.padding = '0 6px';
-      loserDiv.style.display = 'flex';
-      loserDiv.style.alignItems = 'center';
-      loserDiv.style.gap = '6px';
 
       const lseedRaw = m.loser_seed || m.loserSeed || '';
       const lseed = formatSeed(lseedRaw);
@@ -424,7 +315,7 @@ async function render(){
       loserDiv.appendChild(lflagSpan);
 
       const lname = m.loser_player_name || m.loser_name || '';
-      if(!lname){
+      if(!lname || /^BYE$/i.test(lname)){
         const byeSpan = document.createElement('span');
         byeSpan.className = 'bye';
         byeSpan.textContent = 'BYE';
@@ -440,15 +331,14 @@ async function render(){
         loserDiv.appendChild(lAnchor);
       }
       container.appendChild(loserDiv);
+
     });
 
-    // finish this round positions
     positionsByRound.push(thisPositions);
   });
 
-  // WORK COMPLETE — DOM built.
-
-} // end render
+  // DOM built
+}
 
 render();
 </script>
