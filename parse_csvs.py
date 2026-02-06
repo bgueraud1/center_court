@@ -6,6 +6,7 @@ import csv, json, random, re
 from pathlib import Path
 from collections import defaultdict
 from datetime import datetime
+from math import ceil
 
 ROOT = Path('.')
 MATCHES_DIR = ROOT / 'matches'
@@ -41,180 +42,181 @@ def normalize_name(n):
         return ''
     return re.sub(r'\s+', ' ', str(n).strip()).lower()
 
-# === Nouveau : détecter interruptions LS/MS et insérer match factice BYE (optimisé) ===
+# === Utilities for expected numbering ===
+def next_power_of_two(x):
+    p = 1
+    while p < x:
+        p <<= 1
+    return p
+
+def build_level_counts(full_draw):
+    """
+    Return list of match counts per round in numbering order:
+    [1 (Final), 2 (Semis), 4 (QF), 8 (R16), 16 (R32), ... up to full_draw/2]
+    """
+    counts = []
+    v = 1
+    while v <= (full_draw // 2):
+        counts.append(v)
+        v *= 2
+    counts = list(reversed(counts))  # now [full_draw/2, ..., 4,2,1]
+    # convert to numbering order: final first -> reverse again
+    numbering_order = list(reversed(counts))
+    return numbering_order  # [1,2,4,8,..., full_draw/2]
+
+def find_numeric_range_for_count(count, full_draw):
+    """
+    Given expected match count for a round (e.g. 16 for Round of 32), compute
+    numeric range based on standard numbering (final=1, semis=2..3, quarters=4..7, ...).
+    """
+    numbering = build_level_counts(full_draw)  # [1,2,4,8,...]
+    start = 1
+    for c in numbering:
+        if c == count:
+            end = start + c - 1
+            return start, end
+        start += c
+    return None
+
+def round_expected_count_from_name(rname, full_draw):
+    """Heuristic: map round name to expected count."""
+    n = rname.lower()
+    if 'final' in n and 'round' not in n:
+        return 1
+    if 'semi' in n:
+        return 2
+    if 'quarter' in n:
+        return 4
+    if 'round of 16' in n or 'r16' in n or 'round of sixteen' in n:
+        return 8
+    if 'round of 32' in n or 'r32' in n:
+        return full_draw // 2
+    if 'round of 64' in n or 'r64' in n:
+        return (full_draw * 2) // 2  # 32 for full_draw=64 etc.
+    # fallback: if name contains a number like 'round of 128' parse it
+    m = re.search(r'round of (\d+)', n)
+    if m:
+        try:
+            cnt = int(m.group(1))
+            return cnt // 2
+        except Exception:
+            pass
+    return None
+
+# === Nouveau : remplissage direct des numéros manquants dans la plage attendue ===
 id_suffix_re = re.compile(r'([A-Za-z]+)(\d+)$')
 
-# keys to look for ids and names (centralized to avoid repeated lists)
-ID_KEYS = ('player_id_winner', 'player_id_loser', 'player_winner_id', 'player_loser_id', 'winner_id', 'loser_id', 'player_id_winner', 'player_id_loser')
-NAME_KEYS = ('winner_player_name', 'player_winner', 'winner', 'player_winner_name',
-             'loser_player_name', 'player_loser', 'loser', 'player_loser_name')
-
-def extract_ids_and_names_from_row(r):
-    """Return sets (ids, names) found in a single match row."""
-    ids = set()
-    names = set()
-    # ids
-    for k in ID_KEYS:
-        v = r.get(k)
-        if v:
-            ids.add(str(v))
-    # winner name
-    wn = r.get('winner_player_name') or r.get('winner') or r.get('player_winner') or r.get('player_winner_name')
-    ln = r.get('loser_player_name') or r.get('loser') or r.get('player_loser') or r.get('player_loser_name')
-    if wn:
-        names.add(normalize_name(wn))
-    if ln:
-        names.add(normalize_name(ln))
-    return ids, names
-
-def insert_missing_sequential_matches(groups):
+def insert_missing_sequential_matches(groups, singles_draw_size=None):
     """
-    Optimized insertion of synthetic BYE matches to fill numeric holes.
-    - Precompute present ids/names per round for O(1) membership checks.
-    - Build a map child_num -> child_match for fast lookup.
-    - Iterate expected numeric interval computed from child numbers.
+    For each round which we can identify (by name), fill the numeric holes in its
+    expected interval (derived from singles_draw_size). For each missing number n:
+      - compute child_num = ceil(n/2)
+      - attempt to find the child match (in the round that has half the matches)
+      - set the synthetic match winner to the child match winner when available,
+        otherwise leave winner empty.
+    This approach guarantees full coverage of the numeric interval.
     """
-    rounds = sorted(groups.keys(), key=lambda k: len(groups[k]), reverse=True)
-    if len(rounds) < 2:
-        return
+    # determine full draw from singles_draw_size if available
+    if singles_draw_size and isinstance(singles_draw_size, int) and singles_draw_size > 0:
+        full_draw = next_power_of_two(singles_draw_size)
+    else:
+        # fallback: try to infer from groups sizes: pick max round size and next_pow2
+        max_matches = max((len(v) for v in groups.values()), default=1)
+        # heuristic: if max_matches is itself a power of two, full_draw = max_matches*2
+        # else next pow2:
+        full_draw = next_power_of_two(max_matches * 2)
 
-    for idx in range(len(rounds) - 1):
-        cur_key = rounds[idx]
-        next_key = rounds[idx + 1]
-        cur_matches = groups.get(cur_key, [])[:]  # travail sur copie
-        next_matches = groups.get(next_key, [])[:]
-        if not cur_matches or not next_matches:
+    # build a quick map: by numeric -> match for each round to allow child lookup
+    round_to_num_map = {}
+    for rk, match_list in groups.items():
+        num_map = {}
+        for m in match_list:
+            mid = m.get('match_id') or ''
+            mm = id_suffix_re.search(mid)
+            if mm:
+                prefix = mm.group(1)
+                num = int(mm.group(2))
+                num_map[num] = m
+        round_to_num_map[rk] = num_map
+
+    # For quick access to rounds by expected size (count), compute candidate round names by size
+    # We'll attempt to map round names to expected counts via heuristics
+    for rk in list(groups.keys()):
+        exp_count = round_expected_count_from_name(rk, full_draw)
+        if exp_count is None:
+            # can't determine, skip this round
             continue
 
-        # construire map des matchs du round suivant par (prefix, num) et une map num -> match
-        next_map = {}
+        numeric_range = find_numeric_range_for_count(exp_count, full_draw)
+        if not numeric_range:
+            continue
+        min_n, max_n = numeric_range
+
+        # build child round: the round that should have exp_count/2 matches (if available)
+        child_count = exp_count // 2
+        # find a candidate child round whose length equals child_count (or closest)
+        candidate_child_round = None
+        for rk_cand, lst in groups.items():
+            if len(lst) == child_count:
+                candidate_child_round = rk_cand
+                break
+        # fallback: pick the round with strictly fewer matches than current
+        if candidate_child_round is None:
+            for rk_cand, lst in groups.items():
+                if len(lst) < len(groups[rk]):
+                    candidate_child_round = rk_cand
+                    break
+
+        # prepare child_num -> match map if possible
         child_num_map = {}
-        child_nums = set()
-        for nm in next_matches:
-            mid = nm.get('match_id') or ''
-            m = id_suffix_re.search(mid)
-            if m:
-                prefix = m.group(1)
-                num = int(m.group(2))
-                next_map[(prefix, num)] = nm
-                # child_num_map: si plusieurs préfixes existent, garder le premier (tolérance)
-                if num not in child_num_map:
-                    child_num_map[num] = nm
-                child_nums.add(num)
+        if candidate_child_round:
+            for knum, mm in round_to_num_map.get(candidate_child_round, {}).items():
+                child_num_map[knum] = mm
 
-        # récupérer préfixe et largeur chiffres du round courant (si possible)
-        nums_present = set()
-        prefix_used = None
-        num_width = None
-        for cm in cur_matches:
-            mid = cm.get('match_id') or ''
-            m = id_suffix_re.search(mid)
-            if m:
-                if not prefix_used:
-                    prefix_used = m.group(1)
-                num = int(m.group(2))
-                nums_present.add(num)
-                num_width = max(num_width or 0, len(m.group(2)))
-
-        if not prefix_used:
-            # si on ne peut pas déterminer le préfixe, on ne modifie pas ce round
-            continue
-
-        # Construire ensembles de recherche pour le round courant : ids et noms normalisés
-        present_ids = set()
-        present_names = set()
-        for pm in cur_matches:
-            # tirer ids/noms de façon robuste (comme extract_ids_and_names_from_row mais en inline pour perf)
-            for k in ID_KEYS:
-                v = pm.get(k)
-                if v:
-                    present_ids.add(str(v))
-            wn = pm.get('winner_player_name') or pm.get('winner') or pm.get('player_winner') or pm.get('player_winner_name')
-            ln = pm.get('loser_player_name') or pm.get('loser') or pm.get('player_loser') or pm.get('player_loser_name')
-            if wn:
-                present_names.add(normalize_name(wn))
-            if ln:
-                present_names.add(normalize_name(ln))
-
-        # Déterminer la plage attendue pour le round courant à partir du round enfant.
-        # Si on a les numéros enfant, l'intervalle attendu est :
-        # [2 * min(child_nums), 2 * max(child_nums) + 1]
-        if child_nums:
-            min_n = 2 * min(child_nums)
-            max_n = 2 * max(child_nums) + 1
-        else:
-            # fallback : s'appuyer sur ce qui est présent
-            if not nums_present:
-                continue
-            min_n = min(nums_present)
-            max_n = max(nums_present)
+        # present numbers in this round
+        present_nums = set(round_to_num_map.get(rk, {}).keys())
 
         added_any = False
+        cur_matches = groups.get(rk, [])[:]
 
-        # itérer sur la plage attendue (généralement petite : ex 16..31)
+        # for every expected n in range, create synth if missing
         for n in range(min_n, max_n + 1):
-            if n in nums_present:
-                continue  # existant -> rien à faire
-
-            # enfant correspondant : ceil(n/2)
-            child_num = (n + 1) // 2
-            if child_num < 1:
+            if n in present_nums:
                 continue
-
-            # Chercher d'abord avec même préfixe
-            child_match = next_map.get((prefix_used, child_num))
-            # sinon fallback rapide via child_num_map (O(1))
-            if not child_match:
-                child_match = child_num_map.get(child_num)
-
-            if not child_match:
-                continue  # on ne peut pas reconstruire sans le match enfant
-
-            # extraire joueurs du match enfant (winner/loser)
-            w_id = child_match.get('player_id_winner') or child_match.get('winner_id') or child_match.get('player_winner_id') or ''
-            w_name = child_match.get('winner_player_name') or child_match.get('winner') or ''
-            l_id = child_match.get('player_id_loser') or child_match.get('loser_id') or child_match.get('player_loser_id') or ''
-            l_name = child_match.get('loser_player_name') or child_match.get('loser') or ''
-
-            # déterminer présence via sets (O(1))
-            w_present = False
-            l_present = False
-            if w_id and str(w_id) in present_ids:
-                w_present = True
-            elif w_name and normalize_name(w_name) in present_names:
-                w_present = True
-
-            if l_id and str(l_id) in present_ids:
-                l_present = True
-            elif l_name and normalize_name(l_name) in present_names:
-                l_present = True
-
-            # si exactement l'un des deux est absent, on crée le match fictif où ce joueur "gagne" contre BYE
+            child_num = (n + 1) // 2
+            child_match = child_num_map.get(child_num)
             synth_winner_id = ''
             synth_winner_name = ''
             synth_winner_country = ''
             synth_winner_seed = ''
-            if (not w_present) and l_present:
-                synth_winner_id = w_id or ''
-                synth_winner_name = w_name or ''
+            if child_match:
+                # prefer child match winner as the one who had a bye into this round
+                synth_winner_id = child_match.get('player_id_winner') or ''
+                synth_winner_name = child_match.get('winner_player_name') or ''
                 synth_winner_country = child_match.get('winner_country') or ''
                 synth_winner_seed = child_match.get('winner_seed') or ''
-            elif (not l_present) and w_present:
-                synth_winner_id = l_id or ''
-                synth_winner_name = l_name or ''
-                synth_winner_country = child_match.get('loser_country') or ''
-                synth_winner_seed = child_match.get('loser_seed') or ''
-            else:
-                # cas : soit les deux absents, soit les deux présents -> on ne crée rien
-                continue
-
-            # construire match_id synthétique (respecter padding si possible)
-            num_str = str(n).zfill(num_width or len(str(n)))
-            synth_id = f"{prefix_used}{num_str}"
+            # If no child match found, we still create a BYE placeholder (empty winner)
+            num_str = str(n).zfill(3)  # default width 3 (MS001 style). We'll try to detect width from existing.
+            # try to detect width from existing IDs in this round
+            widths = []
+            for mid in round_to_num_map.get(rk, {}).keys():
+                widths.append(len(str(mid)))
+            if widths:
+                num_str = str(n).zfill(max(widths))
+            # detect prefix
+            prefix = None
+            for m in groups.get(rk, []):
+                mm = id_suffix_re.search(m.get('match_id') or '')
+                if mm:
+                    prefix = mm.group(1)
+                    break
+            if not prefix:
+                prefix = 'MS'
+            synth_id = f"{prefix}{num_str}"
 
             synth = {
                 'match_id': synth_id,
-                'round': cur_key,
+                'round': rk,
                 'winner_player_name': synth_winner_name,
                 'loser_player_name': 'BYE',
                 'score_string': '',
@@ -226,20 +228,14 @@ def insert_missing_sequential_matches(groups):
                 'loser_seed': ''
             }
 
-            # insérer (on ajoute puis on marque la présence pour éviter doublons)
             cur_matches.append(synth)
-            nums_present.add(n)
-            # mettre à jour sets pour ne pas recréer plusieurs fois pour même joueur
-            if synth_winner_id:
-                present_ids.add(str(synth_winner_id))
-            elif synth_winner_name:
-                present_names.add(normalize_name(synth_winner_name))
+            present_nums.add(n)
             added_any = True
             if VERBOSE:
-                print(f"[insert] round={cur_key} inserted {synth_id} winner={synth_winner_name or synth_winner_id}")
+                print(f"[insert-fill] round={rk} inserted {synth_id} winner={synth_winner_name or synth_winner_id}")
 
         if added_any:
-            # trier cur_matches par numéro extrait de match_id quand c'est possible
+            # re-index by numeric order
             def cur_key_fn(m):
                 mid = m.get('match_id') or ''
                 mm = id_suffix_re.search(mid)
@@ -250,8 +246,7 @@ def insert_missing_sequential_matches(groups):
                         return 10**9
                 return 10**9
             cur_matches_sorted = sorted(cur_matches, key=cur_key_fn)
-            groups[cur_key] = cur_matches_sorted
-# === fin du nouvel ajout ===
+            groups[rk] = cur_matches_sorted
 
 def flatten_groups_to_matches(groups):
     """Return a flat list of matches by iterating groups in order of descending size (left->right)."""
@@ -346,8 +341,8 @@ for kind in ('atp_matches','wta_matches'):
             rk = m.get('round') or ''
             groups[rk].append(m)
 
-        # === APPEL: réparer interruptions séquentielles LS/MS en insérant match BYE ===
-        insert_missing_sequential_matches(groups)
+        # === APPEL: remplir les intervalles manquants en se basant sur singles_draw_size ===
+        insert_missing_sequential_matches(groups, singles_draw_size=meta.get('singles_draw_size'))
         # === FIN APPEL ===
 
         # flatten groups back into matches array in rounds order (left->right)
