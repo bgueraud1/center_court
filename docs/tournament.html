@@ -309,61 +309,64 @@ async function render(){
     positionsByRound.push(thisPositions);
   });
 
-  /* draw connectors (improved: route via midpoint and target parent's mid center) */
-  /* draw connectors (improved: grouped spines + horizontals) */
-function drawPolyline(points, strokeWidth){
-  // remove duplicate consecutive points
-  const reduced = points.filter((p,i,arr) => { if(i===0) return true; const prev = arr[i-1]; return !(prev[0]===p[0] && prev[1]===p[1]); });
-  if(reduced.length < 2) return;
-  const poly = document.createElementNS('http://www.w3.org/2000/svg','polyline');
-  poly.setAttribute('points', reduced.map(p => (p[0] + ',' + p[1])).join(' '));
-  poly.setAttribute('fill','none');
-  poly.setAttribute('stroke', getComputedStyle(document.documentElement).getPropertyValue('--line-color') || '#797979');
-  poly.setAttribute('stroke-width', (strokeWidth || 1));
-  poly.setAttribute('stroke-linecap','square');
-  poly.setAttribute('stroke-linejoin','miter');
-  svg.appendChild(poly);
-}
-
-for(let colIndex=0; colIndex<positionsByRound.length - 1; colIndex++){
-  const children = positionsByRound[colIndex];
-  const parents = positionsByRound[colIndex + 1];
-  if(!children || !parents) continue;
-
-  // map each parent to the array of child indices that connect to it
-  const mapping = new Array(parents.length).fill(0).map(()=>[]);
-  for(let i=0;i<children.length;i++){
-    const parentIndex = Math.floor(i * parents.length / children.length);
-    const idx = Math.min(Math.max(parentIndex,0), parents.length-1);
-    mapping[idx].push(i);
+  /* draw connectors (grouped spines + horizontals, connect to mid-bar) */
+  function drawPolyline(points, strokeWidth){
+    const reduced = points.filter((p,i,arr) => { if(i===0) return true; const prev = arr[i-1]; return !(prev[0]===p[0] && prev[1]===p[1]); });
+    if(reduced.length < 2) return;
+    const poly = document.createElementNS('http://www.w3.org/2000/svg','polyline');
+    poly.setAttribute('points', reduced.map(p => (p[0] + ',' + p[1])).join(' '));
+    poly.setAttribute('fill','none');
+    poly.setAttribute('stroke', getComputedStyle(document.documentElement).getPropertyValue('--line-color') || '#797979');
+    poly.setAttribute('stroke-width', (strokeWidth || 1));
+    poly.setAttribute('stroke-linecap','square');
+    poly.setAttribute('stroke-linejoin','miter');
+    svg.appendChild(poly);
   }
 
-  // draw spine + horizontals for each parent
-  for(let p=0;p<parents.length;p++){
-    const childIndices = mapping[p];
-    if(!childIndices || childIndices.length===0) continue;
-    const parent = parents[p];
+  for(let colIndex=0; colIndex<positionsByRound.length - 1; colIndex++){
+    const children = positionsByRound[colIndex];
+    const parents = positionsByRound[colIndex + 1];
+    if(!children || !parents) continue;
 
-    // compute vertical range and spine X
-    let minY = Infinity, maxY = -Infinity, sumX = 0;
-    childIndices.forEach(ci => { const c = children[ci]; minY = Math.min(minY,c.center); maxY = Math.max(maxY,c.center); sumX += c.midX; });
-    const avgChildX = Math.round(sumX / childIndices.length);
-    const spineX = Math.round((avgChildX + parent.midX) / 2);
+    // build mapping from parent index to array of child indices
+    const mapping = new Array(parents.length).fill(0).map(()=>[]);
+    for(let i=0;i<children.length;i++){
+      const parentIndex = Math.floor(i * parents.length / children.length);
+      const idx = Math.min(Math.max(parentIndex,0), parents.length-1);
+      mapping[idx].push(i);
+    }
 
-    if(maxY - minY > 0) drawPolyline([[spineX, minY], [spineX, maxY]], 1);
+    // draw per parent: a vertical spine connecting all its children and reaching the mid-bar of parent
+    for(let p=0;p<parents.length;p++){
+      const childIndices = mapping[p];
+      if(!childIndices || childIndices.length===0) continue;
+      const parent = parents[p];
 
-    // connect parent horizontally to spine
-    drawPolyline([[parent.midX, parent.center], [spineX, parent.center]], 1);
+      // compute spine X and vertical extents
+      let minY = Infinity, maxY = -Infinity, sumX = 0;
+      childIndices.forEach(ci => { const c = children[ci]; minY = Math.min(minY,c.center); maxY = Math.max(maxY,c.center); sumX += c.midX; });
+      const avgChildX = Math.round(sumX / childIndices.length);
+      const spineX = Math.round((avgChildX + parent.midX) / 2);
 
-    // connect each child horizontally to spine
-    childIndices.forEach(ci =>{
-      const c = children[ci];
-      drawPolyline([[c.midX, c.center], [spineX, c.center]], 1);
-    });
+      // compute the parent's mid-bar Y inside the mid-block (approx middle of mid-block)
+      const parentBarY = parent.midTop + Math.round((parent.midBottom - parent.midTop)/2);
+
+      // extend spine so it reaches the parent's mid-bar
+      const vTop = Math.min(minY, parentBarY);
+      const vBottom = Math.max(maxY, parentBarY);
+      if(vBottom - vTop > 0) drawPolyline([[spineX, vTop], [spineX, vBottom]], 1);
+
+      // connect each child horizontally to spine (at child's center)
+      childIndices.forEach(ci =>{
+        const c = children[ci];
+        drawPolyline([[c.midX, c.center], [spineX, c.center]], 1);
+      });
+
+      // do NOT draw a horizontal from the parent to the spine — keep only the mid-block internal bar as the visual horizontal
+    }
   }
-}
-}
- // end render
+
+} // end render
 render();
 </script>
 </body>
