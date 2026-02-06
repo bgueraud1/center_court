@@ -40,7 +40,7 @@
 
 <script>
 /* ---------------------------
-   UTILITAIRES & MAPPINGS
+   UTILITAIRES & MAPPINGS (identiques)
    --------------------------- */
 
 function slugify(name){
@@ -133,7 +133,6 @@ function makeFlagElem(countryInput){
 function formatSeed(raw){
   if(raw === null || raw === undefined) return '';
   const s = String(raw).trim();
-  // accept direct integer-like strings (e.g. "1.0"), numbers, or empty
   const n = typeof raw === 'number' ? raw : parseFloat(s.replace(',', '.'));
   if(isNaN(n)) {
     return s.length ? s : '';
@@ -166,128 +165,7 @@ function splitNameToLastAndInitial(rawName){
 }
 
 /* ---------------------------
-   AUGMENTATION : INSÉRER DES MATCHS "BYE" SYNTHÉTIQUES (corrigé)
-   --------------------------- */
-/*
-  groups : { roundKey: [match, ...], ... }
-  rounds : ordered array of roundKeys (gauche -> droite)
-  Nouvelle stratégie :
-   - on conserve l'ordre des matchs existants du tour précédent
-   - on répartit ces matchs en "buckets" correspondant à chaque enfant (match du tour courant)
-   - pour chaque match du tour courant (du haut vers le bas) on :
-       1) insère d'abord les BYE synthétiques nécessaires pour le winner (si absent du prev)
-       2) puis les BYE pour le loser (si absent)
-       3) puis on pousse les matchs réels du prev qui appartiennent au bucket de cet enfant
-   - ainsi les BYE restent localisés au bon "slot" relatif au match parent
-*/
-function augmentByes(groups, rounds){
-  for(let colIndex = 1; colIndex < rounds.length; colIndex++){
-    const prevKey = rounds[colIndex - 1];
-    const currKey = rounds[colIndex];
-    const prevMatches = groups[prevKey] = groups[prevKey] || [];
-    const currMatches = groups[currKey] = groups[currKey] || [];
-
-    // copie immuable des prevMatches pour l'analyse (on reconstruira prevMatches)
-    const originalPrev = prevMatches.slice();
-    const prevCount = originalPrev.length;
-    const currCount = currMatches.length;
-
-    // helper pour vérifier si un player id est déjà présent dans prev (copie)
-    const playerExistsInPrev = (pid) => {
-      if(!pid) return true; // si pas d'id, on ne crée pas de synthetic
-      for(const pm of originalPrev){
-        if(pm.player_id_winner && String(pm.player_id_winner) === String(pid)) return true;
-        if(pm.player_id_loser && String(pm.player_id_loser) === String(pid)) return true;
-        if(pm.winner && String(pm.winner) === String(pid)) return true;
-      }
-      return false;
-    };
-
-    // répartir les matchs originaux du prev dans des buckets par enfant du curr (préservation d'ordre)
-    const buckets = [];
-    for(let j=0;j<currCount;j++) buckets.push([]);
-    if(prevCount > 0 && currCount > 0){
-      for(let i=0;i<originalPrev.length;i++){
-        // map index i => child index
-        let childIndex = Math.floor(i * currCount / prevCount);
-        if(childIndex < 0) childIndex = 0;
-        if(childIndex >= currCount) childIndex = currCount - 1;
-        buckets[childIndex].push(originalPrev[i]);
-      }
-    } else {
-      // aucun prev existant => tous buckets vides (on ajoutera les synthétiques si besoin)
-    }
-
-    const newPrev = [];
-    const insertedForPrev = new Set();
-
-    // pour chaque match du tour courant, traiter winner puis loser, puis inserer les bucket du prev
-    for(let j = 0; j < currMatches.length; j++){
-      const cm = currMatches[j];
-
-      // helper pour récupérer id et name depuis différentes clés possibles
-      const getPart = (obj, role) => {
-        // role = 'winner' or 'loser'
-        const id = obj[`player_id_${role}`] || obj[`${role}_player_id`] || obj[`${role}`] || '';
-        const name = obj[`${role}_player_name`] || obj[`${role}_name`] || obj[`${role}_player_name`] || '';
-        const country = obj[`${role}_country`] || obj[`${role}_nationality`] || obj[`${role}_country_code`] || '';
-        const seed = obj[`${role}_seed`] || obj[`${role}Seed`] || '';
-        return { id, name, country, seed };
-      };
-
-      const parts = [
-        getPart(cm, 'winner'),
-        getPart(cm, 'loser')
-      ];
-
-      // pour chaque participant (winner d'abord, puis loser)
-      for(const part of parts){
-        const pid = part.id;
-        const pname = part.name || '';
-        if(!pid) continue;
-        if(insertedForPrev.has(String(pid))) continue;
-        if(!playerExistsInPrev(pid)){
-          // construire match synthétique : joueur vs BYE
-          const synth = {
-            match_id: 'synth_' + String(pid) + '_' + colIndex + '_' + j + '_' + Math.floor(Math.random()*1000000),
-            round: prevKey,
-            player_id_winner: pid,
-            winner_player_name: pname || '',
-            winner_country: part.country || '',
-            winner_seed: part.seed || '',
-            player_id_loser: '',
-            loser_player_name: '',
-            loser_country: '',
-            loser_seed: ''
-          };
-          // on PUSH (ajout en fin du groupe courant) : l'ordre entre synth et bucket suit winner/loser puis bucket
-          newPrev.push(synth);
-          insertedForPrev.add(String(pid));
-        }
-      }
-
-      // maintenant ajouter les matchs réels du prev correspondant à ce bucket (s'ils existent)
-      if(buckets[j] && buckets[j].length){
-        for(const pm of buckets[j]){
-          newPrev.push(pm);
-        }
-      }
-    }
-
-    // si il y a des buckets supplémentaires (rare), les attacher à la fin
-    // (par ex. currCount === 0 mais prevCount > 0) -> alors on conserve les prev existants
-    if(currCount === 0 && originalPrev.length > 0){
-      // cas improbable : aucun child, on garde tout
-      groups[prevKey] = originalPrev.slice();
-    } else {
-      // remplacer prevMatches par la nouvelle liste construite
-      groups[prevKey] = newPrev;
-    }
-  }
-}
-
-/* ---------------------------
-   RENDERING
+   RENDERING (sans création de BYE côté client)
    --------------------------- */
 async function render(){
   const params = new URLSearchParams(location.search);
@@ -324,6 +202,8 @@ async function render(){
   }
 
   const matches = (json.matches || []).map(m => Object.assign({}, m));
+
+  // group matches by round (keep raw round keys)
   const groups = {};
   matches.forEach(m => {
     const r = norm(m.round || '');
@@ -333,9 +213,6 @@ async function render(){
 
   // order rounds left->right (most matches at left)
   const rounds = Object.keys(groups).sort((a,b) => groups[b].length - groups[a].length);
-
-  // AUGMENTATION : insérer les BYE synthétiques
-  augmentByes(groups, rounds);
 
   // layout constants
   const cellWidth = 220;
@@ -376,7 +253,7 @@ async function render(){
       if(colIndex === 0){
         winnerTop = topOffset + j * perMatchBlock;
       } else {
-        // compute mapping in prevPositions similar to augment logic
+        // compute mapping in prevPositions
         const startIndex = Math.floor(j * prevCount / Math.max(1, currCount));
         let endIndex = Math.floor(((j+1) * prevCount) / Math.max(1, currCount)) - 1;
         if(endIndex < startIndex) endIndex = startIndex;
@@ -401,7 +278,7 @@ async function render(){
 
       // render winner
       const left = colIndex * (cellWidth + colGap);
-      const winnerId = m.player_id_winner || m.player_id_winner || ('pwin_' + colIndex + '_' + j);
+      const winnerId = m.player_id_winner || ('pwin_' + colIndex + '_' + j);
       const winnerClass = 'j_' + String(winnerId);
       const winnerDiv = document.createElement('div');
       winnerDiv.className = winnerClass + ' match-row';
@@ -441,7 +318,7 @@ async function render(){
       container.appendChild(winnerDiv);
 
       // render loser
-      const loserId = m.player_id_loser || m.player_id_loser || ('plos_' + colIndex + '_' + j);
+      const loserId = m.player_id_loser || ('plos_' + colIndex + '_' + j);
       const loserClass = 'j_' + String(loserId);
       const loserDiv = document.createElement('div');
       loserDiv.className = loserClass + ' match-row';
