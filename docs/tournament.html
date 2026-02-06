@@ -3,34 +3,30 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Bracket — avec score sous la barre</title>
+<title>Bracket — copie exacte (barre + score + connectors)</title>
 <style>
   body{font-family:Arial,Helvetica,sans-serif;margin:0;background:#fff}
   .hero{padding:18px;color:#fff;background:#2b6cb0}
   .container-main{max-width:1200px;margin:12px auto;padding:0 12px}
 
-  /* flag wrapper */
-  .flag{display:inline-block;width:22px;height:14px;margin-right:8px;vertical-align:middle;overflow:hidden;border-radius:2px;background:#f5f5f5}
-  .flag img{width:100%;height:100%;object-fit:cover;display:block}
-
-  /* seed */
-  .seed-num{float:left;width:28px;color:#0b3d91;font-size:11px;padding:2px 4px;font-weight:700;}
-  .seed-text{float:left;width:28px;color:#808080;font-size:11px;padding:2px 4px;}
-
+  .flag{display:inline-block;width:22px;height:14px;margin-right:8px;vertical-align:middle;overflow:hidden;border-radius:2px;background:#f5f5f5;font-size:11px;color:#666; text-align:center; line-height:14px}
+  .seed-num{float:left;width:22px;color:#0b3d91;font-size:11px;padding:2px 4px;font-weight:700;}
+  .seed-text{float:left;width:22px;color:#808080;font-size:11px;padding:2px 4px;}
   .player-link { font-size:11px;text-decoration:none;color:black; display:inline-block; vertical-align:middle; }
   .player-first { font-size:11px;color:#565656;font-style:italic; margin-left:4px;}
   .bye { color:#808080;font-size:11px;padding-left:22px; }
 
-  /* highlight on hover */
-  .highlight { background: rgba(255,235,59,0.15); }
-
-  /* rows */
   .match-row{ box-sizing:border-box; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:6px; padding:0 6px; }
   .player-row { height:100%; align-items:center; }
-  .player-row.winner { border-bottom:1px solid #797979; } /* barre sous le nom */
-  .player-row.loser  { /* no top border */ }
+  /* barre (ligne) sous le nom = border-top or border-bottom depending the column; here winner has a bottom border that forms the horizontal bar */
+  .player-row.winner { border-bottom:1px solid #797979; }
+  .score-row { font-size:11px; color:#515151; font-style:italic; padding-left:28px; display:flex; align-items:center; height:20px; }
 
-  .score-row { font-size:11px; color:#515151; font-style:italic; padding-left:36px; display:flex; align-items:center; }
+  .connector { position:absolute; background:transparent; pointer-events:none; }
+  .connector.h { height:1px; background:#797979; }        /* horizontal line */
+  .connector.v { width:1px; background:#797979; }        /* vertical line */
+
+  .highlight { background: rgba(255,235,59,0.15); }
 
   @media (max-width:600px){
     .player-link{font-size:12px}
@@ -46,11 +42,13 @@
   </div>
 
   <div class="container-main" style="padding-top:12px">
-    <div id="bracketContainer" style="position:relative;border:0px solid transparent;min-height:400px;"></div>
+    <div id="bracketContainer" style="position:relative;border:0px solid transparent;min-height:600px;"></div>
   </div>
 
 <script>
-/* utilitaires (slugify, flags, seed formatting, split noms...) */
+/* ---------------------------
+   UTILITAIRES
+   --------------------------- */
 function slugify(name){
   if(!name) return '';
   name = name.trim();
@@ -90,37 +88,36 @@ function splitNameToLastAndInitial(rawName){
   const firstTokens = parts.slice(0, parts.length - 1).join(' ');
   return { last: last, firstInitial: formatFirstInitial(firstTokens) };
 }
-
-/* minimal flag fallback (if you want the flagcdn logic, plug it back) */
-function makeFlagElem(countryInput){
-  const span = document.createElement('span');
-  span.className = 'flag';
-  span.textContent = countryInput ? String(countryInput).slice(0,2) : '';
-  span.style.fontSize='10px'; span.style.color='#666';
-  return span;
+function makeFlagElem(code){
+  const s = document.createElement('span');
+  s.className = 'flag';
+  if(!code) { s.textContent=''; return s; }
+  // try to keep 2/3 letter code as text (for offline demo)
+  s.textContent = String(code).toUpperCase().slice(0,3);
+  return s;
 }
-
-/* highlight function (used by onmouseover attrs) */
 function highlight_player(mode, className){
   const els = document.querySelectorAll('.' + className);
   if(mode === 1) els.forEach(e=>e.classList.add('highlight'));
   else els.forEach(e=>e.classList.remove('highlight'));
 }
 
-/* ---------- rendering ---------- */
+/* ---------------------------
+   RENDERING (copie du pattern demandé)
+   --------------------------- */
 async function render(){
-  // pour tester rapidement tu peux remplacer fetch par une variable JSON locale
-  // paramètres de layout (taille des lignes)
+  // layout constants tuned to match your example
   const winnerRowH = 20;
-  const scoreRowH  = 18;
+  const scoreRowH  = 20;
   const loserRowH  = 20;
-  const matchBlockH = winnerRowH + scoreRowH + loserRowH; // bloc logique
-  const verticalGapBetweenBlocks = 18; // espace entre blocs (évite écrasement)
-  const perMatchBlock = matchBlockH + verticalGapBetweenBlocks;
-  const cellWidth = 220;
-  const colGap = 40;
+  const matchBlockH = winnerRowH + scoreRowH + loserRowH; // 60
+  const gapBetweenBlocks = 20; // space so blocks aren't crushed
+  const perMatchBlock = matchBlockH + gapBetweenBlocks; // 80
+  const cellWidth = 180;
+  const colWidth = 130;
+  const colGap = 30;
 
-  // --- fetch JSON --- (on reprend ta logique: ?source & ?t & ?year)
+  // fetch JSON like in your original code (?source & ?t & ?year)
   const params = new URLSearchParams(location.search);
   const source = (params.get('source') || 'wta').toLowerCase();
   const id = params.get('t') || params.get('id') || '';
@@ -130,48 +127,49 @@ async function render(){
     document.getElementById('bracketContainer').innerHTML = '<div style="padding:12px;color:#666">Missing tournament id or year. Use ?source=wta&t=528&year=2025</div>';
     return;
   }
+
   const path = `/data/tournaments/${source}_${id}_${year}.json`;
   let json;
-  try { const resp = await fetch(path); if(!resp.ok) throw new Error('JSON not found'); json = await resp.json(); }
-  catch(e){ document.getElementById('bracketContainer').innerHTML = '<div style="padding:12px;color:red">Erreur chargement JSON: '+e.message+'</div>'; console.error(e); return; }
+  try { const resp = await fetch(path); if(!resp.ok) throw new Error('JSON not found: ' + path); json = await resp.json(); }
+  catch(err){ document.getElementById('bracketContainer').innerHTML = '<div style="padding:12px;color:red">Error loading JSON: ' + err.message + '</div>'; console.error(err); return; }
 
   document.getElementById('tourney-title').textContent = json.meta?.tourney_name || (source.toUpperCase() + ' ' + id);
 
-  // collect matches by normalized round
-  function normRound(r){ if(!r) return 'Unknown'; r = String(r).trim().toUpperCase(); if(r==='F' || r.startsWith('FINAL')) return 'F'; if(r==='SF' || r.startsWith('SEMIF')) return 'SF'; if(r==='QF' || r.startsWith('QUART')) return 'QF'; return r; }
-  function isValidMatchId(mid){ if(!mid) return false; return /^[ML]S\d{3}$/i.test(String(mid).trim()); }
-  function matchNumber(mid){ if(!mid) return Number.MAX_SAFE_INTEGER; const m = String(mid).toUpperCase().match(/^[ML]S0*([0-9]+)/); if(m && m[1]) return parseInt(m[1],10); const d = String(mid).match(/\d+/); return d?parseInt(d[0],10):Number.MAX_SAFE_INTEGER; }
+  // rounds grouping and validation (reuse your match_id logic)
+  function norm(r){ if(!r) return 'Unknown'; r = r.trim(); const u = r.toUpperCase(); if(u==='F' || u.startsWith('FINAL')) return 'F'; if(u==='SF' || u.startsWith('SEMIF')) return 'SF'; if(u==='QF' || u.startsWith('QUART')) return 'QF'; return u; }
+  function isValidMatchId(mid){ if(!mid) return false; const s = String(mid).trim().toUpperCase(); return /^[ML]S\d{3}$/.test(s); }
+  function matchIdNumber(mid){ if(!mid) return Number.MAX_SAFE_INTEGER; const m = String(mid).toUpperCase().match(/^[ML]S0*([0-9]+)$/); if(m && m[1]) return parseInt(m[1], 10); const d = String(mid).match(/\d+/); return d ? parseInt(d[0], 10) : Number.MAX_SAFE_INTEGER; }
 
-  const rawMatches = (json.matches || []).map(m=>Object.assign({},m));
+  const rawMatches = (json.matches || []).map(m => Object.assign({}, m));
   const matches = rawMatches.filter(m => isValidMatchId(m.match_id));
   const groups = {};
-  matches.forEach(m => { const r = normRound(m.round); (groups[r] = groups[r]||[]).push(m); });
+  matches.forEach(m => { const r = norm(m.round || ''); (groups[r] = groups[r] || []).push(m); });
 
-  // sort rounds left->right by size
+  // sort rounds left->right by size (largest left)
   const rounds = Object.keys(groups).sort((a,b) => groups[b].length - groups[a].length);
 
   // container sizing
   let maxBlocks = 0;
-  rounds.forEach(r => maxBlocks = Math.max(maxBlocks, groups[r].length));
-  const containerHeight = Math.max(400, maxBlocks * perMatchBlock + 80);
+  rounds.forEach(r => { maxBlocks = Math.max(maxBlocks, groups[r].length); });
+  const containerHeight = Math.max(600, maxBlocks * perMatchBlock + 80);
   const container = document.getElementById('bracketContainer');
   container.style.position = 'relative';
   container.style.height = containerHeight + 'px';
   container.innerHTML = '';
 
-  // positionsByRound stocke pour chaque match: { winnerTop, center, matchRef }
+  // positionsByRound will hold { center, winnerTop, scoreTop, loserTop, matchRef }
   const positionsByRound = [];
 
   rounds.forEach((rnd, colIndex) => {
     const matchesInRound = groups[rnd].slice();
-    matchesInRound.sort((a,b) => matchNumber(a.match_id) - matchNumber(b.match_id));
+    matchesInRound.sort((a,b) => matchIdNumber(a.match_id) - matchIdNumber(b.match_id));
 
     const n = matchesInRound.length;
     const columnHeight = (n - 1) * perMatchBlock + matchBlockH + 20;
     const topOffset = Math.max(10, Math.round((containerHeight - columnHeight) / 2));
 
-    const prev = colIndex > 0 ? positionsByRound[colIndex - 1] : null;
-    const prevCount = prev ? prev.length : 0;
+    const prevPositions = colIndex > 0 ? positionsByRound[colIndex - 1] : null;
+    const prevCount = prevPositions ? prevPositions.length : 0;
     const currCount = matchesInRound.length;
 
     const thisPositions = [];
@@ -182,39 +180,40 @@ async function render(){
       if(colIndex === 0){
         winnerTop = topOffset + j * perMatchBlock;
       } else {
-        // map j -> block in previous round and average centers
+        // proportional mapping to prev round indices
         let startIndex = Math.floor(j * prevCount / currCount);
         let endIndex = Math.floor(((j+1) * prevCount) / currCount) - 1;
         if(endIndex < startIndex) endIndex = startIndex;
         if(startIndex >= prevCount) startIndex = prevCount - 1;
         if(endIndex >= prevCount) endIndex = prevCount - 1;
+        // average centers of prev matches feeding this match
         let sum = 0, cnt = 0;
         for(let k = startIndex; k <= endIndex; k++){
-          if(prev[k]){ sum += prev[k].center; cnt++; }
+          if(prevPositions[k]){ sum += prevPositions[k].center; cnt++; }
         }
         if(cnt === 0) winnerTop = topOffset + j * perMatchBlock;
         else {
-          // center of child match = average center from previous; convert center -> winnerTop
           const avgCenter = Math.round(sum / cnt);
           winnerTop = avgCenter - Math.floor(matchBlockH / 2);
         }
       }
 
-      const scoreTop = winnerTop + winnerRowH; // score is directly beneath winner (after the border)
+      const scoreTop = winnerTop + winnerRowH;
       const loserTop = scoreTop + scoreRowH;
-      const center = winnerTop + Math.round(matchBlockH/2);
+      const center = winnerTop + Math.round(matchBlockH / 2);
 
       thisPositions.push({ winnerTop, scoreTop, loserTop, center, matchRef: m });
 
-      const left = colIndex * (cellWidth + colGap);
+      // draw rows in DOM
+      const left = colIndex * (colWidth + colGap);
 
-      // classes for highlight
+      // classes for hover highlight
       const wId = m.player_id_winner || ('pwin_'+colIndex+'_'+j);
       const lId = m.player_id_loser  || ('plos_'+colIndex+'_'+j);
       const wClass = 'j_' + String(wId);
       const lClass = 'j_' + String(lId);
 
-      // WINNER row (with border-bottom = barre)
+      // WINNER row (with bottom border = the horizontal bar under name)
       const wDiv = document.createElement('div');
       wDiv.className = wClass + ' match-row player-row winner';
       wDiv.style.position = 'absolute';
@@ -225,16 +224,14 @@ async function render(){
       wDiv.setAttribute('onmouseover', `highlight_player(1,'${wClass}'); highlight_player(1,'${lClass}');`);
       wDiv.setAttribute('onmouseout',  `highlight_player(2,'${wClass}'); highlight_player(2,'${lClass}');`);
 
-      // seed
+      // seed / flag / name
       const wseedRaw = m.winner_seed || m.winnerSeed || '';
       const wseed = formatSeed(wseedRaw);
       const seedNode = document.createElement('div');
       if(wseed && /^\d+$/.test(wseed)){ seedNode.className='seed-num'; seedNode.textContent = wseed; }
       else { seedNode.className='seed-text'; seedNode.innerHTML = (wseed? wseed : '\u00A0'); }
       wDiv.appendChild(seedNode);
-      // flag
       wDiv.appendChild(makeFlagElem(m.winner_country || m.winner_nationality || m.winner_country_code || ''));
-      // name
       const wname = m.winner_player_name || m.winner_name || '';
       const { last: wlast, firstInitial: wfirstInitial } = splitNameToLastAndInitial(wname);
       const wA = document.createElement('a');
@@ -245,7 +242,7 @@ async function render(){
       wDiv.appendChild(wA);
       container.appendChild(wDiv);
 
-      // SCORE row (directly below winner's border)
+      // SCORE row (immediately under the horizontal bar)
       const sDiv = document.createElement('div');
       sDiv.className = wClass + ' ' + lClass + ' score-row';
       sDiv.style.position = 'absolute';
@@ -276,9 +273,7 @@ async function render(){
       if(lseed && /^\d+$/.test(lseed)){ seedNode2.className='seed-num'; seedNode2.textContent = lseed; }
       else { seedNode2.className='seed-text'; seedNode2.innerHTML = (lseed? lseed : '\u00A0'); }
       lDiv.appendChild(seedNode2);
-
       lDiv.appendChild(makeFlagElem(m.loser_country || m.loser_nationality || m.loser_country_code || ''));
-
       const lname = m.loser_player_name || m.loser_name || '';
       if(!lname || /^BYE$/i.test(lname)){
         const byeSpan = document.createElement('span'); byeSpan.className='bye'; byeSpan.textContent='BYE'; lDiv.appendChild(byeSpan);
@@ -292,6 +287,67 @@ async function render(){
         lDiv.appendChild(lA);
       }
       container.appendChild(lDiv);
+
+      // DRAW CONNECTORS (if not the leftmost column)
+      // strategy: draw horizontal segments from each feeding prev.center to midX,
+      //           vertical segment at midX between min and max prev.center,
+      //           horizontal from midX to this match's center (a short segment)
+      if(colIndex > 0 && prevPositions && prevPositions.length){
+        // map range start/end used earlier (we recompute)
+        let startIndex = Math.floor(j * prevCount / currCount);
+        let endIndex = Math.floor(((j+1) * prevCount) / currCount) - 1;
+        if(endIndex < startIndex) endIndex = startIndex;
+        if(startIndex >= prevCount) startIndex = prevCount - 1;
+        if(endIndex >= prevCount) endIndex = prevCount - 1;
+
+        const prevLeftCol = (colIndex - 1) * (colWidth + colGap);
+        const prevRightX = prevLeftCol + cellWidth; // where previous column ends
+        const midX = left - Math.round(colGap / 2);  // vertical axis approx between columns
+
+        // gather prev centers & draw horizontal from prevRightX -> midX at each prev center
+        let minC = Number.MAX_SAFE_INTEGER, maxC = -1;
+        for(let k = startIndex; k <= endIndex; k++){
+          const p = prevPositions[k];
+          if(!p) continue;
+          const y = p.center;
+          minC = Math.min(minC, y);
+          maxC = Math.max(maxC, y);
+          const w = midX - prevRightX;
+          if(w > 0){
+            const hline = document.createElement('div');
+            hline.className = 'connector h';
+            hline.style.top = (y) + 'px';
+            hline.style.left = prevRightX + 'px';
+            hline.style.width = w + 'px';
+            hline.style.height = '1px';
+            container.appendChild(hline);
+          }
+        }
+
+        if(minC <= maxC){
+          // vertical line at midX between minC and maxC
+          const vline = document.createElement('div');
+          vline.className = 'connector v';
+          vline.style.left = (midX) + 'px';
+          vline.style.top = (minC) + 'px';
+          vline.style.height = Math.max(1, (maxC - minC)) + 'px';
+          container.appendChild(vline);
+        }
+
+        // horizontal from midX -> this match's center (center Y)
+        const centerY = center;
+        const hx = left; // start of current column
+        const w2 = hx - midX;
+        if(w2 > 0){
+          const hline2 = document.createElement('div');
+          hline2.className = 'connector h';
+          hline2.style.top = (centerY) + 'px';
+          hline2.style.left = midX + 'px';
+          hline2.style.width = w2 + 'px';
+          hline2.style.height = '1px';
+          container.appendChild(hline2);
+        }
+      }
 
     }); // matchesInRound.forEach
 
