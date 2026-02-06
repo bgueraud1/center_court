@@ -1,8 +1,11 @@
-# parse_csvs.py (fixed: correct child mapping + absent-player BYE selection)
+# parse_csvs.py
+# Minimal parser + deterministic BYE insertion (global, no per-round heuristics)
 # Usage: python parse_csvs.py
 # Writes JSON into docs/data/tournaments/
 
-import csv, json, re
+import csv
+import json
+import re
 from pathlib import Path
 from collections import defaultdict
 from datetime import datetime
@@ -13,13 +16,45 @@ OUTPUT_DIR = ROOT / 'docs' / 'data' / 'tournaments'
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 IOC_ATP = ROOT / 'ioc_places_atp.json'
 
-# debug toggle: set to True to see insertion/logging details
-VERBOSE = True
+VERBOSE = True  # set False to silence logs
+# -- helper to parse ints that may be written like "56.0" or "56,0" --
+def parse_int_like(v):
+    """Return an int if v looks like an integer (e.g. '56', '56.0', 56.0), else None.
+    Accepts strings with commas as decimal separators, trims whitespace, and never raises.
+    """
+    if v is None:
+        return None
+    # preserve ints quickly
+    if isinstance(v, int):
+        return v
+    # convert floats safely
+    if isinstance(v, float):
+        try:
+            return int(v)
+        except Exception:
+            return None
+    s = str(v).strip()
+    if not s:
+        return None
+    # normalize comma decimal separator -> dot
+    s = s.replace(',', '.')
+    # if purely digits
+    if s.isdigit():
+        return int(s)
+    # try float conversion then int (will convert '56.0' -> 56)
+    try:
+        f = float(s)
+    except Exception:
+        return None
+    # If float is NaN/Inf, give up
+    if f != f or f in (float('inf'), float('-inf')):
+        return None
+    # Convert to int (we intentionally accept floats and truncate to int)
+    try:
+        return int(f)
+    except Exception:
+        return None
 
-# If True: after safe insertions, forcibly create synthetic BYE matches
-# for any remaining numeric IDs missing in their expected interval.
-# This ensures NO numeric MS/LS is missing, but may duplicate players.
-FORCE_FILL_REMAINING = True
 
 def read_csv_rows(path):
     with open(path, newline='', encoding='utf-8') as f:
@@ -33,27 +68,12 @@ if IOC_ATP.exists():
 else:
     ioc_atp = {}
 
-index = defaultdict(list)
-calendar_list = []
-
-def match_sort_key(m):
-    mid = m.get('match_id') or ''
-    mnum = re.sub(r'[^0-9]', '', mid) if mid else ''
-    return int(mnum) if mnum.isdigit() else 10**9
+id_suffix_re = re.compile(r'([A-Za-z]+)(\d+)$')
 
 def normalize_name(n):
     if not n:
         return ''
     return re.sub(r'\s+', ' ', str(n).strip()).lower()
-
-# === BYE insertion (robust) ===
-id_suffix_re = re.compile(r'([A-Za-z]+)(\d+)$')
-
-# keys to look for ids and names
-ID_KEYS = ('player_id_winner', 'player_id_loser', 'player_winner_id', 'player_loser_id', 'winner_id', 'loser_id',
-           'PlayerIDA', 'PlayerIDB', 'PlayerIDA2', 'PlayerIDB2')
-NAME_KEYS = ('winner_player_name', 'player_winner', 'winner', 'player_winner_name',
-             'loser_player_name', 'player_loser', 'loser', 'player_loser_name')
 
 def next_power_of_two(n):
     if not n or n < 1:
@@ -63,391 +83,254 @@ def next_power_of_two(n):
         p <<= 1
     return p
 
-def insert_missing_sequential_matches(groups, singles_draw_size=None):
+def match_sort_key(m):
+    mid = m.get('match_id') or ''
+    digits = re.sub(r'[^0-9]', '', mid)
+    return int(digits) if digits.isdigit() else 10**9
+
+# robust field extraction for different CSV flavors
+def build_match_record(row):
+    """Return normalized match dict from a CSV row with varying headers."""
+    # candidate lookup function
+    def first_present(*keys):
+        for k in keys:
+            v = row.get(k)
+            if v is not None and v != '':
+                return v
+        return ''
+
+    m = {
+        'match_id': first_present('match_id','match','event_id'),
+        'round': (first_present('round','round_name') or '').strip(),
+        'winner_player_name': first_present('winner_player_name','player_winner','winner','winner_player'),
+        'loser_player_name': first_present('loser_player_name','player_loser','loser','loser_player'),
+        'score_string': first_present('score_string','score','score_str'),
+        'player_id_winner': first_present('player_id_winner','player_winner_id','winner_id','PlayerIDA','PlayerIDA2','player_winner'),
+        'player_id_loser': first_present('player_id_loser','player_loser_id','loser_id','PlayerIDB','PlayerIDB2','player_loser'),
+        'winner_country': first_present('winner_country','country_winner','winner_country_code','country_a','country_b'),
+        'loser_country': first_present('loser_country','country_loser','loser_country_code'),
+        'winner_seed': first_present('winner_seed','seed_winner','seed_a'),
+        'loser_seed': first_present('loser_seed','seed_loser','seed_b')
+    }
+    return m
+
+def insert_byes_global(matches_list, singles_draw_size=None):
     """
-    Insert synthetic BYE matches for missing numeric match_ids for prefixes like MS/LS.
-
-    Two phases:
-    1) Conservative insertion: only when we can identify the child match and exactly one
-       of the child players is present in the current round — then the BYE belongs to the other (absent) player.
-    2) (Optional) Forced fill of any remaining numeric gaps, preferring the absent sibling logic when possible.
+    Insert BYE matches globally for missing numeric indices per prefix.
+    Algorithm EXACTLY as requested by the user (no round partitioning):
+      - find missing XXX for each prefix (expected 1..P-1 if singles_draw_size given else min..max)
+      - for each missing n:
+          child = n // 2  => find child match (prefix+child) globally
+          sibling = n+1 if n even else n-1 => find sibling (prefix+sibling) globally
+          if child exists:
+            find child players (p1,p2)
+            if sibling exists and exactly one of p1/p2 appears in sibling:
+                BYE winner = the other child player
+            elif sibling not found but one of p1/p2 appears in any existing match (global presence):
+                BYE winner = the other child player
+            else:
+                BYE winner = UNKNOWN ('XXXX')
+          else:
+            BYE winner = UNKNOWN ('XXXX')
+      - insert synthetic match with match_id prefix+zero_padded(n), loser 'BYE'
     """
-    rounds = sorted(groups.keys(), key=lambda k: len(groups[k]), reverse=True)
-    if len(rounds) < 2:
-        return
+    # Build lookup maps
+    id_map = {}  # match_id -> match dict
+    prefix_nums = defaultdict(set)  # prefix -> set(nums present)
+    prefix_width = defaultdict(int)  # prefix -> max width seen
 
-    expected_global_max = None
-    P = None
-    if singles_draw_size and isinstance(singles_draw_size, int):
-        np2 = next_power_of_two(singles_draw_size)
-        if np2:
-            expected_global_max = np2 - 1  # e.g., draw 28 -> next_pow2=32 -> expect 1..31
-            P = np2
-            if VERBOSE:
-                print(f"[insert_missing] singles_draw_size={singles_draw_size} -> next_pow2={np2}, expected ids 1..{expected_global_max}")
+    for m in matches_list:
+        mid = m.get('match_id') or ''
+        id_map[mid] = m
+        mm = id_suffix_re.search(mid)
+        if mm:
+            pref = mm.group(1)
+            num = int(mm.group(2))
+            prefix_nums[pref].add(num)
+            prefix_width[pref] = max(prefix_width[pref], len(mm.group(2)))
 
-    remaining_missing = defaultdict(lambda: defaultdict(list))  # store ids not resolved in conservative pass
+    # determine prefixes to process (only those with letter prefix like MS, LS)
+    prefixes = list(prefix_nums.keys())
+    if VERBOSE:
+        print("[GLOBAL BYE] prefixes found:", prefixes)
 
-    for idx in range(len(rounds) - 1):
-        cur_key = rounds[idx]
-        next_key = rounds[idx + 1]
-        cur_matches = groups.get(cur_key, [])[:]  # working copy
-        next_matches = groups.get(next_key, [])[:]
-        if not cur_matches or not next_matches:
+    # build global presence sets (all player ids and names appearing anywhere)
+    global_ids = set()
+    global_names = set()
+    for m in matches_list:
+        pw = m.get('player_id_winner') or ''
+        pl = m.get('player_id_loser') or ''
+        if pw:
+            global_ids.add(str(pw))
+        if pl:
+            global_ids.add(str(pl))
+        wn = m.get('winner_player_name') or ''
+        ln = m.get('loser_player_name') or ''
+        if wn:
+            global_names.add(normalize_name(wn))
+        if ln:
+            global_names.add(normalize_name(ln))
+
+    # iterate prefixes
+    to_insert = []  # synthetic matches to append
+    for pref in prefixes:
+        nums = sorted(prefix_nums[pref])
+        if not nums:
             continue
 
-        # maps for next round matches
-        next_map = {}
-        child_num_map = {}
-        child_nums = set()
-        for nm in next_matches:
-            mid = nm.get('match_id') or ''
-            m = id_suffix_re.search(mid)
-            if m:
-                prefix = m.group(1)
-                num = int(m.group(2))
-                next_map[(prefix, num)] = nm
-                if num not in child_num_map:
-                    child_num_map[num] = nm
-                child_nums.add(num)
-
-        # bucket current round matches by prefix (MS, LS, etc.)
-        cur_prefix_buckets = defaultdict(list)
-        for cm in cur_matches:
-            mid = cm.get('match_id') or ''
-            m = id_suffix_re.search(mid)
-            if m:
-                cur_prefix_buckets[m.group(1)].append(cm)
-            else:
-                cur_prefix_buckets[''].append(cm)
-
-        if VERBOSE:
-            print(f"[insert_missing] round='{cur_key}' prefixes found: {list(cur_prefix_buckets.keys())}")
-
-        added_any_round = False
-
-        for prefix_used, bucket in cur_prefix_buckets.items():
-            if not bucket:
-                continue
-
-            # present numeric ids and width
-            nums_present = set()
-            num_width = 0
-            for cm in bucket:
-                mid = cm.get('match_id') or ''
-                m = id_suffix_re.search(mid)
-                if m and m.group(1) == prefix_used:
-                    try:
-                        nums_present.add(int(m.group(2)))
-                        num_width = max(num_width, len(m.group(2)))
-                    except Exception:
-                        pass
-
-            if not nums_present:
-                continue
-
-            # expected numeric interval for this round (based on P if available)
+        # expected interval
+        if singles_draw_size and isinstance(singles_draw_size, int):
+            P = next_power_of_two(singles_draw_size)
             if P:
-                i = idx
-                min_n = P // (2 ** (i + 1))
-                max_n = (P // (2 ** i)) - 1
+                min_n = 1
+                max_n = P - 1
             else:
-                if child_nums:
-                    min_n = 2 * min(child_nums)
-                    max_n = 2 * max(child_nums) + 1
-                else:
-                    min_n = min(nums_present)
-                    max_n = max(nums_present)
+                min_n = min(nums)
+                max_n = max(nums)
+        else:
+            min_n = min(nums)
+            max_n = max(nums)
 
-            if expected_global_max is not None:
-                min_n = max(1, min_n)
-                max_n = min(expected_global_max, max_n)
+        # list missing
+        missing = [n for n in range(min_n, max_n + 1) if n not in prefix_nums[pref]]
+        if not missing:
+            continue
 
-            if VERBOSE:
-                print(f"[insert_missing] prefix={prefix_used!r} present_count={len(nums_present)} expected_range={min_n}..{max_n} num_width={num_width}")
+        width = prefix_width.get(pref) or 3
 
-            added_any_prefix = False
-
-            # build sets of ids/names already present in current round
-            present_ids = set()
-            present_names = set()
-            for pm in bucket:
-                for k in ID_KEYS:
-                    v = pm.get(k)
-                    if v:
-                        present_ids.add(str(v))
-                for nk in NAME_KEYS:
-                    nv = pm.get(nk)
-                    if nv:
-                        present_names.add(normalize_name(nv))
-
-            # iterate expected numbers and insert missing ones
-            for n in range(min_n, max_n + 1):
-                if n in nums_present:
-                    continue
-
-                # CORRECT mapping: child number is floor(n/2) -> parents 2*c and 2*c+1 feed child c
-                child_num = n // 2
-                if child_num < 1:
-                    continue
-
-                # try find child by prefix/num then fallback by num
-                child_match = next_map.get((prefix_used, child_num)) if prefix_used else None
-                if not child_match:
-                    child_match = child_num_map.get(child_num)
-
-                # fallback: try to find a next_match where exactly one child player is already present
-                if not child_match:
-                    for cand in next_matches:
-                        cand_w_id = cand.get('player_id_winner') or cand.get('winner_id') or cand.get('player_winner_id') or ''
-                        cand_l_id = cand.get('player_id_loser') or cand.get('loser_id') or cand.get('player_loser_id') or ''
-                        cand_w_name = None
-                        cand_l_name = None
-                        for nk in NAME_KEYS:
-                            if not cand_w_name:
-                                cand_w_name = cand.get(nk) or cand_w_name
-                            if not cand_l_name:
-                                cand_l_name = cand.get(nk) or cand_l_name
-                        cand_w_name = cand_w_name or ''
-                        cand_l_name = cand_l_name or ''
-                        cand_w_present = (cand_w_id and str(cand_w_id) in present_ids) or (cand_w_name and normalize_name(cand_w_name) in present_names)
-                        cand_l_present = (cand_l_id and str(cand_l_id) in present_ids) or (cand_l_name and normalize_name(cand_l_name) in present_names)
-                        if cand_w_present ^ cand_l_present:
-                            child_match = cand
-                            if VERBOSE:
-                                print(f"[insert_missing] fallback matched child for expected n={n}: child_num={child_num}, cand_mid={cand.get('match_id')}")
-                            break
-
-                if not child_match:
-                    remaining_missing[cur_key][prefix_used].append(n)
-                    if VERBOSE:
-                        print(f"[insert_missing] no child for expected n={n} (child_num={child_num}) -> will attempt later")
-                    continue
-
-                # extract child players
-                w_id = child_match.get('player_id_winner') or child_match.get('winner_id') or child_match.get('player_winner_id') or ''
-                w_name = child_match.get('winner_player_name') or child_match.get('winner') or ''
-                l_id = child_match.get('player_id_loser') or child_match.get('loser_id') or child_match.get('player_loser_id') or ''
-                l_name = child_match.get('loser_player_name') or child_match.get('loser') or ''
-
-                # determine which child players are present in current round
-                w_present = False
-                l_present = False
-                if w_id and str(w_id) in present_ids:
-                    w_present = True
-                elif w_name and normalize_name(w_name) in present_names:
-                    w_present = True
-                if l_id and str(l_id) in present_ids:
-                    l_present = True
-                elif l_name and normalize_name(l_name) in present_names:
-                    l_present = True
-
-                # safe insertion only if exactly one of the two child players is present
-                if (w_present and l_present) or ((not w_present) and (not l_present)):
-                    remaining_missing[cur_key][prefix_used].append(n)
-                    if VERBOSE:
-                        print(f"[insert_missing] skipping n={n} because w_present={w_present}, l_present={l_present} (will attempt later)")
-                    continue
-
-                # **CORRECTED RULE**:
-                # the player present has actually played in this round (no bye),
-                # so the BYE belongs to the other (absent) player -> that absent player is the synthetic winner.
-                synth_winner_id = ''
-                synth_winner_name = ''
-                synth_winner_country = ''
-                synth_winner_seed = ''
-                if w_present and not l_present:
-                    # winner present -> loser absent -> loser had the BYE and should be inserted as winner
-                    synth_winner_id = l_id or ''
-                    synth_winner_name = l_name or ''
-                    synth_winner_country = child_match.get('loser_country') or ''
-                    synth_winner_seed = child_match.get('loser_seed') or ''
-                elif l_present and not w_present:
-                    # loser present -> winner absent -> winner had the BYE and should be inserted
-                    synth_winner_id = w_id or ''
-                    synth_winner_name = w_name or ''
-                    synth_winner_country = child_match.get('winner_country') or ''
-                    synth_winner_seed = child_match.get('winner_seed') or ''
-
-                # construct synthetic match id and entry
-                num_str = str(n).zfill(num_width or len(str(n)))
-                synth_id = f"{prefix_used}{num_str}" if prefix_used else str(n)
-
-                synth = {
-                    'match_id': synth_id,
-                    'round': cur_key,
-                    'winner_player_name': synth_winner_name,
-                    'loser_player_name': 'BYE',
-                    'score_string': '',
-                    'player_id_winner': synth_winner_id,
-                    'player_id_loser': 'XXXX',
-                    'winner_country': synth_winner_country or '',
-                    'loser_country': 'XXX',
-                    'winner_seed': synth_winner_seed or '',
-                    'loser_seed': ''
-                }
-
-                cur_matches.append(synth)
-                nums_present.add(n)
-                if synth_winner_id:
-                    present_ids.add(str(synth_winner_id))
-                elif synth_winner_name:
-                    present_names.add(normalize_name(synth_winner_name))
-
-                added_any_prefix = True
-                added_any_round = True
-                if VERBOSE:
-                    print(f"[insert] round={cur_key} inserted {synth_id} winner={synth_winner_name or synth_winner_id}")
-
-            # merge back sorted by numeric suffix
-            if added_any_prefix:
-                def cur_key_fn(m):
-                    mid = m.get('match_id') or ''
-                    mm = id_suffix_re.search(mid)
-                    if mm and mm.group(1) == prefix_used:
-                        try:
-                            return int(mm.group(2))
-                        except Exception:
-                            return 10**9
-                    return 10**9
-                cur_matches = sorted(cur_matches, key=cur_key_fn)
-                groups[cur_key] = cur_matches
-
-        if added_any_round and VERBOSE:
-            print(f"[insert_missing] finished round='{cur_key}', total now={len(groups[cur_key])}")
-
-    # ----- LAST-RESORT: force-fill remaining numeric ids if requested -----
-    if FORCE_FILL_REMAINING:
         if VERBOSE:
-            print("[insert_missing] FORCE_FILL_REMAINING is True -> attempting to fill remaining missing numeric IDs")
-        rounds_now = sorted(groups.keys(), key=lambda k: len(groups[k]), reverse=True)
-        for cur_key, prefixes in remaining_missing.items():
-            try:
-                cur_idx = rounds_now.index(cur_key)
-                next_key = rounds_now[cur_idx + 1]
-            except Exception:
-                next_key = None
-            next_matches = groups.get(next_key, []) if next_key else []
+            print(f"[GLOBAL BYE] prefix={pref} expected_range={min_n}..{max_n} present_count={len(nums)} missing={missing}")
 
-            # rebuild child_num_map for next_matches
-            child_num_map = {}
-            for nm in next_matches:
-                mid = nm.get('match_id') or ''
-                m = id_suffix_re.search(mid)
-                if m:
-                    try:
-                        num = int(m.group(2))
-                        child_num_map[num] = nm
-                    except Exception:
-                        pass
+        # process each missing n
+        for n in missing:
+            mid = f"{pref}{str(n).zfill(width)}"
+            if VERBOSE:
+                print("[MISSING]", mid)
 
-            cur_matches = groups.get(cur_key, [])[:]
-            for prefix_used, missing_list in prefixes.items():
-                num_width = 0
-                for cm in cur_matches:
-                    mid = cm.get('match_id') or ''
-                    m = id_suffix_re.search(mid)
-                    if m and m.group(1) == prefix_used:
-                        num_width = max(num_width, len(m.group(2)))
+            child_num = n // 2
+            child_mid = f"{pref}{str(child_num).zfill(width)}"
+            child = id_map.get(child_mid)
 
-                for n in missing_list:
-                    # skip if now present
-                    present_ids_nums = set()
-                    for cm in cur_matches:
-                        mid = cm.get('match_id') or ''
-                        m = id_suffix_re.search(mid)
-                        if m and m.group(1) == prefix_used:
-                            try:
-                                present_ids_nums.add(int(m.group(2)))
-                            except Exception:
-                                pass
-                    if n in present_ids_nums:
-                        continue
+            sibling_num = n + 1 if (n % 2 == 0) else n - 1
+            sibling_mid = f"{pref}{str(sibling_num).zfill(width)}"
+            sibling = id_map.get(sibling_mid)
 
-                    child_num = n // 2
-                    child_match = child_num_map.get(child_num)
-                    if not child_match and next_matches:
-                        child_match = next_matches[0]
+            chosen_name = ''
+            chosen_id = ''
 
-                    synth_winner_id = ''
-                    synth_winner_name = ''
-                    synth_winner_country = ''
-                    synth_winner_seed = ''
-                    if child_match:
-                        cw = child_match.get('winner_player_name') or child_match.get('winner') or ''
-                        cl = child_match.get('loser_player_name') or child_match.get('loser') or ''
-                        cw_id = child_match.get('player_id_winner') or child_match.get('winner_id') or ''
-                        cl_id = child_match.get('player_id_loser') or child_match.get('loser_id') or ''
+            if child:
+                # get child players
+                c_w_name = child.get('winner_player_name') or ''
+                c_l_name = child.get('loser_player_name') or ''
+                c_w_id = child.get('player_id_winner') or ''
+                c_l_id = child.get('player_id_loser') or ''
 
-                        # Prefer to pick the absent child player by inspecting sibling if available:
-                        sibling_num = n+1 if n % 2 == 0 else n-1
-                        sibling_mid = f"{prefix_used}{str(sibling_num).zfill(num_width or len(str(sibling_num)))}"
-                        sibling = None
-                        for cm in cur_matches:
-                            if cm.get('match_id') == sibling_mid:
-                                sibling = cm
-                                break
+                # helper to check if a player appears in a match object
+                def player_in_match(player_id, player_name, match_obj):
+                    if not match_obj:
+                        return False
+                    # check ids
+                    if player_id and (player_id == (match_obj.get('player_id_winner') or '') or player_id == (match_obj.get('player_id_loser') or '')):
+                        return True
+                    # check names
+                    pn = normalize_name(player_name)
+                    if pn and (pn == normalize_name(match_obj.get('winner_player_name') or '') or pn == normalize_name(match_obj.get('loser_player_name') or '')):
+                        return True
+                    return False
 
-                        if sibling:
-                            sib_names = {normalize_name(sibling.get('winner_player_name') or ''), normalize_name(sibling.get('loser_player_name') or '')}
-                            # if cw not in sibling but cl is in sibling -> choose cw (absent one)
-                            if cw and normalize_name(cw) not in sib_names and cl and normalize_name(cl) in sib_names:
-                                synth_winner_name = cw; synth_winner_id = cw_id
-                            elif cl and normalize_name(cl) not in sib_names and cw and normalize_name(cw) in sib_names:
-                                synth_winner_name = cl; synth_winner_id = cl_id
-                            else:
-                                # fallback: choose child winner if present
-                                if cw:
-                                    synth_winner_name = cw; synth_winner_id = cw_id
-                                elif cl:
-                                    synth_winner_name = cl; synth_winner_id = cl_id
+                # 1) if sibling exists and exactly one of the child players appears in sibling -> select the other
+                if sibling:
+                    in_w = player_in_match(c_w_id, c_w_name, sibling)
+                    in_l = player_in_match(c_l_id, c_l_name, sibling)
+                    if in_w ^ in_l:
+                        if in_w:
+                            chosen_name = c_l_name or ''
+                            chosen_id = c_l_id or ''
+                            if VERBOSE:
+                                print(f"[DECIDE] {mid}: sibling {sibling_mid} contains child-winner -> selecting child-loser {chosen_name or chosen_id}")
                         else:
-                            # no sibling found -> choose child winner if any
-                            if cw:
-                                synth_winner_name = cw; synth_winner_id = cw_id
-                            elif cl:
-                                synth_winner_name = cl; synth_winner_id = cl_id
-
-                        synth_winner_country = child_match.get('winner_country') or child_match.get('loser_country') or ''
-                        synth_winner_seed = child_match.get('winner_seed') or child_match.get('loser_seed') or ''
-                        if VERBOSE:
-                            print(f"[force_fill] filling {prefix_used}{str(n).zfill(num_width or len(str(n)))} from child {child_match.get('match_id')} (sibling {sibling_mid})")
+                            chosen_name = c_w_name or ''
+                            chosen_id = c_w_id or ''
+                            if VERBOSE:
+                                print(f"[DECIDE] {mid}: sibling {sibling_mid} contains child-loser -> selecting child-winner {chosen_name or chosen_id}")
                     else:
+                        # sibling exists but ambiguous: fall through to global-presence fallback
                         if VERBOSE:
-                            print(f"[force_fill] no child found for n={n}, inserting blank BYE")
-
-                    num_str = str(n).zfill(num_width or len(str(n)))
-                    synth_id = f"{prefix_used}{num_str}" if prefix_used else str(n)
-                    synth = {
-                        'match_id': synth_id,
-                        'round': cur_key,
-                        'winner_player_name': synth_winner_name,
-                        'loser_player_name': 'BYE',
-                        'score_string': '',
-                        'player_id_winner': synth_winner_id or 'XXXX',
-                        'player_id_loser': 'XXXX',
-                        'winner_country': synth_winner_country or '',
-                        'loser_country': 'XXX',
-                        'winner_seed': synth_winner_seed or '',
-                        'loser_seed': ''
-                    }
-                    cur_matches.append(synth)
+                            print(f"[DECIDE] {mid}: sibling {sibling_mid} ambiguous (in_w={in_w}, in_l={in_l}) -> try global presence fallback")
+                else:
                     if VERBOSE:
-                        print(f"[force_fill] inserted {synth_id} winner={synth_winner_name or synth_winner_id or 'UNKNOWN'}")
+                        print(f"[DECIDE] {mid}: sibling {sibling_mid} not found -> try global presence fallback")
 
-            groups[cur_key] = cur_matches
+                # 2) fallback: if one child player is present anywhere globally (and the other not), pick the other as BYE winner
+                if not chosen_id:
+                    w_present_glob = (c_w_id and str(c_w_id) in global_ids) or (c_w_name and normalize_name(c_w_name) in global_names)
+                    l_present_glob = (c_l_id and str(c_l_id) in global_ids) or (c_l_name and normalize_name(c_l_name) in global_names)
+                    if w_present_glob ^ l_present_glob:
+                        if w_present_glob:
+                            chosen_name = c_l_name or ''
+                            chosen_id = c_l_id or ''
+                            if VERBOSE:
+                                print(f"[DECIDE] {mid}: global presence w_present -> selecting child-loser {chosen_name or chosen_id}")
+                        else:
+                            chosen_name = c_w_name or ''
+                            chosen_id = c_w_id or ''
+                            if VERBOSE:
+                                print(f"[DECIDE] {mid}: global presence l_present -> selecting child-winner {chosen_name or chosen_id}")
+                    else:
+                        # unable to decide -> UNKNOWN
+                        if VERBOSE:
+                            print(f"[DECIDE] {mid}: cannot decide from sibling/global presence -> UNKNOWN BYE")
+                        chosen_name = ''
+                        chosen_id = 'XXXX'
+            else:
+                if VERBOSE:
+                    print(f"[DECIDE] {mid}: child {child_mid} not found -> UNKNOWN BYE")
+                chosen_name = ''
+                chosen_id = 'XXXX'
 
-# === end insertion logic ===
+            # set round field: prefer sibling.round (current round) if available, else child.round, else empty
+            chosen_round = ''
+            if sibling and sibling.get('round'):
+                chosen_round = sibling.get('round')
+            elif child and child.get('round'):
+                chosen_round = child.get('round')
+            else:
+                chosen_round = ''
 
-def flatten_groups_to_matches(groups):
-    rounds = sorted(groups.keys(), key=lambda k: len(groups[k]), reverse=True)
-    out = []
-    for r in rounds:
-        out.extend(groups[r])
-    return out
+            # construct synthetic match
+            synth = {
+                'match_id': mid,
+                'round': chosen_round,
+                'winner_player_name': chosen_name,
+                'loser_player_name': 'BYE',
+                'score_string': '',
+                'player_id_winner': chosen_id or '',
+                'player_id_loser': 'XXXX',
+                'winner_country': '',
+                'loser_country': '',
+                'winner_seed': '',
+                'loser_seed': ''
+            }
 
-# --- main loop (kept as you requested) ---
-for kind in ('atp_matches',):
+            # append to insertion list and update maps so subsequent missing can see it
+            to_insert.append(synth)
+            id_map[mid] = synth
+            prefix_nums[pref].add(n)
+            global_ids.add(str(chosen_id)) if chosen_id else None
+            if chosen_name:
+                global_names.add(normalize_name(chosen_name))
+
+    # finally append synthetic matches to original list
+    if to_insert:
+        if VERBOSE:
+            print(f"[GLOBAL BYE] inserting {len(to_insert)} synthetic BYE matches")
+        matches_list.extend(to_insert)
+
+# --- Main processing loop (kept 'test' as requested) ---
+index = defaultdict(list)
+calendar_list = []
+
+for kind in ('atp_matches','wta_matches'):
     d = MATCHES_DIR / kind
     if not d.exists():
         continue
@@ -489,13 +372,13 @@ for kind in ('atp_matches',):
             'level': first.get('level') or '',
             'prize_money': first.get('prize_money') or '',
             'prize_money_currency': first.get('prize_money_currency') or '',
-            'singles_draw_size': int(first.get('singles_draw_size')) if first.get('singles_draw_size') and str(first.get('singles_draw_size')).isdigit() else None,
+            'singles_draw_size': parse_int_like(first.get('singles_draw_size')),
             'city': first.get('city') or '',
             'country': first.get('country') or '',
             'start_date': start_date
         }
 
-        # Fill ATP missing info from ioc.json
+        # fill ATP meta from ioc if available
         if meta['source'] == 'ATP' and tourney_id in ioc_atp:
             years_map = ioc_atp.get(tourney_id, {})
             ystr = str(year)
@@ -508,42 +391,24 @@ for kind in ('atp_matches',):
                 if len(place) >= 3 and not meta['tourney_title']:
                     meta['tourney_title'] = place[2]
 
+        # build normalized matches list
         matches = []
         for r in rows:
-            m = {
-                'match_id': r.get('match_id') or r.get('match') or r.get('event_id') or '',
-                'round': (r.get('round') or r.get('round_name') or '').strip(),
-                'winner_player_name': r.get('winner_player_name') or r.get('player_winner') or r.get('winner') or r.get('winner_player_name') or '',
-                'loser_player_name': r.get('loser_player_name') or r.get('player_loser') or r.get('loser') or r.get('loser_player_name') or '',
-                'score_string': r.get('score_string') or r.get('score') or r.get('score_str') or '',
-                'player_id_winner': r.get('player_id_winner') or r.get('player_winner_id') or r.get('winner_id') or r.get('PlayerIDA') or r.get('PlayerIDA2') or '',
-                'player_id_loser': r.get('player_id_loser') or r.get('player_loser_id') or r.get('loser_id') or r.get('PlayerIDB') or r.get('PlayerIDB2') or '',
-                'winner_country': r.get('winner_country') or r.get('country_winner') or r.get('winner_country_code') or r.get('country_a') or r.get('country_b') or '',
-                'loser_country': r.get('loser_country') or r.get('country_loser') or r.get('loser_country_code') or '',
-                'winner_seed': r.get('winner_seed') or r.get('seed_winner') or r.get('seed_a') or r.get('seed_winner') or '',
-                'loser_seed': r.get('loser_seed') or r.get('seed_loser') or r.get('seed_b') or r.get('seed_loser') or ''
-            }
-            matches.append(m)
+            matches.append(build_match_record(r))
 
-        # group by round
-        groups = defaultdict(list)
-        for m in matches:
-            rk = m.get('round') or ''
-            groups[rk].append(m)
+        # insert BYE synthetic matches following EXACT algorithm requested (global)
+        insert_byes_global(matches, singles_draw_size=meta.get('singles_draw_size'))
 
-        # insert synthetic BYEs
-        insert_missing_sequential_matches(groups, singles_draw_size=meta.get('singles_draw_size'))
+        # sort matches for deterministic output
+        final_sorted = sorted(matches, key=match_sort_key)
 
-        # flatten & sort
-        final_matches = flatten_groups_to_matches(groups)
-        final_matches_sorted = sorted(final_matches, key=match_sort_key)
-
-        out = {'meta': meta, 'matches': final_matches_sorted}
+        out = {'meta': meta, 'matches': final_sorted}
         out_name = f"{meta['source'].lower()}_{tourney_id}_{year}.json"
         out_path = OUTPUT_DIR / out_name
         with open(out_path, 'w', encoding='utf-8') as f:
             json.dump(out, f, ensure_ascii=False, indent=2)
 
+        # update index and calendar
         index_key = f"{meta['source'].lower()}_{tourney_id}"
         index[index_key].append(int(year) if str(year).isdigit() else year)
         calendar_list.append({
