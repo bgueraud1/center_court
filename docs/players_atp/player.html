@@ -295,11 +295,67 @@ function fetchJsonSafe(url){
   if(combined.last_appearance) attrs.appendChild(makeAttr('Last appearance', combined.last_appearance));
 
   // image
+    // image (robust: check manifest first then fallback to combined.image)
   const imageWrap = document.getElementById('player-image');
   imageWrap.innerHTML = '';
-  if(combined.image){
-    const img = document.createElement('img'); img.src = combined.image; img.alt = combined.name; img.loading = 'lazy'; imageWrap.appendChild(img);
-  } else imageWrap.innerHTML = '<div class="sub">No image</div>';
+
+  async function findImageFromManifest(pid, slug) {
+    try {
+      const MANIFEST_URL = '/index/players_atp_images_manifest.json';
+      const r = await fetch(MANIFEST_URL);
+      if(!r.ok) return null;
+      const arr = await r.json();
+      if(!Array.isArray(arr)) return null;
+      // build quick maps (once) - keep simple linear search since manifest is small
+      // try exact player_id match
+      if(pid) {
+        const byId = arr.find(it => it.player_id && String(it.player_id) === String(pid));
+        if(byId && byId.url) return byId;
+      }
+      // try slug exact match
+      if(slug) {
+        const slugLc = String(slug).toLowerCase();
+        const bySlug = arr.find(it => it.slug && it.slug.toLowerCase() === slugLc);
+        if(bySlug && bySlug.url) return bySlug;
+      }
+      // try public_id patterns: players_atp/<pid>-<slug>, players_atp/<slug>, players_atp/<pid>
+      const candidates = [];
+      if(pid && slug) candidates.push(`players_atp/${pid}-${slug}`);
+      if(slug) candidates.push(`players_atp/${slug}`);
+      if(pid) candidates.push(`players_atp/${pid}`);
+      for(const c of candidates) {
+        const found = arr.find(it => it.public_id === c || (it.public_id && it.public_id.toLowerCase() === c.toLowerCase()));
+        if(found && found.url) return found;
+      }
+      return null;
+    } catch(e) {
+      console.warn('manifest lookup failed', e);
+      return null;
+    }
+  }
+
+  // try manifest first
+  (async () => {
+    const pid = combined.player_id || found.player_id || '';
+    const slugVal = (combined.slug || found.slug || '').toString();
+    const manifestEntry = await findImageFromManifest(pid, slugVal);
+    if(manifestEntry && manifestEntry.url){
+      const img = document.createElement('img');
+      img.src = manifestEntry.url;
+      img.alt = combined.name || '';
+      img.loading = 'lazy';
+      imageWrap.appendChild(img);
+      return;
+    }
+    // fallback: if combined.image exists (legacy), use it
+    if(combined.image){
+      const img = document.createElement('img'); img.src = combined.image; img.alt = combined.name || ''; img.loading = 'lazy'; imageWrap.appendChild(img);
+      return;
+    }
+    // no image
+    imageWrap.innerHTML = '<div class="sub">No image</div>';
+  })();
+
 
   // Matches by year (client)
   const matchesContainer = document.getElementById('matches-container');
