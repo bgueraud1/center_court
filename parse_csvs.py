@@ -13,6 +13,9 @@ OUTPUT_DIR = ROOT / 'docs' / 'data' / 'tournaments'
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 IOC_ATP = ROOT / 'ioc_places_atp.json'
 
+# debug toggle
+VERBOSE = False
+
 def read_csv_rows(path):
     with open(path, newline='', encoding='utf-8') as f:
         reader = csv.DictReader(f)
@@ -38,35 +41,38 @@ def normalize_name(n):
         return ''
     return re.sub(r'\s+', ' ', str(n).strip()).lower()
 
-def player_present_in_matches(pid, name, matches_list):
-    """Return True if player (by id or by normalized name) occurs in any match in matches_list."""
-    nnorm = normalize_name(name)
-    for pm in matches_list:
-        # check ids for
-        for k in ('player_id_winner', 'player_id_loser', 'player_winner_id', 'player_loser_id', 'winner_id', 'loser_id'):
-            if pm.get(k) and pid and str(pm.get(k)) == str(pid):
-                return True
-        # check names
-        wn = pm.get('winner_player_name') or pm.get('winner') or pm.get('player_winner') or pm.get('player_winner_name')
-        ln = pm.get('loser_player_name') or pm.get('loser') or pm.get('player_loser') or pm.get('player_loser_name')
-        if nnorm and (normalize_name(wn) == nnorm or normalize_name(ln) == nnorm):
-            return True
-    return False
-
-# === Nouveau : détecter interruptions LS/MS et insérer match factice BYE ===
+# === Nouveau : détecter interruptions LS/MS et insérer match factice BYE (optimisé) ===
 id_suffix_re = re.compile(r'([A-Za-z]+)(\d+)$')
 
+# keys to look for ids and names (centralized to avoid repeated lists)
+ID_KEYS = ('player_id_winner', 'player_id_loser', 'player_winner_id', 'player_loser_id', 'winner_id', 'loser_id', 'player_id_winner', 'player_id_loser')
+NAME_KEYS = ('winner_player_name', 'player_winner', 'winner', 'player_winner_name',
+             'loser_player_name', 'player_loser', 'loser', 'player_loser_name')
 
+def extract_ids_and_names_from_row(r):
+    """Return sets (ids, names) found in a single match row."""
+    ids = set()
+    names = set()
+    # ids
+    for k in ID_KEYS:
+        v = r.get(k)
+        if v:
+            ids.add(str(v))
+    # winner name
+    wn = r.get('winner_player_name') or r.get('winner') or r.get('player_winner') or r.get('player_winner_name')
+    ln = r.get('loser_player_name') or r.get('loser') or r.get('player_loser') or r.get('player_loser_name')
+    if wn:
+        names.add(normalize_name(wn))
+    if ln:
+        names.add(normalize_name(ln))
+    return ids, names
 
 def insert_missing_sequential_matches(groups):
     """
-    Pour chaque paire de rounds consécutifs (left -> right), détecte les trous
-    dans la numérotation des match_id de la round de gauche (ex: MS001..MS032).
-    Pour chaque numéro manquant N, calcule child = ceil(N/2) et cherche le match
-    correspondant dans le round de droite. Si trouvé, regarde les deux joueurs du
-    match enfant et identifie lequel des deux n'apparaît pas dans la round de gauche.
-    Pour ce joueur absent, insère un match synthétique (victoire vs BYE) dans la
-    round de gauche avec les champs demandés.
+    Optimized insertion of synthetic BYE matches to fill numeric holes.
+    - Precompute present ids/names per round for O(1) membership checks.
+    - Build a map child_num -> child_match for fast lookup.
+    - Iterate expected numeric interval computed from child numbers.
     """
     rounds = sorted(groups.keys(), key=lambda k: len(groups[k]), reverse=True)
     if len(rounds) < 2:
@@ -75,13 +81,15 @@ def insert_missing_sequential_matches(groups):
     for idx in range(len(rounds) - 1):
         cur_key = rounds[idx]
         next_key = rounds[idx + 1]
-        cur_matches = groups.get(cur_key, [])[:]  # copie de travail
+        cur_matches = groups.get(cur_key, [])[:]  # travail sur copie
         next_matches = groups.get(next_key, [])[:]
         if not cur_matches or not next_matches:
             continue
 
-        # construire map des matchs du round suivant par (prefix, num)
+        # construire map des matchs du round suivant par (prefix, num) et une map num -> match
         next_map = {}
+        child_num_map = {}
+        child_nums = set()
         for nm in next_matches:
             mid = nm.get('match_id') or ''
             m = id_suffix_re.search(mid)
@@ -89,8 +97,12 @@ def insert_missing_sequential_matches(groups):
                 prefix = m.group(1)
                 num = int(m.group(2))
                 next_map[(prefix, num)] = nm
+                # child_num_map: si plusieurs préfixes existent, garder le premier (tolérance)
+                if num not in child_num_map:
+                    child_num_map[num] = nm
+                child_nums.add(num)
 
-        # retrouver le préfixe et la largeur des chiffres du round courant si possible
+        # récupérer préfixe et largeur chiffres du round courant (si possible)
         nums_present = set()
         prefix_used = None
         num_width = None
@@ -98,19 +110,48 @@ def insert_missing_sequential_matches(groups):
             mid = cm.get('match_id') or ''
             m = id_suffix_re.search(mid)
             if m:
-                prefix_used = m.group(1)
+                if not prefix_used:
+                    prefix_used = m.group(1)
                 num = int(m.group(2))
                 nums_present.add(num)
                 num_width = max(num_width or 0, len(m.group(2)))
 
-        if not nums_present or not prefix_used:
-            # si on ne peut pas déterminer, on ne modifie pas ce round
+        if not prefix_used:
+            # si on ne peut pas déterminer le préfixe, on ne modifie pas ce round
             continue
 
-        min_n = min(nums_present)
-        max_n = max(nums_present)
+        # Construire ensembles de recherche pour le round courant : ids et noms normalisés
+        present_ids = set()
+        present_names = set()
+        for pm in cur_matches:
+            # tirer ids/noms de façon robuste (comme extract_ids_and_names_from_row mais en inline pour perf)
+            for k in ID_KEYS:
+                v = pm.get(k)
+                if v:
+                    present_ids.add(str(v))
+            wn = pm.get('winner_player_name') or pm.get('winner') or pm.get('player_winner') or pm.get('player_winner_name')
+            ln = pm.get('loser_player_name') or pm.get('loser') or pm.get('player_loser') or pm.get('player_loser_name')
+            if wn:
+                present_names.add(normalize_name(wn))
+            if ln:
+                present_names.add(normalize_name(ln))
+
+        # Déterminer la plage attendue pour le round courant à partir du round enfant.
+        # Si on a les numéros enfant, l'intervalle attendu est :
+        # [2 * min(child_nums), 2 * max(child_nums) + 1]
+        if child_nums:
+            min_n = 2 * min(child_nums)
+            max_n = 2 * max(child_nums) + 1
+        else:
+            # fallback : s'appuyer sur ce qui est présent
+            if not nums_present:
+                continue
+            min_n = min(nums_present)
+            max_n = max(nums_present)
+
         added_any = False
 
+        # itérer sur la plage attendue (généralement petite : ex 16..31)
         for n in range(min_n, max_n + 1):
             if n in nums_present:
                 continue  # existant -> rien à faire
@@ -122,24 +163,31 @@ def insert_missing_sequential_matches(groups):
 
             # Chercher d'abord avec même préfixe
             child_match = next_map.get((prefix_used, child_num))
-            # si pas trouvé, tenter n'importe quel préfixe avec ce numéro (tolérance)
+            # sinon fallback rapide via child_num_map (O(1))
             if not child_match:
-                for (pfx, num), nm in next_map.items():
-                    if num == child_num:
-                        child_match = nm
-                        break
+                child_match = child_num_map.get(child_num)
+
             if not child_match:
                 continue  # on ne peut pas reconstruire sans le match enfant
 
-            # extraire joueurs du match enfant
+            # extraire joueurs du match enfant (winner/loser)
             w_id = child_match.get('player_id_winner') or child_match.get('winner_id') or child_match.get('player_winner_id') or ''
             w_name = child_match.get('winner_player_name') or child_match.get('winner') or ''
             l_id = child_match.get('player_id_loser') or child_match.get('loser_id') or child_match.get('player_loser_id') or ''
             l_name = child_match.get('loser_player_name') or child_match.get('loser') or ''
 
-            # déterminer lequel des deux n'apparaît pas (ou apparait moins) dans cur_matches
-            w_present = player_present_in_matches(w_id, w_name, cur_matches)
-            l_present = player_present_in_matches(l_id, l_name, cur_matches)
+            # déterminer présence via sets (O(1))
+            w_present = False
+            l_present = False
+            if w_id and str(w_id) in present_ids:
+                w_present = True
+            elif w_name and normalize_name(w_name) in present_names:
+                w_present = True
+
+            if l_id and str(l_id) in present_ids:
+                l_present = True
+            elif l_name and normalize_name(l_name) in present_names:
+                l_present = True
 
             # si exactement l'un des deux est absent, on crée le match fictif où ce joueur "gagne" contre BYE
             synth_winner_id = ''
@@ -178,10 +226,17 @@ def insert_missing_sequential_matches(groups):
                 'loser_seed': ''
             }
 
-            # insérer (on ajoute puis on tri par numéro pour garder un ordre stable)
+            # insérer (on ajoute puis on marque la présence pour éviter doublons)
             cur_matches.append(synth)
             nums_present.add(n)
+            # mettre à jour sets pour ne pas recréer plusieurs fois pour même joueur
+            if synth_winner_id:
+                present_ids.add(str(synth_winner_id))
+            elif synth_winner_name:
+                present_names.add(normalize_name(synth_winner_name))
             added_any = True
+            if VERBOSE:
+                print(f"[insert] round={cur_key} inserted {synth_id} winner={synth_winner_name or synth_winner_id}")
 
         if added_any:
             # trier cur_matches par numéro extrait de match_id quand c'est possible
@@ -196,6 +251,7 @@ def insert_missing_sequential_matches(groups):
                 return 10**9
             cur_matches_sorted = sorted(cur_matches, key=cur_key_fn)
             groups[cur_key] = cur_matches_sorted
+# === fin du nouvel ajout ===
 
 def flatten_groups_to_matches(groups):
     """Return a flat list of matches by iterating groups in order of descending size (left->right)."""
@@ -290,13 +346,9 @@ for kind in ('atp_matches','wta_matches'):
             rk = m.get('round') or ''
             groups[rk].append(m)
 
-        # order rounds left->right (most matches at left)
-        rounds_order = sorted(groups.keys(), key=lambda k: len(groups[k]), reverse=True)
-
         # === APPEL: réparer interruptions séquentielles LS/MS en insérant match BYE ===
         insert_missing_sequential_matches(groups)
         # === FIN APPEL ===
-
 
         # flatten groups back into matches array in rounds order (left->right)
         final_matches = flatten_groups_to_matches(groups)
