@@ -27,134 +27,149 @@ else:
 index = defaultdict(list)
 calendar_list = []
 
+# utilities
+def extract_digits(s):
+    if not s:
+        return ''
+    m = re.sub(r'[^0-9]', '', str(s))
+    return m
+
 def match_sort_key(m):
     mid = m.get('match_id') or ''
-    mnum = re.sub(r'[^0-9]', '', mid) if mid else ''
-    return int(mnum) if mnum.isdigit() else 10**9
+    mnum = extract_digits(mid)
+    if mnum.isdigit():
+        return int(mnum)
+    # fallback: if match_id contains letters only, put after numeric
+    return 10**9
 
 def normalize_name(n):
     if not n:
         return ''
-    return re.sub(r'\s+', ' ', str(n).strip()).lower()
+    s = re.sub(r'\s+', ' ', str(n).strip())
+    return s.lower()
+
+def normalize_pid(pid):
+    if not pid:
+        return ''
+    return str(pid).strip().upper()
+
+def normalize_name_for_cmp(n):
+    if not n:
+        return ''
+    s = re.sub(r'[^a-z0-9\s]', '', str(n).lower())
+    s = re.sub(r'\s+', ' ', s).strip()
+    return s
 
 def player_present_in_matches(pid, name, matches_list):
     """Return True if player (by id or by normalized name) occurs in any match in matches_list."""
-    nnorm = normalize_name(name)
+    pid_norm = normalize_pid(pid)
+    name_norm = normalize_name_for_cmp(name)
     for pm in matches_list:
-        # check ids
-        for k in ('player_id_winner', 'player_id_loser', 'player_winner_id', 'player_loser_id', 'winner_id', 'loser_id'):
-            if pm.get(k) and pid and str(pm.get(k)) == str(pid):
-                return True
-        # check names
-        wn = pm.get('winner_player_name') or pm.get('winner') or pm.get('player_winner') or pm.get('player_winner_name')
-        ln = pm.get('loser_player_name') or pm.get('loser') or pm.get('player_loser') or pm.get('player_loser_name')
-        if nnorm and (normalize_name(wn) == nnorm or normalize_name(ln) == nnorm):
+        # check ids robustly across possible keys
+        for k in ('player_id_winner', 'player_id_loser', 'player_winner_id', 'player_loser_id', 'winner_id', 'loser_id', 'PlayerIDA', 'PlayerIDA2','PlayerIDB','PlayerIDB2'):
+            v = pm.get(k)
+            if v:
+                if normalize_pid(v) and pid_norm and normalize_pid(v) == pid_norm:
+                    return True
+        # check names in many possible fields
+        wn = pm.get('winner_player_name') or pm.get('winner') or pm.get('player_winner') or pm.get('player_winner_name') or ''
+        ln = pm.get('loser_player_name') or pm.get('loser') or pm.get('player_loser') or pm.get('player_loser_name') or ''
+        if name_norm and (normalize_name_for_cmp(wn) == name_norm or normalize_name_for_cmp(ln) == name_norm):
             return True
     return False
 
+# augment_byes reworked to be deterministic and robust
 def augment_byes(groups):
     """
-    Insert synthetic BYE matches into the previous round *buckets* so that
-    synthetic matches are placed locally (not all appended at the bottom).
+    groups: dict round -> list(matches)
     Strategy:
-      - rounds are ordered by descending match count (left -> right)
-      - for each pair (prev, curr) build buckets mapping prev matches -> child index
-      - for each child match, if a participant in child is not found inside the bucket,
-        insert a synthetic match at the beginning of that bucket (so it appears just above
-        the bucket's original prev matches).
+      - determine rounds ordered by size (desc) consistent with frontend
+      - for each column index starting at 1 (i.e. for each pair prev/curr):
+          * sort prev matches deterministically
+          * bucket prev matches to curr_count buckets (preserving bracket locality)
+          * for each child (curr match) create synth matches for any participant appearing in curr
+            (winner then loser) who is NOT present in prev_matches, and insert the synth immediately
+            before the bucket feeding that child.
     """
+    if not groups:
+        return
+
+    # rounds ordered left->right (most matches -> left)
     rounds = sorted(groups.keys(), key=lambda k: len(groups[k]), reverse=True)
+
+    # iterate columns
     for col_index in range(1, len(rounds)):
         prev_key = rounds[col_index - 1]
         curr_key = rounds[col_index]
-        prev_matches = groups.get(prev_key, [])[:]  # copy
+        prev_matches = groups.get(prev_key, [])[:]
         curr_matches = groups.get(curr_key, [])[:]
 
-        P = len(prev_matches)
-        C = len(curr_matches)
-        if P == 0 or C == 0:
-            # nothing to do
-            continue
+        prev_count = len(prev_matches)
+        curr_count = len(curr_matches)
 
-        # build buckets: each prev match assigned to a child index
-        buckets = [[] for _ in range(C)]
-        for i, pm in enumerate(prev_matches):
-            child_idx = int(i * C / P)
-            if child_idx < 0:
-                child_idx = 0
-            if child_idx >= C:
-                child_idx = C - 1
-            buckets[child_idx].append(pm)
+        # deterministic ordering of prev and curr matches (by match_sort_key)
+        prev_matches.sort(key=match_sort_key)
+        curr_matches.sort(key=match_sort_key)
 
-        # helper to pick participant info from a match row
+        # build buckets: distribute prev_matches into curr_count buckets to preserve vertical locality
+        buckets = [[] for _ in range(max(1, curr_count))]
+        if prev_count > 0 and curr_count > 0:
+            for i, pm in enumerate(prev_matches):
+                # integer bucket assignment distributing prev_count across curr_count
+                child_idx = int(i * curr_count / prev_count)
+                if child_idx < 0:
+                    child_idx = 0
+                if child_idx >= curr_count:
+                    child_idx = curr_count - 1
+                buckets[child_idx].append(pm)
+
+        new_prev = []
+        inserted_for_prev = set()
+
+        # helper to extract participant id/name/country/seed from a match row
         def get_part_from_match(match_row, role):
-            id_keys = [f'player_id_{role}', f'{role}_player_id', f'{role}_id', f'PlayerID{role.capitalize()}', f'PlayerID{role[0].upper()}{role[0]}']
-            name_keys = [f'{role}_player_name', f'{role}_name', role, f'player_{role}', f'player_{role}_name', f'{role}']
-            country_keys = [f'{role}_country', f'{role}_nationality', f'{role}_country_code', f'country_{role}']
+            # role is 'winner' or 'loser'
+            id_keys = [f'player_id_{role}', f'{role}_player_id', f'{role}_id', f'{role}Id', f'PlayerIDA', f'PlayerIDA2', 'PlayerIDB', 'PlayerIDB2']
+            name_keys = [f'{role}_player_name', f'{role}_name', role, f'player_{role}', f'player_{role}_name']
+            country_keys = [f'{role}_country', f'{role}_nationality', f'{role}_country_code', f'country_{role}', f'country_{role}']
             seed_keys = [f'{role}_seed', f'seed_{role}']
             pid = ''
             pname = ''
             pcountry = ''
             pseed = ''
             for k in id_keys:
-                if match_row.get(k):
+                if k in match_row and match_row.get(k):
                     pid = match_row.get(k)
                     break
             for k in name_keys:
-                if match_row.get(k):
+                if k in match_row and match_row.get(k):
                     pname = match_row.get(k)
                     break
             for k in country_keys:
-                if match_row.get(k):
+                if k in match_row and match_row.get(k):
                     pcountry = match_row.get(k)
                     break
             for k in seed_keys:
-                if match_row.get(k):
+                if k in match_row and match_row.get(k):
                     pseed = match_row.get(k)
                     break
-            return {'id': pid, 'name': pname, 'country': pcountry, 'seed': pseed}
+            return {'id': pid or '', 'name': pname or '', 'country': pcountry or '', 'seed': pseed or ''}
 
-        def normalize_name(n):
-            if not n:
-                return ''
-            import re
-            return re.sub(r'\s+', ' ', str(n).strip()).lower()
-
-        def present_in_bucket(pid, name, bucket):
-            """Return True if pid or normalized name present in any match inside bucket."""
-            nname = normalize_name(name)
-            for m in bucket:
-                # check ids
-                for k in ('player_id_winner', 'player_id_loser', 'player_winner_id', 'player_loser_id', 'winner_id', 'loser_id'):
-                    if m.get(k) and pid and str(m.get(k)) == str(pid):
-                        return True
-                # check names
-                wn = m.get('winner_player_name') or m.get('winner') or m.get('player_winner') or m.get('player_winner_name')
-                ln = m.get('loser_player_name') or m.get('loser') or m.get('player_loser') or m.get('player_loser_name')
-                if nname and (normalize_name(wn) == nname or normalize_name(ln) == nname):
-                    return True
-            return False
-
-        new_prev = []
-        inserted_for_prev = set()  # avoid double insert across buckets for same unique key
-
+        # for each child (curr match), ensure its participants are present in prev (create synth if missing)
         for j, cm in enumerate(curr_matches):
-            bucket = buckets[j] if j < len(buckets) else []
-
-            # for each role in the child match, ensure presence in this bucket
             for role in ('winner', 'loser'):
                 part = get_part_from_match(cm, role)
                 pid = part.get('id') or ''
                 pname = part.get('name') or ''
-                unique_key = str(pid) if pid else normalize_name(pname)
+                unique_key = normalize_pid(pid) if pid else normalize_name_for_cmp(pname)
                 if not unique_key:
                     continue
                 if unique_key in inserted_for_prev:
-                    # already inserted a synthetic match for this participant in a previous bucket
                     continue
-                if not present_in_bucket(pid, pname, bucket):
-                    # create synth match in prev round representing BYE for this participant
-                    synth_id = f"synth_{col_index}_{j}_{len(inserted_for_prev)+1}"
+                # check if present in original prev_matches by id or name
+                if not player_present_in_matches(pid, pname, prev_matches):
+                    # create synthetic match where this player "won" vs BYE
+                    synth_id = f"synth_{col_index}_{j}_{random.randint(1,9999)}"
                     synth = {
                         'match_id': synth_id,
                         'round': prev_key,
@@ -168,17 +183,19 @@ def augment_byes(groups):
                         'loser_seed': '',
                         'score_string': ''
                     }
-                    # append synth before bucket content to keep it localized
                     new_prev.append(synth)
                     inserted_for_prev.add(unique_key)
-            # after inserting synths for this child, append the original bucket matches
-            for pm in bucket:
-                new_prev.append(pm)
+            # after synthetic inserts for this child, append the original prev matches bucket for that child (if any)
+            if curr_count > 0:
+                bucket = buckets[j] if j < len(buckets) else []
+                for pm in bucket:
+                    new_prev.append(pm)
 
-        # replace prev_key list by new_prev (if we produced something, else keep original)
-        if new_prev:
+        # if there were no curr matches (curr_count==0) keep prev unchanged
+        if curr_count == 0:
+            groups[prev_key] = prev_matches
+        else:
             groups[prev_key] = new_prev
-
 
 def flatten_groups_to_matches(groups):
     """Return a flat list of matches by iterating groups in order of descending size (left->right)."""
@@ -188,6 +205,7 @@ def flatten_groups_to_matches(groups):
         out.extend(groups[r])
     return out
 
+# iterate files
 for kind in ('atp_matches','wta_matches'):
     d = MATCHES_DIR / kind
     if not d.exists():
@@ -251,18 +269,18 @@ for kind in ('atp_matches','wta_matches'):
 
         matches = []
         for r in rows:
-            # collect also ids, seeds and countries when present
+            # collect also ids, seeds and countries when present (robust to various column names)
             m = {
-                'match_id': r.get('match_id') or r.get('match') or r.get('event_id') or '',
+                'match_id': r.get('match_id') or r.get('match') or r.get('event_id') or r.get('match') or '',
                 'round': (r.get('round') or r.get('round_name') or '').strip(),
-                'winner_player_name': r.get('winner_player_name') or r.get('player_winner') or r.get('winner') or r.get('winner_player_name') or '',
-                'loser_player_name': r.get('loser_player_name') or r.get('player_loser') or r.get('loser') or r.get('loser_player_name') or '',
+                'winner_player_name': r.get('winner_player_name') or r.get('player_winner') or r.get('winner') or r.get('winner_player') or '',
+                'loser_player_name': r.get('loser_player_name') or r.get('player_loser') or r.get('loser') or r.get('loser_player') or '',
                 'score_string': r.get('score_string') or r.get('score') or r.get('score_str') or '',
-                'player_id_winner': r.get('player_id_winner') or r.get('player_winner_id') or r.get('winner_id') or r.get('PlayerIDA') or r.get('PlayerIDA2') or '',
+                'player_id_winner': r.get('player_id_winner') or r.get('player_winner_id') or r.get('winner_id') or r.get('PlayerIDA') or r.get('PlayerIDA2') or r.get('player_id_winner') or r.get('player_id_winner'),
                 'player_id_loser': r.get('player_id_loser') or r.get('player_loser_id') or r.get('loser_id') or r.get('PlayerIDB') or r.get('PlayerIDB2') or '',
                 'winner_country': r.get('winner_country') or r.get('country_winner') or r.get('winner_country_code') or r.get('country_a') or r.get('country_b') or '',
                 'loser_country': r.get('loser_country') or r.get('country_loser') or r.get('loser_country_code') or '',
-                'winner_seed': r.get('winner_seed') or r.get('seed_winner') or r.get('seed_a') or r.get('seed_winner') or '',
+                'winner_seed': r.get('winner_seed') or r.get('seed_winner') or r.get('seed_a') or r.get('seed_winner') or r.get('seed_winner') or '',
                 'loser_seed': r.get('loser_seed') or r.get('seed_loser') or r.get('seed_b') or r.get('seed_loser') or ''
             }
             matches.append(m)
@@ -273,25 +291,14 @@ for kind in ('atp_matches','wta_matches'):
             rk = m.get('round') or ''
             groups[rk].append(m)
 
-        # order rounds left->right (most matches at left)
-        rounds_order = sorted(groups.keys(), key=lambda k: len(groups[k]), reverse=True)
-
         # AUGMENTATION : insérer BYE synthétiques dans groups (localement) si un joueur apparait en T2 sans avoir T1
         augment_byes(groups)
 
         # flatten groups back into matches array in rounds order (left->right)
-        # flatten groups back into matches array in rounds order (left->right)
-        # IMPORTANT: do NOT do a global sort here, it breaks the bucket-local placement of synthetic BYE matches.
         final_matches = flatten_groups_to_matches(groups)
-        
-        # Optional: if you want deterministic ordering inside each round, sort matches inside each group BEFORE flattening.
-        # Example (uncomment if needed):
-        # for rk in groups:
-        #     groups[rk].sort(key=lambda m: match_sort_key(m))
-        
-        # Use final_matches as-is (no global re-sort)
-        final_matches_sorted = final_matches  # keep the name used later so remaining code works
 
+        # DO NOT apply a global sort here — it mixes buckets and destroys BYE placement
+        final_matches_sorted = final_matches
 
         out = {'meta': meta, 'matches': final_matches_sorted}
         out_name = f"{meta['source'].lower()}_{tourney_id}_{year}.json"
