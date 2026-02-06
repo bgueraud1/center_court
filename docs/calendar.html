@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Tournament Calendar — Center Court</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    .surface-badge { padding:.35rem .6rem; border-radius:.35rem; color:#fff; font-weight:600; font-size:.85rem; }
+    .surface-hard { background:#2b6cb0; } /* blue */
+    .surface-clay { background:#c53030; } /* red */
+    .surface-grass { background:#2f855a; } /* green */
+    .surface-carpet { background:#6b46c1; } /* purple */
+    .source-atp { color:#0d6efd; font-weight:600; }
+    .source-wta { color:#9b59b6; font-weight:600; }
+    .table-row { cursor:pointer; }
+  </style>
+</head>
+<body class="bg-light">
+  <nav class="navbar navbar-dark bg-dark">
+    <div class="container">
+      <a class="navbar-brand" href="/">Center Court</a>
+      <div class="text-white small">Calendar</div>
+    </div>
+  </nav>
+
+  <main class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h1 class="h4 mb-0">Tournament Calendar</h1>
+      <div>
+        <label for="yearSelect" class="form-label small mb-0">Year</label>
+        <select id="yearSelect" class="form-select form-select-sm"></select>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body p-2">
+        <div id="listContainer">Loading tournaments…</div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer py-4 mt-4">
+    <div class="container d-flex justify-content-between align-items-center">
+      <div><small class="text-muted">Center Court</small></div>
+      <div class="small text-muted">Data from local CSVs</div>
+    </div>
+  </footer>
+
+  <script>
+    const surfaceClass = (s)=> {
+      if(!s) return 'surface-hard';
+      s = (s+'').toLowerCase();
+      if(s.includes('hard')) return 'surface-hard';
+      if(s.includes('clay')) return 'surface-clay';
+      if(s.includes('grass')) return 'surface-grass';
+      if(s.includes('carpet')) return 'surface-carpet';
+      return 'surface-hard';
+    };
+
+    function formatDate(d){
+      if(!d) return '—';
+      try {
+        return new Date(d).toLocaleDateString('en-GB', {year:'numeric',month:'short',day:'numeric'});
+      } catch(e){
+        return d;
+      }
+    }
+
+    (async function(){
+      try {
+        const res = await fetch('/data/tournaments/tournaments_calendar.json');
+        if(!res.ok) throw new Error('Calendar data not found');
+        const all = await res.json();
+
+        // build set of years present
+        const yearsSet = new Set(all.map(i => i.year));
+        const years = Array.from(yearsSet).sort((a,b)=>b-a);
+
+        const yearSelect = document.getElementById('yearSelect');
+        const currentYear = (new Date()).getFullYear();
+        if(!years.includes(currentYear)) years.unshift(currentYear);
+        years.forEach(y => {
+          const opt = document.createElement('option');
+          opt.value = y; opt.textContent = y;
+          yearSelect.appendChild(opt);
+        });
+
+        // default to current year (or most recent available)
+        const defaultYear = years.includes(currentYear) ? currentYear : (years[0] || currentYear);
+        yearSelect.value = defaultYear;
+
+        function renderForYear(y){
+          const container = document.getElementById('listContainer');
+          const entries = all.filter(e => Number(e.year) === Number(y));
+          // sort by start_date
+          entries.sort((a,b) => {
+            const da = a.start_date || '9999-12-31', db = b.start_date || '9999-12-31';
+            return da.localeCompare(db);
+          });
+
+          if(entries.length === 0){
+            container.innerHTML = '<div class="p-3 text-muted">No tournaments found for this year.</div>';
+            return;
+          }
+
+          const table = document.createElement('div');
+          table.className = 'list-group list-group-flush';
+
+          entries.forEach(e => {
+            const item = document.createElement('a');
+            item.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center table-row';
+            item.href = `/tournament.html?source=${encodeURIComponent(e.source)}&t=${encodeURIComponent(e.tourney_id)}&year=${encodeURIComponent(e.year)}`;
+            const left = document.createElement('div');
+            left.innerHTML = `<div><strong>${e.tourney_name || '—'}</strong></div><div class="small text-muted">${formatDate(e.start_date)} • ${e.level || '—'}</div>`;
+            const right = document.createElement('div');
+            right.style.display = 'flex'; right.style.gap = '8px'; right.style.alignItems = 'center';
+            const surf = document.createElement('div');
+            surf.className = 'surface-badge ' + surfaceClass(e.surface);
+            surf.textContent = e.surface || 'Hard';
+            const src = document.createElement('div');
+            src.className = 'small';
+            src.innerHTML = e.source === 'atp' ? '<span class="source-atp">ATP</span>' : '<span class="source-wta">WTA</span>';
+            right.appendChild(surf); right.appendChild(src);
+            item.appendChild(left); item.appendChild(right);
+            table.appendChild(item);
+          });
+
+          container.innerHTML = '';
+          container.appendChild(table);
+        }
+
+        renderForYear(defaultYear);
+        yearSelect.addEventListener('change', (e) => renderForYear(e.target.value));
+
+      } catch (err) {
+        document.getElementById('listContainer').innerText = 'Error loading calendar: ' + err.message;
+        console.error(err);
+      }
+    })();
+  </script>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
