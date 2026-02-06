@@ -11,7 +11,7 @@
   .container-main{max-width:1200px;margin:12px auto;padding:0 12px}
   .flag{display:inline-block;width:22px;height:14px;margin-right:8px;vertical-align:middle;overflow:hidden;border-radius:2px;background:#f5f5f5}
   .flag img{width:100%;height:100%;object-fit:cover;display:block}
-  .seed-num{float:left;width:28px;color:#0b3d91;font-size:11px;padding:2px 4px;font-weight:600;} /* bleu foncé */
+  .seed-num{float:left;width:28px;color:#0b3d91;font-size:11px;padding:2px 4px;font-weight:600;}
   .seed-text{float:left;width:28px;color:#808080;font-size:11px;padding:2px 4px;}
   .player-link { font-size:11px;text-decoration:none;color:black; display:inline-block; vertical-align:middle; }
   .player-first { font-size:11px;color:#565656;font-style:italic; margin-left:4px;}
@@ -39,10 +39,7 @@
 </div>
 
 <script>
-/* ---------------------------
-   UTILITAIRES & MAPPINGS
-   --------------------------- */
-
+/* UTILITAIRES */
 function slugify(name){
   if(!name) return '';
   name = name.trim();
@@ -54,17 +51,13 @@ function slugify(name){
   }
   return name.toLowerCase().replace(/[^a-z0-9\s-]/g,'').replace(/\s+/g,'-');
 }
-
 function highlight_player(mode, className, v){
   const els = document.querySelectorAll('.' + className);
-  if(mode === 1){
-    els.forEach(el => el.classList.add('highlight'));
-  } else {
-    els.forEach(el => el.classList.remove('highlight'));
-  }
+  if(mode === 1) els.forEach(el => el.classList.add('highlight'));
+  else els.forEach(el => el.classList.remove('highlight'));
 }
 
-/* IOC/ISO3 -> alpha2 mapping (courant, peut être complété) */
+/* MAPPING PAYS (IOC/ISO3 -> alpha2) et helpers drapeaux */
 const iocToAlpha2 = {
   "AFG":"AF","ALB":"AL","DZA":"DZ","AND":"AD","AGO":"AO","ARG":"AR","ARM":"AM","AUS":"AU","AUT":"AT","AZE":"AZ",
   "BHS":"BS","BHR":"BH","BGD":"BD","BRB":"BB","BLR":"BY","BEL":"BE","BEN":"BJ","BOL":"BO","BIH":"BA","BWA":"BW",
@@ -76,12 +69,10 @@ const iocToAlpha2 = {
   "POL":"PL","PRT":"PT","ROU":"RO","RUS":"RU","ZAF":"ZA","SRB":"RS","SVK":"SK","SVN":"SI","SWE":"SE","TUR":"TR",
   "UKR":"UA","USA":"US","UZB":"UZ","VEN":"VE","VNM":"VN","ZMB":"ZM","ZWE":"ZW","XKX":"XK"
 };
-
 const nameToAlpha2 = {
   "UNITED STATES":"US","UNITED KINGDOM":"GB","ENGLAND":"GB","RUSSIA":"RU","CHINA":"CN","UAE":"AE",
   "SOUTH KOREA":"KR","NORTH KOREA":"KP","SOUTH AFRICA":"ZA"
 };
-
 function toAlpha2(input){
   if(!input) return '';
   let s = String(input).trim().toUpperCase();
@@ -92,14 +83,12 @@ function toAlpha2(input){
   if(letters.length === 2) return letters;
   return '';
 }
-
 function alpha2ToFlagEmoji(alpha2){
   if(!alpha2 || alpha2.length !== 2) return '';
   const A = 0x1F1E6;
   const chars = [...alpha2.toUpperCase()].map(ch => A + (ch.charCodeAt(0) - 65));
   try { return String.fromCodePoint(...chars); } catch(e){ return ''; }
 }
-
 function makeFlagElem(countryInput){
   const alpha2 = toAlpha2(countryInput || '');
   const span = document.createElement('span');
@@ -109,47 +98,30 @@ function makeFlagElem(countryInput){
     const img = document.createElement('img');
     img.alt = alpha2;
     img.src = `https://flagcdn.com/w40/${code}.png`;
-    img.onload = function(){};
-    img.onerror = function(){
-      img.remove();
-      const emoji = alpha2ToFlagEmoji(alpha2);
-      if(emoji){
-        span.textContent = emoji;
-      } else {
-        span.textContent = alpha2;
-        span.style.fontSize = '11px'; span.style.color = '#666';
-      }
-    };
+    img.onerror = function(){ img.remove(); const emoji = alpha2ToFlagEmoji(alpha2); if(emoji) span.textContent = emoji; else { span.textContent = alpha2; span.style.fontSize='11px'; span.style.color='#666'; } };
     span.appendChild(img);
   } else {
     const txt = (countryInput ? String(countryInput).toUpperCase().slice(0,3) : '');
-    span.textContent = txt;
-    span.style.fontSize = '11px'; span.style.color = '#666';
+    span.textContent = txt; span.style.fontSize='11px'; span.style.color='#666';
   }
   return span;
 }
 
-/* format seed: supprime trailing .0 si entier */
+/* format seed & noms/prénoms */
 function formatSeed(raw){
   if(raw === null || raw === undefined) return '';
   const s = String(raw).trim();
   const n = typeof raw === 'number' ? raw : parseFloat(s.replace(',', '.'));
-  if(isNaN(n)) {
-    return s.length ? s : '';
-  }
+  if(isNaN(n)) return s.length ? s : '';
   if(Number.isInteger(n)) return String(n);
   return String(n);
 }
-
-/* format first initial */
 function formatFirstInitial(fullFirst){
   if(!fullFirst) return '';
   const tokens = String(fullFirst).trim().split(/\s+/);
   if(tokens.length === 0) return '';
   return tokens[0].charAt(0).toUpperCase() + '.';
 }
-
-/* split name to last + firstInitial */
 function splitNameToLastAndInitial(rawName){
   if(!rawName) return { last:'', firstInitial:'' };
   let name = String(rawName).trim();
@@ -166,15 +138,7 @@ function splitNameToLastAndInitial(rawName){
   return { last: last, firstInitial: formatFirstInitial(firstTokens) };
 }
 
-/* ---------------------------
-   NOUVELLE LOGIQUE D'INSERTION DES BYE (corrigée)
-   ---------------------------
-   - Calculer la position "cible" (preferredIndex) pour chaque match enfant j
-   - Collecter toutes les insertions synthétiques (avec index cible)
-   - Trier les insertions par index et insérer en une passe (en tenant compte du nombre
-     d'insertions déjà réalisées) pour préserver l'ordre logique.
-   --------------------------- */
-
+/* NOUVELLE AUGMENTATION DES BYE: bucket-based insertion */
 function augmentByes(groups, rounds){
   for(let colIndex = 1; colIndex < rounds.length; colIndex++){
     const prevKey = rounds[colIndex - 1];
@@ -182,41 +146,39 @@ function augmentByes(groups, rounds){
     const prevMatches = groups[prevKey] = groups[prevKey] || [];
     const currMatches = groups[currKey] = groups[currKey] || [];
 
-    const prevCountOriginal = prevMatches.length;
-    const currCount = currMatches.length || 1; // avoid div by 0
+    const P = prevMatches.length; // original prev match count
+    const C = Math.max(1, currMatches.length);
 
-    // helper: does this player appear in prevMatches?
+    // helper to check presence
     const playerExistsInPrev = (pid) => {
       if(!pid) return true;
       for(const pm of prevMatches){
         if(pm.player_id_winner && String(pm.player_id_winner) === String(pid)) return true;
         if(pm.player_id_loser  && String(pm.player_id_loser)  === String(pid)) return true;
-        // alternative fields
-        if(pm.winner_player_name && String(pm.player_id_winner) === String(pid)) return true;
       }
       return false;
     };
 
-    // collect insertions: array of { index: integer, synth: object, tieBreaker: integer }
-    const inserts = [];
-    const insertedForPrev = new Set();
+    // buckets indices 0..P (P+1 buckets) representing positions between matches
+    const buckets = Array.from({length: P+1}, ()=>[]); // each holds synth matches
+    const insertedFor = new Set();
 
-    for(let j = 0; j < currMatches.length; j++){
+    // for each match j in currMatches, compute bucket and collect synths
+    for(let j=0; j<currMatches.length; j++){
       const cm = currMatches[j];
+      // bucket using center mapping so child j maps to roughly middle of its source bucket
+      // bucketIndex in [0..P]
+      const bucketIndex = Math.max(0, Math.min(P, Math.floor((j + 0.5) * P / C)));
 
-      // preferred insertion index (center of the bucket for child j)
-      // use prevCountOriginal so mapping is stable relative to initial layout
-      const preferredIndex = Math.max(0, Math.min(prevCountOriginal, Math.floor((j + 0.5) * prevCountOriginal / currCount)));
-      // two participants
       const participants = [
         { id: cm.player_id_winner || cm.winner_player_id || cm.player_id_winner, name: cm.winner_player_name || cm.winner_name || '' },
-        { id: cm.player_id_loser  || cm.loser_player_id  || cm.player_id_loser,  name: cm.loser_player_name  || cm.loser_name  || '' }
+        { id: cm.player_id_loser  || cm.loser_player_id  || cm.player_id_loser,  name: cm.loser_player_name || cm.loser_name || '' }
       ];
       for(const p of participants){
         const pid = p.id;
         const pname = p.name || '';
         if(!pid) continue;
-        if(insertedForPrev.has(String(pid))) continue;
+        if(insertedFor.has(String(pid))) continue;
         if(!playerExistsInPrev(pid)){
           // build synthetic match
           const synth = {
@@ -231,33 +193,35 @@ function augmentByes(groups, rounds){
             loser_country: '',
             loser_seed: ''
           };
-          // add to inserts with preferred index and tie breaker to keep order
-          inserts.push({ index: preferredIndex, synth: synth, tie: j });
-          insertedForPrev.add(String(pid));
+          // push into bucket, keep order by child index j
+          buckets[bucketIndex].push({ synth: synth, tie: j });
+          insertedFor.add(String(pid));
         }
       }
-    } // end curr matches loop
-
-    if(inserts.length === 0) continue;
-
-    // sort inserts by index asc, then by tie asc (so siblings keep order)
-    inserts.sort((a,b)=>{
-      if(a.index !== b.index) return a.index - b.index;
-      return a.tie - b.tie;
-    });
-
-    // perform insertions in one pass, adjusting for already inserted count
-    for(let k = 0; k < inserts.length; k++){
-      const target = inserts[k].index + k; // shift by number of previous insertions
-      const idx = Math.min(Math.max(0, target), prevMatches.length);
-      prevMatches.splice(idx, 0, inserts[k].synth);
     }
-  } // end colIndex loop
+
+    // now rebuild prevMatches: for each i from 0..P-1 push bucket[i], then prevMatches[i]; finally push bucket[P]
+    const newPrev = [];
+    for(let i=0;i<P;i++){
+      // if bucket contains multiple, preserve their tie order
+      if(buckets[i] && buckets[i].length){
+        buckets[i].sort((a,b)=> a.tie - b.tie);
+        buckets[i].forEach(entry => newPrev.push(entry.synth));
+      }
+      newPrev.push(prevMatches[i]);
+    }
+    // trailing bucket
+    if(buckets[P] && buckets[P].length){
+      buckets[P].sort((a,b)=> a.tie - b.tie);
+      buckets[P].forEach(entry => newPrev.push(entry.synth));
+    }
+
+    // replace prevMatches in groups with newPrev
+    groups[prevKey] = newPrev;
+  }
 }
 
-/* ---------------------------
-   RENDERING PRINCIPAL
-   --------------------------- */
+/* RENDERING */
 async function render(){
   const params = new URLSearchParams(location.search);
   const source = (params.get('source') || 'wta').toLowerCase();
@@ -300,13 +264,13 @@ async function render(){
     groups[r].push(m);
   });
 
-  // order rounds left->right (most matches at left)
+  // order rounds left->right by descending number of matches
   const rounds = Object.keys(groups).sort((a,b) => groups[b].length - groups[a].length);
 
-  // insert BYE synthetic matches in logical positions
+  // augment with BYE synths using bucket method
   augmentByes(groups, rounds);
 
-  // layout
+  /* layout */
   const cellWidth = 220;
   const cellHeight = 20;
   const perMatchBlock = 60;
@@ -345,7 +309,6 @@ async function render(){
       if(colIndex === 0){
         winnerTop = topOffset + j * perMatchBlock;
       } else {
-        // compute preferred mapping into prevPositions using prevCount as baseline
         const startIndex = Math.floor(j * prevCount / Math.max(1, currCount));
         let endIndex = Math.floor(((j+1) * prevCount) / Math.max(1, currCount)) - 1;
         if(endIndex < startIndex) endIndex = startIndex;
@@ -353,7 +316,7 @@ async function render(){
         if(endIndex >= prevCount) endIndex = prevCount - 1;
         let sum = 0, cnt = 0;
         for(let k = Math.max(0, startIndex); k <= Math.max(0, endIndex); k++){
-          if(prevPositions[k]){
+          if(prevPositions && prevPositions[k]){
             sum += prevPositions[k].winnerTop;
             cnt++;
           }
@@ -368,10 +331,9 @@ async function render(){
       const loserTop = winnerTop + cellHeight;
       thisPositions.push({ winnerTop, loserTop, matchRef: m });
 
-      /* render */
+      /* render winner */
       const left = colIndex * (cellWidth + colGap);
-
-      const winnerId = m.player_id_winner || m.player_id_winner || ('pwin_' + colIndex + '_' + j);
+      const winnerId = m.player_id_winner || m.winner_player_id || ('pwin_' + colIndex + '_' + j);
       const winnerClass = 'j_' + String(winnerId);
       const winnerDiv = document.createElement('div');
       winnerDiv.className = winnerClass + ' match-row';
@@ -410,8 +372,8 @@ async function render(){
       winnerDiv.appendChild(wAnchor);
       container.appendChild(winnerDiv);
 
-      // loser
-      const loserId = m.player_id_loser || m.player_id_loser || ('plos_' + colIndex + '_' + j);
+      /* render loser */
+      const loserId = m.player_id_loser || m.loser_player_id || ('plos_' + colIndex + '_' + j);
       const loserClass = 'j_' + String(loserId);
       const loserDiv = document.createElement('div');
       loserDiv.className = loserClass + ' match-row';
@@ -461,7 +423,7 @@ async function render(){
     positionsByRound.push(thisPositions);
   });
 
-  // done
+  // rendu terminé
 } // end render
 
 render();
