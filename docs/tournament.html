@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Bracket — single mid-block winner</title>
+<title>Bracket — single mid-block winner (fixed)</title>
 <style>
   :root{
     --winner-h:22px;
@@ -309,14 +309,18 @@ async function render(){
     positionsByRound.push(thisPositions);
   });
 
-  /* draw connectors */
+  /* draw connectors (improved: route via midpoint and target parent's mid center) */
   function drawPolyline(points, strokeWidth){
+    // remove duplicate consecutive points
+    const reduced = points.filter((p,i,arr) => { if(i===0) return true; const prev = arr[i-1]; return !(prev[0]===p[0] && prev[1]===p[1]); });
+    if(reduced.length < 2) return;
     const poly = document.createElementNS('http://www.w3.org/2000/svg','polyline');
-    poly.setAttribute('points', points.map(p => (p[0] + ',' + p[1])).join(' '));
+    poly.setAttribute('points', reduced.map(p => (p[0] + ',' + p[1])).join(' '));
     poly.setAttribute('fill','none');
     poly.setAttribute('stroke', getComputedStyle(document.documentElement).getPropertyValue('--line-color') || '#797979');
     poly.setAttribute('stroke-width', (strokeWidth || 1));
     poly.setAttribute('stroke-linecap','square');
+    poly.setAttribute('stroke-linejoin','miter');
     svg.appendChild(poly);
   }
 
@@ -329,12 +333,19 @@ async function render(){
       const parentIndex = Math.floor(i * parents.length / children.length);
       const parent = parents[parentIndex];
       if(!parent) continue;
+
       const childX = child.midX;
       const childY = child.center;
-      const parentTopY = parent.topRowTop;
-      const pLeft = parent.left;
-      const parentBarX = pLeft + 4;
-      drawPolyline([[childX, childY], [childX, parentTopY], [parentBarX, parentTopY]], 1);
+      const parentX = parent.midX || Math.round(parent.left + parent.width/2);
+      const parentY = parent.center;
+
+      // skip degenerate very-short connectors
+      if(Math.abs(childX - parentX) < 2 && Math.abs(childY - parentY) < 2) continue;
+
+      // route via vertical/horizontal L-shape using an intermediate X (midpoint) to avoid broken lines
+      const midX = Math.round((childX + parentX) / 2);
+      const pts = [ [childX, childY], [midX, childY], [midX, parentY], [parentX, parentY] ];
+      drawPolyline(pts, 1);
     }
   }
 
