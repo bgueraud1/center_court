@@ -280,10 +280,18 @@ for kind in ('atp_matches','wta_matches'):
         augment_byes(groups)
 
         # flatten groups back into matches array in rounds order (left->right)
+        # flatten groups back into matches array in rounds order (left->right)
+        # IMPORTANT: do NOT do a global sort here, it breaks the bucket-local placement of synthetic BYE matches.
         final_matches = flatten_groups_to_matches(groups)
+        
+        # Optional: if you want deterministic ordering inside each round, sort matches inside each group BEFORE flattening.
+        # Example (uncomment if needed):
+        # for rk in groups:
+        #     groups[rk].sort(key=lambda m: match_sort_key(m))
+        
+        # Use final_matches as-is (no global re-sort)
+        final_matches_sorted = final_matches  # keep the name used later so remaining code works
 
-        # as a safe step, sort final_matches with match_sort_key to keep deterministic order (but grouped order is preserved because synth ids have digits)
-        final_matches_sorted = sorted(final_matches, key=match_sort_key)
 
         out = {'meta': meta, 'matches': final_matches_sorted}
         out_name = f"{meta['source'].lower()}_{tourney_id}_{year}.json"
