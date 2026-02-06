@@ -3,20 +3,20 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Bracket — centered mid-block + SVG connectors</title>
+<title>Bracket — centered mid-block with single winner display</title>
 <style>
   :root{
     --winner-h:22px;
     --loser-h:22px;
-    --midblock-h:38px;       /* visual height of mid-block (winner + line + score) */
-    --match-gap:52px;        /* vertical gap between match boxes (bumped up) */
+    --midblock-h:38px;
+    --match-gap:52px;
     --col-gap:34px;
-    --col-width:200px;       /* leftmost column width */
-    --col-width-small:140px; /* subsequent columns */
-    --midblock-width:160px;  /* width of mid-block (centered at midX) */
+    --col-width:220px;
+    --col-width-small:140px;
+    --midblock-width:160px;
     --line-color:#797979;
     --seed-blue:#0b3d91;
-    --mid-offset: 200px; /* -> augmente pour pousser le mid-block vers la droite (px). */
+    --mid-offset: 220px; /* tweak this to move mid-block horizontally */
   }
 
   html,body{height:100%;margin:0;font-family:Arial,Helvetica,sans-serif;background:#fff;color:#111}
@@ -42,9 +42,9 @@
   .row-bottom{height:var(--loser-h); border-bottom:1px solid var(--line-color);}/* bottom border below lower player */
 
   /* mid block placed at mid-axis; contains winner above line and score below */
-  .mid-block{position:absolute;height:var(--midblock-h);width:var(--midblock-width);text-align:center;transform:none;z-index:6;background:#fff;pointer-events:none;margin-left:0}
-  .mid-winner{font-size:11px;font-weight:700;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 6px}
-  .mid-bar{height:1px;background:var(--line-color);margin:2px 6px;}
+  .mid-block{position:absolute;height:var(--midblock-h);width:var(--midblock-width);text-align:center;transform:none;z-index:6;background:#fff;pointer-events:auto;margin-left:0;display:flex;flex-direction:column;justify-content:center;align-items:center}
+  .mid-winner{font-size:11px;font-weight:700;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 6px;display:flex;align-items:center;gap:6px}
+  .mid-bar{height:1px;background:var(--line-color);width:100%;margin:2px 0;}
   .mid-score{font-size:11px;color:#515151;font-style:italic;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 6px}
 
   /* svg connectors behind everything */
@@ -64,116 +64,22 @@
   </div>
 
 <script>
-/* -------------------------
- Utilities (flags, name parsing, score formatting)
- ------------------------- */
-
+/* utilities */
 const iocToAlpha2 = {"ITA":"IT","ARG":"AR","FRA":"FR","HKG":"HK","CAN":"CA","NED":"NL","RUS":"RU","USA":"US","POR":"PT","CHN":"CN","JPN":"JP","KAZ":"KZ"};
 const nameToAlpha2 = {"UNITED STATES":"US","UNITED KINGDOM":"GB","ENGLAND":"GB","RUSSIA":"RU","CHINA":"CN"};
+function toAlpha2(input){ if(!input) return ''; let s=String(input).trim().toUpperCase(); if(/^[A-Z]{2}$/.test(s)) return s; if(s.length===3 && iocToAlpha2[s]) return iocToAlpha2[s]; if(nameToAlpha2[s]) return nameToAlpha2[s]; const letters = s.replace(/[^A-Z]/g,''); if(letters.length===2) return letters; return ''; }
+function alpha2ToFlagEmoji(alpha2){ if(!alpha2 || alpha2.length!==2) return ''; const A=0x1F1E6; const chars=[...alpha2.toUpperCase()].map(ch=>A+(ch.charCodeAt(0)-65)); try{return String.fromCodePoint(...chars);}catch(e){return'';} }
+function makeFlagElem(countryInput){ const alpha2 = toAlpha2(countryInput||''); const span = document.createElement('span'); span.className='flag'; if(alpha2){ const code = alpha2.toLowerCase(); const img = document.createElement('img'); img.alt=alpha2; img.src = `https://flagcdn.com/w40/${code}.png`; img.onload=()=>{}; img.onerror=()=>{ img.remove(); const emoji=alpha2ToFlagEmoji(alpha2); if(emoji) span.textContent=emoji; else { span.textContent=alpha2; span.style.fontSize='11px'; span.style.color='#666'; } }; span.appendChild(img); } else { span.textContent = countryInput ? String(countryInput).toUpperCase().slice(0,3) : ''; span.style.fontSize='11px'; span.style.color='#666'; } return span; }
+function slugify(name){ if(!name) return ''; name = name.trim(); if(name.indexOf(',')!==-1){ const parts=name.split(','); const last=parts[0].trim(); const rest=parts.slice(1).join(',').trim(); name = rest + ' ' + last; } return name.toLowerCase().replace(/[^a-z0-9\s-]/g,'').replace(/\s+/g,'-'); }
+function formatSeed(raw){ if(raw===null||raw===undefined) return ''; const n = typeof raw==='number' ? raw : parseFloat(String(raw).trim().replace(',','.')); if(isNaN(n)){ const s=String(raw).trim(); return s.length? s : ''; } if(Number.isInteger(n)) return String(n); return String(n); }
+function formatFirstInitial(fullFirst){ if(!fullFirst) return ''; const tokens=String(fullFirst).trim().split(/\s+/); return tokens.length? tokens[0].charAt(0).toUpperCase()+'.':''; }
+function splitNameToLastAndInitial(rawName){ if(!rawName) return {last:'', firstInitial:''}; let name=String(rawName).trim(); if(name.indexOf(',')!==-1){ const parts=name.split(','); const last=parts[0].trim(); const first=(parts[1]||'').trim(); return {last:last, firstInitial:formatFirstInitial(first)} } const parts=name.split(/\s+/); if(parts.length===1) return {last:parts[0], firstInitial:''}; const last=parts[parts.length-1]; const firstTokens=parts.slice(0,parts.length-1).join(' '); return {last:last, firstInitial:formatFirstInitial(firstTokens)} }
+function isValidMatchId(mid){ if(!mid) return false; const s=String(mid).trim().toUpperCase(); return /^[ML]S\d{3}$/.test(s); }
+function matchIdNumber(mid){ if(!mid) return Number.MAX_SAFE_INTEGER; const m=String(mid).toUpperCase().match(/^[ML]S0*([0-9]+)$/); if(m && m[1]) return parseInt(m[1],10); const d=String(mid).match(/\d+/); return d? parseInt(d[0],10) : Number.MAX_SAFE_INTEGER; }
+function scoreToHtml(s){ if(!s) return ''; return String(s).replace(/(\d+)\((\d+)\)/g,'$1<sup>$2</sup>'); }
+function highlight_player(mode, className){ const els=document.querySelectorAll('.' + className); if(mode===1) els.forEach(e=>e.classList.add('highlight')); else els.forEach(e=>e.classList.remove('highlight')); }
 
-function toAlpha2(input){
-  if(!input) return '';
-  let s = String(input).trim().toUpperCase();
-  if(/^[A-Z]{2}$/.test(s)) return s;
-  if(s.length===3 && iocToAlpha2[s]) return iocToAlpha2[s];
-  if(nameToAlpha2[s]) return nameToAlpha2[s];
-  const letters = s.replace(/[^A-Z]/g,'');
-  if(letters.length===2) return letters;
-  return '';
-}
-function alpha2ToFlagEmoji(alpha2){
-  if(!alpha2 || alpha2.length !== 2) return '';
-  const A = 0x1F1E6;
-  const chars = [...alpha2.toUpperCase()].map(ch => A + (ch.charCodeAt(0) - 65));
-  try { return String.fromCodePoint(...chars); }
-  catch(e){ return ''; }
-}
-function makeFlagElem(countryInput){
-  const alpha2 = toAlpha2(countryInput || '');
-  const span = document.createElement('span');
-  span.className = 'flag';
-  if(alpha2){
-    const code = alpha2.toLowerCase();
-    const img = document.createElement('img');
-    img.alt = alpha2;
-    img.src = `https://flagcdn.com/w40/${code}.png`;
-    img.onload = ()=>{};
-    img.onerror = ()=>{ img.remove(); const emoji = alpha2ToFlagEmoji(alpha2); if(emoji) span.textContent = emoji; else { span.textContent = alpha2; span.style.fontSize = '11px'; span.style.color = '#666'; } };
-    span.appendChild(img);
-  } else {
-    span.textContent = countryInput ? String(countryInput).toUpperCase().slice(0,3) : '';
-    span.style.fontSize = '11px'; span.style.color = '#666';
-  }
-  return span;
-}
-
-function slugify(name){
-  if(!name) return '';
-  name = name.trim();
-  if(name.indexOf(',') !== -1){
-    const parts = name.split(',');
-    const last = parts[0].trim();
-    const rest = parts.slice(1).join(',').trim();
-    name = rest + ' ' + last;
-  }
-  return name.toLowerCase().replace(/[^a-z0-9\s-]/g,'').replace(/\s+/g,'-');
-}
-function formatSeed(raw){
-  if(raw === null || raw === undefined) return '';
-  const n = typeof raw === 'number' ? raw : parseFloat(String(raw).trim().replace(',', '.'));
-  if(isNaN(n)) { const s = String(raw).trim(); return s.length ? s : ''; }
-  if(Number.isInteger(n)) return String(n);
-  return String(n);
-}
-function formatFirstInitial(fullFirst){
-  if(!fullFirst) return '';
-  const tokens = String(fullFirst).trim().split(/\s+/);
-  return tokens.length? tokens[0].charAt(0).toUpperCase()+'.' : '';
-}
-function splitNameToLastAndInitial(rawName){
-  if(!rawName) return { last:'', firstInitial:'' };
-  let name = String(rawName).trim();
-  if(name.indexOf(',') !== -1){
-    const parts = name.split(',');
-    const last = parts[0].trim();
-    const first = (parts[1] || '').trim();
-    return { last: last, firstInitial: formatFirstInitial(first) };
-  }
-  const parts = name.split(/\s+/);
-  if(parts.length === 1) return { last: parts[0], firstInitial: '' };
-  const last = parts[parts.length - 1];
-  const firstTokens = parts.slice(0, parts.length - 1).join(' ');
-  return { last: last, firstInitial: formatFirstInitial(firstTokens) };
-}
-
-function isValidMatchId(mid){
-  if(!mid) return false;
-  const s = String(mid).trim().toUpperCase();
-  return /^[ML]S\d{3}$/.test(s);
-}
-function matchIdNumber(mid){
-  if(!mid) return Number.MAX_SAFE_INTEGER;
-  const m = String(mid).toUpperCase().match(/^[ML]S0*([0-9]+)$/);
-  if(m && m[1]) return parseInt(m[1], 10);
-  const d = String(mid).match(/\d+/);
-  return d ? parseInt(d[0], 10) : Number.MAX_SAFE_INTEGER;
-}
-
-function scoreToHtml(s){
-  if(!s) return '';
-  return String(s).replace(/(\d+)\((\d+)\)/g, '$1<sup>$2</sup>');
-}
-
-function highlight_player(mode, className){
-  const els = document.querySelectorAll('.' + className);
-  if(mode === 1) els.forEach(e => e.classList.add('highlight'));
-  else els.forEach(e => e.classList.remove('highlight'));
-}
-
-/* -------------------------
- Main render — builds DOM rows + mid-blocks and draws connectors via SVG
- ------------------------- */
-
+/* main render */
 async function render(){
   const params = new URLSearchParams(location.search);
   const source = (params.get('source') || 'wta').toLowerCase();
@@ -191,18 +97,16 @@ async function render(){
     const resp = await fetch(path);
     if(!resp.ok) throw new Error('JSON not found: ' + path);
     json = await resp.json();
-  } catch(err){
+  }catch(err){
     document.getElementById('bracketContainer').innerHTML = '<div style="padding:12px;color:red">Error loading JSON: ' + err.message + '</div>';
     console.error(err); return;
   }
 
   document.getElementById('tourney-title').textContent = json.meta?.tourney_name || (source.toUpperCase() + ' ' + id);
 
-  // group rounds
   function norm(r){
     if(!r) return 'Unknown';
-    r = r.trim();
-    const u = r.toUpperCase();
+    r = r.trim(); const u = r.toUpperCase();
     if(u==='F' || u.startsWith('FINAL')) return 'F';
     if(u==='SF' || u.startsWith('SEMIF')) return 'SF';
     if(u==='QF' || u.startsWith('QUART')) return 'QF';
@@ -220,17 +124,15 @@ async function render(){
 
   const rounds = Object.keys(groups).sort((a,b) => groups[b].length - groups[a].length);
 
-  // layout constants from CSS
   const winnerH = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--winner-h')) || 22;
   const loserH  = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--loser-h')) || 22;
   const midH     = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--midblock-h')) || 38;
   const matchGap = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--match-gap')) || 52;
   const colGap = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--col-gap')) || 34;
-  const colWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--col-width')) || 200;
+  const colWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--col-width')) || 220;
   const colWidthSmall = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--col-width-small')) || 140;
   const midWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--midblock-width')) || 160;
 
-  // container sizing
   let maxBlocks = 0;
   rounds.forEach(r => { maxBlocks = Math.max(maxBlocks, groups[r].length); });
   const perMatchBlock = (winnerH + midH + loserH) + matchGap;
@@ -239,41 +141,32 @@ async function render(){
   container.style.height = containerHeight + 'px';
   container.innerHTML = '';
 
-  // create SVG overlay for connectors (behind rows, above background)
+  // SVG overlay for connectors
   const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
   svg.setAttribute('class','connectors');
   svg.setAttribute('width','100%');
   svg.setAttribute('height','100%');
-  svg.style.position = 'absolute';
-  svg.style.left = '0';
-  svg.style.top = '0';
-  svg.style.zIndex = '2';
+  svg.style.position='absolute'; svg.style.left='0'; svg.style.top='0'; svg.style.zIndex='2';
   container.appendChild(svg);
 
-  // store positional info per round
   const positionsByRound = [];
 
-  // create rows and mid-blocks (left->right)
   rounds.forEach((rnd, colIndex) => {
     const matchesInRound = groups[rnd].slice();
     matchesInRound.sort((a,b) => matchIdNumber(a.match_id) - matchIdNumber(b.match_id));
     const n = matchesInRound.length;
     const columnHeight = (n - 1) * perMatchBlock + (winnerH + midH + loserH) + 20;
     const topOffset = Math.max(8, Math.round((containerHeight - columnHeight) / 2));
-
     const prevPositions = colIndex > 0 ? positionsByRound[colIndex - 1] : null;
     const prevCount = prevPositions ? prevPositions.length : 0;
     const currCount = matchesInRound.length;
-
     const thisPositions = [];
 
     matchesInRound.forEach((m, j) => {
-      // compute vertical topBlock for this match
       let topBlock;
       if(colIndex === 0){
         topBlock = topOffset + j * perMatchBlock;
       } else {
-        // proportional mapping to previous round centers
         let startIndex = Math.floor(j * prevCount / currCount);
         let endIndex = Math.floor(((j+1) * prevCount) / currCount) - 1;
         if(endIndex < startIndex) endIndex = startIndex;
@@ -287,25 +180,22 @@ async function render(){
         else topBlock = Math.round(sum/cnt) - Math.floor((winnerH + midH + loserH)/2);
       }
 
-      // position numbers
       const topRowTop = topBlock;
       const midTop = topRowTop + winnerH;
       const bottomRowTop = midTop + midH;
       const bottomRowBottom = bottomRowTop + loserH;
       const center = Math.round((topRowTop + bottomRowBottom) / 2);
 
-      // column left
       const colLeft = colIndex === 0 ? 0 : colIndex * (colWidthSmall + colGap) + (colWidth - colWidthSmall);
       const left = colLeft;
       const width = colIndex === 0 ? colWidth : colWidthSmall;
 
-      // hover classes
       const wId = m.player_id_winner || ('pwin_'+colIndex+'_'+j);
       const lId = m.player_id_loser || ('plos_'+colIndex+'_'+j);
       const wClass = 'j_' + String(wId);
       const lClass = 'j_' + String(lId);
 
-      /* TOP ROW (upper player) */
+      /* TOP ROW */
       const topDiv = document.createElement('div');
       topDiv.className = wClass + ' match-row row-top';
       topDiv.style.top = topRowTop + 'px';
@@ -315,23 +205,33 @@ async function render(){
       topDiv.setAttribute('onmouseover', `highlight_player(1,'${wClass}'); highlight_player(1,'${lClass}');`);
       topDiv.setAttribute('onmouseout',  `highlight_player(2,'${wClass}'); highlight_player(2,'${lClass}');`);
 
-      const wseedRaw = m.winner_seed || m.winnerSeed || '';
-      const wseed = formatSeed(wseedRaw);
-      const seedNode = document.createElement('div');
-      if(wseed && /^\d+$/.test(wseed)){ seedNode.className='seed-num'; seedNode.textContent = wseed; }
-      else { seedNode.className='seed-text'; seedNode.innerHTML = (wseed ? wseed : '\u00A0'); }
-      topDiv.appendChild(seedNode);
-
-      topDiv.appendChild(makeFlagElem(m.winner_country || m.winner_nationality || m.winner_country_code || ''));
-      const wname = m.winner_player_name || m.winner_name || '';
-      const { last: wlast, firstInitial: wfirstInitial } = splitNameToLastAndInitial(wname);
-      const wA = document.createElement('a'); wA.href = m.player_id_winner ? `/player/${slugify(wname)}/${m.player_id_winner}/` : '#';
-      wA.className = 'player-link';
-      wA.innerHTML = `<strong style="font-size:11px">${(wlast||'—').toUpperCase()}</strong><span class="player-first">${ wfirstInitial ? ', ' + wfirstInitial : '' }</span>`;
-      topDiv.appendChild(wA);
+      // *** KEY CHANGE #1 ***
+      // If we're in the first (leftmost) column, we render the player's seed/flag/name as before.
+      // If we're in a later column (colIndex > 0), we *do not* render the winner here to avoid duplication.
+      if(colIndex === 0){
+        const wseedRaw = m.winner_seed || m.winnerSeed || '';
+        const wseed = formatSeed(wseedRaw);
+        const seedNode = document.createElement('div');
+        if(wseed && /^\d+$/.test(wseed)){ seedNode.className='seed-num'; seedNode.textContent = wseed; }
+        else { seedNode.className='seed-text'; seedNode.innerHTML = (wseed ? wseed : '\u00A0'); }
+        topDiv.appendChild(seedNode);
+        topDiv.appendChild(makeFlagElem(m.winner_country || m.winner_nationality || m.winner_country_code || ''));
+        const wname = m.winner_player_name || m.winner_name || '';
+        const { last: wlast, firstInitial: wfirstInitial } = splitNameToLastAndInitial(wname);
+        const wA = document.createElement('a'); wA.href = m.player_id_winner ? `/player/${slugify(wname)}/${m.player_id_winner}/` : '#';
+        wA.className = 'player-link';
+        wA.innerHTML = `<strong style="font-size:11px">${(wlast||'—').toUpperCase()}</strong><span class="player-first">${ wfirstInitial ? ', ' + wfirstInitial : '' }</span>`;
+        topDiv.appendChild(wA);
+      } else {
+        // keep an empty placeholder so the line/borders remain consistent visually
+        const spacer = document.createElement('div');
+        spacer.style.width = '100%';
+        spacer.innerHTML = '&nbsp;';
+        topDiv.appendChild(spacer);
+      }
       container.appendChild(topDiv);
 
-      /* BOTTOM ROW (lower player) */
+      /* BOTTOM ROW (always show) */
       const bottomDiv = document.createElement('div');
       bottomDiv.className = lClass + ' match-row row-bottom';
       bottomDiv.style.top = bottomRowTop + 'px';
@@ -361,70 +261,74 @@ async function render(){
       }
       container.appendChild(bottomDiv);
 
-      /* MID BLOCK (centered at midX) - winner above bar, score below bar */
-      // midX - halfway between this column left and previous column right
-      // read CSS offset (px) to nudge mid-block horizontally (positive => shift right)
-const midOffsetCss = getComputedStyle(document.documentElement).getPropertyValue('--mid-offset') || '0px';
-const midOffsetPx = parseInt(midOffsetCss, 10) || 0;
-
-// compute previous column right edge (real numeric coordinate)
-const prevColRight = (colIndex === 0)
-  ? (left + width) // if no previous column, take right edge of current col as fallback
-  : ((colIndex - 1) * (colWidthSmall + colGap) + (colWidth - colWidthSmall) + ((colIndex - 1) === 0 ? colWidth : colWidthSmall));
-
-// midX := exact middle between prevColRight and current column left, then add offset
-const midX = Math.round((prevColRight + left) / 2) + midOffsetPx;
-
+      /* MID BLOCK: now *this* is the authoritative winner display (seed + flag + link above the bar) */
+      const midOffsetCss = getComputedStyle(document.documentElement).getPropertyValue('--mid-offset') || '0px';
+      const midOffsetPx = parseInt(midOffsetCss, 10) || 0;
+      const prevColRight = (colIndex === 0)
+        ? (left + width)
+        : ((colIndex - 1) * (colWidthSmall + colGap) + (colWidth - colWidthSmall) + ((colIndex - 1) === 0 ? colWidth : colWidthSmall));
+      const midX = Math.round((prevColRight + left) / 2) + midOffsetPx;
 
       const midBlock = document.createElement('div');
       midBlock.className = 'mid-block';
       midBlock.style.left = midX + 'px';
       midBlock.style.top = (center - Math.round(midH / 2)) + 'px';
       midBlock.style.width = midWidth + 'px';
-      // center it on midX using negative margin
       midBlock.style.marginLeft = (-Math.round(midWidth/2)) + 'px';
 
-      // winner label centered
-      const winnerLabel = document.createElement('div');
-      winnerLabel.className = 'mid-winner';
-      winnerLabel.textContent = ((wlast||'—').toUpperCase()) + (wfirstInitial ? ', ' + wfirstInitial : '');
-      midBlock.appendChild(winnerLabel);
+      // Build winner area inside mid-block: seed + flag + link (clickable)
+      const winnerContain = document.createElement('a');
+      // if we have a player_id_winner, link to player; otherwise keep non-clickable '#' anchor
+      const wname_full = m.winner_player_name || m.winner_name || '';
+      const winnerHref = m.player_id_winner ? `/player/${slugify(wname_full)}/${m.player_id_winner}/` : '#';
+      winnerContain.href = winnerHref;
+      winnerContain.style.textDecoration = 'none';
+      winnerContain.style.color = 'inherit';
+      winnerContain.className = 'mid-winner player-link';
+      // seed (displayed to left)
+      const wseedRaw2 = m.winner_seed || m.winnerSeed || '';
+      const wseed2 = formatSeed(wseedRaw2);
+      if(wseed2 && /^\d+$/.test(wseed2)){
+        const sn = document.createElement('div'); sn.className='seed-num'; sn.textContent = wseed2; winnerContain.appendChild(sn);
+      } else {
+        const sn2 = document.createElement('div'); sn2.className='seed-text'; sn2.innerHTML = (wseed2 ? wseed2 : '\u00A0'); winnerContain.appendChild(sn2);
+      }
+      // flag
+      const flagEl = makeFlagElem(m.winner_country || m.winner_nationality || m.winner_country_code || '');
+      winnerContain.appendChild(flagEl);
+      // name text
+      const { last: wlast2, firstInitial: wfirstInitial2 } = splitNameToLastAndInitial(wname_full);
+      const nameSpan = document.createElement('strong');
+      nameSpan.style.fontSize = '11px';
+      nameSpan.textContent = (wlast2 || '—').toUpperCase();
+      winnerContain.appendChild(nameSpan);
+      if(wfirstInitial2){
+        const fi = document.createElement('span'); fi.className='player-first'; fi.textContent = ', ' + wfirstInitial2; winnerContain.appendChild(fi);
+      }
+      midBlock.appendChild(winnerContain);
 
-      const midBar = document.createElement('div');
-      midBar.className = 'mid-bar';
-      midBlock.appendChild(midBar);
+      const midBar = document.createElement('div'); midBar.className='mid-bar'; midBlock.appendChild(midBar);
 
-      const scoreLabel = document.createElement('div');
-      scoreLabel.className = 'mid-score';
+      const scoreLabel = document.createElement('div'); scoreLabel.className='mid-score';
       scoreLabel.innerHTML = scoreToHtml(m.score_string || m.score || '') || '\u00A0';
       midBlock.appendChild(scoreLabel);
 
-      // make mid-block respond to hover of players (so it highlights on hover)
+      // hover highlight tied to the same classes
       midBlock.onmouseover = () => { highlight_player(1, wClass); highlight_player(1, lClass); };
       midBlock.onmouseout  = () => { highlight_player(2, wClass); highlight_player(2, lClass); };
 
       container.appendChild(midBlock);
 
-      // store positional details for connector drawing
       thisPositions.push({
-        topRowTop,
-        midTop,
-        bottomRowTop,
-        bottomRowBottom,
-        center,
-        left, width,
-        midX,
-        midTop,
-        midBottom: midTop + midH,
-        matchRef: m
+        topRowTop, midTop, bottomRowTop, bottomRowBottom, center,
+        left, width, midX, midTop, midBottom: midTop + midH, matchRef: m
       });
     });
 
     positionsByRound.push(thisPositions);
   });
 
-  /* Draw connectors using SVG polylines (one L-shaped polyline per child->parent mapping) */
-  // helper to create polyline
+  /* SVG connectors */
   function drawPolyline(points, strokeWidth){
     const poly = document.createElementNS('http://www.w3.org/2000/svg','polyline');
     poly.setAttribute('points', points.map(p => (p[0] + ',' + p[1])).join(' '));
@@ -435,7 +339,6 @@ const midX = Math.round((prevColRight + left) / 2) + midOffsetPx;
     svg.appendChild(poly);
   }
 
-  // for each col except last, draw child->parent connectors
   for(let colIndex=0; colIndex<positionsByRound.length - 1; colIndex++){
     const children = positionsByRound[colIndex];
     const parents = positionsByRound[colIndex + 1];
@@ -448,16 +351,13 @@ const midX = Math.round((prevColRight + left) / 2) + midOffsetPx;
       const childX = child.midX;
       const childY = child.center;
       const parentTopY = parent.topRowTop;
-      // compute parentBarX - connect to left edge of parent column (small offset inside)
       const pLeft = parent.left;
-      const parentBarX = pLeft + 4; // a bit inside the parent's column
-      // polyline: (childX, childY) -> (childX, parentTopY) -> (parentBarX, parentTopY)
+      const parentBarX = pLeft + 4;
       drawPolyline([[childX, childY], [childX, parentTopY], [parentBarX, parentTopY]], 1);
     }
   }
 
-} // end render()
-
+} // render
 render();
 </script>
 </body>
