@@ -297,6 +297,33 @@ def insert_byes_global(matches_list, singles_draw_size=None):
             else:
                 chosen_round = ''
 
+            # --- NEW: preserve country and seed for the selected player when available (taken from child) ---
+            chosen_country = ''
+            chosen_seed = ''
+            if child and chosen_id and chosen_id != 'XXXX':
+                c_w_id = child.get('player_id_winner') or ''
+                c_l_id = child.get('player_id_loser') or ''
+                c_w_name = child.get('winner_player_name') or ''
+                c_l_name = child.get('loser_player_name') or ''
+                if chosen_id and c_w_id and chosen_id == c_w_id:
+                    chosen_country = child.get('winner_country') or ''
+                    chosen_seed = child.get('winner_seed') or ''
+                elif chosen_id and c_l_id and chosen_id == c_l_id:
+                    chosen_country = child.get('loser_country') or ''
+                    chosen_seed = child.get('loser_seed') or ''
+                else:
+                    # fallback to name matching
+                    if chosen_name and normalize_name(chosen_name) == normalize_name(c_w_name):
+                        chosen_country = child.get('winner_country') or ''
+                        chosen_seed = child.get('winner_seed') or ''
+                    elif chosen_name and normalize_name(chosen_name) == normalize_name(c_l_name):
+                        chosen_country = child.get('loser_country') or ''
+                        chosen_seed = child.get('loser_seed') or ''
+                    else:
+                        chosen_country = ''
+                        chosen_seed = ''
+            # --- end preserve block ---
+
             # construct synthetic match
             synth = {
                 'match_id': mid,
@@ -306,9 +333,9 @@ def insert_byes_global(matches_list, singles_draw_size=None):
                 'score_string': '',
                 'player_id_winner': chosen_id or '',
                 'player_id_loser': 'XXXX',
-                'winner_country': '',
+                'winner_country': chosen_country or '',
                 'loser_country': '',
-                'winner_seed': '',
+                'winner_seed': chosen_seed or '',
                 'loser_seed': ''
             }
 
