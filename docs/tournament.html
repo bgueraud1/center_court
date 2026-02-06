@@ -9,15 +9,13 @@
   body{font-family:Arial,Helvetica,sans-serif;margin:0;background:#fff}
   .hero{padding:18px;color:#fff;background:#2b6cb0}
   .container-main{max-width:1200px;margin:12px auto;padding:0 12px}
-  /* flag wrapper: we use <img> for maximum compatibilité, puis fallback */
   .flag{display:inline-block;width:22px;height:14px;margin-right:8px;vertical-align:middle;overflow:hidden;border-radius:2px;background:#f5f5f5}
   .flag img{width:100%;height:100%;object-fit:cover;display:block}
-  .seed-num{float:left;width:28px;color:#0b3d91;font-size:11px;padding:2px 4px;font-weight:600;} /* bleu foncé demandé */
+  .seed-num{float:left;width:28px;color:#0b3d91;font-size:11px;padding:2px 4px;font-weight:600;} /* bleu foncé */
   .seed-text{float:left;width:28px;color:#808080;font-size:11px;padding:2px 4px;}
   .player-link { font-size:11px;text-decoration:none;color:black; display:inline-block; vertical-align:middle; }
   .player-first { font-size:11px;color:#565656;font-style:italic; margin-left:4px;}
   .bye { color:#808080;font-size:11px;padding-left:22px; }
-  /* hover highlight */
   .highlight { background: rgba(255,235,59,0.15); }
   .match-row{ padding:0 4px; box-sizing:border-box; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   @media (max-width:600px){
@@ -45,7 +43,6 @@
    UTILITAIRES & MAPPINGS
    --------------------------- */
 
-/* slugify */
 function slugify(name){
   if(!name) return '';
   name = name.trim();
@@ -58,7 +55,6 @@ function slugify(name){
   return name.toLowerCase().replace(/[^a-z0-9\s-]/g,'').replace(/\s+/g,'-');
 }
 
-/* highlight_player : même signature */
 function highlight_player(mode, className, v){
   const els = document.querySelectorAll('.' + className);
   if(mode === 1){
@@ -68,77 +64,54 @@ function highlight_player(mode, className, v){
   }
 }
 
-/* convertit alpha-2 en emoji via Regional Indicator Symbols (fallback si image unavailable) */
-function alpha2ToFlagEmoji(alpha2){
-  if(!alpha2 || alpha2.length !== 2) return '';
-  const A = 0x1F1E6;
-  const chars = [...alpha2.toUpperCase()].map(ch => A + (ch.charCodeAt(0) - 65));
-  try { return String.fromCodePoint(...chars); }
-  catch(e){ return ''; }
-}
-
-/* mapping IOC/ISO3 -> alpha-2 : large couverture (complète pour la plupart des usages).
-   Ajoute/édite si tu as codes spécifiques. Les clés doivent être en MAJUSCULE. */
+/* mapping IOC/ISO3 -> alpha-2 (vérifier / compléter si besoin) */
 const iocToAlpha2 = {
-  "AFG":"AF","ALB":"AL","DZA":"DZ","AND":"AD","AGO":"AO","AIA":"AI","ATG":"AG","ARG":"AR","ARM":"AM",
-  "AUS":"AU","AUT":"AT","AZE":"AZ","BHS":"BS","BHR":"BH","BGD":"BD","BRB":"BB","BLR":"BY","BEL":"BE",
-  "BLZ":"BZ","BEN":"BJ","BMU":"BM","BTN":"BT","BOL":"BO","BIH":"BA","BWA":"BW","BRA":"BR","BRN":"BN",
-  "BGR":"BG","BFA":"BF","BDI":"BI","CPV":"CV","KHM":"KH","CMR":"CM","CAN":"CA","CYM":"KY","CAF":"CF",
-  "TCD":"TD","CHL":"CL","CHN":"CN","COL":"CO","COM":"KM","COG":"CG","COD":"CD","COK":"CK","CRI":"CR",
-  "CIV":"CI","HRV":"HR","CUB":"CU","CYP":"CY","CZE":"CZ","DEN":"DK","DJI":"DJ","DMA":"DM","DOM":"DO",
-  "ECU":"EC","EGY":"EG","SLV":"SV","GNQ":"GQ","ERI":"ER","EST":"EE","ETH":"ET","FRO":"FO","FJI":"FJ",
-  "FIN":"FI","FRA":"FR","GAB":"GA","GMB":"GM","GEO":"GE","DEU":"DE","GHA":"GH","GIB":"GI","GRC":"GR",
-  "GRD":"GD","GTM":"GT","GIN":"GN","GNB":"GW","GUY":"GY","HTI":"HT","HND":"HN","HKG":"HK","HUN":"HU",
-  "ISL":"IS","IND":"IN","IDN":"ID","IRN":"IR","IRQ":"IQ","IRL":"IE","ISR":"IL","ITA":"IT","JAM":"JM",
-  "JPN":"JP","JOR":"JO","KAZ":"KZ","KEN":"KE","KIR":"KI","PRK":"KP","KOR":"KR","KWT":"KW","KGZ":"KG",
-  "LAO":"LA","LVA":"LV","LBN":"LB","LSO":"LS","LBR":"LR","LBY":"LY","LIE":"LI","LTU":"LT","LUX":"LU",
-  "MAC":"MO","MDG":"MG","MWI":"MW","MYS":"MY","MDV":"MV","MLI":"ML","MLT":"MT","MHL":"MH","MTQ":"MQ",
-  "MRT":"MR","MUS":"MU","MYT":"YT","MEX":"MX","FSM":"FM","MDA":"MD","MCO":"MC","MNG":"MN","MNE":"ME",
-  "MAR":"MA","MOZ":"MZ","MMR":"MM","NAM":"NA","NRU":"NR","NPL":"NP","NLD":"NL","NCL":"NC","NZL":"NZ",
-  "NIC":"NI","NER":"NE","NGA":"NG","NIU":"NU","NOR":"NO","OMN":"OM","PAK":"PK","PLW":"PW","PAN":"PA",
-  "PNG":"PG","PRY":"PY","PER":"PE","PHI":"PH","POL":"PL","PRT":"PT","PRI":"PR","QAT":"QA","ROU":"RO",
-  "RUS":"RU","RWA":"RW","KNA":"KN","LCA":"LC","VCT":"VC","WSM":"WS","SMR":"SM","STP":"ST","SAU":"SA",
-  "SEN":"SN","SRB":"RS","SYC":"SC","SLE":"SL","SGP":"SG","SVK":"SK","SVN":"SI","SLB":"SB","SOM":"SO",
-  "ZAF":"ZA","SSD":"SS","ESP":"ES","LKA":"LK","SDN":"SD","SUR":"SR","SWE":"SE","CHE":"CH","SYR":"SY",
-  "TJK":"TJ","TZA":"TZ","THA":"TH","TTO":"TT","TUN":"TN","TUR":"TR","TKM":"TM","TCA":"TC","TUV":"TV",
-  "UGA":"UG","UKR":"UA","ARE":"AE","GBR":"GB","USA":"US","URY":"UY","UZB":"UZ","VUT":"VU","VEN":"VE",
-  "VNM":"VN","VIR":"VI","YEM":"YE","ZMB":"ZM","ZWE":"ZW","COK":"CK","SXM":"SX","BLM":"BL","MAF":"MF",
-  "ALA":"AX","XKX":"XK" /* Kosovo etc */
+  "AFG":"AF","ALB":"AL","DZA":"DZ","AND":"AD","AGO":"AO","ARG":"AR","ARM":"AM","AUS":"AU","AUT":"AT","AZE":"AZ",
+  "BHS":"BS","BHR":"BH","BGD":"BD","BRB":"BB","BLR":"BY","BEL":"BE","BEN":"BJ","BOL":"BO","BIH":"BA","BWA":"BW",
+  "BRA":"BR","BGR":"BG","CMR":"CM","CAN":"CA","CHE":"CH","CHN":"CN","COL":"CO","CRI":"CR","CYP":"CY","CZE":"CZ",
+  "DNK":"DK","ECU":"EC","EGY":"EG","ESP":"ES","EST":"EE","ETH":"ET","FIN":"FI","FRA":"FR","GBR":"GB","GEO":"GE",
+  "DEU":"DE","GRC":"GR","HUN":"HU","ISL":"IS","IND":"IN","IDN":"ID","IRL":"IE","IRN":"IR","ISR":"IL","ITA":"IT",
+  "JPN":"JP","KAZ":"KZ","KEN":"KE","KOR":"KR","KGZ":"KG","LVA":"LV","LBN":"LB","LTU":"LT","LUX":"LU","MYS":"MY",
+  "MEX":"MX","MDA":"MD","MCO":"MC","MAR":"MA","NLD":"NL","NZL":"NZ","NOR":"NO","PAK":"PK","PER":"PE","PHI":"PH",
+  "POL":"PL","PRT":"PT","ROU":"RO","RUS":"RU","RSA":"ZA","SRB":"RS","SVK":"SK","SVN":"SI","SWE":"SE","CHE":"CH",
+  "TUR":"TR","UKR":"UA","USA":"US","UZB":"UZ","VEN":"VE","VNM":"VN","ZAF":"ZA","ZMB":"ZM","ZWE":"ZW","XKX":"XK"
 };
 
-/* quelques conversions à partir de noms fréquents (si JSON contient "United States") */
+/* quelques conversions à partir de noms usuels */
 const nameToAlpha2 = {
   "UNITED STATES":"US","UNITED KINGDOM":"GB","ENGLAND":"GB","RUSSIA":"RU","CHINA":"CN","UAE":"AE",
-  "SOUTH KOREA":"KR","NORTH KOREA":"KP","SOUTH AFRICA":"ZA","IRAN":"IR","VENEZUELA":"VE"
+  "SOUTH KOREA":"KR","NORTH KOREA":"KP","SOUTH AFRICA":"ZA"
 };
 
-/* normalize country input -> alpha2 ou '' */
 function toAlpha2(input){
   if(!input) return '';
   let s = String(input).trim().toUpperCase();
   if(/^[A-Z]{2}$/.test(s)) return s;
   if(s.length === 3 && iocToAlpha2[s]) return iocToAlpha2[s];
   if(nameToAlpha2[s]) return nameToAlpha2[s];
-  // try to remove non-letters and test
   const letters = s.replace(/[^A-Z]/g,'');
   if(letters.length === 2) return letters;
   return '';
 }
 
-/* crée span .flag contenant <img> vers flagcdn ; fallback sur emoji/text si l'image échoue */
+/* crée un span.flag contenant <img> vers flagcdn ; fallback emoji/text si échec */
+function alpha2ToFlagEmoji(alpha2){
+  if(!alpha2 || alpha2.length !== 2) return '';
+  const A = 0x1F1E6;
+  const chars = [...alpha2.toUpperCase()].map(ch => A + (ch.charCodeAt(0) - 65));
+  try { return String.fromCodePoint(...chars); } catch(e){ return ''; }
+}
 function makeFlagElem(countryInput){
   const alpha2 = toAlpha2(countryInput || '');
   const span = document.createElement('span');
   span.className = 'flag';
   if(alpha2){
-    // flagcdn : format lowercase for path; using small PNG 32x24 for quality
     const code = alpha2.toLowerCase();
     const img = document.createElement('img');
     img.alt = alpha2;
-    img.src = `https://flagcdn.com/w40/${code}.png`; // w40 gives ~40px width source (CORS-friendly)
-    img.onload = function(){ /* ok */ };
+    img.src = `https://flagcdn.com/w40/${code}.png`;
+    img.onload = function(){};
     img.onerror = function(){
-      // remove broken img and fallback to emoji/text
       img.remove();
       const emoji = alpha2ToFlagEmoji(alpha2);
       if(emoji){
@@ -150,7 +123,6 @@ function makeFlagElem(countryInput){
     };
     span.appendChild(img);
   } else {
-    // unknown country -> show up to 3 chars text
     const txt = (countryInput ? String(countryInput).toUpperCase().slice(0,3) : '');
     span.textContent = txt;
     span.style.fontSize = '11px'; span.style.color = '#666';
@@ -158,23 +130,18 @@ function makeFlagElem(countryInput){
   return span;
 }
 
-/* formate seed : supprime trailing .0 si entier */
 function formatSeed(raw){
   if(raw === null || raw === undefined) return '';
-  // raw peut être number ou string
-  const n = typeof raw === 'number' ? raw : parseFloat(String(raw).trim().replace(',', '.'));
+  const s = String(raw).trim();
+  // accept direct integer-like strings (e.g. "1.0"), numbers, or empty
+  const n = typeof raw === 'number' ? raw : parseFloat(s.replace(',', '.'));
   if(isNaN(n)) {
-    // s'il s'agit d'une chaîne non numérique, renvoyer telle quelle
-    const s = String(raw).trim();
     return s.length ? s : '';
   }
-  // si entier, afficher sans .0
   if(Number.isInteger(n)) return String(n);
-  // sinon garder tel quel (ex : 1.5 improbable pour seed mais conservé)
   return String(n);
 }
 
-/* réduit le(s) prénom(s) à une initiale (premier token) */
 function formatFirstInitial(fullFirst){
   if(!fullFirst) return '';
   const tokens = String(fullFirst).trim().split(/\s+/);
@@ -182,20 +149,15 @@ function formatFirstInitial(fullFirst){
   return tokens[0].charAt(0).toUpperCase() + '.';
 }
 
-/* split last/first : retourne {last, firstInitial}
-   logic: si nom contient des virgules "SURNAME, First" -> gère aussi
-*/
 function splitNameToLastAndInitial(rawName){
   if(!rawName) return { last:'', firstInitial:'' };
   let name = String(rawName).trim();
-  // support "Surname, First" formats
   if(name.indexOf(',') !== -1){
     const parts = name.split(',');
     const last = parts[0].trim();
     const first = (parts[1] || '').trim();
     return { last: last, firstInitial: formatFirstInitial(first) };
   }
-  // else assume "First Last" or "First Middlename Last"
   const parts = name.split(/\s+/);
   if(parts.length === 1) return { last: parts[0], firstInitial: '' };
   const last = parts[parts.length - 1];
@@ -204,9 +166,96 @@ function splitNameToLastAndInitial(rawName){
 }
 
 /* ---------------------------
-   RENDERING AVANCÉ (alignement parent->enfant)
+   AUGMENTATION : INSÉRER DES MATCHES "BYE" SYNTHÉTIQUES
    --------------------------- */
+/*
+  groups : { roundKey: [match, ...], ... }
+  rounds : ordered array of roundKeys (gauche -> droite)
+  Cette fonction modifie groups en insérant des matches synthétiques dans les rounds précédents
+  pour représenter les BYE (players qui apparaissent au round n mais n'ont pas de match au round n-1).
+*/
+function augmentByes(groups, rounds){
+  // for each column starting at index 1, compare players in current round with prev round matches
+  for(let colIndex = 1; colIndex < rounds.length; colIndex++){
+    const prevKey = rounds[colIndex - 1];
+    const currKey = rounds[colIndex];
+    const prevMatches = groups[prevKey] = groups[prevKey] || [];
+    const currMatches = groups[currKey] = groups[currKey] || [];
 
+    // set to track inserted player ids for prev round to avoid duplicate synthetic for same id
+    const insertedForPrev = new Set();
+
+    // we will update prevMatches in-place using splice; track base prevCount as we insert
+    // iterate matches in currMatches and check both participants
+    for(let j = 0; j < currMatches.length; j++){
+      const cm = currMatches[j];
+      const currCount = currMatches.length;
+      let prevCount = prevMatches.length;
+
+      // helper to test whether player exists in prevMatches
+      const playerExistsInPrev = (pid) => {
+        if(!pid) return true; // absent player => treat as exist to avoid synthetic
+        for(const pm of prevMatches){
+          if(pm.player_id_winner && String(pm.player_id_winner) === String(pid)) return true;
+          if(pm.player_id_loser && String(pm.player_id_loser) === String(pid)) return true;
+          // also check alternative field names
+          if(pm.winner && String(pm.winner) === String(pid)) return true;
+        }
+        return false;
+      };
+
+      // compute insertion index estimate for synthetic matches corresponding to this child j
+      // use current prevCount (it grows as we insert)
+      prevCount = prevMatches.length;
+      let insertIndexBase = Math.floor(j * prevCount / Math.max(1, currCount));
+      if(insertIndexBase < 0) insertIndexBase = 0;
+      if(insertIndexBase > prevCount) insertIndexBase = prevCount;
+
+      // check both player slots: winner and loser as represented in current match
+      const plids = [
+        { id: cm.player_id_winner || cm.player_id_winner || cm.winner_player_id || cm.player_id_winner, name: cm.winner_player_name || cm.winner_name || cm.winner_player_name },
+        { id: cm.player_id_loser  || cm.player_id_loser  || cm.loser_player_id  || cm.player_id_loser,  name: cm.loser_player_name  || cm.loser_name  || cm.loser_player_name }
+      ];
+
+      // for each participant, if no prev match has them, insert synthetic match into prevMatches
+      for(const part of plids){
+        const pid = part.id;
+        const pname = part.name || '';
+        if(!pid) continue; // empty participant (it might already be a BYE in data)
+        // avoid reinserting same synthetic for same pid
+        if(insertedForPrev.has(String(pid))) continue;
+        if(!playerExistsInPrev(pid)){
+          // build synthetic match object
+          const synth = {
+            match_id: 'synth_' + String(pid) + '_' + colIndex + '_' + j + '_' + Math.floor(Math.random()*1000000),
+            round: prevKey,
+            // winner is the real player, loser is empty to render BYE
+            player_id_winner: pid,
+            winner_player_name: pname || '',
+            winner_country: cm.winner_country || cm.winner_nationality || cm.winner_country_code || '',
+            winner_seed: cm.winner_seed || '',
+            player_id_loser: '', // no opponent
+            loser_player_name: '', // empty -> rendered as BYE
+            loser_country: '',
+            loser_seed: ''
+          };
+          // splice into prevMatches at the computed insertion point
+          // If insertIndexBase is within array, we keep that position; otherwise push
+          const idx = Math.min(Math.max(0, insertIndexBase), prevMatches.length);
+          prevMatches.splice(idx, 0, synth);
+
+          // mark inserted and increase insertIndexBase so next synthetic for the same child sits after
+          insertedForPrev.add(String(pid));
+          insertIndexBase++; // to keep siblings ordered
+        }
+      } // end for participants
+    } // end currMatches loop
+  } // end colIndex loop
+}
+
+/* ---------------------------
+   RENDERING
+   --------------------------- */
 async function render(){
   const params = new URLSearchParams(location.search);
   const source = (params.get('source') || 'wta').toLowerCase();
@@ -231,7 +280,6 @@ async function render(){
 
   document.getElementById('tourney-title').textContent = json.meta?.tourney_name || (source.toUpperCase() + ' ' + id);
 
-  // normalise round label
   function norm(r){
     if(!r) return 'Unknown';
     r = r.trim();
@@ -250,8 +298,11 @@ async function render(){
     groups[r].push(m);
   });
 
-  // trier rounds gauche->droite : colonne la plus large (max de matches) à gauche
+  // order rounds left->right (most matches at left)
   const rounds = Object.keys(groups).sort((a,b) => groups[b].length - groups[a].length);
+
+  // AUGMENTATION : insérer les BYE synthétiques
+  augmentByes(groups, rounds);
 
   // layout constants
   const cellWidth = 220;
@@ -259,7 +310,6 @@ async function render(){
   const perMatchBlock = 60;
   const colGap = 40;
 
-  // container sizing
   let maxBlocks = 0;
   rounds.forEach(r => { maxBlocks = Math.max(maxBlocks, groups[r].length); });
   const containerHeight = Math.max(220, maxBlocks * perMatchBlock + 60);
@@ -268,25 +318,16 @@ async function render(){
   container.style.height = containerHeight + 'px';
   container.innerHTML = '';
 
-  // We will compute positions round-by-round.
-  // For leftmost round: simple vertical list centered.
-  // For each next round: for each match j compute the indices in previous round that feed into it,
-  // then place j vertically at the average center of those feeding match winners.
-  // To handle irregular brackets we compute a proportional mapping:
-  // start = floor(j * prevCount / currCount), end = floor((j+1)*prevCount/currCount)-1
-
-  const positionsByRound = []; // array per round of objects { winnerTop, loserTop, matchRef }
+  const positionsByRound = [];
 
   rounds.forEach((rnd, colIndex) => {
-    const matchesInRound = groups[rnd];
-    // sort stable — if match_id numeric order available use it
+    const matchesInRound = groups[rnd] || [];
     matchesInRound.sort((a,b)=>{
       const aa = (a.match_id||'').replace(/[^0-9]/g,''), bb = (b.match_id||'').replace(/[^0-9]/g,'');
       const ia = aa ? parseInt(aa,10) : 0, ib = bb ? parseInt(bb,10) : 0;
       return ia - ib;
     });
 
-    // compute columnHeight and topOffset to center vertically (as before)
     const n = matchesInRound.length;
     const columnHeight = (n - 1) * perMatchBlock + cellHeight + 20;
     const topOffset = Math.max(10, Math.round((containerHeight - columnHeight) / 2));
@@ -300,25 +341,22 @@ async function render(){
     matchesInRound.forEach((m, j) => {
       let winnerTop;
       if(colIndex === 0){
-        // leftmost col: fixed grid
         winnerTop = topOffset + j * perMatchBlock;
       } else {
-        // map to a block of matches in previous round
-        const startIndex = Math.floor(j * prevCount / currCount);
-        let endIndex = Math.floor(((j+1) * prevCount) / currCount) - 1;
+        // compute mapping in prevPositions similar to augment logic
+        const startIndex = Math.floor(j * prevCount / Math.max(1, currCount));
+        let endIndex = Math.floor(((j+1) * prevCount) / Math.max(1, currCount)) - 1;
         if(endIndex < startIndex) endIndex = startIndex;
         if(startIndex >= prevCount) startIndex = prevCount - 1;
         if(endIndex >= prevCount) endIndex = prevCount - 1;
-        // compute average of winnerTop positions of prev matches from startIndex to endIndex
         let sum = 0, cnt = 0;
-        for(let k = startIndex; k <= endIndex; k++){
+        for(let k = Math.max(0, startIndex); k <= Math.max(0, endIndex); k++){
           if(prevPositions[k]){
             sum += prevPositions[k].winnerTop;
             cnt++;
           }
         }
         if(cnt === 0){
-          // fallback to approximate vertical position
           winnerTop = topOffset + j * perMatchBlock;
         } else {
           winnerTop = Math.round(sum / cnt);
@@ -326,17 +364,13 @@ async function render(){
       }
 
       const loserTop = winnerTop + cellHeight;
-
-      // save position info for children rounds
       thisPositions.push({ winnerTop, loserTop, matchRef: m });
 
-      // create DOM nodes for winner & loser
+      // render winner
       const left = colIndex * (cellWidth + colGap);
-
-      // winner element
-      const winnerDiv = document.createElement('div');
-      const winnerId = m.player_id_winner || ('pwin_' + colIndex + '_' + j);
+      const winnerId = m.player_id_winner || m.player_id_winner || ('pwin_' + colIndex + '_' + j);
       const winnerClass = 'j_' + String(winnerId);
+      const winnerDiv = document.createElement('div');
       winnerDiv.className = winnerClass + ' match-row';
       winnerDiv.setAttribute('onmouseover', `highlight_player(1, '${winnerClass}', 1);`);
       winnerDiv.setAttribute('onmouseout', `highlight_player(2, '${winnerClass}');`);
@@ -359,11 +393,9 @@ async function render(){
       else { seedNode.className='seed-text'; seedNode.innerHTML = (wseed? wseed : '&nbsp;'); }
       winnerDiv.appendChild(seedNode);
 
-      // flag
-      const wflagSpan = makeFlagElem(m.winner_country || m.winner_nationality || m.winner_country_code || m.winnerCountry || '');
+      const wflagSpan = makeFlagElem(m.winner_country || m.winner_nationality || m.winner_country_code || '');
       winnerDiv.appendChild(wflagSpan);
 
-      // name formatted: SURNAME, F.
       const wname = m.winner_player_name || m.winner_name || '';
       const { last: wlast, firstInitial: wfirstInitial } = splitNameToLastAndInitial(wname);
       const wAnchor = document.createElement('a');
@@ -375,10 +407,10 @@ async function render(){
       winnerDiv.appendChild(wAnchor);
       container.appendChild(winnerDiv);
 
-      // loser element
-      const loserDiv = document.createElement('div');
-      const loserId = m.player_id_loser || ('plos_' + colIndex + '_' + j);
+      // render loser
+      const loserId = m.player_id_loser || m.player_id_loser || ('plos_' + colIndex + '_' + j);
       const loserClass = 'j_' + String(loserId);
+      const loserDiv = document.createElement('div');
       loserDiv.className = loserClass + ' match-row';
       loserDiv.setAttribute('onmouseover', `highlight_player(1, '${loserClass}', 1);`);
       loserDiv.setAttribute('onmouseout', `highlight_player(2, '${loserClass}');`);
@@ -401,7 +433,7 @@ async function render(){
       else { seedNode2.className='seed-text'; seedNode2.innerHTML = (lseed? lseed : '&nbsp;'); }
       loserDiv.appendChild(seedNode2);
 
-      const lflagSpan = makeFlagElem(m.loser_country || m.loser_nationality || m.loser_country_code || m.loserCountry || '');
+      const lflagSpan = makeFlagElem(m.loser_country || m.loser_nationality || m.loser_country_code || '');
       loserDiv.appendChild(lflagSpan);
 
       const lname = m.loser_player_name || m.loser_name || '';
@@ -423,12 +455,10 @@ async function render(){
       container.appendChild(loserDiv);
     });
 
-    // finish this round positions
     positionsByRound.push(thisPositions);
   });
 
-  // WORK COMPLETE — DOM built.
-
+  // FIN
 } // end render
 
 render();
