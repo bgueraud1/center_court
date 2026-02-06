@@ -1,11 +1,7 @@
 # parse_csvs.py
 # Usage: python parse_csvs.py
-# Output: writes JSON files into docs/data/tournaments/ and an index docs/data/tournaments_index.json
-#         and a calendar listing docs/data/tournaments_calendar.json
-
-import csv
-import json
-import os
+# Writes JSON into docs/data/tournaments/
+import csv, json
 from pathlib import Path
 from collections import defaultdict
 from datetime import datetime
@@ -16,21 +12,20 @@ OUTPUT_DIR = ROOT / 'docs' / 'data' / 'tournaments'
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 IOC_ATP = ROOT / 'ioc_places_atp.json'
 
-# Utilities
 def read_csv_rows(path):
     with open(path, newline='', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         return list(reader)
 
-# Load ioc for ATP
+# load IOC mapping if present
 if IOC_ATP.exists():
     with open(IOC_ATP, 'r', encoding='utf-8') as f:
         ioc_atp = json.load(f)
 else:
     ioc_atp = {}
 
-index = defaultdict(list)  # {"atp_73": [1997,1998,...]}
-calendar_list = []  # list of tournaments (for calendar)
+index = defaultdict(list)
+calendar_list = []
 
 for kind in ('atp_matches','wta_matches'):
     d = MATCHES_DIR / kind
@@ -40,7 +35,7 @@ for kind in ('atp_matches','wta_matches'):
         rows = read_csv_rows(csvfile)
         if not rows:
             continue
-        # attempt to get tourney id and year
+
         name_parts = csvfile.stem.split('_')
         if len(name_parts) >= 3:
             _, tourney_id_str, year_str = name_parts[:3]
@@ -50,18 +45,15 @@ for kind in ('atp_matches','wta_matches'):
 
         tourney_id = tourney_id_str
         year = year_str
-        # collect metadata from first row
         first = rows[0]
-        # normalize start_date to YYYY-MM-DD if possible
+
         raw_start = first.get('start_date') or first.get('tourney_start_date') or ''
         start_date = ''
         if raw_start:
             try:
-                # some CSVs have ISO datetimes with time
                 dt = datetime.fromisoformat(raw_start)
                 start_date = dt.date().isoformat()
             except Exception:
-                # try to parse YYYY-MM-DD
                 try:
                     start_date = datetime.strptime(raw_start[:10], '%Y-%m-%d').date().isoformat()
                 except Exception:
@@ -83,32 +75,38 @@ for kind in ('atp_matches','wta_matches'):
             'start_date': start_date
         }
 
-        # for ATP, fill city/country/title using ioc_places_atp.json when missing
+        # Fill ATP missing info from ioc.json
         if meta['source'] == 'ATP' and tourney_id in ioc_atp:
             years_map = ioc_atp.get(tourney_id, {})
             ystr = str(year)
             if ystr in years_map:
                 place = years_map[ystr]
-                if len(place) >= 2 and not meta['city']:
+                if len(place) >= 1 and not meta['city']:
                     meta['city'] = place[0]
                 if len(place) >= 2 and not meta['country']:
                     meta['country'] = place[1]
                 if len(place) >= 3 and not meta['tourney_title']:
                     meta['tourney_title'] = place[2]
 
-        # normalize matches: keep only the columns we need plus match_id and round
         matches = []
         for r in rows:
+            # collect also ids, seeds and countries when present
             m = {
-                'match_id': r.get('match_id') or r.get('match') or r.get('event_id'),
+                'match_id': r.get('match_id') or r.get('match') or r.get('event_id') or '',
                 'round': r.get('round') or r.get('round_name') or '',
-                'winner_player_name': r.get('winner_player_name') or r.get('player_winner') or r.get('winner') or r.get('winner_player'),
-                'loser_player_name': r.get('loser_player_name') or r.get('player_loser') or r.get('loser') or r.get('loser_player'),
-                'score_string': r.get('score_string') or r.get('score') or r.get('score_str') or ''
+                'winner_player_name': r.get('winner_player_name') or r.get('player_winner') or r.get('winner') or '',
+                'loser_player_name': r.get('loser_player_name') or r.get('player_loser') or r.get('loser') or '',
+                'score_string': r.get('score_string') or r.get('score') or r.get('score_str') or '',
+                'player_id_winner': r.get('player_id_winner') or r.get('player_id_winner') or r.get('player_winner_id') or r.get('winner_id') or '',
+                'player_id_loser': r.get('player_id_loser') or r.get('player_id_loser') or r.get('player_loser_id') or r.get('loser_id') or '',
+                'winner_country': r.get('winner_country') or r.get('country_winner') or r.get('winner_country_code') or '',
+                'loser_country': r.get('loser_country') or r.get('country_loser') or r.get('loser_country_code') or '',
+                'winner_seed': r.get('winner_seed') or r.get('seed_winner') or r.get('winner_seed') or r.get('seed_a') or '',
+                'loser_seed': r.get('loser_seed') or r.get('seed_loser') or r.get('loser_seed') or r.get('seed_b') or ''
             }
             matches.append(m)
 
-        # basic validation: sort matches by match_id numeric suffix if possible
+        # sort by numeric part of match_id if present
         def match_sort_key(m):
             mid = m.get('match_id') or ''
             import re
@@ -117,22 +115,15 @@ for kind in ('atp_matches','wta_matches'):
 
         matches_sorted = sorted(matches, key=match_sort_key)
 
-        out = {
-            'meta': meta,
-            'matches': matches_sorted
-        }
-
-        # write file
+        out = {'meta': meta, 'matches': matches_sorted}
         out_name = f"{meta['source'].lower()}_{tourney_id}_{year}.json"
         out_path = OUTPUT_DIR / out_name
         with open(out_path, 'w', encoding='utf-8') as f:
             json.dump(out, f, ensure_ascii=False, indent=2)
 
-        # add to index
         index_key = f"{meta['source'].lower()}_{tourney_id}"
         index[index_key].append(int(year) if str(year).isdigit() else year)
 
-        # add to calendar list
         calendar_list.append({
             'source': meta['source'].lower(),
             'tourney_id': tourney_id,
@@ -143,13 +134,12 @@ for kind in ('atp_matches','wta_matches'):
             'level': meta['level']
         })
 
-# write index file
+# write index
 index_out = {k: sorted(v) for k, v in index.items()}
 with open(OUTPUT_DIR / 'tournaments_index.json', 'w', encoding='utf-8') as f:
     json.dump(index_out, f, ensure_ascii=False, indent=2)
 
-# write calendar file sorted by start_date
-# normalize unknown dates to far future so they sort last
+# write calendar
 def sort_key(item):
     d = item.get('start_date')
     try:
@@ -167,5 +157,3 @@ with open(OUTPUT_DIR / 'tournaments_calendar.json', 'w', encoding='utf-8') as f:
     json.dump(calendar_sorted, f, ensure_ascii=False, indent=2)
 
 print('Done — JSON files written to', OUTPUT_DIR)
-
-

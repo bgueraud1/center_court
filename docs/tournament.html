@@ -6,428 +6,291 @@
 <title>Tournament — Center Court</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 <style>
-  :root{--hard:#2b6cb0;--clay:#c53030;--grass:#2f855a;--carpet:#6b46c1;--bg:#f8f9fa}
-  body{font-family:Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Arial; background:var(--bg); margin:0}
-  .hero{padding:22px;color:#fff}
-  .container-main{max-width:1200px;margin:18px auto;padding:0 16px}
-  .meta-row{display:flex;justify-content:space-between;align-items:center;gap:12px}
-  .surface-pill{display:inline-block;padding:.25rem .5rem;border-radius:.25rem;color:#fff;font-weight:700}
-  .surface-hard{background:var(--hard)} .surface-clay{background:var(--clay)} .surface-grass{background:var(--grass)} .surface-carpet{background:var(--carpet)}
-  .tabs{display:flex;gap:8px;margin-top:12px}
-  .tab{padding:8px 12px;border-radius:6px;cursor:pointer;background:#fff;box-shadow:0 2px 6px rgba(0,0,0,0.06)}
-  .tab.active{background:#eee}
-  /* BRACKET STYLES */
-  .bracket-wrap{background:#fff;border-radius:6px;padding:14px;box-shadow:0 6px 18px rgba(0,0,0,0.06);overflow:auto}
-  .bracket-grid{
-    display:grid;
-    grid-auto-flow: column;
-    gap:18px;
-    align-items:start;
-    /* columns width controlled in JS by css variable --colw */
-  }
-  .bracket-col{display:block; position:relative}
-  .round-title{font-weight:700;margin:0 0 8px 0;font-size:0.95rem}
-  .match-box{
-    background:#fff;
-    border:1px solid #e6e6e6;
-    border-radius:4px;
-    padding:6px 8px;
-    box-shadow: 0 1px 0 rgba(0,0,0,0.02);
-    font-size:13px;
-    position:relative;
-    display:flex;
-    flex-direction:column;
-    gap:2px;
-    height:56px;
-  }
-  .player-line{display:flex;align-items:center;gap:8px}
-  .seed{display:inline-block;width:18px;text-align:center;font-weight:700;color:#c0392b}
-  .name { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:180px; }
-  .score { font-weight:700; margin-left:auto; color:#333; font-size:12px; min-width:36px; text-align:right}
-  .flag { margin-right:6px; font-size:15px; }
-  .bye { font-style:italic; color:#9aa0a6 }
-  /* connectors: drawn as absolute elements between columns via pseudo-lines */
-  .connector-vert{
-    position:absolute;
-    left: -9px; /* adjusted to land between columns */
-    width:18px;
-    height:100%;
-    pointer-events:none;
-  }
-  .connector-vert::before{
-    content:'';
-    position:absolute;
-    left:50%;
-    transform:translateX(-50%);
-    width:2px;
-    background:#cfcfcf;
-  }
-  .connector-hor{
-    position:absolute;
-    top:50%;
-    transform:translateY(-50%);
-    height:2px;
-    background:#cfcfcf;
-    pointer-events:none;
-  }
-  /* fine tuning for connector sizes will be set by JS inline styles */
-  /* small labels */
-  .round-small { font-size:12px; color:#666; margin-bottom:8px }
-  @media (max-width:900px){
-    .name { max-width:120px; }
-    .match-box{height:64px}
-  }
+  body{font-family:Arial,Helvetica,sans-serif;margin:0;background:#fff}
+  .hero{padding:18px;color:#fff;background:#2b6cb0}
+  .container-main{max-width:1200px;margin:12px auto;padding:0 12px}
+  .flag{display:inline-block;width:18px;margin-right:6px;vertical-align:middle}
+  .flag.USA::after{content:"🇺🇸";}
+  .flag.GBR::after{content:"🇬🇧";}
+  .flag.BLR::after{content:"🇧🇾";}
+  .flag.RUS::after{content:"🇷🇺";}
+  .flag.BEL::after{content:"🇧🇪";}
+  .flag.DEN::after{content:"🇩🇰";}
+  .flag.ESP::after{content:"🇪🇸";}
+  .flag.AUS::after{content:"🇦🇺";}
+  .flag.UZB::after{content:"🇺🇿";}
+  .flag.CHN::after{content:"🇨🇳";}
+  .flag.CZE::after{content:"🇨🇿";}
+  .flag.UKR::after{content:"🇺🇦";}
+  .seed-num{float:left;width:22px;color:red;font-size:11px;padding:2px;}
+  .seed-text{float:left;width:22px;color:#808080;font-size:11px;padding:2px;}
+  .player-link { font-size:11px;text-decoration:none;color:black; }
+  .player-first { font-size:11px;color:#565656;font-style:italic; margin-left:4px;}
+  .bye { color:#808080;font-size:11px;padding-left:22px; }
+  /* hover highlight */
+  .highlight { background: rgba(255,235,59,0.15); }
 </style>
 </head>
 <body>
 
-<!-- HERO -->
-<div id="hero" class="hero" style="background:var(--hard)">
-  <div class="container-main meta-row">
-    <div>
-      <h1 id="tourney-title" style="margin:0;color:#fff">Tournament</h1>
-      <div id="meta-small" style="color:#fff;opacity:.9"></div>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px">
-      <label for="year" style="color:#fff;margin:0;font-weight:600">Year</label>
-      <select id="year" class="form-select form-select-sm"></select>
-      <button id="show-draw" class="btn btn-light btn-sm">Draw</button>
-    </div>
+<div class="hero">
+  <div class="container-main">
+    <h1 id="tourney-title" style="margin:0;color:#fff">Tournament</h1>
   </div>
 </div>
 
-<div class="container-main">
-  <div class="tabs">
-    <div id="tab-info" class="tab active">Info</div>
-    <div id="tab-draw" class="tab">Draw</div>
-  </div>
-
-  <div id="content" style="margin-top:14px">
-    <div id="info" class="bracket-wrap card">Loading info…</div>
-    <div id="draw" class="bracket-wrap" style="display:none">
-      <div id="bracketArea">Loading bracket…</div>
-    </div>
+<div class="container-main" style="padding-top:12px">
+  <div id="bracketContainer" style="position:relative;border:0px solid transparent;min-height:200px;">
+    <!-- absolute-positioned cells will be inserted here -->
   </div>
 </div>
 
 <script>
-/*
-  Enhanced bracket renderer:
-  - reads JSON: /data/tournaments/{source}_{id}_{year}.json
-  - computes bracket size = next pow2 >= singles_draw_size (or infers from matches)
-  - groups matches by round and sorts them
-  - creates a grid with columns = rounds (Round1 ... Final), rows = bracket slots
-  - positions each match at a computed row based on spacing
-  - draws simple horizontal and vertical connectors
-*/
-
-function qs(){ return new URLSearchParams(location.search); }
-function countryToFlagEmoji(countryName){
-  if(!countryName) return '';
-  const map = {'UNITED STATES':'US','UNITED KINGDOM':'GB','ENGLAND':'GB','FRANCE':'FR','SPAIN':'ES','RUSSIA':'RU','CZECH REPUBLIC':'CZ','CHINA':'CN','ITALY':'IT','POLAND':'PL','SWITZERLAND':'CH','UZBEKISTAN':'UZ','MOROCCO':'MA','ARGENTINA':'AR','BELARUS':'BY','UKRAINE':'UA'};
-  const k = countryName.toUpperCase().split(',')[0].trim();
-  const code = map[k] || (k.length===2? k : null);
-  if(!code) return '';
-  return code.toUpperCase().replace(/./g, c => String.fromCodePoint(127397 + c.charCodeAt(0)));
+/* Helper slugify */
+function slugify(name){
+  if(!name) return '';
+  // expected input like "Ekaterina Alexandrov(a?)" or "Raducanu, Emma" — handle common cases
+  name = name.trim();
+  // if contains comma "SURNAME, First", swap
+  if(name.indexOf(',') !== -1){
+    const parts = name.split(',');
+    const last = parts[0].trim();
+    const rest = parts.slice(1).join(',').trim();
+    name = rest + ' ' + last;
+  }
+  return name.toLowerCase().replace(/[^a-z0-9\s-]/g,'').replace(/\s+/g,'-');
 }
 
-function fetchJson(path){ return fetch(path).then(r=>{ if(!r.ok) throw new Error('Not found '+path); return r.json(); }); }
-function nextPow2(n){ let p=1; while(p<n) p*=2; return p; }
-
-function normalizeRound(r){
-  if(!r) return 'Unknown';
-  r = r.trim();
-  // common normalizations
-  const m = r.toUpperCase();
-  if(m==='F' || m.startsWith('FINAL')) return 'F';
-  if(m==='SF' || m.startsWith('SEMIF')) return 'SF';
-  if(m==='QF' || m.startsWith('QUART')) return 'QF';
-  // ATP naming R32, R16
-  if(/^R\d+/.test(m)) return m;
-  // WTA short: S Q 4 3 2 1 => map 'S'->SF? But keep original
-  return m;
+/* highlight_player stub (keeps same signature as your original HTML) */
+function highlight_player(mode, className, v){
+  // mode 1 = enter, 2 = leave (per your example use)
+  const els = document.querySelectorAll('.' + className);
+  if(mode === 1){
+    els.forEach(el => el.classList.add('highlight'));
+  } else {
+    els.forEach(el => el.classList.remove('highlight'));
+  }
 }
 
-function getSurfaceClass(surface){
-  if(!surface) return 'surface-hard';
-  const s = surface.toLowerCase();
-  if(s.includes('clay')) return 'surface-clay';
-  if(s.includes('grass')) return 'surface-grass';
-  if(s.includes('carpet')) return 'surface-carpet';
-  return 'surface-hard';
+/* convert country code string to class for flag spans — we'll just use code if present */
+function countryCodeClass(c){
+  if(!c) return '';
+  // Accept inputs like "USA" or "UNITED STATES"
+  const map = {
+    'UNITED STATES':'USA','US':'USA','ENGLAND':'GBR','UNITED KINGDOM':'GBR','GB':'GBR',
+    'BELARUS':'BLR','RUSSIA':'RUS','RUS':'RUS','BEL':'BEL','DENMARK':'DEN','ESP':'ESP','AUS':'AUS','UZB':'UZB','CHN':'CHN','CZE':'CZE','UKR':'UKR','POLAND':'POL'
+  };
+  let key = c.toUpperCase().split(',')[0].trim();
+  if(map[key]) return map[key];
+  if(key.length===3) return key;
+  if(key.length===2){
+    // two-letter to three-letter approximate (not exhaustive)
+    const conv = { 'US':'USA', 'GB':'GBR' };
+    return conv[key] || key;
+  }
+  return key.substring(0,3);
 }
 
-function createMatchNode(match){
-  // DOM node for a match (winner/loser lines)
-  const box = document.createElement('div');
-  box.className = 'match-box';
-  // winner
-  const line1 = document.createElement('div'); line1.className = 'player-line';
-  const seed1 = document.createElement('div'); seed1.className='seed'; seed1.textContent = match.winner_seed || '';
-  const name1 = document.createElement('div'); name1.className='name';
-  const flag1 = document.createElement('span'); flag1.className='flag';
-  flag1.textContent = match.winner_country ? countryToFlagEmoji(match.winner_country) : '';
-  name1.innerHTML = `<span style="opacity:.9">${match.winner_player_name || '—'}</span>`;
-  const score1 = document.createElement('div'); score1.className='score'; score1.textContent = ''; // we will not split set-by-set here
-  line1.appendChild(seed1); line1.appendChild(flag1); line1.appendChild(name1); line1.appendChild(score1);
-  // loser
-  const line2 = document.createElement('div'); line2.className = 'player-line';
-  const seed2 = document.createElement('div'); seed2.className='seed'; seed2.textContent = match.loser_seed || '';
-  const name2 = document.createElement('div'); name2.className='name';
-  const flag2 = document.createElement('span'); flag2.className='flag';
-  flag2.textContent = match.loser_country ? countryToFlagEmoji(match.loser_country) : '';
-  name2.innerHTML = `<span style="opacity:.8">${match.loser_player_name || (match.winner_player_name? 'BYE':'—')}</span>`;
-  const score2 = document.createElement('div'); score2.className='score'; score2.textContent = match.score_string || '';
-  line2.appendChild(seed2); line2.appendChild(flag2); line2.appendChild(name2); line2.appendChild(score2);
+/* main renderer: create absolute positioned blocks exactly as sample markup */
+async function render(){
+  const params = new URLSearchParams(location.search);
+  const source = (params.get('source') || 'wta').toLowerCase();
+  const id = params.get('t') || params.get('id') || '';
+  const year = params.get('year') || '';
 
-  // if loser is empty and winner present and score empty -> show BYE label
-  if((!match.loser_player_name || match.loser_player_name==='') && (match.winner_player_name) && (!match.score_string || match.score_string==='')){
-    name2.innerHTML = `<span class="bye">BYE</span>`;
-    score2.textContent = '';
+  if(!id || !year){
+    document.getElementById('bracketContainer').innerHTML = '<div style="padding:12px;color:#666">Missing tournament id or year. Use ?source=wta&t=2010&year=2019</div>';
+    return;
   }
 
-  box.appendChild(line1); box.appendChild(line2);
-  return box;
-}
+  const path = `/data/tournaments/${source}_${id}_${year}.json`;
+  let json;
+  try{
+    const resp = await fetch(path);
+    if(!resp.ok) throw new Error('JSON not found: ' + path);
+    json = await resp.json();
+  }catch(err){
+    document.getElementById('bracketContainer').innerHTML = '<div style="padding:12px;color:red">Error loading JSON: ' + err.message + '</div>';
+    console.error(err); return;
+  }
 
-// Position algorithm: for each round, compute spacing = totalSlots / matchesInRound
-// create grid with gridRows = totalSlots * unit (unit = 2 to give vertical space)
-// each match placed at rowStart = Math.round(spacing * (i*1) + spacing/2) * unit
-function renderBracket(json){
-  const meta = json.meta || {};
-  const matches = (json.matches||[]).filter(m => m.match_id || m.winner_player_name || m.loser_player_name);
-  // normalize rounds
+  document.getElementById('tourney-title').textContent = json.meta.tourney_name || (source.toUpperCase() + ' ' + id);
+
+  // Group matches by normalized round (we want rounds that go left->right; leftmost = most matches)
+  function norm(r){
+    if(!r) return 'Unknown';
+    r = r.trim();
+    const u = r.toUpperCase();
+    if(u==='F' || u.startsWith('FINAL')) return 'F';
+    if(u==='SF' || u.startsWith('SEMIF')) return 'SF';
+    if(u==='QF' || u.startsWith('QUART')) return 'QF';
+    // keep R16/R32 etc
+    return u;
+  }
+
+  const matches = (json.matches || []).map(m => Object.assign({}, m)); // copy
   const groups = {};
-  matches.forEach(m=>{
-    const r = normalizeRound(m.round || '');
+  matches.forEach(m => {
+    const r = norm(m.round || '');
     groups[r] = groups[r] || [];
     groups[r].push(m);
   });
-  // order rounds by number of matches descending (Round1 left, Final right)
-  const rounds = Object.keys(groups).sort((a,b)=> groups[b].length - groups[a].length);
-  if(rounds.length===0){
-    document.getElementById('bracketArea').innerHTML = '<div class="p-3 text-muted">No matches to display</div>'; return;
-  }
 
-  // determine bracket size
-  let drawSize = meta.singles_draw_size || 0;
-  // fallback: infer minimal draw size from first round count * 2
-  const firstRoundCount = groups[rounds[0]] ? groups[rounds[0]].length : 0;
-  if(!drawSize){
-    drawSize = firstRoundCount * 2;
-  }
-  const totalSlots = nextPow2(drawSize || 2);
-  const unit = 2; // grid rows per slot
-  const gridRows = totalSlots * unit;
+  // order rounds left->right: round with most matches at left
+  const rounds = Object.keys(groups).sort((a,b) => groups[b].length - groups[a].length);
 
-  // build grid container
-  const bracketArea = document.getElementById('bracketArea');
-  bracketArea.innerHTML = '';
-  const grid = document.createElement('div');
-  grid.className = 'bracket-grid';
-  // set column width variable
-  grid.style.setProperty('--colw','260px');
-  grid.style.gridAutoColumns = '260px';
+  // constants that mimic your example markup
+  const cellWidth = 180;
+  const cellHeight = 20; // each line height used in sample
+  const perMatchBlock = 60; // stride between winners (winner top = i * perMatchBlock)
+  // winner at top, loser at top+20 (cellHeight)
+  const colGap = 40;
 
-  // Create a pseudo-grid with grid-template-rows
-  let rowsStyle = 'repeat(' + gridRows + ', 1fr)';
-  grid.style.gridTemplateRows = rowsStyle;
+  // compute required container height: maximum over rounds matches * perMatchBlock
+  let maxBlocks = 0;
+  rounds.forEach(r => { maxBlocks = Math.max(maxBlocks, groups[r].length); });
+  const containerHeight = Math.max(200, maxBlocks * perMatchBlock + 20);
+  const container = document.getElementById('bracketContainer');
+  container.style.position = 'relative';
+  container.style.height = containerHeight + 'px';
+  container.innerHTML = ''; // clear
 
-  // For each round (column), create column element and then place match boxes absolutely with gridRow set via style
+  // loop rounds (columns)
   rounds.forEach((rnd, colIndex) => {
-    const col = document.createElement('div');
-    col.className = 'bracket-col';
-    const title = document.createElement('div'); title.className='round-title'; title.textContent = rnd;
-    const subtitle = document.createElement('div'); subtitle.className='round-small'; subtitle.textContent = `${groups[rnd].length} matches`;
-    col.appendChild(title);
-    col.appendChild(subtitle);
-
-    // number of matches in this round
-    const M = groups[rnd].length || 1;
-    const spacing = totalSlots / M; // slots between matches
-    // sort matches by match_id numeric suffix if exists
-    groups[rnd].sort((a,b)=>{
-      const numa = (a.match_id||'').replace(/[^0-9]/g,'');
-      const numb = (b.match_id||'').replace(/[^0-9]/g,'');
-      const ia = numa? parseInt(numa,10) : 0;
-      const ib = numb? parseInt(numb,10) : 0;
+    const matchesInRound = groups[rnd];
+    // sort by numeric suffix of match_id if exists
+    matchesInRound.sort((a,b)=>{
+      const aa = (a.match_id||'').replace(/[^0-9]/g,'');
+      const bb = (b.match_id||'').replace(/[^0-9]/g,'');
+      const ia = aa? parseInt(aa,10) : 0;
+      const ib = bb? parseInt(bb,10) : 0;
       return ia - ib;
     });
+    matchesInRound.forEach((m, i) => {
+      const left = colIndex * (cellWidth + colGap);
+      const winnerTop = i * perMatchBlock;
+      const loserTop = winnerTop + cellHeight;
 
-    groups[rnd].forEach((m, i) => {
-      const matchNode = createMatchNode(m);
-      // compute grid row start & span
-      // ideal center position in slot units:
-      const centerSlot = Math.round(spacing*(i) + spacing/2);
-      // convert to grid rows (unit rows)
-      const startRow = Math.max(1, (centerSlot - 1) * unit + 1);
-      const rowSpan = Math.max(1, unit); // occupies 'unit' rows
-      // set the element to be placed with CSS grid-row
-      matchNode.style.gridRow = startRow + ' / ' + (startRow + rowSpan);
-      matchNode.style.width = '240px';
-      matchNode.style.margin = '0 auto 12px';
-      // add small absolute connector element to the column to draw vertical line across full column; we'll position connectors relative to match positions using data attributes
-      // We'll set dataset for later connector drawing
-      matchNode.dataset.col = colIndex;
-      matchNode.dataset.centerRow = centerSlot;
-      // store original match
-      matchNode.dataset.matchId = m.match_id || '';
-      // append
-      col.appendChild(matchNode);
+      // prepare ids/classes: use player id if available, else class from index
+      const winnerId = m.player_id_winner || ('pwin_' + colIndex + '_' + i);
+      const loserId = m.player_id_loser || ('plos_' + colIndex + '_' + i);
+
+      // winner div (border-top)
+      const winnerDiv = document.createElement('div');
+      // class name like j_7132
+      const winnerClass = 'j_' + String(winnerId);
+      winnerDiv.className = winnerClass;
+      winnerDiv.setAttribute('onmouseover', `highlight_player(1, '${winnerClass}', 1);`);
+      winnerDiv.setAttribute('onmouseout', `highlight_player(2, '${winnerClass}');`);
+      winnerDiv.style.position = 'absolute';
+      winnerDiv.style.top = winnerTop + 'px';
+      winnerDiv.style.left = left + 'px';
+      winnerDiv.style.height = cellHeight + 'px';
+      winnerDiv.style.width = cellWidth + 'px';
+      winnerDiv.style.borderTop = '1px solid rgb(121, 121, 121)';
+      winnerDiv.style.textAlign = 'left';
+      // seed display: numeric in red, text codes grey
+      const wseed = (m.winner_seed || '').toString().trim();
+      const seedNode = document.createElement('div');
+      if(wseed && /^\d+$/.test(wseed)) { seedNode.className='seed-num'; seedNode.textContent = wseed; }
+      else { seedNode.className='seed-text'; seedNode.innerHTML = (wseed? wseed : '&nbsp;'); }
+      winnerDiv.appendChild(seedNode);
+
+      // flag span
+      const wflag = document.createElement('span');
+      const wflagCode = countryCodeClass(m.winner_country || m.winner_country || '');
+      wflag.className = 'flag ' + (wflagCode || '');
+      winnerDiv.appendChild(wflag);
+
+      // name anchor format: SURNAME, First
+      const wname = m.winner_player_name || '';
+      const wAnchor = document.createElement('a');
+      const wSlug = slugify(wname);
+      const href = (m.player_id_winner ? `/player/${wSlug}/${m.player_id_winner}/` : '#');
+      wAnchor.href = href;
+      wAnchor.className = 'player-link';
+      // split first/last
+      let first = '', last = wname;
+      if(wname.indexOf(' ') >= 0){
+        const parts = wname.trim().split(/\s+/);
+        first = parts.slice(0, -1).join(' ');
+        last = parts[parts.length -1];
+      }
+      wAnchor.innerHTML = `${(last || '—').toUpperCase()}<span class="player-first">, ${first || ''}</span>`;
+      winnerDiv.appendChild(wAnchor);
+
+      container.appendChild(winnerDiv);
+
+      // loser div (border-bottom)
+      const loserDiv = document.createElement('div');
+      const loserClass = 'j_' + String(loserId);
+      loserDiv.className = loserClass;
+      loserDiv.setAttribute('onmouseover', `highlight_player(1, '${loserClass}', 1);`);
+      loserDiv.setAttribute('onmouseout', `highlight_player(2, '${loserClass}');`);
+      loserDiv.style.position = 'absolute';
+      loserDiv.style.top = loserTop + 'px';
+      loserDiv.style.left = left + 'px';
+      loserDiv.style.height = cellHeight + 'px';
+      loserDiv.style.width = cellWidth + 'px';
+      loserDiv.style.borderBottom = '1px solid rgb(121, 121, 121)';
+      loserDiv.style.textAlign = 'left';
+
+      // seed for loser
+      const lseed = (m.loser_seed || '').toString().trim();
+      const seedNode2 = document.createElement('div');
+      if(lseed && /^\d+$/.test(lseed)) { seedNode2.className='seed-num'; seedNode2.textContent = lseed; }
+      else { seedNode2.className='seed-text'; seedNode2.innerHTML = (lseed? lseed : '&nbsp;'); }
+      loserDiv.appendChild(seedNode2);
+
+      const lflag = document.createElement('span');
+      const lflagCode = countryCodeClass(m.loser_country || m.loser_country || '');
+      lflag.className = 'flag ' + (lflagCode || '');
+      loserDiv.appendChild(lflag);
+
+      // if loser name empty (BYE)
+      const lname = m.loser_player_name || '';
+      if(!lname){
+        const byeSpan = document.createElement('span');
+        byeSpan.className = 'bye';
+        byeSpan.textContent = 'BYE';
+        loserDiv.appendChild(byeSpan);
+      } else {
+        const lAnchor = document.createElement('a');
+        const lSlug = slugify(lname);
+        const lhref = (m.player_id_loser ? `/player/${lSlug}/${m.player_id_loser}/` : '#');
+        lAnchor.href = lhref;
+        lAnchor.className = 'player-link';
+        let f2='', l2=lname;
+        if(lname.indexOf(' ')>=0){ const parts=lname.trim().split(/\s+/); f2 = parts.slice(0,-1).join(' '); l2=parts[parts.length-1]; }
+        lAnchor.innerHTML = `${(l2 || '—').toUpperCase()}<span class="player-first">, ${f2 || ''}</span>`;
+        loserDiv.appendChild(lAnchor);
+      }
+
+      container.appendChild(loserDiv);
     });
-
-    grid.appendChild(col);
   });
 
-  // put grid inside bracketArea
-  bracketArea.appendChild(grid);
-
-  // After DOM appended, we draw connectors by inserting absolutely positioned divs between columns based on match DOM positions.
-  // We'll compute coordinates of each match element and add <div class="connector-hor"> inside parent grid element positioned accordingly.
-  // For simplicity: draw horizontal connector from center of each match box to mid-point between columns; draw a vertical connector in that midpoint area spanning between paired matches.
-  // Implementation below:
-  setTimeout(()=>{ // wait for layout
-    // create overlay layer for connectors (positioned relative to grid)
-    // But easier: for each column except last, for each match in that column, draw a short horizontal line to the next column
-    const cols = grid.querySelectorAll('.bracket-col');
-    cols.forEach((col, ci) => {
-      if(ci === cols.length - 1) return; // no connectors from final
-      const matchesInCol = Array.from(col.querySelectorAll('.match-box'));
-      matchesInCol.forEach(matchEl => {
-        const rect = matchEl.getBoundingClientRect();
-        const gridRect = grid.getBoundingClientRect();
-        // position relative to grid
-        const centerY = rect.top + rect.height/2 - gridRect.top;
-        const rightX = rect.right - gridRect.left;
-        // horizontal line element
-        const hor = document.createElement('div');
-        hor.className = 'connector-hor';
-        // set absolute position relative to grid
-        hor.style.position = 'absolute';
-        // start a bit right of the match box
-        hor.style.left = (rect.right - gridRect.left) + 'px';
-        // length to reach midpoint between columns (~half of column gap + column width)
-        // compute next column left boundary
-        const nextCol = cols[ci+1];
-        const nextRect = nextCol.getBoundingClientRect();
-        const nextLeft = nextRect.left - gridRect.left;
-        const length = Math.max(8, nextLeft - (rect.right - gridRect.left) - 6);
-        hor.style.width = length + 'px';
-        hor.style.top = (centerY - 1) + 'px';
-        hor.style.height = '2px';
-        hor.style.background = '#cfcfcf';
-        hor.style.zIndex = 1;
-        grid.appendChild(hor);
-
-        // vertical stub: connect multiple horizontal endpoints by drawing a small vertical line near midpoint — optional simplification
-        // We won't draw complex vertical spanning between pairs here, instead the horizontal lines visually match the example.
-      });
-    });
-  }, 60);
-}
-
-// UTIL: load index to get available years for select
-async function initPage(){
-  const params = qs();
-  const source = (params.get('source') || 'atp').toLowerCase();
-  const id = params.get('t') || params.get('id') || '';
-  const yearParam = params.get('year');
-
-  try{
-    const idx = await fetchJson('/data/tournaments/tournaments_index.json').catch(()=>({}));
-    const key = `${source}_${id}`;
-    const years = (idx && idx[key]) ? idx[key].slice().sort((a,b)=>b-a) : [];
-
-    const sel = document.getElementById('year');
-    if(years.length===0 && yearParam) years.push(Number(yearParam));
-    if(years.length===0){
-      sel.innerHTML = '<option value="">—</option>';
-    } else {
-      years.forEach(y => {
-        const o = document.createElement('option'); o.value = y; o.textContent = y;
-        sel.appendChild(o);
-      });
+  // helper used above (same as in parse script mapping)
+  function countryCodeClass(c){
+    if(!c) return '';
+    const map = {
+      'UNITED STATES':'USA','US':'USA','ENGLAND':'GBR','UNITED KINGDOM':'GBR','GB':'GBR',
+      'BELARUS':'BLR','RUSSIA':'RUS','RUS':'RUS','BEL':'BEL','DENMARK':'DEN','ESP':'ESP','AUS':'AUS','UZB':'UZB','CHN':'CHN','CZE':'CZE','UKRAINE':'UKR','UKR':'UKR','POLAND':'POL'
+    };
+    let key = c.toUpperCase().split(',')[0].trim();
+    if(map[key]) return map[key];
+    if(key.length===3) return key;
+    if(key.length===2){
+      const conv = { 'US':'USA', 'GB':'GBR' };
+      return conv[key] || key;
     }
-    const initialYear = yearParam || (years[0] || '');
-    if(initialYear) sel.value = initialYear;
-
-    async function loadAndRender(y){
-      try{
-        const json = await fetchJson(`/data/tournaments/${source}_${id}_${y}.json`);
-        document.getElementById('tourney-title').textContent = json.meta.tourney_name || `${source.toUpperCase()} ${id}`;
-        document.getElementById('meta-small').textContent = `${json.meta.city || ''} ${json.meta.country ? '• '+json.meta.country : ''}`;
-        // set hero color from surface
-        const surf = (json.meta.surface || '').toLowerCase();
-        const cl = surf.includes('clay') ? 'var(--clay)' : surf.includes('grass') ? 'var(--grass)' : surf.includes('carpet') ? 'var(--carpet)' : 'var(--hard)';
-        document.getElementById('hero').style.background = cl;
-        // stitch additional info in Info tab
-        const info = document.getElementById('info');
-        info.innerHTML = `<h3 style="margin-top:0">${json.meta.tourney_name || '—'}</h3>
-          <div style="margin-bottom:8px"><span class="surface-pill ${getSurfaceClass(json.meta.surface)}">${json.meta.surface || 'Hard'}</span> <small style="color:#666;margin-left:8px">${json.meta.level || ''}</small></div>
-          <div style="display:flex;gap:12px;flex-wrap:wrap"><div><strong>Official name</strong><div>${json.meta.tourney_title || '—'}</div></div><div><strong>City</strong><div>${json.meta.city || '—'}</div></div><div><strong>Country</strong><div>${json.meta.country || '—'}</div></div><div><strong>Prize</strong><div>${json.meta.prize_money || '—'} ${json.meta.prize_money_currency||''}</div></div><div><strong>Draw</strong><div>${json.meta.singles_draw_size || '—'}</div></div></div>
-          <h5 style="margin-top:12px">Palmarès (Finals)</h5>
-          <div id="palmares" style="margin-top:8px"></div>
-        `;
-        // render palmares
-        const finals = (json.matches||[]).filter(m => (m.round||'').toLowerCase().startsWith('f'));
-        const pal = document.getElementById('palmares');
-        if(!finals.length) pal.innerHTML = '<div class="text-muted">No final recorded</div>';
-        else {
-          finals.forEach(f=>{
-            const row = document.createElement('div');
-            row.style.display='flex'; row.style.justifyContent='space-between'; row.style.padding='6px 0';
-            row.style.borderBottom='1px solid #f0f0f0';
-            const left = document.createElement('div'); left.innerHTML = `<strong>${json.meta.year}</strong> — ${f.winner_player_name || '—'} ${countryToFlagEmoji(json.meta.country)} vs ${f.loser_player_name || '—'} ${countryToFlagEmoji(json.meta.country)}`;
-            const right = document.createElement('div'); right.style.color='#666'; right.textContent = f.score_string || '';
-            row.appendChild(left); row.appendChild(right);
-            row.addEventListener('click', ()=> { document.getElementById('tab-draw').click(); window.scrollTo(0,0); });
-            pal.appendChild(row);
-          });
-        }
-
-        // render bracket
-        renderBracket(json);
-      }catch(err){
-        document.getElementById('info').innerText = 'Error loading tournament: ' + err.message;
-        document.getElementById('bracketArea').innerHTML = '';
-        console.error(err);
-      }
-    }
-
-    if(initialYear) await loadAndRender(initialYear);
-
-    sel.addEventListener('change', async (e)=>{
-      const y = e.target.value;
-      const url = new URL(location);
-      url.searchParams.set('year', y);
-      history.replaceState({}, '', url.toString());
-      await loadAndRender(y);
-    });
-
-    // tabs
-    document.getElementById('tab-info').addEventListener('click', ()=>{
-      document.getElementById('tab-info').classList.add('active');
-      document.getElementById('tab-draw').classList.remove('active');
-      document.getElementById('info').style.display = 'block';
-      document.getElementById('draw').style.display = 'none';
-    });
-    document.getElementById('tab-draw').addEventListener('click', ()=>{
-      document.getElementById('tab-draw').classList.add('active');
-      document.getElementById('tab-info').classList.remove('active');
-      document.getElementById('info').style.display = 'none';
-      document.getElementById('draw').style.display = 'block';
-    });
-    document.getElementById('show-draw').addEventListener('click', ()=> document.getElementById('tab-draw').click());
-
-  }catch(err){
-    document.getElementById('info').innerText = 'Init error: ' + err.message;
-    console.error(err);
+    return key.substring(0,3);
   }
-}
 
-initPage();
+} // end render
+
+render();
 </script>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
