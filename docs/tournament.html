@@ -64,12 +64,9 @@ function highlight_player(mode, className, v){
   }
 }
 
-/* mapping IOC/ISO3 -> alpha-2 (vérifier / compléter si besoin) */
-const iocToAlpha2 = { "AFG":"AF","ALB":"AL","DZA":"DZ","AND":"AD","AGO":"AO","ARG":"AR","ARM":"AM","AUS":"AU","AUT":"AT","AZE":"AZ","BHS":"BS","BHR":"BH","BGD":"BD","BRB":"BB","BLR":"BY","BEL":"BE","BEN":"BJ","BOL":"BO","BIH":"BA","BWA":"BW","BRA":"BR","BGR":"BG","CMR":"CM","CAN":"CA","CHE":"CH","CHN":"CN","COL":"CO","CRI":"CR","CYP":"CY","CZE":"CZ","DNK":"DK","ECU":"EC","EGY":"EG","ESP":"ES","EST":"EE","ETH":"ET","FIN":"FI","FRA":"FR","GBR":"GB","GEO":"GE","DEU":"DE","GRC":"GR","HUN":"HU","ISL":"IS","IND":"IN","IDN":"ID","IRL":"IE","IRN":"IR","ISR":"IL","ITA":"IT","JPN":"JP","KAZ":"KZ","KEN":"KE","KOR":"KR","KGZ":"KG","LVA":"LV","LBN":"LB","LTU":"LT","LUX":"LU","MYS":"MY","MEX":"MX","MDA":"MD","MCO":"MC","MAR":"MA","NLD":"NL","NZL":"NZ","NOR":"NO","PAK":"PK","PER":"PE","PHI":"PH","POL":"PL","PRT":"PT","ROU":"RO","RUS":"RU","RSA":"ZA","SRB":"RS","SVK":"SK","SVN":"SI","SWE":"SE","CHE":"CH","TUR":"TR","UKR":"UA","USA":"US","UZB":"UZ","VEN":"VE","VNM":"VN","ZAF":"ZA","ZMB":"ZM","ZWE":"ZW","XKX":"XK" };
-
-/* quelques conversions à partir de noms usuels */
-const nameToAlpha2 = { "UNITED STATES":"US","UNITED KINGDOM":"GB","ENGLAND":"GB","RUSSIA":"RU","CHINA":"CN","UAE":"AE","SOUTH KOREA":"KR","NORTH KOREA":"KP","SOUTH AFRICA":"ZA" };
-
+/* flags mapping (abrégé) */
+const iocToAlpha2 = { "FRA":"FR","GBR":"GB","USA":"US","RUS":"RU","ESP":"ES","ITA":"IT","NED":"NL","GER":"DE","ARG":"AR","CHN":"CN","JPN":"JP","KAZ":"KZ","KOR":"KR","ZAF":"ZA" };
+const nameToAlpha2 = { "UNITED STATES":"US","UNITED KINGDOM":"GB","ENGLAND":"GB","RUSSIA":"RU","CHINA":"CN" };
 function toAlpha2(input){
   if(!input) return '';
   let s = String(input).trim().toUpperCase();
@@ -125,12 +122,14 @@ function formatSeed(raw){
   if(Number.isInteger(n)) return String(n);
   return String(n);
 }
+
 function formatFirstInitial(fullFirst){
   if(!fullFirst) return '';
   const tokens = String(fullFirst).trim().split(/\s+/);
   if(tokens.length === 0) return '';
   return tokens[0].charAt(0).toUpperCase() + '.';
 }
+
 function splitNameToLastAndInitial(rawName){
   if(!rawName) return { last:'', firstInitial:'' };
   let name = String(rawName).trim();
@@ -147,13 +146,53 @@ function splitNameToLastAndInitial(rawName){
   return { last: last, firstInitial: formatFirstInitial(firstTokens) };
 }
 
+/* Helper: extract player ids / last names from a match */
+function extractPlayersFromMatch(m){
+  const ids = new Set();
+  const lastNames = new Set();
+
+  const addId = (v) => { if(v !== undefined && v !== null && String(v).trim() !== '') ids.add(String(v)); };
+  const addNameLast = (v) => {
+    if(!v) return;
+    const s = String(v).trim();
+    if(!s) return;
+    const { last } = splitNameToLastAndInitial(s);
+    if(last) lastNames.add(last.toUpperCase());
+  };
+
+  addId(m.player_id_winner || m.winner_player_id || m.winner_id || m.player_id_winner);
+  addId(m.player_id_loser  || m.loser_player_id  || m.loser_id  || m.player_id_loser);
+  addNameLast(m.winner_player_name || m.winner_name || m.winner);
+  addNameLast(m.loser_player_name  || m.loser_name  || m.loser);
+
+  return { ids: Array.from(ids), lastNames: Array.from(lastNames) };
+}
+
+/* test whether match 'prev' contains participant pid (or lastName fallback) */
+function matchContainsPlayer(prevMatch, pid, lastName){
+  if(!prevMatch) return false;
+  const pids = [prevMatch.player_id_winner, prevMatch.player_id_loser, prevMatch.winner_player_id, prevMatch.loser_player_id, prevMatch.winner, prevMatch.loser];
+  for(const x of pids){
+    if(!x) continue;
+    if(String(x) === String(pid)) return true;
+  }
+  if(lastName){
+    const { last: lw } = splitNameToLastAndInitial(prevMatch.winner_player_name || prevMatch.winner_name || prevMatch.winner || '');
+    const { last: ll } = splitNameToLastAndInitial(prevMatch.loser_player_name  || prevMatch.loser_name  || prevMatch.loser  || '');
+    if(lw && lw.toUpperCase() === lastName.toUpperCase()) return true;
+    if(ll && ll.toUpperCase() === lastName.toUpperCase()) return true;
+  }
+  return false;
+}
+
 /* ---------------------------
    AUGMENTATION : INSÉRER DES MATCHS "BYE" SYNTHÉTIQUES
    ---------------------------
    Nouvelle stratégie :
-   - on calcule une "grille" logique pour le tour précédent (taille souhaitée = max(original, curr*2))
-   - on place les vrais matchs dans cette grille (répartis), puis on place les synthétiques
-     dans les emplacements logiquement associés (2*j, 2*j+1 pour le match enfant j).
+   - pour chaque match courant (colIndex), on essaye d'assigner les vrais matches du prev round
+     aux emplacements logiques 2*j / 2*j+1 en testant les player ids (puis fallback nom de famille)
+   - les prev matches non appariés sont dispatchés dans les slots restants
+   - on ajoute des synthétiques (BYE) pour les participants qui n'ont aucun prev match
 */
 function augmentByes(groups, rounds){
   for(let colIndex = 1; colIndex < rounds.length; colIndex++){
@@ -162,185 +201,183 @@ function augmentByes(groups, rounds){
     const prevMatches = groups[prevKey] = groups[prevKey] || [];
     const currMatches = groups[currKey] = groups[currKey] || [];
 
-    // helper to test whether player exists in prevMatches (compare ids and some alt fields)
-    const playerExistsInPrev = (pid) => {
-      if(!pid) return true; // absent player => treat as exist to avoid synthetic
-      for(const pm of prevMatches){
-        if(!pm) continue;
-        if(pm.player_id_winner && String(pm.player_id_winner) === String(pid)) return true;
-        if(pm.player_id_loser && String(pm.player_id_loser) === String(pid)) return true;
-        if(pm.winner_player_id && String(pm.winner_player_id) === String(pid)) return true;
-        if(pm.loser_player_id && String(pm.loser_player_id) === String(pid)) return true;
-        if(pm.winner && String(pm.winner) === String(pid)) return true;
-        if(pm.loser && String(pm.loser) === String(pid)) return true;
-      }
-      return false;
-    };
-
     const originalPrev = prevMatches.slice(); // snapshot
     const originalPrevCount = originalPrev.length;
     const currCount = currMatches.length || 0;
 
-    // desired number of slots for prev round: usually 2*currCount (one match per source),
-    // but at least keep originalPrevCount to avoid losing data
+    // desired slots: 2 * currCount (each child has 2 source slots) but at least keep existing count
     const desiredPrevCount = Math.max(originalPrevCount, currCount * 2);
 
-    // quick path: if no need to expand (desired === original) we'll still try to intelligently insert near indices
-    if(desiredPrevCount === originalPrevCount){
-      // previous simple insertion scheme but made deterministic: plan inserts per child at baseIdx
-      const inserts = {};
-      const insertedForPrev = new Set();
-      for(let j = 0; j < currMatches.length; j++){
-        const cm = currMatches[j];
-        const baseIdx = (originalPrevCount > 0 && currCount > 0) ? Math.floor(j * originalPrevCount / currCount) : originalPrevCount;
-        const plids = [
-          { id: cm.player_id_winner || cm.winner_player_id || cm.winner || '', name: cm.winner_player_name || cm.winner_name || '' },
-          { id: cm.player_id_loser  || cm.loser_player_id  || cm.loser  || '', name: cm.loser_player_name  || cm.loser_name  || '' }
-        ];
-        for(const part of plids){
-          const pid = part.id;
-          const pname = part.name || '';
-          if(!pid) continue;
-          if(playerExistsInPrev(pid)) continue;
-          if(insertedForPrev.has(String(pid))) continue;
+    // build empty slots
+    const slots = new Array(desiredPrevCount).fill(null);
+    const placedPrev = new Array(originalPrevCount).fill(false);
+
+    // Precompute children participants (ids and last names)
+    const childPlayers = currMatches.map(cm => {
+      const winnerId = cm.player_id_winner || cm.winner_player_id || cm.winner || '';
+      const loserId  = cm.player_id_loser  || cm.loser_player_id  || cm.loser  || '';
+      const winnerLast = splitNameToLastAndInitial(cm.winner_player_name || cm.winner_name || cm.winner || '').last;
+      const loserLast  = splitNameToLastAndInitial(cm.loser_player_name  || cm.loser_name  || cm.loser  || '').last;
+      return {
+        winnerId: winnerId ? String(winnerId) : '',
+        loserId: loserId ? String(loserId) : '',
+        winnerLast: winnerLast || '',
+        loserLast: loserLast || ''
+      };
+    });
+
+    // 1) Try to associate each originalPrev match to a child slot by matching player ids or last names
+    for(let i = 0; i < originalPrevCount; i++){
+      const pm = originalPrev[i];
+      if(!pm) continue;
+      const info = extractPlayersFromMatch(pm);
+      // try to find a child where any of pm ids/lastNames appear
+      let assigned = false;
+      for(let j = 0; j < childPlayers.length && !assigned; j++){
+        const child = childPlayers[j];
+        // check id intersection
+        for(const pid of info.ids){
+          if(pid === '') continue;
+          if(child.winnerId && String(child.winnerId) === String(pid)) { assigned = true; break; }
+          if(child.loserId && String(child.loserId) === String(pid))  { assigned = true; break; }
+        }
+        // fallback last name match
+        if(!assigned){
+          for(const ln of info.lastNames){
+            if(!ln) continue;
+            if(child.winnerLast && child.winnerLast.toUpperCase() === ln.toUpperCase()) { assigned = true; break; }
+            if(child.loserLast && child.loserLast.toUpperCase() === ln.toUpperCase())  { assigned = true; break; }
+          }
+        }
+        if(assigned){
+          // try put pm into child's slots (2*j or 2*j+1)
+          const t0 = 2*j, t1 = 2*j + 1;
+          let placed = false;
+          if(t0 < desiredPrevCount && slots[t0] === null){ slots[t0] = pm; placed = true; }
+          else if(t1 < desiredPrevCount && slots[t1] === null){ slots[t1] = pm; placed = true; }
+          else {
+            // if both full, find nearest empty around t0..t1
+            let found = false;
+            for(let d = 1; d < desiredPrevCount && !found; d++){
+              const cand = t0 - d;
+              if(cand >= 0 && slots[cand] === null){ slots[cand] = pm; found = true; placed = true; break; }
+              const cand2 = t1 + d;
+              if(cand2 < desiredPrevCount && slots[cand2] === null){ slots[cand2] = pm; found = true; placed = true; break; }
+            }
+          }
+          if(placed){
+            placedPrev[i] = true;
+          } else {
+            // if couldn't place (rare), leave unplaced for next step
+            assigned = false;
+          }
+        }
+      } // end for childPlayers
+    } // end for originalPrev
+
+    // 2) Place any remaining original prev matches into first empty slots (left->right)
+    for(let i = 0; i < originalPrevCount; i++){
+      if(placedPrev[i]) continue;
+      const pm = originalPrev[i];
+      for(let s = 0; s < desiredPrevCount; s++){
+        if(slots[s] === null){
+          slots[s] = pm;
+          placedPrev[i] = true;
+          break;
+        }
+      }
+    }
+
+    // 3) For each child, create synths for participants that don't exist in ANY original prev match
+    // Build a set of all ids present in originalPrev for quick lookup
+    const idsInPrev = new Set();
+    const lastNamesInPrev = new Set();
+    for(const pm of originalPrev){
+      if(!pm) continue;
+      const ex = extractPlayersFromMatch(pm);
+      ex.ids.forEach(x => idsInPrev.add(String(x)));
+      ex.lastNames.forEach(x => lastNamesInPrev.add(String(x).toUpperCase()));
+    }
+
+    const insertedSynthIds = new Set();
+    for(let j = 0; j < childPlayers.length; j++){
+      const child = childPlayers[j];
+      const t0 = 2*j, t1 = 2*j + 1;
+      const preferredSlots = [];
+      if(t0 < desiredPrevCount) preferredSlots.push(t0);
+      if(t1 < desiredPrevCount) preferredSlots.push(t1);
+
+      // helper to place synth into first available among preferred, else nearest
+      const placeSynth = (synth) => {
+        for(const s of preferredSlots){
+          if(slots[s] === null){
+            slots[s] = synth;
+            return true;
+          }
+        }
+        // nearest search outward from t0
+        const base = preferredSlots.length ? preferredSlots[0] : 0;
+        for(let d = 1; d < desiredPrevCount + 2; d++){
+          const c1 = base - d;
+          const c2 = base + d;
+          if(c1 >= 0 && slots[c1] === null){ slots[c1] = synth; return true; }
+          if(c2 < desiredPrevCount && slots[c2] === null){ slots[c2] = synth; return true; }
+        }
+        return false;
+      };
+
+      // winner
+      if(child.winnerId){
+        const presentById = idsInPrev.has(String(child.winnerId));
+        const presentByLast = lastNamesInPrev.has(String(child.winnerLast).toUpperCase());
+        if(!presentById && !presentByLast && !insertedSynthIds.has(String(child.winnerId))){
           const synth = {
-            match_id: 'synth_' + String(pid) + '_' + colIndex + '_' + j + '_' + Math.floor(Math.random()*1000000),
+            match_id: 'synth_' + String(child.winnerId) + '_' + colIndex + '_' + j + '_' + Math.floor(Math.random()*1000000),
             round: prevKey,
-            player_id_winner: pid,
-            winner_player_name: pname || '',
-            winner_country: cm.winner_country || cm.winner_nationality || cm.winner_country_code || '',
-            winner_seed: cm.winner_seed || cm.winnerSeed || '',
+            player_id_winner: child.winnerId,
+            winner_player_name: '', // optional
+            winner_country: '',
+            winner_seed: '',
             player_id_loser: '',
             loser_player_name: '',
             loser_country: '',
             loser_seed: ''
           };
-          if(!inserts[baseIdx]) inserts[baseIdx] = [];
-          inserts[baseIdx].push(synth);
-          insertedForPrev.add(String(pid));
+          if(placeSynth(synth)) insertedSynthIds.add(String(child.winnerId));
         }
       }
-      if(Object.keys(inserts).length > 0){
-        const newPrev = [];
-        for(let i = 0; i < originalPrevCount; i++){
-          if(inserts[i] && inserts[i].length){
-            for(const s of inserts[i]) newPrev.push(s);
-          }
-          newPrev.push(originalPrev[i]);
+
+      // loser
+      if(child.loserId){
+        const presentById = idsInPrev.has(String(child.loserId));
+        const presentByLast = lastNamesInPrev.has(String(child.loserLast).toUpperCase());
+        if(!presentById && !presentByLast && !insertedSynthIds.has(String(child.loserId))){
+          const synth = {
+            match_id: 'synth_' + String(child.loserId) + '_' + colIndex + '_' + j + '_' + Math.floor(Math.random()*1000000),
+            round: prevKey,
+            player_id_winner: child.loserId,
+            winner_player_name: '',
+            winner_country: '',
+            winner_seed: '',
+            player_id_loser: '',
+            loser_player_name: '',
+            loser_country: '',
+            loser_seed: ''
+          };
+          if(placeSynth(synth)) insertedSynthIds.add(String(child.loserId));
         }
-        if(inserts[originalPrevCount] && inserts[originalPrevCount].length){
-          for(const s of inserts[originalPrevCount]) newPrev.push(s);
-        }
-        groups[prevKey] = newPrev;
       }
-      continue; // next column
-    }
+    } // end for each child
 
-    // Build empty slots array of desiredPrevCount
-    const slots = new Array(desiredPrevCount).fill(null);
-
-    // Place existing prev matches into slots by distributing them across the slots
-    if(originalPrevCount > 0){
-      for(let i = 0; i < originalPrevCount; i++){
-        // map i -> position in [0..desiredPrevCount-1]
-        let pos = Math.floor(i * desiredPrevCount / originalPrevCount);
-        if(pos < 0) pos = 0;
-        if(pos >= desiredPrevCount) pos = desiredPrevCount - 1;
-        // if occupied, find nearest empty (forward)
-        while(pos < desiredPrevCount && slots[pos] !== null) pos++;
-        if(pos >= desiredPrevCount){
-          // fallback: search backwards
-          pos = Math.floor(i * desiredPrevCount / originalPrevCount);
-          while(pos >= 0 && slots[pos] !== null) pos--;
-          if(pos < 0) {
-            // extremely unlikely: just push to first empty
-            for(let k=0;k<desiredPrevCount;k++){ if(slots[k]===null){ pos = k; break; } }
-          }
-        }
-        slots[pos] = originalPrev[i];
-      }
-    }
-
-    // Now plan and insert synth for missing participants, placing them in logical slots:
-    const insertedForPrev = new Set();
-    for(let j = 0; j < currMatches.length; j++){
-      const cm = currMatches[j];
-      const t0 = 2*j;
-      const t1 = 2*j + 1;
-      const plids = [
-        { id: cm.player_id_winner || cm.winner_player_id || cm.winner || '', name: cm.winner_player_name || cm.winner_name || '' },
-        { id: cm.player_id_loser  || cm.loser_player_id  || cm.loser  || '', name: cm.loser_player_name  || cm.loser_name  || '' }
-      ];
-      for(const idxPart in plids){
-        const part = plids[idxPart];
-        const pid = part.id;
-        const pname = part.name || '';
-        if(!pid) continue;
-        if(playerExistsInPrev(pid)) continue;
-        if(insertedForPrev.has(String(pid))) continue;
-
-        // create synth
-        const synth = {
-          match_id: 'synth_' + String(pid) + '_' + colIndex + '_' + j + '_' + Math.floor(Math.random()*1000000),
-          round: prevKey,
-          player_id_winner: pid,
-          winner_player_name: pname || '',
-          winner_country: cm.winner_country || cm.winner_nationality || cm.winner_country_code || '',
-          winner_seed: cm.winner_seed || cm.winnerSeed || '',
-          player_id_loser: '',
-          loser_player_name: '',
-          loser_country: '',
-          loser_seed: ''
-        };
-
-        // try to place into preferred slots [t0, t1] if within range
-        const preferred = [];
-        if(t0 >= 0 && t0 < desiredPrevCount) preferred.push(t0);
-        if(t1 >= 0 && t1 < desiredPrevCount) preferred.push(t1);
-
-        let placed = false;
-        for(const slotIdx of preferred){
-          if(slots[slotIdx] === null){
-            slots[slotIdx] = synth;
-            placed = true;
-            break;
-          }
-        }
-        if(!placed){
-          // find nearest empty slot starting from t0..t1 window outward
-          let searchRadius = 1;
-          while(!placed){
-            const candidates = [];
-            const base = Math.min(Math.max(0, t0), desiredPrevCount-1);
-            const cand1 = base - searchRadius;
-            const cand2 = base + searchRadius;
-            if(cand1 >= 0) candidates.push(cand1);
-            if(cand2 < desiredPrevCount) candidates.push(cand2);
-            for(const c of candidates){
-              if(slots[c] === null){
-                slots[c] = synth;
-                placed = true;
-                break;
-              }
-            }
-            // safety break
-            if(searchRadius > desiredPrevCount + 2) break;
-            searchRadius++;
-          }
-        }
-        insertedForPrev.add(String(pid));
-      } // end participants
-    } // end currMatches loop
-
-    // compress slots into array of matches keeping order
+    // 4) Compact non-null slots into newPrev preserving left->right order
     const newPrev = [];
     for(let s = 0; s < slots.length; s++){
       if(slots[s] !== null) newPrev.push(slots[s]);
     }
 
-    // replace in groups
+    // replace groups[prevKey]
     groups[prevKey] = newPrev;
-  } // end columns loop
+  } // end for colIndex
 }
 
 /* ---------------------------
@@ -349,26 +386,47 @@ function augmentByes(groups, rounds){
 async function render(){
   const params = new URLSearchParams(location.search);
   const source = (params.get('source') || 'wta').toLowerCase();
+  // pour test local, si pas d'id/year on insère un JSON d'exemple
   const id = params.get('t') || params.get('id') || '';
   const year = params.get('year') || '';
 
-  if(!id || !year){
-    document.getElementById('bracketContainer').innerHTML = '<div style="padding:12px;color:#666">Missing tournament id or year. Use ?source=wta&t=2010&year=2019</div>';
-    return;
-  }
-
-  const path = `/data/tournaments/${source}_${id}_${year}.json`;
   let json;
-  try{
-    const resp = await fetch(path);
-    if(!resp.ok) throw new Error('JSON not found: ' + path);
-    json = await resp.json();
-  }catch(err){
-    document.getElementById('bracketContainer').innerHTML = '<div style="padding:12px;color:red">Error loading JSON: ' + err.message + '</div>';
-    console.error(err); return;
+  if(!id || !year){
+    // JSON minimal de test (inspire-toi et adapte selon ton format réel)
+    json = {
+      meta: { tourney_name: 'TEST' },
+      matches: [
+        /* round 1 (prev) example: certains matches réels; certains manquants (BYE)
+           nous laissons volontairement quelques prev matches vides pour tester synth.
+        */
+        { match_id: 'r1_m1', round: 'R1', winner_player_name: 'MULLER, A.', loser_player_name: 'KECMANOVIC, M.', player_id_winner: 'p1', player_id_loser: 'p2' },
+        { match_id: 'r1_m2', round: 'R1', winner_player_name: 'GIRON, M.', loser_player_name: 'DJERE, L.', player_id_winner: 'p3', player_id_loser: 'p4' },
+        { match_id: 'r1_m3', round: 'R1', winner_player_name: 'MMOH, M.', loser_player_name: 'TABILO, A.', player_id_winner: 'p5', player_id_loser: 'p6' },
+        // note: pas de match pour KHACHANOV (BYE in real) => will be synthesized
+        // note: pas de match pour BUBLIK (BYE) => synth
+        // round 2 (curr)
+        { match_id: 'r2_m1', round: 'R2', winner_player_name: 'GIRON, M.', loser_player_name: 'MULLER, A.', player_id_winner: 'p3', player_id_loser: 'p1' },
+        { match_id: 'r2_m2', round: 'R2', winner_player_name: 'MMOH, M.', loser_player_name: 'KHACHANOV, K.', player_id_winner: 'p5', player_id_loser: 'p7' },
+        { match_id: 'r2_m3', round: 'R2', winner_player_name: 'SHANG, J.', loser_player_name: 'SONEGO, L.', player_id_winner: 'p8', player_id_loser: 'p9' },
+        { match_id: 'r2_m4', round: 'R2', winner_player_name: 'BUBLIK, A.', loser_player_name: 'VAN DE ZANDSCHULP, B.', player_id_winner: 'p10', player_id_loser: 'p11' },
+        // round 3 (QF)
+        { match_id: 'qf_m1', round: 'QF', winner_player_name: 'GIRON, M.', loser_player_name: 'MMOH, M.', player_id_winner: 'p3', player_id_loser: 'p5' }
+      ]
+    };
+  } else {
+    // si vrai fetch requis, charger comme avant
+    const path = `/data/tournaments/${source}_${id}_${year}.json`;
+    try{
+      const resp = await fetch(path);
+      if(!resp.ok) throw new Error('JSON not found: ' + path);
+      json = await resp.json();
+    }catch(err){
+      document.getElementById('bracketContainer').innerHTML = '<div style="padding:12px;color:red">Error loading JSON: ' + err.message + '</div>';
+      console.error(err); return;
+    }
   }
 
-  document.getElementById('tourney-title').textContent = json.meta?.tourney_name || (source.toUpperCase() + ' ' + id);
+  document.getElementById('tourney-title').textContent = json.meta?.tourney_name || 'Tournament';
 
   function norm(r){
     if(!r) return 'Unknown';
@@ -377,6 +435,7 @@ async function render(){
     if(u==='F' || u.startsWith('FINAL')) return 'F';
     if(u==='SF' || u.startsWith('SEMIF')) return 'SF';
     if(u==='QF' || u.startsWith('QUART')) return 'QF';
+    if(u==='R1' || u==='R2' || u==='R3') return u;
     return u;
   }
 
@@ -458,7 +517,7 @@ async function render(){
 
       // render winner
       const left = colIndex * (cellWidth + colGap);
-      const winnerId = m.player_id_winner || m.player_id_winner || ('pwin_' + colIndex + '_' + j);
+      const winnerId = m.player_id_winner || m.winner_player_id || ('pwin_' + colIndex + '_' + j);
       const winnerClass = 'j_' + String(winnerId);
       const winnerDiv = document.createElement('div');
       winnerDiv.className = winnerClass + ' match-row';
@@ -498,7 +557,7 @@ async function render(){
       container.appendChild(winnerDiv);
 
       // render loser
-      const loserId = m.player_id_loser || m.player_id_loser || ('plos_' + colIndex + '_' + j);
+      const loserId = m.player_id_loser || m.loser_player_id || ('plos_' + colIndex + '_' + j);
       const loserClass = 'j_' + String(loserId);
       const loserDiv = document.createElement('div');
       loserDiv.className = loserClass + ' match-row';
