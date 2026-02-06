@@ -3,29 +3,34 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Tournament — Center Court (avec scores)</title>
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<title>Bracket — avec score sous la barre</title>
 <style>
   body{font-family:Arial,Helvetica,sans-serif;margin:0;background:#fff}
   .hero{padding:18px;color:#fff;background:#2b6cb0}
   .container-main{max-width:1200px;margin:12px auto;padding:0 12px}
-  /* flag wrapper: we use <img> for maximum compatibilité, puis fallback */
+
+  /* flag wrapper */
   .flag{display:inline-block;width:22px;height:14px;margin-right:8px;vertical-align:middle;overflow:hidden;border-radius:2px;background:#f5f5f5}
   .flag img{width:100%;height:100%;object-fit:cover;display:block}
-  .seed-num{float:left;width:28px;color:#0b3d91;font-size:11px;padding:2px 4px;font-weight:700;} /* bleu foncé demandé */
+
+  /* seed */
+  .seed-num{float:left;width:28px;color:#0b3d91;font-size:11px;padding:2px 4px;font-weight:700;}
   .seed-text{float:left;width:28px;color:#808080;font-size:11px;padding:2px 4px;}
+
   .player-link { font-size:11px;text-decoration:none;color:black; display:inline-block; vertical-align:middle; }
   .player-first { font-size:11px;color:#565656;font-style:italic; margin-left:4px;}
   .bye { color:#808080;font-size:11px;padding-left:22px; }
-  /* hover highlight */
+
+  /* highlight on hover */
   .highlight { background: rgba(255,235,59,0.15); }
 
-  /* per-row styling (winner/score/loser) */
-  .match-row{ padding:0 6px; box-sizing:border-box; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .player-row{ display:flex; align-items:center; gap:6px; border-top:1px solid transparent; border-bottom:1px solid transparent; }
-  .player-row.winner{ border-top:1px solid rgb(121,121,121); }
-  .player-row.loser{ border-bottom:1px solid rgb(121,121,121); }
-  .score-row{ font-size:11px; color:#666; padding-left:36px; display:flex; align-items:center; }
+  /* rows */
+  .match-row{ box-sizing:border-box; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:6px; padding:0 6px; }
+  .player-row { height:100%; align-items:center; }
+  .player-row.winner { border-bottom:1px solid #797979; } /* barre sous le nom */
+  .player-row.loser  { /* no top border */ }
+
+  .score-row { font-size:11px; color:#515151; font-style:italic; padding-left:36px; display:flex; align-items:center; }
 
   @media (max-width:600px){
     .player-link{font-size:12px}
@@ -34,24 +39,18 @@
 </style>
 </head>
 <body>
-
-<div class="hero">
-  <div class="container-main">
-    <h1 id="tourney-title" style="margin:0;color:#fff">Tournament</h1>
+  <div class="hero">
+    <div class="container-main">
+      <h1 id="tourney-title" style="margin:0;color:#fff">Tournament</h1>
+    </div>
   </div>
-</div>
 
-<div class="container-main" style="padding-top:12px">
-  <div id="bracketContainer" style="position:relative;border:0px solid transparent;min-height:200px;"> 
-    <!-- contenu inséré par JS -->
+  <div class="container-main" style="padding-top:12px">
+    <div id="bracketContainer" style="position:relative;border:0px solid transparent;min-height:400px;"></div>
   </div>
-</div>
 
 <script>
-/* ---------------------------
-   UTILITAIRES & MAPPINGS
-   --------------------------- */
-
+/* utilitaires (slugify, flags, seed formatting, split noms...) */
 function slugify(name){
   if(!name) return '';
   name = name.trim();
@@ -63,59 +62,6 @@ function slugify(name){
   }
   return name.toLowerCase().replace(/[^a-z0-9\s-]/g,'').replace(/\s+/g,'-');
 }
-
-function highlight_player(mode, className, v){
-  const els = document.querySelectorAll('.' + className);
-  if(mode === 1){
-    els.forEach(el => el.classList.add('highlight'));
-  } else {
-    els.forEach(el => el.classList.remove('highlight'));
-  }
-}
-
-function alpha2ToFlagEmoji(alpha2){
-  if(!alpha2 || alpha2.length !== 2) return '';
-  const A = 0x1F1E6;
-  const chars = [...alpha2.toUpperCase()].map(ch => A + (ch.charCodeAt(0) - 65));
-  try { return String.fromCodePoint(...chars); }
-  catch(e){ return ''; }
-}
-
-const iocToAlpha2 = { /* same mapping as before, truncated in listing to save space... */
-  "AFG":"AF","ALB":"AL","DZA":"DZ","AND":"AD","AGO":"AO","ARG":"AR","ARM":"AM","AUS":"AU","AUT":"AT","AZE":"AZ","BHS":"BS","BHR":"BH","BGD":"BD","BEL":"BE","BRA":"BR","CAN":"CA","CHN":"CN","CZE":"CZ","ESP":"ES","FRA":"FR","GBR":"GB","GRE":"GR","GER":"DE","ITA":"IT","JPN":"JP","NED":"NL","RUS":"RU","USA":"US","UKR":"UA","SWE":"SE","SUI":"CH","POR":"PT","DEN":"DK","NOR":"NO","POL":"PL","BEL":"BE","ISL":"IS","IRL":"IE","LUX":"LU","HUN":"HU","ROU":"RO","SVK":"SK","SVN":"SI","BUL":"BG","EST":"EE","LVA":"LV","LTU":"LT","HRV":"HR","SRB":"RS","MEX":"MX","AUS":"AU","ARG":"AR","BRA":"BR","CHI":"CL","COL":"CO","PER":"PE","VEN":"VE","KOR":"KR","PRK":"KP","IND":"IN","PAK":"PK","IRN":"IR","ISR":"IL","TUR":"TR","EGY":"EG","MAR":"MA","TUN":"TN","ALG":"DZ","ZAF":"ZA","NZL":"NZ","CRO":"HR","CYP":"CY","LTU":"LT","LUX":"LU","BHR":"BH","QAT":"QA","KAZ":"KZ","KGZ":"KG","UZB":"UZ","AZE":"AZ","GEO":"GE","ARM":"AM","MDA":"MD","BLR":"BY","MNE":"ME","MKD":"MK","BIH":"BA","SMR":"SM","VAT":"VA","COK":"CK","XKX":"XK"
-};
-
-const nameToAlpha2 = {"UNITED STATES":"US","UNITED KINGDOM":"GB","ENGLAND":"GB","RUSSIA":"RU","CHINA":"CN","UAE":"AE","SOUTH KOREA":"KR","NORTH KOREA":"KP","SOUTH AFRICA":"ZA"};
-
-function toAlpha2(input){
-  if(!input) return '';
-  let s = String(input).trim().toUpperCase();
-  if(/^[A-Z]{2}$/.test(s)) return s;
-  if(s.length === 3 && iocToAlpha2[s]) return iocToAlpha2[s];
-  if(nameToAlpha2[s]) return nameToAlpha2[s];
-  const letters = s.replace(/[^A-Z]/g,'');
-  if(letters.length === 2) return letters;
-  return '';
-}
-
-function makeFlagElem(countryInput){
-  const alpha2 = toAlpha2(countryInput || '');
-  const span = document.createElement('span');
-  span.className = 'flag';
-  if(alpha2){
-    const code = alpha2.toLowerCase();
-    const img = document.createElement('img');
-    img.alt = alpha2;
-    img.src = `https://flagcdn.com/w40/${code}.png`;
-    img.onerror = function(){ img.remove(); const emoji = alpha2ToFlagEmoji(alpha2); if(emoji) span.textContent = emoji; else { span.textContent = alpha2; span.style.fontSize='11px'; span.style.color='#666'; } };
-    span.appendChild(img);
-  } else {
-    const txt = (countryInput ? String(countryInput).toUpperCase().slice(0,3) : '');
-    span.textContent = txt; span.style.fontSize='11px'; span.style.color='#666';
-  }
-  return span;
-}
-
 function formatSeed(raw){
   if(raw === null || raw === undefined) return '';
   const n = typeof raw === 'number' ? raw : parseFloat(String(raw).trim().replace(',', '.'));
@@ -123,14 +69,12 @@ function formatSeed(raw){
   if(Number.isInteger(n)) return String(n);
   return String(n);
 }
-
 function formatFirstInitial(fullFirst){
   if(!fullFirst) return '';
   const tokens = String(fullFirst).trim().split(/\s+/);
   if(tokens.length === 0) return '';
   return tokens[0].charAt(0).toUpperCase() + '.';
 }
-
 function splitNameToLastAndInitial(rawName){
   if(!rawName) return { last:'', firstInitial:'' };
   let name = String(rawName).trim();
@@ -147,201 +91,216 @@ function splitNameToLastAndInitial(rawName){
   return { last: last, firstInitial: formatFirstInitial(firstTokens) };
 }
 
-/* ---------------------------
-   RENDERING AVANCÉ (alignment parent->child)
-   --------------------------- */
+/* minimal flag fallback (if you want the flagcdn logic, plug it back) */
+function makeFlagElem(countryInput){
+  const span = document.createElement('span');
+  span.className = 'flag';
+  span.textContent = countryInput ? String(countryInput).slice(0,2) : '';
+  span.style.fontSize='10px'; span.style.color='#666';
+  return span;
+}
 
+/* highlight function (used by onmouseover attrs) */
+function highlight_player(mode, className){
+  const els = document.querySelectorAll('.' + className);
+  if(mode === 1) els.forEach(e=>e.classList.add('highlight'));
+  else els.forEach(e=>e.classList.remove('highlight'));
+}
+
+/* ---------- rendering ---------- */
 async function render(){
+  // pour tester rapidement tu peux remplacer fetch par une variable JSON locale
+  // paramètres de layout (taille des lignes)
+  const winnerRowH = 20;
+  const scoreRowH  = 18;
+  const loserRowH  = 20;
+  const matchBlockH = winnerRowH + scoreRowH + loserRowH; // bloc logique
+  const verticalGapBetweenBlocks = 18; // espace entre blocs (évite écrasement)
+  const perMatchBlock = matchBlockH + verticalGapBetweenBlocks;
+  const cellWidth = 220;
+  const colGap = 40;
+
+  // --- fetch JSON --- (on reprend ta logique: ?source & ?t & ?year)
   const params = new URLSearchParams(location.search);
   const source = (params.get('source') || 'wta').toLowerCase();
   const id = params.get('t') || params.get('id') || '';
   const year = params.get('year') || '';
 
   if(!id || !year){
-    document.getElementById('bracketContainer').innerHTML = '<div style="padding:12px;color:#666">Missing tournament id or year. Use ?source=wta&t=2010&year=2019</div>';
+    document.getElementById('bracketContainer').innerHTML = '<div style="padding:12px;color:#666">Missing tournament id or year. Use ?source=wta&t=528&year=2025</div>';
     return;
   }
-
   const path = `/data/tournaments/${source}_${id}_${year}.json`;
   let json;
-  try{ const resp = await fetch(path); if(!resp.ok) throw new Error('JSON not found: ' + path); json = await resp.json(); }
-  catch(err){ document.getElementById('bracketContainer').innerHTML = '<div style="padding:12px;color:red">Error loading JSON: ' + err.message + '</div>'; console.error(err); return; }
+  try { const resp = await fetch(path); if(!resp.ok) throw new Error('JSON not found'); json = await resp.json(); }
+  catch(e){ document.getElementById('bracketContainer').innerHTML = '<div style="padding:12px;color:red">Erreur chargement JSON: '+e.message+'</div>'; console.error(e); return; }
 
   document.getElementById('tourney-title').textContent = json.meta?.tourney_name || (source.toUpperCase() + ' ' + id);
 
-  function norm(r){ if(!r) return 'Unknown'; r = r.trim(); const u = r.toUpperCase(); if(u==='F' || u.startsWith('FINAL')) return 'F'; if(u==='SF' || u.startsWith('SEMIF')) return 'SF'; if(u==='QF' || u.startsWith('QUART')) return 'QF'; return u; }
-  function isValidMatchId(mid){ if(!mid) return false; const s = String(mid).trim().toUpperCase(); return /^[ML]S\d{3}$/.test(s); }
-  function matchIdNumber(mid){ if(!mid) return Number.MAX_SAFE_INTEGER; const m = String(mid).toUpperCase().match(/^[ML]S0*([0-9]+)$/); if(m && m[1]) return parseInt(m[1], 10); const d = String(mid).match(/\d+/); return d ? parseInt(d[0], 10) : Number.MAX_SAFE_INTEGER; }
+  // collect matches by normalized round
+  function normRound(r){ if(!r) return 'Unknown'; r = String(r).trim().toUpperCase(); if(r==='F' || r.startsWith('FINAL')) return 'F'; if(r==='SF' || r.startsWith('SEMIF')) return 'SF'; if(r==='QF' || r.startsWith('QUART')) return 'QF'; return r; }
+  function isValidMatchId(mid){ if(!mid) return false; return /^[ML]S\d{3}$/i.test(String(mid).trim()); }
+  function matchNumber(mid){ if(!mid) return Number.MAX_SAFE_INTEGER; const m = String(mid).toUpperCase().match(/^[ML]S0*([0-9]+)/); if(m && m[1]) return parseInt(m[1],10); const d = String(mid).match(/\d+/); return d?parseInt(d[0],10):Number.MAX_SAFE_INTEGER; }
 
-  const rawMatches = (json.matches || []).map(m => Object.assign({}, m));
+  const rawMatches = (json.matches || []).map(m=>Object.assign({},m));
   const matches = rawMatches.filter(m => isValidMatchId(m.match_id));
-
   const groups = {};
-  matches.forEach(m => { const r = norm(m.round || ''); groups[r] = groups[r] || []; groups[r].push(m); });
+  matches.forEach(m => { const r = normRound(m.round); (groups[r] = groups[r]||[]).push(m); });
 
+  // sort rounds left->right by size
   const rounds = Object.keys(groups).sort((a,b) => groups[b].length - groups[a].length);
-
-  // layout constants (we now reserve 3 rows per match: winner / score / loser)
-  const winnerRowH = 20;
-  const scoreRowH = 14;
-  const loserRowH = 20;
-  const matchBlockHeight = winnerRowH + scoreRowH + loserRowH; // 54
-  const perMatchBlock = matchBlockHeight + 18; // spacing between blocks
-  const cellWidth = 260;
-  const colGap = 40;
 
   // container sizing
   let maxBlocks = 0;
-  rounds.forEach(r => { maxBlocks = Math.max(maxBlocks, groups[r].length); });
-  const containerHeight = Math.max(220, maxBlocks * perMatchBlock + 60);
+  rounds.forEach(r => maxBlocks = Math.max(maxBlocks, groups[r].length));
+  const containerHeight = Math.max(400, maxBlocks * perMatchBlock + 80);
   const container = document.getElementById('bracketContainer');
   container.style.position = 'relative';
   container.style.height = containerHeight + 'px';
   container.innerHTML = '';
 
-  const positionsByRound = []; // array per round of objects { winnerTop, loserTop, matchRef }
+  // positionsByRound stocke pour chaque match: { winnerTop, center, matchRef }
+  const positionsByRound = [];
 
   rounds.forEach((rnd, colIndex) => {
-    const matchesInRound = groups[rnd];
-    matchesInRound.sort((a,b) => { return matchIdNumber(a.match_id) - matchIdNumber(b.match_id); });
+    const matchesInRound = groups[rnd].slice();
+    matchesInRound.sort((a,b) => matchNumber(a.match_id) - matchNumber(b.match_id));
 
     const n = matchesInRound.length;
-    const columnHeight = (n - 1) * perMatchBlock + matchBlockHeight + 20;
+    const columnHeight = (n - 1) * perMatchBlock + matchBlockH + 20;
     const topOffset = Math.max(10, Math.round((containerHeight - columnHeight) / 2));
 
-    const prevPositions = colIndex > 0 ? positionsByRound[colIndex - 1] : null;
-    const prevCount = prevPositions ? prevPositions.length : 0;
+    const prev = colIndex > 0 ? positionsByRound[colIndex - 1] : null;
+    const prevCount = prev ? prev.length : 0;
     const currCount = matchesInRound.length;
 
     const thisPositions = [];
 
     matchesInRound.forEach((m, j) => {
+      // compute winnerTop (top of winner row)
       let winnerTop;
       if(colIndex === 0){
         winnerTop = topOffset + j * perMatchBlock;
       } else {
-        const startIndex = Math.floor(j * prevCount / currCount);
+        // map j -> block in previous round and average centers
+        let startIndex = Math.floor(j * prevCount / currCount);
         let endIndex = Math.floor(((j+1) * prevCount) / currCount) - 1;
-        let si = startIndex, ei = endIndex;
-        if(ei < si) ei = si;
-        if(si >= prevCount) si = prevCount - 1;
-        if(ei >= prevCount) ei = prevCount - 1;
+        if(endIndex < startIndex) endIndex = startIndex;
+        if(startIndex >= prevCount) startIndex = prevCount - 1;
+        if(endIndex >= prevCount) endIndex = prevCount - 1;
         let sum = 0, cnt = 0;
-        for(let k = si; k <= ei; k++){
-          if(prevPositions[k]){ sum += prevPositions[k].winnerTop; cnt++; }
+        for(let k = startIndex; k <= endIndex; k++){
+          if(prev[k]){ sum += prev[k].center; cnt++; }
         }
-        if(cnt === 0){ winnerTop = topOffset + j * perMatchBlock; } else { winnerTop = Math.round(sum / cnt); }
+        if(cnt === 0) winnerTop = topOffset + j * perMatchBlock;
+        else {
+          // center of child match = average center from previous; convert center -> winnerTop
+          const avgCenter = Math.round(sum / cnt);
+          winnerTop = avgCenter - Math.floor(matchBlockH / 2);
+        }
       }
 
-      const loserTop = winnerTop + winnerRowH + scoreRowH; // leave space for score in-between
+      const scoreTop = winnerTop + winnerRowH; // score is directly beneath winner (after the border)
+      const loserTop = scoreTop + scoreRowH;
+      const center = winnerTop + Math.round(matchBlockH/2);
 
-      thisPositions.push({ winnerTop, loserTop, matchRef: m });
+      thisPositions.push({ winnerTop, scoreTop, loserTop, center, matchRef: m });
 
       const left = colIndex * (cellWidth + colGap);
 
-      // prepare ids/classes for highlight
-      const winnerId = m.player_id_winner || ('pwin_' + colIndex + '_' + j);
-      const winnerClass = 'j_' + String(winnerId);
-      const loserId = m.player_id_loser || ('plos_' + colIndex + '_' + j);
-      const loserClass = 'j_' + String(loserId);
+      // classes for highlight
+      const wId = m.player_id_winner || ('pwin_'+colIndex+'_'+j);
+      const lId = m.player_id_loser  || ('plos_'+colIndex+'_'+j);
+      const wClass = 'j_' + String(wId);
+      const lClass = 'j_' + String(lId);
 
-      // ---------- WINNER ROW ----------
-      const winnerDiv = document.createElement('div');
-      winnerDiv.className = winnerClass + ' match-row player-row winner';
-      winnerDiv.setAttribute('onmouseover', `highlight_player(1, '${winnerClass}', 1);`);
-      winnerDiv.setAttribute('onmouseout', `highlight_player(2, '${winnerClass}');`);
-      winnerDiv.style.position = 'absolute';
-      winnerDiv.style.top = winnerTop + 'px';
-      winnerDiv.style.left = left + 'px';
-      winnerDiv.style.height = winnerRowH + 'px';
-      winnerDiv.style.width = cellWidth + 'px';
+      // WINNER row (with border-bottom = barre)
+      const wDiv = document.createElement('div');
+      wDiv.className = wClass + ' match-row player-row winner';
+      wDiv.style.position = 'absolute';
+      wDiv.style.top = winnerTop + 'px';
+      wDiv.style.left = left + 'px';
+      wDiv.style.height = winnerRowH + 'px';
+      wDiv.style.width = cellWidth + 'px';
+      wDiv.setAttribute('onmouseover', `highlight_player(1,'${wClass}'); highlight_player(1,'${lClass}');`);
+      wDiv.setAttribute('onmouseout',  `highlight_player(2,'${wClass}'); highlight_player(2,'${lClass}');`);
 
+      // seed
       const wseedRaw = m.winner_seed || m.winnerSeed || '';
       const wseed = formatSeed(wseedRaw);
       const seedNode = document.createElement('div');
-      if(wseed && /^\d+$/.test(wseed)) { seedNode.className='seed-num'; seedNode.textContent = wseed; }
-      else { seedNode.className='seed-text'; seedNode.innerHTML = (wseed? wseed : '&nbsp;'); }
-      winnerDiv.appendChild(seedNode);
-
-      const wflagSpan = makeFlagElem(m.winner_country || m.winner_nationality || m.winner_country_code || m.winnerCountry || '');
-      winnerDiv.appendChild(wflagSpan);
-
+      if(wseed && /^\d+$/.test(wseed)){ seedNode.className='seed-num'; seedNode.textContent = wseed; }
+      else { seedNode.className='seed-text'; seedNode.innerHTML = (wseed? wseed : '\u00A0'); }
+      wDiv.appendChild(seedNode);
+      // flag
+      wDiv.appendChild(makeFlagElem(m.winner_country || m.winner_nationality || m.winner_country_code || ''));
+      // name
       const wname = m.winner_player_name || m.winner_name || '';
       const { last: wlast, firstInitial: wfirstInitial } = splitNameToLastAndInitial(wname);
-      const wAnchor = document.createElement('a');
+      const wA = document.createElement('a');
       const wSlug = slugify(wname);
-      const href = (m.player_id_winner ? `/player/${wSlug}/${m.player_id_winner}/` : '#');
-      wAnchor.href = href;
-      wAnchor.className = 'player-link';
-      wAnchor.innerHTML = `<strong style="font-size:11px">${(wlast || '—').toUpperCase()}</strong><span class="player-first">${ wfirstInitial ? ', ' + wfirstInitial : '' }</span>`;
-      winnerDiv.appendChild(wAnchor);
+      wA.href = m.player_id_winner ? `/player/${wSlug}/${m.player_id_winner}/` : '#';
+      wA.className = 'player-link';
+      wA.innerHTML = `<strong style="font-size:11px">${(wlast||'—').toUpperCase()}</strong><span class="player-first">${ wfirstInitial ? ', ' + wfirstInitial : '' }</span>`;
+      wDiv.appendChild(wA);
+      container.appendChild(wDiv);
 
-      container.appendChild(winnerDiv);
-
-      // ---------- SCORE ROW (between winner & loser) ----------
-      const scoreDiv = document.createElement('div');
-      // attach both player classes so it highlights when hovering either player involved
-      scoreDiv.className = (winnerClass + ' ' + loserClass + ' score-row');
-      scoreDiv.style.position = 'absolute';
-      scoreDiv.style.top = (winnerTop + winnerRowH) + 'px';
-      scoreDiv.style.left = left + 'px';
-      scoreDiv.style.height = scoreRowH + 'px';
-      scoreDiv.style.width = cellWidth + 'px';
-      scoreDiv.setAttribute('onmouseover', `highlight_player(1, '${winnerClass}', 1); highlight_player(1, '${loserClass}', 1);`);
-      scoreDiv.setAttribute('onmouseout', `highlight_player(2, '${winnerClass}'); highlight_player(2, '${loserClass}');`);
+      // SCORE row (directly below winner's border)
+      const sDiv = document.createElement('div');
+      sDiv.className = wClass + ' ' + lClass + ' score-row';
+      sDiv.style.position = 'absolute';
+      sDiv.style.top = scoreTop + 'px';
+      sDiv.style.left = left + 'px';
+      sDiv.style.height = scoreRowH + 'px';
+      sDiv.style.width = cellWidth + 'px';
+      sDiv.setAttribute('onmouseover', `highlight_player(1,'${wClass}'); highlight_player(1,'${lClass}');`);
+      sDiv.setAttribute('onmouseout',  `highlight_player(2,'${wClass}'); highlight_player(2,'${lClass}');`);
       const scoreText = (m.score_string || m.score || '').trim();
-      scoreDiv.textContent = scoreText || '';
-      container.appendChild(scoreDiv);
+      sDiv.innerHTML = scoreText ? `<a href="${m.match_url||'#'}" style="color:#515151;font-size:11px;font-style:italic;padding-left:2px;text-decoration:none">${scoreText}</a>` : '&nbsp;';
+      container.appendChild(sDiv);
 
-      // ---------- LOSER ROW ----------
-      const loserDiv = document.createElement('div');
-      loserDiv.className = loserClass + ' match-row player-row loser';
-      loserDiv.setAttribute('onmouseover', `highlight_player(1, '${loserClass}', 1);`);
-      loserDiv.setAttribute('onmouseout', `highlight_player(2, '${loserClass}');`);
-      loserDiv.style.position = 'absolute';
-      loserDiv.style.top = loserTop + 'px';
-      loserDiv.style.left = left + 'px';
-      loserDiv.style.height = loserRowH + 'px';
-      loserDiv.style.width = cellWidth + 'px';
+      // LOSER row
+      const lDiv = document.createElement('div');
+      lDiv.className = lClass + ' match-row player-row loser';
+      lDiv.style.position = 'absolute';
+      lDiv.style.top = loserTop + 'px';
+      lDiv.style.left = left + 'px';
+      lDiv.style.height = loserRowH + 'px';
+      lDiv.style.width = cellWidth + 'px';
+      lDiv.setAttribute('onmouseover', `highlight_player(1,'${lClass}');`);
+      lDiv.setAttribute('onmouseout',  `highlight_player(2,'${lClass}');`);
 
       const lseedRaw = m.loser_seed || m.loserSeed || '';
       const lseed = formatSeed(lseedRaw);
       const seedNode2 = document.createElement('div');
-      if(lseed && /^\d+$/.test(lseed)) { seedNode2.className='seed-num'; seedNode2.textContent = lseed; }
-      else { seedNode2.className='seed-text'; seedNode2.innerHTML = (lseed? lseed : '&nbsp;'); }
-      loserDiv.appendChild(seedNode2);
+      if(lseed && /^\d+$/.test(lseed)){ seedNode2.className='seed-num'; seedNode2.textContent = lseed; }
+      else { seedNode2.className='seed-text'; seedNode2.innerHTML = (lseed? lseed : '\u00A0'); }
+      lDiv.appendChild(seedNode2);
 
-      const lflagSpan = makeFlagElem(m.loser_country || m.loser_nationality || m.loser_country_code || m.loserCountry || '');
-      loserDiv.appendChild(lflagSpan);
+      lDiv.appendChild(makeFlagElem(m.loser_country || m.loser_nationality || m.loser_country_code || ''));
 
       const lname = m.loser_player_name || m.loser_name || '';
       if(!lname || /^BYE$/i.test(lname)){
-        const byeSpan = document.createElement('span');
-        byeSpan.className = 'bye';
-        byeSpan.textContent = 'BYE';
-        loserDiv.appendChild(byeSpan);
+        const byeSpan = document.createElement('span'); byeSpan.className='bye'; byeSpan.textContent='BYE'; lDiv.appendChild(byeSpan);
       } else {
         const { last: llast, firstInitial: lfirstInitial } = splitNameToLastAndInitial(lname);
-        const lAnchor = document.createElement('a');
+        const lA = document.createElement('a');
         const lSlug = slugify(lname);
-        const lhref = (m.player_id_loser ? `/player/${lSlug}/${m.player_id_loser}/` : '#');
-        lAnchor.href = lhref;
-        lAnchor.className = 'player-link';
-        lAnchor.innerHTML = `<strong style="font-size:11px">${(llast || '—').toUpperCase()}</strong><span class="player-first">${ lfirstInitial ? ', ' + lfirstInitial : '' }</span>`;
-        loserDiv.appendChild(lAnchor);
+        lA.href = m.player_id_loser ? `/player/${lSlug}/${m.player_id_loser}/` : '#';
+        lA.className = 'player-link';
+        lA.innerHTML = `<strong style="font-size:11px">${(llast||'—').toUpperCase()}</strong><span class="player-first">${ lfirstInitial ? ', ' + lfirstInitial : '' }</span>`;
+        lDiv.appendChild(lA);
       }
-      container.appendChild(loserDiv);
+      container.appendChild(lDiv);
 
-    });
+    }); // matchesInRound.forEach
 
     positionsByRound.push(thisPositions);
-  });
+  }); // rounds.forEach
 
-  // DOM built
-}
+} // render
 
 render();
 </script>
-
 </body>
 </html>
