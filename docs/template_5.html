@@ -588,22 +588,31 @@ window._playerIndexCache = window._playerIndexCache || { atp: null, wta: null, l
  * key => entry (key: player_id , slug)
  */
 /* ---------- buildPlayerPageUrlAsync & wrapper (PRIORITÉ page_href) ---------- */
+/* -------- Player index loader & URL builder (UNICODE / page_href PRIORITY) -------- */
+
+window._playerIndexCache = window._playerIndexCache || { atp: null, wta: null, loading: {} };
 
 async function loadPlayerIndex(useWta){
   const key = useWta ? 'wta' : 'atp';
-  if(window._playerIndexCache && window._playerIndexCache[key]) return window._playerIndexCache[key];
-  window._playerIndexCache = window._playerIndexCache || { atp: null, wta: null, loading: {} };
-  if(window._playerIndexCache.loading[key]) return window._playerIndexCache.loading[key];
+  if(window._playerIndexCache[key]) {
+    console.debug('[players-index] cache hit', key);
+    return window._playerIndexCache[key];
+  }
+  if(window._playerIndexCache.loading[key]) {
+    console.debug('[players-index] loading promise already in-flight', key);
+    return window._playerIndexCache.loading[key];
+  }
 
   const candidates = useWta
     ? ['/index/players_wta_index.json','index/players_wta_index.json']
     : ['/index/players_index.json','index/players_index.json'];
 
-  const p = (async ()=>{
+  const p = (async () => {
     for(const url of candidates){
       try{
+        console.debug('[players-index] trying', url);
         const r = await fetch(url, {cache:'no-cache'});
-        if(!r.ok) continue;
+        if(!r.ok){ console.debug('[players-index] not ok', url, r.status); continue; }
         const j = await r.json();
         const byId = new Map();
         const bySlug = new Map();
@@ -611,21 +620,22 @@ async function loadPlayerIndex(useWta){
         for(const ent of arr){
           if(ent.player_id) byId.set(String(ent.player_id), ent);
           if(ent.slug) bySlug.set(String(ent.slug), ent);
-          // page_href tail registration
           if(ent.page_href && typeof ent.page_href === 'string'){
             const tail = ent.page_href.split('/').pop();
             if(tail) bySlug.set(String(tail), ent);
-            // also index by exact page_href
-            bySlug.set(String(ent.page_href), ent);
+            bySlug.set(String(ent.page_href), ent); // also index by exact page_href
           }
         }
         const result = { byId, bySlug };
         window._playerIndexCache[key] = result;
+        console.debug('[players-index] loaded', url, 'entries=', arr.length);
         return result;
-      }catch(e){
-        // ignore, try next
+      }catch(err){
+        console.debug('[players-index] fetch error', url, err && err.message);
+        // try next candidate
       }
     }
+    console.debug('[players-index] no index found for', key);
     return null;
   })().finally(()=>{ delete window._playerIndexCache.loading[key]; });
 
@@ -634,39 +644,33 @@ async function loadPlayerIndex(useWta){
 }
 
 /**
- * buildPlayerPageUrlAsync : retourne l'URL complète finale si page_href disponible
- * priority:
- *  - lookup by player_id => use ent.page_href if present
- *  - lookup by slug => use ent.page_href if present
- *  - fallback: old behaviour (player.html or player_wta.html or slug)
+ * buildPlayerPageUrlAsync : si index disponible, renvoie "https://host/<page_href>"
+ * Priorités : player_id -> slug -> name scan. Fallback : /player.html/ or /player_wta.html/
  */
 async function buildPlayerPageUrlAsync({slug, id, name, useWta}){
   try{
     const idx = await loadPlayerIndex(!!useWta);
     if(idx){
-      // 1) by id
       if(id){
-        const ent = idx.byId.get(String(id)) || idx.byId.get(String(Number(id))) || null;
+        const ent = idx.byId.get(String(id)) || idx.byId.get(String(Number(id)));
         if(ent && ent.page_href){
-          const href = (ent.page_href.startsWith('/') ? ent.page_href.slice(1) : ent.page_href);
+          const href = ent.page_href.startsWith('/') ? ent.page_href.slice(1) : ent.page_href;
           return window.location.origin + '/' + href;
         }
       }
-      // 2) by slug (or page_href-tail)
       if(slug){
-        const ent = idx.bySlug.get(String(slug)) || null;
+        const ent = idx.bySlug.get(String(slug));
         if(ent && ent.page_href){
-          const href = (ent.page_href.startsWith('/') ? ent.page_href.slice(1) : ent.page_href);
+          const href = ent.page_href.startsWith('/') ? ent.page_href.slice(1) : ent.page_href;
           return window.location.origin + '/' + href;
         }
       }
-      // 3) by name (slow scan)
       if(name){
-        const nameLower = String(name).trim().toLowerCase();
+        const want = String(name).trim().toLowerCase();
         for(const ent of idx.byId.values()){
-          if(ent.name && String(ent.name).trim().toLowerCase() === nameLower){
+          if(ent.name && String(ent.name).trim().toLowerCase() === want){
             if(ent.page_href){
-              const href = (ent.page_href.startsWith('/') ? ent.page_href.slice(1) : ent.page_href);
+              const href = ent.page_href.startsWith('/') ? ent.page_href.slice(1) : ent.page_href;
               return window.location.origin + '/' + href;
             }
           }
@@ -674,13 +678,13 @@ async function buildPlayerPageUrlAsync({slug, id, name, useWta}){
       }
     }
   }catch(e){
-    // ignore and fallback
+    console.debug('[players-index] async builder error', e && e.message);
   }
 
-  // fallback old behaviour (sync-like)
+  // fallback: old behaviour (keeps compatibility)
   const base = useWta ? '/player_wta.html/' : '/player.html/';
   if(slug) return window.location.origin + base + encodeURIComponent(String(slug));
-  if(id) return window.location.origin + base + encodeURIComponent(String(id).toLowerCase());
+  if(id)   return window.location.origin + base + encodeURIComponent(String(id).toLowerCase());
   if(name){
     const s = slugify(name);
     if(s) return window.location.origin + base + encodeURIComponent(s);
@@ -688,7 +692,7 @@ async function buildPlayerPageUrlAsync({slug, id, name, useWta}){
   return window.location.origin + base;
 }
 
-/* synchronous wrapper: immediate fallback (keeps existing visible href), async resolver will update later */
+/* synchronous helper: immediate fallback for initial hrefs (async will update later if possible) */
 function buildPlayerPageUrl(params){
   const useWta = !!params.useWta;
   const base = useWta ? '/player_wta.html/' : '/player.html/';
@@ -701,79 +705,6 @@ function buildPlayerPageUrl(params){
   return window.location.origin + base;
 }
 
-
-/**
- * buildPlayerPageUrl - utilise maintenant l'index si dispo.
- * paramètres: {slug, id, name, useWta}
- * résultat: '/player.html/<slugPart>' ou '/player_wta.html/<slugPart>' ou fallback existant
- */
-async function buildPlayerPageUrlAsync({slug, id, name, useWta}) {
-  // 1) try to load index (non-bloquant, but we await it to build the proper href)
-  try{
-    const idx = await loadPlayerIndex(useWta);
-    if(idx){
-      // prefer id lookup
-      if(id){
-        const byId = idx.byId;
-        const ent = byId.get(String(id)) || byId.get(String(Number(id))) || null;
-        if(ent){
-          // derive slugPart from page_href or slug
-          const slugPart = (ent.page_href && ent.page_href.split('/').pop()) || ent.slug || ent.player_id;
-          if(slugPart) return (useWta ? '/player_wta.html/' : '/player.html/') + encodeURIComponent(slugPart);
-        }
-      }
-      // try slug lookup
-      if(slug){
-        const ent = idx.bySlug.get(String(slug)) || null;
-        if(ent){
-          const slugPart = (ent.page_href && ent.page_href.split('/').pop()) || ent.slug || ent.player_id;
-          if(slugPart) return (useWta ? '/player_wta.html/' : '/player.html/') + encodeURIComponent(slugPart);
-        }
-      }
-      // try by name fallback (slow) - search by name in byId/bySlug arrays
-      if(name){
-        const nameLower = String(name).trim().toLowerCase();
-        // scan byId entries
-        for(const ent of idx.byId.values()){
-          if(ent.name && String(ent.name).trim().toLowerCase() === nameLower){
-            const slugPart = (ent.page_href && ent.page_href.split('/').pop()) || ent.slug || ent.player_id;
-            if(slugPart) return (useWta ? '/player_wta.html/' : '/player.html/') + encodeURIComponent(slugPart);
-          }
-        }
-      }
-    }
-  }catch(e){
-    // ignore and fallback below
-  }
-
-  // fallback: old behaviour (non-async). Keep compatibility if index not available.
-  const base = useWta ? '/player_wta.html/' : '/player.html/';
-  if(slug) return base + encodeURIComponent(String(slug));
-  if(id)   return base + encodeURIComponent(String(id).toLowerCase());
-  if(name){
-    const s = slugify(name);
-    if(s) return base + encodeURIComponent(s);
-  }
-  return base;
-}
-
-/* synchronous wrapper for existing code that expected buildPlayerPageUrl to be sync.
-   We will use buildPlayerPageUrlAsync and if it returns a promise, update the anchor href later.
-*/
-function buildPlayerPageUrl(params){
-  // return a best-effort (sync) url immediately and then, if async result differs,
-  // the caller should set href/title from async promise result when resolved.
-  // provide fallback url
-  const useWta = !!params.useWta;
-  const base = useWta ? '/player_wta.html/' : '/player.html/';
-  if(params.slug) return base + encodeURIComponent(String(params.slug));
-  if(params.id) return base + encodeURIComponent(String(params.id).toLowerCase());
-  if(params.name){
-    const s = slugify(params.name);
-    if(s) return base + encodeURIComponent(s);
-  }
-  return base;
-}
 
 
 function buildMatchPageUrl({matchId, useWta}) {
