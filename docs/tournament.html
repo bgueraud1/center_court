@@ -3,294 +3,929 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Bracket skeleton — corrigé</title>
+<title>Bracket — squelette rempli depuis JSON</title>
 <style>
   :root{
     --winner-h:22px;
     --loser-h:22px;
-    --midblock-h:40px;
-    --match-gap:48px;
-    --col-gap:36px;
-    --col-width:220px; /* même largeur pour toutes les colonnes */
-    --midblock-width:180px;
-    --mid-offset: 0px;
+    --midblock-h:38px;
+    --match-gap:52px;
+    --col-gap:34px;
+    --col-width:220px;
+    --col-width-small:140px;
+    --midblock-width:160px;
     --line-color:#797979;
-    --container-padding:12px;
+    --seed-blue:#0b3d91;
+    --mid-offset: 220px;
   }
 
   html,body{height:100%;margin:0;font-family:Arial,Helvetica,sans-serif;background:#fff;color:#111}
-  .topbar{background:#2b6cb0;color:#fff;padding:12px}
-  .container{max-width:1400px;margin:12px auto;padding:var(--container-padding);position:relative}
-  #bracket{position:relative; min-height:640px; background:transparent; overflow:visible;}
+  .hero{padding:14px;color:#fff;background:#2b6cb0}
+  .container-main{max-width:1400px;margin:12px auto;padding:0 12px}
+  #bracketContainer{position:relative;background:transparent;overflow:visible}
 
-/* match wrapper qui contient les deux rangs (top + bottom) */
-.match-wrapper{ position:absolute; width:var(--col-width); box-sizing:border-box; pointer-events:none; }
+  /* flags */
+  .flag{display:inline-block;width:22px;height:14px;margin-right:8px;vertical-align:middle;overflow:hidden;border-radius:2px;background:#f5f5f5;line-height:14px;text-align:center}
+  .flag img{width:100%;height:100%;object-fit:cover;display:block}
 
-/* lignes (placées RELATIVEMENT à l'intérieur du wrapper) */
-.match-row{ box-sizing:border-box; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0 8px; background:#fff; display:block; width:100%; }
-.row-top{ height:var(--winner-h); border-top:1px solid var(--line-color); }
-.row-bottom{ height:var(--loser-h); border-bottom:1px solid var(--line-color); }
+  /* seeds */
+  .seed-num{float:left;width:22px;color:var(--seed-blue);font-size:11px;padding:2px 4px;font-weight:700;}
+  .seed-text{float:left;width:22px;color:#808080;font-size:11px;padding:2px 4px;}
 
-/* mid-block positionné en absolu dans #bracket (entre colonnes) */
-.mid-block{ position:absolute; height:var(--midblock-h); width:var(--midblock-width); z-index:50; background:#fff; box-sizing:border-box; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none; }
-.mid-winner{ height:18px; display:block; width:100%; box-sizing:border-box; padding:0 8px; font-weight:700; font-size:12px; overflow:hidden; text-overflow:ellipsis; }
-.mid-bar{ height:1px; background:var(--line-color); width:100%; }
-.mid-score{ font-size:12px; padding-top:4px; color:#515151; font-style:italic; overflow:hidden; text-overflow:ellipsis; }
+  .player-link{font-size:11px;text-decoration:none;color:#000;display:inline-block;vertical-align:middle}
+  .player-first{font-size:11px;color:#565656;font-style:italic;margin-left:4px}
+  .bye{color:#808080;font-size:11px;padding-left:22px}
 
-/* svg overlay */
-.connectors{ position:absolute; left:0; top:0; width:100%; height:100%; z-index:20; pointer-events:none; }
+  /* rows for players (absolute) */
+  .match-row{box-sizing:border-box;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 6px;background:#fff;z-index:5;position:absolute;display:flex;align-items:center;gap:6px;}
+  .row-top{height:var(--winner-h); border-top:1px solid var(--line-color);}   /* top border above upper player */
+  .row-bottom{height:var(--loser-h); border-bottom:1px solid var(--line-color);}/* bottom border below lower player */
 
-/* placeholders */
-.placeholder-name{ height:14px; width:80%; background:transparent; display:inline-block; }
-.placeholder-seed{ width:22px; height:16px; background:transparent; display:inline-block; }
-.placeholder-score{ height:12px; width:60%; background:transparent; display:block; margin-top:4px; }
+  /* mid block placed at mid-axis; contains winner above line and score below */
+  .mid-block{position:absolute;height:var(--midblock-h);width:var(--midblock-width);text-align:center;transform:none;z-index:70;background:#fff;pointer-events:auto;margin-left:0;display:flex;flex-direction:column;justify-content:center;align-items:center;box-sizing:border-box}
+  .mid-winner{font-size:11px;font-weight:700;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 6px;display:flex;align-items:center;gap:6px}
+  .mid-bar{height:1px;background:var(--line-color);width:100%;margin:2px 0;}
+  .mid-score{font-size:11px;color:#515151;font-style:italic;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 6px}
 
-/* responsive */
-@media (max-width:900px){
-  :root{ --col-width:160px; --midblock-width:140px; --match-gap:36px; }
-}
+  /* svg connectors behind everything */
+  .connectors{position:absolute;left:0;top:0;width:100%;height:100%;z-index:2;pointer-events:none}
+
+  .highlight{background: rgba(255,235,59,0.15) !important}
+
+  @media (max-width:900px){
+    :root{ --col-width:160px; --col-width-small:120px; --match-gap:36px; --midblock-width:120px; }
+  }
 </style>
 </head>
 <body>
-  <div class="topbar">
-    <div style="max-width:1400px;margin:0 auto;display:flex;gap:12px;align-items:center;">
-      <strong>Bracket skeleton — corrigé</strong>
-      <div style="margin-left:auto;font-size:13px;color:#fff;opacity:0.9">Colonnes uniformes + lignes continues</div>
+  <div class="hero"><div class="container-main"><h1 id="tourney-title" style="margin:0;color:#fff">Tournament</h1></div></div>
+  <div class="container-main" style="padding-top:12px">
+    <div id="bracketContainer" style="min-height:640px">
+
+<div style="padding:25px;background:white;overflow:auto;">
+      
+      
+      <div style="position:relative;padding:80px 0 80px 0;">
+        <div style="width:300px;height:62px;position:absolute;top:0;right:350px;;">
+          
+        </div>
+
+        <div style="position:relative;height:950px;">
+
+        
+            <div style="position: absolute; top: 0px; left: 0px; height: 20px; width: 180px; border-top: 1px solid rgb(121, 121, 121); text-align: left;" class="j_7874" onmouseover="highlight_player(1, 'j_7874', 2);" onmouseout="highlight_player(2, 'j_7874');">
+              
+                  <div style="float:left;width:22px;color:red;font-size:11px;padding:2px;">1</div>
+                  <span class="flag ITA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+
+                  <a href="/player/lorenzo-musetti/7874/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            <div style="position:absolute;top:20px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;" class="j_2000" onmouseover="highlight_player(1, 'j_2000', 2);" onmouseout="highlight_player(2, 'j_2000');">
+              
+                  <span style="color:#808080;font-size:11px;padding-left:22px;">BYE</span>
+                  
+            </div>
+            
+            <div style="position: absolute; top: 60px; left: 0px; height: 20px; width: 180px; border-top: 1px solid rgb(121, 121, 121); text-align: left;" class="j_7840" onmouseover="highlight_player(1, 'j_7840', 2);" onmouseout="highlight_player(2, 'j_7840');">
+              
+                  <div style="float:left;width:22px;color:#808080;font-size:11px;padding:2px;">&nbsp;</div>
+                  <span class="flag ARG" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+
+                  <a href="/player/tomas-martin-etcheverry/7840/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            <div style="position:absolute;top:80px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;" class="j_8238" onmouseover="highlight_player(1, 'j_8238', 2);" onmouseout="highlight_player(2, 'j_8238');">
+              
+                  <div style="float:left;width:22px;font-weight:bold;color:#808080;font-size:11px;padding:2px;">&nbsp;</div>
+                  <span class="flag FRA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+                  <a href="/player/valentin-royer/8238/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            
+            <div style="position: absolute; top: 120px; left: 0px; height: 20px; width: 180px; border-top: 1px solid rgb(121, 121, 121); text-align: left;" class="j_9815" onmouseover="highlight_player(1, 'j_9815', 2);" onmouseout="highlight_player(2, 'j_9815');">
+              
+                  <div style="float:left;width:22px;color:#808080;font-size:11px;padding:2px;">WC</div>
+                  <span class="flag HKG" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+
+                  <a href="/player/coleman-wong/9815/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            <div style="position:absolute;top:140px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;" class="j_8809" onmouseover="highlight_player(1, 'j_8809', 2);" onmouseout="highlight_player(2, 'j_8809');">
+              
+                  <div style="float:left;width:22px;font-weight:bold;color:#808080;font-size:11px;padding:2px;">&nbsp;</div>
+                  <span class="flag ARG" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+                  <a href="/player/mariano-navone/8809/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            
+            <div style="position:absolute;top:180px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;" class="j_8117" onmouseover="highlight_player(1, 'j_8117', 2);" onmouseout="highlight_player(2, 'j_8117');">
+              
+                  <div style="float:left;width:22px;color:#808080;font-size:11px;padding:2px;">&nbsp;</div>
+                  <span class="flag NED" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+
+                  <a href="/player/jesper-de-jong/8117/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            <div style="position:absolute;top:200px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;" class="j_8103" onmouseover="highlight_player(1, 'j_8103', 2);" onmouseout="highlight_player(2, 'j_8103');">
+              
+                  <div style="float:left;width:22px;font-weight:bold;color:red;font-size:11px;padding:2px;">6</div>
+                  <span class="flag CAN" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+                  <a href="/player/gabriel-diallo/8103/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            
+            <div style="position:absolute;top:240px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;" class="j_3713" onmouseover="highlight_player(1, 'j_3713', 2);" onmouseout="highlight_player(2, 'j_3713');">
+              
+                  <div style="float:left;width:22px;color:red;font-size:11px;padding:2px;">3</div>
+                  <span class="flag RUS" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+
+                  <a href="/player/andrey-rublev/3713/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            <div style="position:absolute;top:260px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;" class="j_2000" onmouseover="highlight_player(1, 'j_2000', 2);" onmouseout="highlight_player(2, 'j_2000');">
+              
+                  <span style="color:#808080;font-size:11px;padding-left:22px;">BYE</span>
+                  
+            </div>
+            
+            <div style="position:absolute;top:300px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;" class="j_7223" onmouseover="highlight_player(1, 'j_7223', 2);" onmouseout="highlight_player(2, 'j_7223');">
+              
+                  <div style="float:left;width:22px;color:#808080;font-size:11px;padding:2px;">WC</div>
+                  <span class="flag CHN" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+
+                  <a href="/player/yibing-wu/7223/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            <div style="position:absolute;top:320px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;" class="j_8840" onmouseover="highlight_player(1, 'j_8840', 2);" onmouseout="highlight_player(2, 'j_8840');">
+              
+                  <div style="float:left;width:22px;font-weight:bold;color:#808080;font-size:11px;padding:2px;">&nbsp;</div>
+                  <span class="flag HUN" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+                  <a href="/player/fabian-marozsan/8840/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            
+            <div style="position: absolute; top: 360px; left: 0px; height: 20px; width: 180px; border-top: 1px solid rgb(121, 121, 121); text-align: left;" class="j_2078" onmouseover="highlight_player(1, 'j_2078', 2);" onmouseout="highlight_player(2, 'j_2078');">
+              
+                  <div style="float:left;width:22px;color:#808080;font-size:11px;padding:2px;">&nbsp;</div>
+                  <span class="flag CRO" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+
+                  <a href="/player/marin-cilic/2078/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            <div style="position: absolute; top: 380px; left: 0px; height: 20px; width: 180px; border-bottom: 1px solid rgb(121, 121, 121); text-align: left;" class="j_2315" onmouseover="highlight_player(1, 'j_2315', 2);" onmouseout="highlight_player(2, 'j_2315');">
+              
+                  <div style="float:left;width:22px;font-weight:bold;color:#808080;font-size:11px;padding:2px;">&nbsp;</div>
+                  <span class="flag FRA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+                  <a href="/player/adrian-mannarino/2315/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            
+            <div style="position: absolute; top: 420px; left: 0px; height: 20px; width: 180px; border-top: 1px solid rgb(121, 121, 121); text-align: left;" class="j_2842" onmouseover="highlight_player(1, 'j_2842', 2);" onmouseout="highlight_player(2, 'j_2842');">
+              
+                  <div style="float:left;width:22px;color:#808080;font-size:11px;padding:2px;">&nbsp;</div>
+                  <span class="flag BIH" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+
+                  <a href="/player/damir-dzumhur/2842/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            <div style="position: absolute; top: 440px; left: 0px; height: 20px; width: 180px; border-bottom: 1px solid rgb(121, 121, 121); text-align: left;" class="j_8314" onmouseover="highlight_player(1, 'j_8314', 2);" onmouseout="highlight_player(2, 'j_8314');">
+              
+                  <div style="float:left;width:22px;font-weight:bold;color:red;font-size:11px;padding:2px;">8</div>
+                  <span class="flag POR" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+                  <a href="/player/nuno-borges/8314/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            
+            <div style="position: absolute; top: 480px; left: 0px; height: 20px; width: 180px; border-top: 1px solid rgb(121, 121, 121); text-align: left;" class="j_2964" onmouseover="highlight_player(1, 'j_2964', 2);" onmouseout="highlight_player(2, 'j_2964');">
+              
+                  <div style="float:left;width:22px;color:red;font-size:11px;padding:2px;">7</div>
+                  <span class="flag FRA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+
+                  <a href="/player/alexandre-muller/2964/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            <div style="position: absolute; top: 500px; left: 0px; height: 20px; width: 180px; border-bottom: 1px solid rgb(121, 121, 121); text-align: left;" class="j_7046" onmouseover="highlight_player(1, 'j_7046', 2);" onmouseout="highlight_player(2, 'j_7046');">
+              
+                  <div style="float:left;width:22px;font-weight:bold;color:#808080;font-size:11px;padding:2px;">&nbsp;</div>
+                  <span class="flag SRB" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+                  <a href="/player/miomir-kecmanovic/7046/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            
+            <div style="position: absolute; top: 540px; left: 0px; height: 20px; width: 180px; border-top: 1px solid rgb(121, 121, 121); text-align: left;" class="j_2931" onmouseover="highlight_player(1, 'j_2931', 2);" onmouseout="highlight_player(2, 'j_2931');">
+              
+                  <div style="float:left;width:22px;color:#808080;font-size:11px;padding:2px;">Q</div>
+                  <span class="flag SRB" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+
+                  <a href="/player/laslo-djere/2931/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            <div style="position: absolute; top: 560px; left: 0px; height: 20px; width: 180px; border-bottom: 1px solid rgb(121, 121, 121); text-align: left;" class="j_3700" onmouseover="highlight_player(1, 'j_3700', 2);" onmouseout="highlight_player(2, 'j_3700');">
+              
+                  <div style="float:left;width:22px;font-weight:bold;color:#808080;font-size:11px;padding:2px;">&nbsp;</div>
+                  <span class="flag USA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+                  <a href="/player/marcos-giron/3700/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            
+            <div style="position:absolute;top:600px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;" class="j_7168" onmouseover="highlight_player(1, 'j_7168', 2);" onmouseout="highlight_player(2, 'j_7168');">
+              
+                  <div style="float:left;width:22px;color:#808080;font-size:11px;padding:2px;">Q</div>
+                  <span class="flag CHI" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+
+                  <a href="/player/alejandro-tabilo/7168/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            <div style="position: absolute; top: 620px; left: 0px; height: 20px; width: 180px; border-bottom: 1px solid rgb(121, 121, 121); text-align: left;" class="j_4303" onmouseover="highlight_player(1, 'j_4303', 2);" onmouseout="highlight_player(2, 'j_4303');">
+              
+                  <div style="float:left;width:22px;font-weight:bold;color:#808080;font-size:11px;padding:2px;">Q</div>
+                  <span class="flag USA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+                  <a href="/player/michael-mmoh/4303/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            
+            <div style="position:absolute;top:660px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;" class="j_2000" onmouseover="highlight_player(1, 'j_2000', 2);" onmouseout="highlight_player(2, 'j_2000');">
+              
+                  <span style="color:#808080;font-size:11px;padding-left:22px;">BYE</span>
+                  
+            </div>
+            <div style="position:absolute;top:680px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;" class="j_3663" onmouseover="highlight_player(1, 'j_3663', 2);" onmouseout="highlight_player(2, 'j_3663');">
+              
+                  <div style="float:left;width:22px;font-weight:bold;color:red;font-size:11px;padding:2px;">4</div>
+                  <span class="flag RUS" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+                  <a href="/player/karen-khachanov/3663/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            
+            <div style="position:absolute;top:720px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;" class="j_4162" onmouseover="highlight_player(1, 'j_4162', 2);" onmouseout="highlight_player(2, 'j_4162');">
+              
+                  <div style="float:left;width:22px;color:red;font-size:11px;padding:2px;">5</div>
+                  <span class="flag ITA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+
+                  <a href="/player/lorenzo-sonego/4162/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            <div style="position:absolute;top:740px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;" class="j_10790" onmouseover="highlight_player(1, 'j_10790', 2);" onmouseout="highlight_player(2, 'j_10790');">
+              
+                  <div style="float:left;width:22px;font-weight:bold;color:#808080;font-size:11px;padding:2px;">NG</div>
+                  <span class="flag JPN" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+                  <a href="/player/rei-sakamoto/10790/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            
+            <div style="position:absolute;top:780px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;" class="j_8538" onmouseover="highlight_player(1, 'j_8538', 2);" onmouseout="highlight_player(2, 'j_8538');">
+              
+                  <div style="float:left;width:22px;color:#808080;font-size:11px;padding:2px;">WC</div>
+                  <span class="flag CHN" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+
+                  <a href="/player/juncheng-shang/8538/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            <div style="position:absolute;top:800px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;" class="j_8812" onmouseover="highlight_player(1, 'j_8812', 2);" onmouseout="highlight_player(2, 'j_8812');">
+              
+                  <div style="float:left;width:22px;font-weight:bold;color:#808080;font-size:11px;padding:2px;">&nbsp;</div>
+                  <span class="flag ARG" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+                  <a href="/player/francisco-comesana/8812/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            
+            <div style="position:absolute;top:840px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;" class="j_2844" onmouseover="highlight_player(1, 'j_2844', 2);" onmouseout="highlight_player(2, 'j_2844');">
+              
+                  <div style="float:left;width:22px;color:#808080;font-size:11px;padding:2px;">Q</div>
+                  <span class="flag GER" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+
+                  <a href="/player/jan-lennard-struff/2844/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            <div style="position:absolute;top:860px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;" class="j_7248" onmouseover="highlight_player(1, 'j_7248', 2);" onmouseout="highlight_player(2, 'j_7248');">
+              
+                  <div style="float:left;width:22px;font-weight:bold;color:#808080;font-size:11px;padding:2px;">&nbsp;</div>
+                  <span class="flag NED" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+                  <a href="/player/botic-van-de-zandschulp/7248/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            
+            <div style="position:absolute;top:900px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;" class="j_2000" onmouseover="highlight_player(1, 'j_2000', 2);" onmouseout="highlight_player(2, 'j_2000');">
+              
+                  <span style="color:#808080;font-size:11px;padding-left:22px;">BYE</span>
+                  
+            </div>
+            <div style="position: absolute; top: 920px; left: 0px; height: 20px; width: 180px; border-bottom: 1px solid rgb(121, 121, 121); text-align: left;" class="j_4231" onmouseover="highlight_player(1, 'j_4231', 2);" onmouseout="highlight_player(2, 'j_4231');">
+              
+                  <div style="float:left;width:22px;font-weight:bold;color:red;font-size:11px;padding:2px;">2</div>
+                  <span class="flag KAZ" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+                  <a href="/player/alexander-bublik/4231/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+                  
+            </div>
+            
+          <div style="position: absolute; top: 0px; left: 180px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;" class="j_7874" onmouseover="highlight_player(1, 'j_7874', 2);" onmouseout="highlight_player(2, 'j_7874');">
+            
+              &nbsp;<span class="flag ITA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/lorenzo-musetti/7874/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:20px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+            &nbsp;
+          </div>
+          
+          <div style="position: absolute; top: 60px; left: 180px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;" class="j_7840" onmouseover="highlight_player(1, 'j_7840', 2);" onmouseout="highlight_player(2, 'j_7840');">
+            
+              &nbsp;<span class="flag ARG" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/tomas-martin-etcheverry/7840/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:80px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/etcheverry-royer-hong-kong-2026/9448630/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          
+          <div style="position: absolute; top: 120px; left: 180px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;" class="j_9815" onmouseover="highlight_player(1, 'j_9815', 2);" onmouseout="highlight_player(2, 'j_9815');">
+            
+              &nbsp;<span class="flag HKG" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/coleman-wong/9815/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:140px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/wong-navone-hong-kong-2026/9448631/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          
+          <div style="position:absolute;top:180px;left:180px;height:20px;width:130px;border-bottom:1px solid #797979;border-left:1px solid #797979;text-align:left;" class="j_8103" onmouseover="highlight_player(1, 'j_8103', 2);" onmouseout="highlight_player(2, 'j_8103');">
+            
+              &nbsp;<span class="flag CAN" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/gabriel-diallo/8103/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:200px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/de-jong-diallo-hong-kong-2026/9448632/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          
+          <div style="position:absolute;top:240px;left:180px;height:20px;width:130px;border-bottom:1px solid #797979;border-left:1px solid #797979;text-align:left;" class="j_3713" onmouseover="highlight_player(1, 'j_3713', 2);" onmouseout="highlight_player(2, 'j_3713');">
+            
+              &nbsp;<span class="flag RUS" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/andrey-rublev/3713/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:260px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+            &nbsp;
+          </div>
+          
+          <div style="position:absolute;top:300px;left:180px;height:20px;width:130px;border-bottom:1px solid #797979;border-left:1px solid #797979;text-align:left;" class="j_7223" onmouseover="highlight_player(1, 'j_7223', 2);" onmouseout="highlight_player(2, 'j_7223');">
+            
+              &nbsp;<span class="flag CHN" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/yibing-wu/7223/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:320px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/wu-marozsan-hong-kong-2026/9448635/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          
+          <div style="position: absolute; top: 360px; left: 180px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;" class="j_2078" onmouseover="highlight_player(1, 'j_2078', 2);" onmouseout="highlight_player(2, 'j_2078');">
+            
+              &nbsp;<span class="flag CRO" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/marin-cilic/2078/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:380px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/cilic-mannarino-hong-kong-2026/9448636/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          
+          <div style="position: absolute; top: 420px; left: 180px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;" class="j_8314" onmouseover="highlight_player(1, 'j_8314', 2);" onmouseout="highlight_player(2, 'j_8314');">
+            
+              &nbsp;<span class="flag POR" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/nuno-borges/8314/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:440px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/dzumhur-borges-hong-kong-2026/9448637/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          
+          <div style="position: absolute; top: 480px; left: 180px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;" class="j_2964" onmouseover="highlight_player(1, 'j_2964', 2);" onmouseout="highlight_player(2, 'j_2964');">
+            
+              &nbsp;<span class="flag FRA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/alexandre-muller/2964/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:500px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/muller-kecmanovic-hong-kong-2026/9448638/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          
+          <div style="position: absolute; top: 540px; left: 180px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;" class="j_3700" onmouseover="highlight_player(1, 'j_3700', 2);" onmouseout="highlight_player(2, 'j_3700');">
+            
+              &nbsp;<span class="flag USA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/marcos-giron/3700/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:560px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/djere-giron-hong-kong-2026/9448639/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          
+          <div style="position: absolute; top: 600px; left: 180px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;" class="j_4303" onmouseover="highlight_player(1, 'j_4303', 2);" onmouseout="highlight_player(2, 'j_4303');">
+            
+              &nbsp;<span class="flag USA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/michael-mmoh/4303/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:620px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/tabilo-mmoh-hong-kong-2026/9448640/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          
+          <div style="position:absolute;top:660px;left:180px;height:20px;width:130px;border-bottom:1px solid #797979;border-left:1px solid #797979;text-align:left;" class="j_3663" onmouseover="highlight_player(1, 'j_3663', 2);" onmouseout="highlight_player(2, 'j_3663');">
+            
+              &nbsp;<span class="flag RUS" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/karen-khachanov/3663/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:680px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+            &nbsp;
+          </div>
+          
+          <div style="position:absolute;top:720px;left:180px;height:20px;width:130px;border-bottom:1px solid #797979;border-left:1px solid #797979;text-align:left;" class="j_4162" onmouseover="highlight_player(1, 'j_4162', 2);" onmouseout="highlight_player(2, 'j_4162');">
+            
+              &nbsp;<span class="flag ITA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/lorenzo-sonego/4162/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:740px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/sonego-sakamoto-hong-kong-2026/9448643/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          
+          <div style="position:absolute;top:780px;left:180px;height:20px;width:130px;border-bottom:1px solid #797979;border-left:1px solid #797979;text-align:left;" class="j_8538" onmouseover="highlight_player(1, 'j_8538', 2);" onmouseout="highlight_player(2, 'j_8538');">
+            
+              &nbsp;<span class="flag CHN" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/juncheng-shang/8538/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:800px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/shang-comesana-hong-kong-2026/9448644/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          
+          <div style="position:absolute;top:840px;left:180px;height:20px;width:130px;border-bottom:1px solid #797979;border-left:1px solid #797979;text-align:left;" class="j_7248" onmouseover="highlight_player(1, 'j_7248', 2);" onmouseout="highlight_player(2, 'j_7248');">
+            
+              &nbsp;<span class="flag NED" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/botic-van-de-zandschulp/7248/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:860px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/struff-van-de-zandschulp-hong-kong-2026/9448645/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          
+          <div style="position: absolute; top: 900px; left: 180px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;" class="j_4231" onmouseover="highlight_player(1, 'j_4231', 2);" onmouseout="highlight_player(2, 'j_4231');">
+            
+              &nbsp;<span class="flag KAZ" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/alexander-bublik/4231/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:920px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+            &nbsp;
+          </div>
+          
+          <div style="position:absolute;top:20px;left:310px;height:20px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          <div style="position: absolute; top: 30px; left: 310px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;" class="j_7874" onmouseover="highlight_player(1, 'j_7874', 2);" onmouseout="highlight_player(2, 'j_7874');">
+            
+              &nbsp;<span class="flag ITA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/lorenzo-musetti/7874/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:50px;left:310px;height:20px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/musetti-etcheverry-hong-kong-2026/9448629/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          <div style="position:absolute;top:60px;left:310px;height:20px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          
+          <div style="position:absolute;top:140px;left:310px;height:20px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          <div style="position: absolute; top: 150px; left: 310px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;" class="j_9815" onmouseover="highlight_player(1, 'j_9815', 2);" onmouseout="highlight_player(2, 'j_9815');">
+            
+              &nbsp;<span class="flag HKG" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/coleman-wong/9815/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:170px;left:310px;height:20px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/wong-diallo-hong-kong-2026/9449212/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          <div style="position:absolute;top:180px;left:310px;height:20px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          
+          <div style="position:absolute;top:260px;left:310px;height:20px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          <div style="position:absolute;top:270px;left:310px;height:20px;width:130px;border-bottom:1px solid #797979;border-left:1px solid #797979;text-align:left;" class="j_3713" onmouseover="highlight_player(1, 'j_3713', 2);" onmouseout="highlight_player(2, 'j_3713');">
+            
+              &nbsp;<span class="flag RUS" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/andrey-rublev/3713/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:290px;left:310px;height:20px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/rublev-wu-hong-kong-2026/9448634/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          <div style="position:absolute;top:300px;left:310px;height:20px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          
+          <div style="position:absolute;top:380px;left:310px;height:20px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          <div style="position: absolute; top: 390px; left: 310px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;" class="j_8314" onmouseover="highlight_player(1, 'j_8314', 2);" onmouseout="highlight_player(2, 'j_8314');">
+            
+              &nbsp;<span class="flag POR" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/nuno-borges/8314/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:410px;left:310px;height:20px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/cilic-borges-hong-kong-2026/9449007/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          <div style="position:absolute;top:420px;left:310px;height:20px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          
+          <div style="position:absolute;top:500px;left:310px;height:20px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          <div style="position: absolute; top: 510px; left: 310px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;" class="j_3700" onmouseover="highlight_player(1, 'j_3700', 2);" onmouseout="highlight_player(2, 'j_3700');">
+            
+              &nbsp;<span class="flag USA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/marcos-giron/3700/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:530px;left:310px;height:20px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/muller-giron-hong-kong-2026/9449207/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          <div style="position:absolute;top:540px;left:310px;height:20px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          
+          <div style="position:absolute;top:620px;left:310px;height:20px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          <div style="position: absolute; top: 630px; left: 310px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;" class="j_4303" onmouseover="highlight_player(1, 'j_4303', 2);" onmouseout="highlight_player(2, 'j_4303');">
+            
+              &nbsp;<span class="flag USA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/michael-mmoh/4303/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:650px;left:310px;height:20px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/mmoh-khachanov-hong-kong-2026/9448642/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          <div style="position:absolute;top:660px;left:310px;height:20px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          
+          <div style="position:absolute;top:740px;left:310px;height:20px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          <div style="position: absolute; top: 750px; left: 310px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;" class="j_8538" onmouseover="highlight_player(1, 'j_8538', 2);" onmouseout="highlight_player(2, 'j_8538');">
+            
+              &nbsp;<span class="flag CHN" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/juncheng-shang/8538/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:770px;left:310px;height:20px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/sonego-shang-hong-kong-2026/9449208/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          <div style="position:absolute;top:780px;left:310px;height:20px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          
+          <div style="position:absolute;top:860px;left:310px;height:20px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          <div style="position: absolute; top: 870px; left: 310px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;" class="j_4231" onmouseover="highlight_player(1, 'j_4231', 2);" onmouseout="highlight_player(2, 'j_4231');">
+            
+              &nbsp;<span class="flag KAZ" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/alexander-bublik/4231/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:890px;left:310px;height:20px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/van-de-zandschulp-bublik-hong-kong-2026/9448647/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          <div style="position:absolute;top:900px;left:310px;height:20px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          
+          <div style="position:absolute;top:50px;left:440px;height:40px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          <div style="position: absolute; top: 90px; left: 440px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;" class="j_7874" onmouseover="highlight_player(1, 'j_7874', 2);" onmouseout="highlight_player(2, 'j_7874');">
+            
+              &nbsp;<span class="flag ITA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/lorenzo-musetti/7874/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:110px;left:440px;height:20px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/musetti-wong-hong-kong-2026/9449296/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          <div style="position:absolute;top:130px;left:440px;height:40px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          
+          <div style="position:absolute;top:290px;left:440px;height:40px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          <div style="position:absolute;top:330px;left:440px;height:20px;width:130px;border-bottom:1px solid #797979;border-left:1px solid #797979;text-align:left;" class="j_3713" onmouseover="highlight_player(1, 'j_3713', 2);" onmouseout="highlight_player(2, 'j_3713');">
+            
+              &nbsp;<span class="flag RUS" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/andrey-rublev/3713/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:350px;left:440px;height:20px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/rublev-borges-hong-kong-2026/9449300/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          <div style="position:absolute;top:370px;left:440px;height:40px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          
+          <div style="position:absolute;top:530px;left:440px;height:40px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          <div style="position: absolute; top: 570px; left: 440px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;" class="j_3700" onmouseover="highlight_player(1, 'j_3700', 2);" onmouseout="highlight_player(2, 'j_3700');">
+            
+              &nbsp;<span class="flag USA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/marcos-giron/3700/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:590px;left:440px;height:20px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/giron-mmoh-hong-kong-2026/9449347/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          <div style="position:absolute;top:610px;left:440px;height:40px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          
+          <div style="position:absolute;top:770px;left:440px;height:40px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          <div style="position: absolute; top: 810px; left: 440px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;" class="j_4231" onmouseover="highlight_player(1, 'j_4231', 2);" onmouseout="highlight_player(2, 'j_4231');">
+            
+              &nbsp;<span class="flag KAZ" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/alexander-bublik/4231/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:830px;left:440px;height:20px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/shang-bublik-hong-kong-2026/9449345/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          <div style="position:absolute;top:850px;left:440px;height:40px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          
+          <div style="position:absolute;top:110px;left:570px;height:100px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          <div style="position: absolute; top: 210px; left: 570px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;" class="j_7874" onmouseover="highlight_player(1, 'j_7874', 2);" onmouseout="highlight_player(2, 'j_7874');">
+            
+              &nbsp;<span class="flag ITA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/lorenzo-musetti/7874/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:230px;left:570px;height:20px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/musetti-rublev-hong-kong-2026/9449390/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          <div style="position:absolute;top:250px;left:570px;height:100px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          
+          <div style="position:absolute;top:590px;left:570px;height:100px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          <div style="position: absolute; top: 690px; left: 570px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;" class="j_4231" onmouseover="highlight_player(1, 'j_4231', 2);" onmouseout="highlight_player(2, 'j_4231');">
+            
+              &nbsp;<span class="flag KAZ" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/alexander-bublik/4231/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:710px;left:570px;height:20px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/giron-bublik-hong-kong-2026/9449406/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          <div style="position:absolute;top:730px;left:570px;height:100px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          
+          <div style="position:absolute;top:230px;left:700px;height:220px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          <div style="position: absolute; top: 450px; left: 700px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;" class="j_4231" onmouseover="highlight_player(1, 'j_4231', 2);" onmouseout="highlight_player(2, 'j_4231');">
+            
+              &nbsp;<span class="flag KAZ" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
+              <a href="/player/alexander-bublik/4231/" style="font-size:11px;text-decoration:none;color:black;">Player</a>
+              
+          </div>
+          <div style="position:absolute;top:470px;left:700px;height:20px;width:150px;border-left:1px solid #797979;text-align:left;">
+            
+              <a href="/match/musetti-bublik-hong-kong-2026/9449546/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">
+              Score
+              </a>
+              
+          </div>
+          <div style="position:absolute;top:490px;left:700px;height:220px;width:130px;border-left:1px solid #797979;text-align:left;"></div>
+          
+      </div>
     </div>
   </div>
 
-  <div class="container">
-    <div id="bracket"></div>
+    </div>
   </div>
 
 <script>
-/* Configuration / lecture CSS vars */
-const rootStyle = getComputedStyle(document.documentElement);
-const winnerH = Math.max(1, parseInt(rootStyle.getPropertyValue('--winner-h')) || 22);
-const loserH  = Math.max(1, parseInt(rootStyle.getPropertyValue('--loser-h')) || 22);
-const midH     = Math.max(1, parseInt(rootStyle.getPropertyValue('--midblock-h')) || 40);
-const matchGap = Math.max(0, parseInt(rootStyle.getPropertyValue('--match-gap')) || 48);
-const colGap   = Math.max(0, parseInt(rootStyle.getPropertyValue('--col-gap')) || 36);
-const colWidth = Math.max(40, parseInt(rootStyle.getPropertyValue('--col-width')) || 220); // same for all columns
-const midWidth = Math.max(10, parseInt(rootStyle.getPropertyValue('--midblock-width')) || 180);
-const midOffset = parseInt(rootStyle.getPropertyValue('--mid-offset')) || 0;
+/* Utilities re-used for flags / score formatting */
+const iocToAlpha2 = {
+"AFG":"AF","ALB":"AL","ALG":"DZ","AND":"AD","ANG":"AO","ANT":"AG","ARG":"AR","ARM":"AM","ARU":"AW",
+"AUS":"AU","AUT":"AT","AZE":"AZ","BAH":"BS","BRN":"BH","BAN":"BD","BAR":"BB","BLR":"BY","BEL":"BE",
+"BIZ":"BZ","BEN":"BJ","BER":"BM","BHU":"BT","BOL":"BO","BIH":"BA","BOT":"BW","BRA":"BR","IVB":"VG",
+"BRU":"BN","BUL":"BG","BUR":"BF","BDI":"BI","CPV":"CV","CAM":"KH","CMR":"CM","CAN":"CA","CAY":"KY",
+"CAF":"CF","CHA":"TD","CHI":"CL","CHN":"CN","COL":"CO","COM":"KM","CGO":"CG","COD":"CD","COK":"CK",
+"CRC":"CR","CIV":"CI","CRO":"HR","CUB":"CU","CYP":"CY","CZE":"CZ","DEN":"DK","DJI":"DJ","DMA":"DM",
+"DOM":"DO","ECU":"EC","EGY":"EG","ESA":"SV","ENG":"GB","GEQ":"GQ","ERI":"ER","EST":"EE","SWZ":"SZ",
+"ETH":"ET","FIJ":"FJ","FIN":"FI","FRA":"FR","GAB":"GA","GAM":"GM","GEO":"GE","GER":"DE","GHA":"GH",
+"GIB":"GI","GRE":"GR","GRN":"GD","GUM":"GU","GUA":"GT","GUI":"GN","GBS":"GW","GUY":"GY","HAI":"HT",
+"HON":"HN","HKG":"HK","HUN":"HU","ISL":"IS","IND":"IN","INA":"ID","IRI":"IR","IRQ":"IQ","IRL":"IE",
+"ISR":"IL","ITA":"IT","JAM":"JM","JPN":"JP","JOR":"JO","KAZ":"KZ","KEN":"KE","KOS":"XK","KUW":"KW",
+"KGZ":"KG","LAO":"LA","LAT":"LV","LBN":"LB","LES":"LS","LBR":"LR","LBA":"LY","LIE":"LI","LTU":"LT",
+"LUX":"LU","MAC":"MO","MAD":"MG","MAW":"MW","MAS":"MY","MDV":"MV","MLI":"ML","MLT":"MT","MHL":"MH",
+"MTN":"MR","MRI":"MU","MEX":"MX","FSM":"FM","MDA":"MD","MCO":"MC","MNG":"MN","MNE":"ME","MSR":"MS",
+"MAR":"MA","MOZ":"MZ","MYA":"MM","NAM":"NA","NRU":"NR","NEP":"NP","NED":"NL","NCL":"NC","NZL":"NZ",
+"NCA":"NI","NIG":"NE","NGR":"NG","MKD":"MK","NIR":"GB","NOR":"NO","OMA":"OM","PAK":"PK","PLE":"PS",
+"PAN":"PA","PNG":"PG","PAR":"PY","PER":"PE","PHI":"PH","POL":"PL","POR":"PT","PUR":"PR","QAT":"QA",
+"ROU":"RO","RUS":"RU","RWA":"RW","SKN":"KN","LCA":"LC","VIN":"VC","SAM":"WS","SMR":"SM","STP":"ST",
+"KSA":"SA","SCO":"GB","SEN":"SN","SRB":"RS","SEY":"SC","SLE":"SL","SGP":"SG","SVK":"SK","SLO":"SI",
+"SLB":"SB","SOM":"SO","RSA":"ZA","KOR":"KR","SSD":"SS","ESP":"ES","SRI":"LK","SUD":"SD","SUR":"SR",
+"SWE":"SE","SUI":"CH","SYR":"SY","TPE":"TW","TJK":"TJ","TAN":"TZ","THA":"TH","TLS":"TL","TOG":"TG",
+"TGA":"TO","TTO":"TT","TUN":"TN","TUR":"TR","TKM":"TM","TCA":"TC","UGA":"UG","UKR":"UA","UAE":"AE",
+"USA":"US","URU":"UY","UZB":"UZ","VAN":"VU","VEN":"VE","VIE":"VN","ISV":"VI","WAL":"GB","YEM":"YE",
+"ZAM":"ZM","ZIM":"ZW"
+};
+const nameToAlpha2 = {"UNITED STATES":"US","UNITED KINGDOM":"GB","ENGLAND":"GB","RUSSIA":"RU","CHINA":"CN"};
+function toAlpha2(input){ if(!input) return ''; let s=String(input).trim().toUpperCase(); if(/^[A-Z]{2}$/.test(s)) return s; if(s.length===3 && iocToAlpha2[s]) return iocToAlpha2[s]; if(nameToAlpha2[s]) return nameToAlpha2[s]; const letters = s.replace(/[^A-Z]/g,''); if(letters.length===2) return letters; return ''; }
+function alpha2ToFlagEmoji(alpha2){ if(!alpha2 || alpha2.length!==2) return ''; const A=0x1F1E6; const chars=[...alpha2.toUpperCase()].map(ch=>A+(ch.charCodeAt(0)-65)); try{return String.fromCodePoint(...chars);}catch(e){return'';} }
+function scoreToHtml(s){ if(!s) return ''; return String(s).replace(/(\d+)\((\d+)\)/g,'$1<sup>$2</sup>').replace(/,/g,', '); }
 
-/* draw params */
-function getParamSize(){
-  const p = new URLSearchParams(location.search).get('size');
-  if(p){ const n = parseInt(p,10); if(!isNaN(n) && n>0) return n; }
-  return null;
-}
-function nextPowerOfTwo(n){ return Math.pow(2, Math.ceil(Math.log2(n))); }
+/* highlight helper (kept for compatibility with the skeleton) */
+function highlight_player(mode, className){ const els=document.querySelectorAll('.' + className); if(mode===1) els.forEach(e=>e.classList.add('highlight')); else els.forEach(e=>e.classList.remove('highlight')); }
 
-let singles_draw_size = getParamSize() || 32;
-singles_draw_size = nextPowerOfTwo(singles_draw_size);
+/* ---- main: load JSON and replace placeholders "Player" and "Score" ---- */
+(async function fillSkeletonFromJson(){
+  const params = new URLSearchParams(location.search);
+  const source = (params.get('source') || 'wta').toLowerCase();
+  const id = params.get('t') || params.get('id') || '';
+  const year = params.get('year') || '';
 
-const totalPlayers = singles_draw_size;
-const rounds = Math.log2(totalPlayers);
-const firstRoundMatches = totalPlayers / 2;
-function matchesInRound(r){ return Math.max(1, firstRoundMatches / Math.pow(2, r)); }
+  if(!id || !year){
+    // If absent, do nothing but show title
+    console.warn('Missing ?t=<id>&year=<year> — placeholders will not be replaced automatically.');
+    return;
+  }
 
-const perMatchBlock = winnerH + midH + loserH + matchGap;
-const maxMatchesInRound = firstRoundMatches;
-const containerHeight = Math.max(640, maxMatchesInRound * perMatchBlock + 80);
+  const path = `/data/tournaments/${source}_${id}_${year}.json`;
+  let json;
+  try{
+    const resp = await fetch(path);
+    if(!resp.ok) throw new Error('JSON not found: ' + path);
+    json = await resp.json();
+  }catch(err){
+    console.error('Error loading JSON:', err);
+    return;
+  }
 
-const bracket = document.getElementById('bracket');
-bracket.style.height = containerHeight + 'px';
-bracket.innerHTML = '';
+  // Put tournament name in header if present
+  document.getElementById('tourney-title').textContent = json.meta?.tourney_name || document.getElementById('tourney-title').textContent;
 
-/* SVG overlay */
-const svgNS = 'http://www.w3.org/2000/svg';
-const svg = document.createElementNS(svgNS,'svg');
-svg.classList.add('connectors');
-svg.setAttribute('width','100%');
-svg.setAttribute('height','100%');
-bracket.appendChild(svg);
+  // collect matches which look like MSxxx or LSxxx
+  const rawMatches = (json.matches || []).slice();
+  function isValidMatchId(mid){ if(!mid) return false; const s=String(mid).trim().toUpperCase(); return /^[ML]S\d{3}$/.test(s); }
+  const matches = rawMatches.filter(m => isValidMatchId(m.match_id)).sort((a,b) => {
+    // keep natural order by match_id number (001,002,...)
+    const nA = parseInt(String(a.match_id).replace(/[^\d]/g,''),10)||0;
+    const nB = parseInt(String(b.match_id).replace(/[^\d]/g,''),10)||0;
+    return nA - nB;
+  });
 
-/* store positions/wrappers */
-const positionsByRound = [];
-
-/* Build wrappers (rows) + mid blocks */
-for(let r=0;r<rounds;r++){
-  const matchCount = matchesInRound(r);
-  // compute vertical column height and top offset (centered)
-  const columnHeight = (matchCount - 1) * perMatchBlock + (winnerH + midH + loserH);
-  const topOffset = Math.max(8, Math.round((containerHeight - columnHeight) / 2));
-
-  // left coordinate for this column (uniform width)
-  const colLeft = Math.round(r * (colWidth + colGap));
-
-  const thisPositions = [];
-  for(let m=0;m<matchCount;m++){
-    // wrapper top
-    const wrapperTop = Math.round(topOffset + m * perMatchBlock);
-    const wrapperHeight = winnerH + midH + loserH;
-
-    // create wrapper
-    const wrapper = document.createElement('div');
-    wrapper.className = 'match-wrapper';
-    wrapper.style.left = colLeft + 'px';
-    wrapper.style.top = wrapperTop + 'px';
-    wrapper.style.width = colWidth + 'px';
-    wrapper.style.height = wrapperHeight + 'px';
-
-    // top row
-    const topDiv = document.createElement('div');
-    topDiv.className = 'match-row row-top';
-    topDiv.style.height = winnerH + 'px';
-    if(r===0){
-      const seed = document.createElement('span'); seed.className='placeholder-seed'; seed.style.visibility='hidden';
-      const name = document.createElement('span'); name.className='placeholder-name';
-      topDiv.appendChild(seed); topDiv.appendChild(name);
-    } else { topDiv.innerHTML = '&nbsp;'; }
-    wrapper.appendChild(topDiv);
-
-    // spacer for middle (we do not need to create an element, mid-block is separate)
-    const spacer = document.createElement('div');
-    spacer.style.height = midH + 'px';
-    spacer.style.boxSizing = 'border-box';
-    wrapper.appendChild(spacer);
-
-    // bottom row
-    const bottomDiv = document.createElement('div');
-    bottomDiv.className = 'match-row row-bottom';
-    bottomDiv.style.height = loserH + 'px';
-    if(r===0){
-      const seed = document.createElement('span'); seed.className='placeholder-seed'; seed.style.visibility='hidden';
-      const name = document.createElement('span'); name.className='placeholder-name';
-      bottomDiv.appendChild(seed); bottomDiv.appendChild(name);
-    } else { bottomDiv.innerHTML = '&nbsp;'; }
-    wrapper.appendChild(bottomDiv);
-
-    bracket.appendChild(wrapper);
-
-    // mid-block positioned between this column and the next (except maybe last round)
-    // For visual consistency we put the mid-block between the current column and the next column,
-    // using midOffset and centering by margin-left:-midWidth/2
-    const midBlockX = Math.round(colLeft + colWidth + midOffset);
-    const centerY = Math.round(wrapperTop + wrapperHeight/2);
-
-    const midBlock = document.createElement('div');
-    midBlock.className = 'mid-block';
-    midBlock.style.left = midBlockX + 'px';
-    midBlock.style.top = (centerY - Math.round(midH/2)) + 'px';
-    midBlock.style.width = midWidth + 'px';
-    midBlock.style.marginLeft = (-Math.round(midWidth/2)) + 'px';
-
-    const mw = document.createElement('div'); mw.className='mid-winner';
-    const mb = document.createElement('div'); mb.className='mid-bar';
-    const ms = document.createElement('div'); ms.className='mid-score';
-    midBlock.appendChild(mw); midBlock.appendChild(mb); midBlock.appendChild(ms);
-    bracket.appendChild(midBlock);
-
-    thisPositions.push({
-      wrapperElem: wrapper,
-      midBlockElem: midBlock,
-      left: colLeft,
-      width: colWidth,
-      center: centerY,
-      midX: midBlockX,
-      midTop: centerY - Math.round(midH/2),
-      midBottom: centerY - Math.round(midH/2) + midH
+  // Prepare lists of DOM nodes that contain exactly the text Player / Score (trimmed).
+  // We search for text nodes inside anchors/divs etc. We'll match elements whose visible text is exactly "Player" or "Score".
+  function collectExactTextNodes(text){
+    const nodes = [];
+    const all = document.querySelectorAll('a,div,span');
+    all.forEach(el => {
+      if(!el) return;
+      const txt = (el.textContent||'').trim();
+      if(txt === text) nodes.push(el);
     });
+    return nodes;
   }
 
-  positionsByRound.push(thisPositions);
-}
+  const playerNodes = collectExactTextNodes('Player');
+  const scoreNodes = collectExactTextNodes('Score');
 
-/* vertically align parent columns to children (recompute wrapper tops + midBlocks) */
-for(let r=1;r<rounds;r++){
-  const parents = positionsByRound[r];
-  const children = positionsByRound[r-1];
-  if(!parents || !children) continue;
-  const parentCount = parents.length;
-  const childCount = children.length;
+  // We'll iterate matches and assign winner then loser in order into playerNodes
+  // and assign match.score_string into scoreNodes in order.
+  // This assumes the skeleton's Player/Score placeholders are ordered to correspond to the matches list.
+  let pIndex = 0;
+  let sIndex = 0;
 
-  for(let p=0;p<parentCount;p++){
-    const start = Math.floor(p * childCount / parentCount);
-    const end   = Math.floor(((p+1) * childCount) / parentCount) - 1;
-    let sum = 0, cnt = 0;
-    for(let k=Math.max(0,start); k<=Math.min(end, childCount-1); k++){
-      sum += children[k].center; cnt++;
-    }
-    const parentCenter = cnt ? Math.round(sum / cnt) : parents[p].center;
-    const wrapperHeight = winnerH + midH + loserH;
-    const newWrapperTop = Math.round(parentCenter - wrapperHeight/2);
+  for(let i=0;i<matches.length;i++){
+    const m = matches[i];
+    const winnerName = m.winner_player_name || m.winner_name || '';
+    const loserName = m.loser_player_name || m.loser_name || '';
+    const winnerCountry = m.winner_country || m.winner_nationality || m.winner_country_code || '';
+    const loserCountry = m.loser_country || m.loser_nationality || m.loser_country_code || '';
 
-    const par = parents[p];
-    if(par.wrapperElem){
-      par.wrapperElem.style.top = newWrapperTop + 'px';
-      par.center = parentCenter;
-      par.midTop = parentCenter - Math.round(midH/2);
-      par.midBottom = par.midTop + midH;
-      // also move midBlock to vertical center
-      if(par.midBlockElem){
-        par.midBlockElem.style.top = (parentCenter - Math.round(midH/2)) + 'px';
-      }
-    }
-  }
-}
+    // build emoji flag + space (fallback to IOC or alpha2 if not resolvable)
+    const winAlpha = toAlpha2(winnerCountry);
+    const loseAlpha = toAlpha2(loserCountry);
+    const winEmoji = winAlpha ? alpha2ToFlagEmoji(winAlpha) : (winnerCountry? String(winnerCountry).toUpperCase().slice(0,3):'');
+    const loseEmoji = loseAlpha ? alpha2ToFlagEmoji(loseAlpha) : (loserCountry? String(loserCountry).toUpperCase().slice(0,3):'');
 
-/* ---------- draw connectors (vertical spines + horizontals) ---------- */
-function drawPolyline(points, strokeWidth){
-  const reduced = points.filter((p,i,arr) => { if(i===0) return true; const prev = arr[i-1]; return !(prev[0]===p[0] && prev[1]===p[1]); });
-  if(reduced.length < 2) return;
-  const poly = document.createElementNS(svgNS,'polyline');
-  poly.setAttribute('points', reduced.map(p => (p[0]+','+p[1])).join(' '));
-  poly.setAttribute('fill','none');
-  poly.setAttribute('stroke', rootStyle.getPropertyValue('--line-color') || '#797979');
-  poly.setAttribute('stroke-width', (strokeWidth||1));
-  poly.setAttribute('stroke-linecap','square');
-  poly.setAttribute('stroke-linejoin','miter');
-  svg.appendChild(poly);
-}
-
-for(let r=0;r<positionsByRound.length-1;r++){
-  const children = positionsByRound[r];
-  const parents = positionsByRound[r+1];
-  if(!children || !parents) continue;
-
-  // mapping: which children go to each parent
-  const mapping = new Array(parents.length).fill(0).map(()=>[]);
-  for(let i=0;i<children.length;i++){
-    const parentIndex = Math.floor(i * parents.length / children.length);
-    mapping[Math.min(Math.max(parentIndex,0), parents.length-1)].push(i);
-  }
-
-  for(let p=0;p<parents.length;p++){
-    const childIndices = mapping[p];
-    if(!childIndices || childIndices.length===0) continue;
-    const parent = parents[p];
-
-    let minY = Infinity, maxY = -Infinity, sumX = 0;
-    childIndices.forEach(ci => { const c = children[ci]; minY = Math.min(minY, c.center); maxY = Math.max(maxY, c.center); sumX += c.midX; });
-
-    const avgChildX = Math.round(sumX / childIndices.length || 0);
-
-    const parentMidLeft = parent.midX - Math.round(midWidth/2);
-    let preferred = Math.round((avgChildX + parent.midX) / 2);
-    let spineX = preferred;
-    const minSpineX = parentMidLeft - 6;
-    const maxSpineX = parentMidLeft - 36;
-    if(spineX > minSpineX) spineX = minSpineX;
-    if(spineX < maxSpineX) spineX = maxSpineX;
-
-    const parentBarY = parent.midTop + Math.round((parent.midBottom - parent.midTop)/2);
-    const vTop = Math.min(minY, parentBarY);
-    const vBottom = Math.max(maxY, parentBarY);
-
-    if(vBottom - vTop > 0){
-      drawPolyline([[spineX, vTop], [spineX, vBottom]], 1);
+    // Winner node
+    if(pIndex < playerNodes.length){
+      const el = playerNodes[pIndex++];
+      // keep link if it's an anchor: set innerHTML to emoji + space + name; preserve href as-is
+      const safeName = winnerName || '\u00A0';
+      el.innerHTML = (winEmoji ? (winEmoji + ' ') : '') + safeName;
     }
 
-    childIndices.forEach(ci => {
-      const c = children[ci];
-      drawPolyline([[c.midX, c.center], [spineX, c.center]], 1);
-    });
-  }
-}
+    // Loser node
+    if(pIndex < playerNodes.length){
+      const el2 = playerNodes[pIndex++];
+      const safeName2 = loserName || '\u00A0';
+      el2.innerHTML = (loseEmoji ? (loseEmoji + ' ') : '') + safeName2;
+    }
 
-console.log('Bracket generated — players=', totalPlayers, 'rounds=', rounds);
+    // Score node: place scoreToHtml(score_string) or blank
+    const scoreHtml = scoreToHtml(m.score_string || m.score || '');
+    if(sIndex < scoreNodes.length){
+      const sEl = scoreNodes[sIndex++];
+      sEl.innerHTML = scoreHtml || '\u00A0';
+    }
+  }
+
+  // If there are remaining score placeholders (more than matches), leave them as blank NBSP.
+  for(; sIndex < scoreNodes.length; sIndex++){
+    scoreNodes[sIndex].innerHTML = '\u00A0';
+  }
+
+  // If there are remaining player placeholders, leave as-is (or optionally blank)
+  for(; pIndex < playerNodes.length; pIndex++){
+    // keep as-is or set to non-breaking space to avoid layout break:
+    // playerNodes[pIndex].innerHTML = '\u00A0';
+  }
+
+  // Optional: replace any anchor that still shows "Player" to non-breaking space (safety)
+  const leftOverPlayers = collectExactTextNodes('Player');
+  leftOverPlayers.forEach(el => { el.innerHTML = '\u00A0'; });
+
+  // Optional: replace any anchor that still shows "Score" to non-breaking space (safety)
+  const leftOverScores = collectExactTextNodes('Score');
+  leftOverScores.forEach(el => { el.innerHTML = '\u00A0'; });
+
+  // Done — bracket skeleton updated.
+})();
 </script>
 </body>
 </html>
