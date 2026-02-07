@@ -332,6 +332,16 @@ async function render(){
     positionsByRound.push(thisPositions);
   });
 
+
+  // si le svg a déjà été ajouté au DOM plus tôt, le ré-ajouter le place au-dessus
+// des autres éléments (bring-to-front) — utile pour éviter les "coupures" visuelles.
+// => place le svg au dernier plan (top layer)
+if (svg.parentNode === container) {
+  container.removeChild(svg);
+}
+container.appendChild(svg);
+
+
   /* draw connectors (kept as in previous step) */
   function drawPolyline(points, strokeWidth){
     const reduced = points.filter((p,i,arr) => { if(i===0) return true; const prev = arr[i-1]; return !(prev[0]===p[0] && prev[1]===p[1]); });
@@ -366,12 +376,39 @@ async function render(){
       let minY = Infinity, maxY = -Infinity, sumX = 0;
       childIndices.forEach(ci => { const c = children[ci]; minY = Math.min(minY,c.center); maxY = Math.max(maxY,c.center); sumX += c.midX; });
       const avgChildX = Math.round(sumX / childIndices.length);
-      const spineX = Math.round((avgChildX + parent.midX) / 2);
+
+      // positionne la spine légèrement à gauche du mid-block parent (pour qu'elle
+      // soit visible et se raccorde proprement à la barre interne du mid-block).
+      // On calcule le bord gauche du mid-block parent :
+      const parentMidLeft = parent.midX - Math.round(midWidth/2);
+
+      // spine par défaut = milieu enfant/parent, mais clampée pour rester
+      // à gauche du mid-block (avec un gap de 6px)
+      const preferred = Math.round((avgChildX + parent.midX) / 2);
+      const minSpineX = parentMidLeft - 6; // au moins 6px à gauche du mid-block
+      const maxSpineX = parentMidLeft - 24; // limite droite/gauche si tu veux l'éloigner plus
+      // choisis la position : si preferred est trop proche du mid-block, recule-la
+      let spineX = preferred;
+      if (spineX > minSpineX) spineX = minSpineX;
+      if (spineX < maxSpineX) spineX = maxSpineX;
+
 
       const parentBarY = parent.midTop + Math.round((parent.midBottom - parent.midTop)/2);
       const vTop = Math.min(minY, parentBarY);
       const vBottom = Math.max(maxY, parentBarY);
       if(vBottom - vTop > 0) drawPolyline([[spineX, vTop], [spineX, vBottom]], 1);
+
+      // si on a exactement deux enfants (cas classique premier tour), on trace aussi
+// une petite verticale plus proche des enfants (optionnel : raccourcir/decoder)
+if(childIndices.length === 2) {
+  // positionner la petite barre un peu plus à gauche (près des enfants)
+  const smallSpineX = Math.round((children[childIndices[0]].midX + children[childIndices[1]].midX)/2);
+  // raccourcir la spine pour qu'elle s'arrête juste sous/au-dessus du mid-block parent
+  const smallTop = Math.min(children[childIndices[0]].center, children[childIndices[1]].center);
+  const smallBottom = Math.max(children[childIndices[0]].center, children[childIndices[1]].center);
+  drawPolyline([[smallSpineX, smallTop], [smallSpineX, smallBottom]], 1);
+}
+
 
       childIndices.forEach(ci =>{
         const c = children[ci];
