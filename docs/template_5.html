@@ -949,118 +949,81 @@ async function fillFromMap(matchMap) {
     }
   });
 
-    /* ---- fill scores: create top-level clickable link for the score (robust) ---- */
-  async function urlExists(url, timeoutMs=1500){
+  /* ---- fill scores: create top-level clickable link for the score ---- */
+  document.querySelectorAll('[data-field="score"]').forEach(el => {
+    const matchId = (el.dataset.match || '').toUpperCase();
+    const m = matchMap.get(matchId);
+    if(!m) return;
+    const score = m.score_string || m.score || m.scoreString || el.textContent || '';
+
+    el.innerHTML = '';
+    const a = document.createElement('a');
+    a.className = 'score-link';
+    // Build the page URL from the match object (uses tourney/year if available)
     try{
-      const controller = new AbortController();
-      const id = setTimeout(()=>controller.abort(), timeoutMs);
-      const resp = await fetch(url, { method: 'GET', cache: 'no-cache', signal: controller.signal });
-      clearTimeout(id);
-      return resp && resp.ok;
+      const url = buildMatchPageUrlFromMatch(m);
+      a.href = url;
     }catch(e){
-      return false;
+      // fallback: minimal match id only
+      a.href = '/atp_matches/match_atp.html?m=' + encodeURIComponent(m.match_id || matchId || '');
     }
-  }
+    // open top-level (escape iframe)
+    a.target = '_top';
+    a.rel = 'noopener noreferrer';
+    a.textContent = score || (m.match_id || matchId || '');
+    a.setAttribute('title', 'Voir le match ' + (m.match_id || matchId || ''));
+    el.appendChild(a);
+  });
 
-  // build a list of plausible candidate URLs for a match
-  function buildMatchUrlCandidates(m){
-    const candidates = new Set();
-    const useWta = isWTAFromData(window._bracketData);
-    // 1) explicit links already present in index
-    if(m.page_link) candidates.add(m.page_link);
-    if(m._index && m._index.link) candidates.add(m._index.link);
-
-    // 2) canonical templates locations (query param style)
-    const baseTemplate = useWta ? '/wta_matches/match_wta.html' : '/atp_matches/match_atp.html';
-    const rootTemplate = useWta ? '/match_wta.html' : '/match_atp.html'; // possible root location
-    function qurl(base){
-      const params = new URLSearchParams();
-      if(m.tourney) params.set('t', m.tourney);
-      if(m.year) params.set('y', m.year);
-      if(m.match_id) params.set('m', m.match_id);
-      // sometimes fields are named differently in raw
-      if(!m.tourney && m._raw && m._raw.event_id) params.set('t', m._raw.event_id);
-      if(!m.year && m._raw && m._raw.event_year) params.set('y', m._raw.event_year);
-      const qs = params.toString();
-      return qs ? (base + '?' + qs) : base;
-    }
-    candidates.add(qurl(baseTemplate));
-    candidates.add(qurl(rootTemplate));
-
-    // 3) pretty URLs (useful if you add rewrites)
-    // e.g. /atp/73/1997/MS001
-    const tourneyId = m.tourney || (m._raw && (m._raw.tourney_id || m._raw.event_id || m._raw.tourney));
-    const year = m.year || (m._raw && (m._raw.tourney_year || m._raw.event_year));
-    const mid = m.match_id || m._raw && (m._raw.match_id || m._raw.id);
-
-    if(tourneyId && year && mid){
-      candidates.add(`/atp/${tourneyId}/${year}/${encodeURIComponent(mid)}`);
-      candidates.add(`/wta/${tourneyId}/${year}/${encodeURIComponent(mid)}`);
-      // variation: with "match" prefix
-      candidates.add(`/atp/${tourneyId}/${year}/match/${encodeURIComponent(mid)}`);
-      candidates.add(`/wta/${tourneyId}/${year}/match/${encodeURIComponent(mid)}`);
-    }
-
-    // 4) fallback: direct file path inside the generated json folder (rare but possible)
-    if(tourneyId && year && mid){
-      candidates.add(`/matches/atp_matches_json/${tourneyId}_${year}/${encodeURIComponent(mid)}.json`);
-      candidates.add(`/matches/wta_matches_json/${tourneyId}_${year}/${encodeURIComponent(mid)}.json`);
-    }
-
-    // return array preserving insertion order
-    return Array.from(candidates);
-  }
-
-  // populate scores (async name so we can await checks)
-  (function populateScoresAsync(){
-    document.querySelectorAll('[data-field="score"]').forEach(el => {
-      const matchId = (el.dataset.match || '').toUpperCase();
-      const m = matchMap.get(matchId);
-      if(!m) return;
-      const score = m.score_string || m.score || m.scoreString || el.textContent || '';
-
-      // create anchor quickly with text (href will be updated later)
-      el.innerHTML = '';
-      const a = document.createElement('a');
-      a.className = 'score-link';
-      a.textContent = score || (m.match_id || matchId || '');
-      a.setAttribute('title', 'Voir le match ' + (m.match_id || matchId || ''));
-      // default href: page_link if present, otherwise '#' until resolved
-      if(m.page_link) {
-        a.href = m.page_link;
-      } else if(m._index && m._index.link) {
-        a.href = m._index.link;
-      } else {
-        a.href = '#';
+  // after initial render, if index promise resolves later, upgrade anchors for players
+  _indexPromise.then(idx => {
+    if(!idx) return;
+    const allNodes = document.querySelectorAll('[data-player-id]');
+    allNodes.forEach(node => {
+      const pid = node.dataset.playerId;
+      if(!pid) return;
+      const href = resolveHrefFromIndex(idx, pid);
+      if(!href) return;
+      if(node.tagName && node.tagName.toLowerCase() === 'a'){
+        try{
+          node.href = href;
+          node.setAttribute('title', node.textContent || href);
+          node.target = '_top';
+          node.rel = 'noopener noreferrer';
+        }catch(e){}
+        return;
       }
-      // keep top-level navigation
+      const a = document.createElement('a');
+      a.className = 'player-link';
+      a.href = href;
       a.target = '_top';
       a.rel = 'noopener noreferrer';
-      el.appendChild(a);
-
-      // if href is already a usable page_link, we keep it; otherwise test candidates in background
-      (async () => {
-        const candidates = buildMatchUrlCandidates(m);
-        // if we already have a page_link, try it first
-        for(const c of candidates){
-          if(!c) continue;
-          try{
-            // prefer URLs that are same-origin (quick check) — urlExists will fail quickly otherwise
-            const ok = await urlExists(c, 1200);
-            if(ok){
-              a.href = c;
-              return;
-            }
-          }catch(e){}
-        }
-        // nothing found: fallback to first candidate (makes the link predictable)
-        if(candidates.length){
-          a.href = candidates[0];
-        }
-      })();
+      a.textContent = node.textContent || pid;
+      a.setAttribute('title', node.textContent || href);
+      a.dataset.playerId = pid;
+      node.parentNode.replaceChild(a, node);
     });
-  })();
 
+    document.querySelectorAll('.player-text-plain').forEach(span => {
+      const pid = span.dataset.playerId;
+      if(!pid) return;
+      const href = resolveHrefFromIndex(idx, pid);
+      if(!href) return;
+      const a = document.createElement('a');
+      a.className = 'player-link';
+      a.href = href;
+      a.target = '_top';
+      a.rel = 'noopener noreferrer';
+      a.textContent = span.textContent || pid;
+      a.setAttribute('title', span.textContent || href);
+      a.dataset.playerId = pid;
+      span.parentNode.replaceChild(a, span);
+    });
+
+  }).catch(()=>{ /* ignore index errors */ });
+
+  setTimeout(createConnectors, 20);
+}
 
 /* ------------------ postMessage handler ------------------ */
 window.addEventListener('message', function(ev){
