@@ -601,14 +601,11 @@ async function loadPlayerIndex(useWta){
         const arr = Array.isArray(j.players) ? j.players : (Array.isArray(j) ? j : (j && j.players) ? j.players : []);
         const byId = new Map();
         for(const ent of arr){
-          // index by common id forms: player_id, playerId, id
           if(ent.player_id) byId.set(String(ent.player_id), ent);
           if(ent.playerId)   byId.set(String(ent.playerId), ent);
           if(ent.id)         byId.set(String(ent.id), ent);
-          // uppercase keys too (some indices use uppercase codes)
           if(ent.player_id) byId.set(String(ent.player_id).toUpperCase(), ent);
           if(ent.slug) {
-            // also index by the last fragment of page_href / slug, to be forgiving
             byId.set(String(ent.slug), ent);
           }
           if(ent.page_href && typeof ent.page_href === 'string'){
@@ -623,7 +620,6 @@ async function loadPlayerIndex(useWta){
         // try next
       }
     }
-    // no index found
     return null;
   })().finally(()=>{ delete window._playerIndexCache.loading[key]; });
 
@@ -758,28 +754,23 @@ async function fillFromMap(matchMap) {
 
   // helper pour extraire un id de joueur depuis l'objet match en fonction du side/name heuristiques
   function extractPlayerId(m, side) {
-    // standard candidates
     const candidates = {};
-    // common naming variants
-    candidates.topName = m.top_player_name || m.top_name || m.top || '';
+    candidates.topName = m.top_player_name || m.top_name || m.loser_player_name || m.winner_player_name || '';
     candidates.bottomName = m.bottom_player_name || m.bottom_name || m.bottom || '';
-    candidates.winnerName = m.winner_player_name || m.winner_name || m.winner || '';
-    candidates.loserName = m.loser_player_name || m.loser_name || m.loser || '';
+    candidates.winnerName = m.winner_player_name || m.winner_name || '';
+    candidates.loserName = m.loser_player_name || m.loser_name || '';
 
-    // id fields (many variants)
     const ids = {
       top: (m.top_player_id || m.top_id || m.player_id_top || m.player_top_id || m.top_player || ''),
       bottom: (m.bottom_player_id || m.bottom_id || m.player_id_bottom || m.player_bottom_id || m.bottom_player || ''),
-      winner: (m.winner_player_id || m.player_id_winner || m.player_id_winner || m.winner_id || m.winner || ''),
-      loser: (m.loser_player_id || m.player_id_loser || m.player_id_loser || m.loser_id || m.loser || ''),
+      winner: (m.winner_player_id || m.player_id_winner || m.winner_id || m.winner || ''),
+      loser: (m.loser_player_id || m.player_id_loser || m.loser_id || m.loser || ''),
       generic1: (m.player_id || m.playerId || m.player_id_1 || '')
     };
 
-    // prefer direct top/bottom id if available
     if(side === 'top' && ids.top) return String(ids.top);
     if(side === 'bottom' && ids.bottom) return String(ids.bottom);
 
-    // if no top/bottom id, try to infer from names
     const sideName = side === 'top' ? candidates.topName : candidates.bottomName;
     if(sideName){
       if(sideName === String(ids.winner) || sideName === String(candidates.winnerName) || sideName === String(m.winner_player_name)) {
@@ -790,13 +781,11 @@ async function fillFromMap(matchMap) {
       }
     }
 
-    // fallback to winner/loser mapping if top/bottom absent
     if(side === 'top' && ids.winner && String(candidates.winnerName) === String(candidates.topName)) return String(ids.winner);
     if(side === 'top' && ids.loser && String(candidates.loserName) === String(candidates.topName)) return String(ids.loser);
     if(side === 'bottom' && ids.winner && String(candidates.winnerName) === String(candidates.bottomName)) return String(ids.winner);
     if(side === 'bottom' && ids.loser && String(candidates.loserName) === String(candidates.bottomName)) return String(ids.loser);
 
-    // last resorts
     if(side === 'top' && ids.generic1) return String(ids.generic1);
     if(side === 'bottom' && ids.generic1) return String(ids.generic1);
 
@@ -824,9 +813,11 @@ async function fillFromMap(matchMap) {
           const a = document.createElement('a');
           a.className = 'player-link';
           a.href = href;
+          // IMPORTANT: force top-level navigation (ouvre la page hors de l'iframe)
+          a.target = '_top';
+          a.rel = 'noopener noreferrer';
           a.textContent = displayName || playerId || '';
           a.setAttribute('title', displayName || href);
-          // mark for later updates if index is refreshed
           a.dataset.playerId = playerId;
           nameSpan.appendChild(a);
           containerEl.appendChild(nameSpan);
@@ -851,8 +842,6 @@ async function fillFromMap(matchMap) {
     const m = matchMap.get(matchId);
     if(!m) return;
 
-    // determine displayName and seed for this side
-    // prefer explicit fields if present
     const topName = m.top_player_name || m.top_name || m.loser_player_name || m.winner_player_name || '';
     const bottomName = m.bottom_player_name || m.bottom_name || '';
     let displayName = '';
@@ -865,12 +854,10 @@ async function fillFromMap(matchMap) {
       displayName = m.bottom_player_name || m.bottom_name || m.winner_player_name || m.loser_player_name || '';
       seed = m.bottom_seed || m.winner_seed || m.seed_bottom || m.seed || '';
     } else {
-      // generic fallback
       displayName = m.winner_player_name || m.loser_player_name || m.winner || m.loser || '';
       seed = m.winner_seed || m.loser_seed || '';
     }
 
-    // extract player id (STRICTement via id fields when possible)
     const playerId = extractPlayerId(m, side);
 
     createPlayerNode(el, displayName, seed, playerId);
@@ -906,10 +893,8 @@ async function fillFromMap(matchMap) {
     nameSpan.className = 'name';
 
     const displayName = m.winner_player_name || m.winner || m.winner_name || '';
-    // winner id candidates
     const playerId = m.winner_player_id || m.player_id_winner || m.winner_id || m.winnerPlayerId || '';
 
-    // attempt immediate resolution if index already loaded
     if(playerId && window._playerIndexCache && (window._playerIndexCache.atp || window._playerIndexCache.wta)){
       const idxKey = isWTAFromData(window._bracketData) ? 'wta' : 'atp';
       const idx = window._playerIndexCache[idxKey];
@@ -919,6 +904,9 @@ async function fillFromMap(matchMap) {
           const a = document.createElement('a');
           a.className = 'player-link';
           a.href = href;
+          // force top-level navigation
+          a.target = '_top';
+          a.rel = 'noopener noreferrer';
           a.textContent = displayName || playerId || '';
           a.setAttribute('title', displayName || href);
           a.dataset.playerId = playerId;
@@ -929,12 +917,10 @@ async function fillFromMap(matchMap) {
           el.appendChild(nameSpan);
         }
       } else {
-        // index structure missing -> plain text
         nameSpan.textContent = displayName || (playerId ? playerId : '');
         el.appendChild(nameSpan);
       }
     } else {
-      // index not yet loaded -> plain text placeholder, will upgrade later
       const span = document.createElement('span');
       span.textContent = displayName || (playerId ? playerId : '');
       span.dataset.playerId = playerId || '';
@@ -979,15 +965,21 @@ async function fillFromMap(matchMap) {
       if(!pid) return;
       const href = resolveHrefFromIndex(idx, pid);
       if(!href) return; // no href provided by index -> do nothing
-      // if node is an anchor already, update href
       if(node.tagName && node.tagName.toLowerCase() === 'a'){
-        try{ node.href = href; node.setAttribute('title', node.textContent || href); }catch(e){}
+        try{ 
+          node.href = href; 
+          node.setAttribute('title', node.textContent || href); 
+          // ensure top-level nav
+          node.target = '_top';
+          node.rel = 'noopener noreferrer';
+        }catch(e){}
         return;
       }
-      // otherwise replace the node with an anchor
       const a = document.createElement('a');
       a.className = 'player-link';
       a.href = href;
+      a.target = '_top';
+      a.rel = 'noopener noreferrer';
       a.textContent = node.textContent || pid;
       a.setAttribute('title', node.textContent || href);
       a.dataset.playerId = pid;
@@ -1003,6 +995,8 @@ async function fillFromMap(matchMap) {
       const a = document.createElement('a');
       a.className = 'player-link';
       a.href = href;
+      a.target = '_top';
+      a.rel = 'noopener noreferrer';
       a.textContent = span.textContent || pid;
       a.setAttribute('title', span.textContent || href);
       a.dataset.playerId = pid;
