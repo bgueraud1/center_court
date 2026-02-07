@@ -1,181 +1,364 @@
 <!doctype html>
 <html lang="fr">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Tournoi — Viewer</title>
-<style>
-  :root{
-    --band-h:72px;
-    --padding:18px;
-    --bg:#fff;
-    --muted:#6b6b6b;
-    --accent-hard:#0b3d91;   /* blue */
-    --accent-clay:#b22222;   /* red */
-    --accent-grass:#2e8b57;  /* green */
-    --accent-carpet:#6f42c1; /* purple */
-  }
-  html,body{height:100%;margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:#111}
-  .container{padding:18px; max-width:1200px; margin:0 auto;}
-  .banner{height:var(--band-h); display:flex;align-items:center;padding:0 var(--padding); color:#fff; gap:16px;}
-  .brand{font-weight:700;font-size:22px;letter-spacing:0.2px}
-  .title{font-size:28px;font-weight:800}
-  .meta-small{font-size:13px;color:rgba(255,255,255,0.9)}
-  .tabs{margin-top:18px;border-bottom:1px solid #e6e6e6;display:flex;gap:8px}
-  .tab{padding:10px 14px;cursor:pointer;border-radius:6px 6px 0 0;background:#f6f6f6;color:#222}
-  .tab.active{background:#fff;border:1px solid #e6e6e6;border-bottom:1px solid white}
-  .panel{padding:14px;border:1px solid #e6e6e6;background:#fff}
-  .row{display:flex;gap:12px;align-items:center;margin-bottom:8px}
-  .label{width:140px;color:var(--muted);font-size:13px}
-  .value{font-weight:600}
-  .small-muted{font-size:13px;color:var(--muted)}
-  .iframe-wrap{height:720px;border:1px solid #ddd;border-radius:6px;overflow:hidden}
-  .info-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
-  .flag{display:inline-block;width:20px;height:14px;vertical-align:middle;margin-right:8px;border-radius:2px;background:#f0f0f0}
-  .note{font-size:13px;color:#777;margin-top:8px}
-</style>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Tournament — Viewer</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    :root{
+      --accent-hard:#2b6cb0;
+      --accent-clay:#c53030;
+      --accent-grass:#2f855a;
+      --accent-carpet:#6b46c1;
+      --muted:#666;
+    }
+    body{font-family:Arial,Helvetica,sans-serif;background:#f6f7f9;color:#111;margin:0}
+    .banner{height:84px;display:flex;align-items:center;padding:18px 24px;color:#fff}
+    .brand{font-weight:700;font-size:14px;opacity:.95}
+    .title{font-size:24px;font-weight:800;margin-left:12px}
+    .subtitle{font-size:13px;margin-left:12px;opacity:.92}
+    .tabs{margin:18px 24px 0 24px;display:flex;gap:8px}
+    .tab{padding:8px 12px;border-radius:6px;background:#fff;border:1px solid #e6e6e6;cursor:pointer}
+    .tab.active{background:#fff;border-bottom:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.03)}
+    .panel{margin:12px 24px;padding:16px;background:#fff;border:1px solid #e6e6e6;border-radius:8px}
+    .label{color:var(--muted);width:140px}
+    .row{display:flex;gap:12px;align-items:center;margin-bottom:8px}
+    .surface-badge{padding:.35rem .6rem;border-radius:.35rem;color:#fff;font-weight:600;font-size:.85rem}
+    .surface-hard{background:var(--accent-hard)}
+    .surface-clay{background:var(--accent-clay)}
+    .surface-grass{background:var(--accent-grass)}
+    .surface-carpet{background:var(--accent-carpet)}
+    .iframe-wrap{height:720px;border-radius:8px;overflow:hidden;border:1px solid #e6e6e6}
+    .small-muted{color:var(--muted);font-size:13px}
+    .note{font-size:13px;color:#666;margin-top:8px}
+    pre.debug{max-height:240px;overflow:auto;background:#111;color:#fff;padding:12px;border-radius:6px;font-size:12px}
+  </style>
 </head>
 <body>
-<div class="container">
   <div id="banner" class="banner" style="background:var(--accent-hard)">
     <div>
       <div class="brand" id="tour-type">ATP</div>
-      <div class="title" id="tourney-name">Brisbane</div>
-      <div class="meta-small" id="tourney-sub">Hard • 250 • Jan 4, 2026</div>
+      <div class="title" id="tourney-name">Tourney</div>
+      <div class="subtitle" id="tourney-sub">Surface • Level • Start date</div>
     </div>
   </div>
 
-  <div style="margin-top:12px">
-    <div class="tabs">
-      <div id="tab-info" class="tab active">Info</div>
-      <div id="tab-draw" class="tab">Draw</div>
-    </div>
-
-    <div id="panel-info" class="panel">
-      <div class="info-grid">
-        <div>
-          <div class="row"><div class="label">Tour</div><div class="value" id="meta-level"></div></div>
-          <div class="row"><div class="label">Surface</div><div class="value" id="meta-surface"></div></div>
-          <div class="row"><div class="label">Prize money</div><div class="value" id="meta-prize"></div></div>
-          <div class="row"><div class="label">Draw (Singles)</div><div class="value" id="meta-draw"></div></div>
-        </div>
-        <div>
-          <div class="row"><div class="label">Ville</div><div class="value" id="meta-city"></div></div>
-          <div class="row"><div class="label">Pays</div><div class="value" id="meta-country"></div></div>
-          <div class="row"><div class="label">Official title</div><div class="value" id="meta-title"></div></div>
-          <div class="row"><div class="label">Source</div><div class="value" id="meta-source"></div></div>
-        </div>
-      </div>
-      <div class="note">Si <strong>city</strong> ou <strong>country</strong> sont manquants pour un tournoi ATP, la page tente de les récupérer depuis <code>ioc_places_atp.json</code>.</div>
-    </div>
-
-    <div id="panel-draw" class="panel" style="display:none">
-      <div style="margin-bottom:8px">
-        <strong>Draw</strong> — le template chargé dépend de la taille du tableau.
-      </div>
-      <div class="iframe-wrap">
-        <iframe id="draw-frame" src="about:blank" style="width:100%;height:100%;border:0"></iframe>
-      </div>
-    </div>
+  <div class="tabs">
+    <div id="tab-info" class="tab active">Info</div>
+    <div id="tab-draw" class="tab">Draw</div>
   </div>
-</div>
+
+  <div id="panel-info" class="panel">
+    <div style="display:flex;gap:24px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:260px">
+        <div class="row"><div class="label">Tour</div><div id="meta-level" class="small-muted">—</div></div>
+        <div class="row"><div class="label">Surface</div><div id="meta-surface" class="small-muted">—</div></div>
+        <div class="row"><div class="label">Prize money</div><div id="meta-prize" class="small-muted">—</div></div>
+        <div class="row"><div class="label">Draw (singles)</div><div id="meta-draw" class="small-muted">—</div></div>
+      </div>
+      <div style="flex:1;min-width:260px">
+        <div class="row"><div class="label">Ville</div><div id="meta-city" class="small-muted">—</div></div>
+        <div class="row"><div class="label">Pays</div><div id="meta-country" class="small-muted">—</div></div>
+        <div class="row"><div class="label">Official title</div><div id="meta-title" class="small-muted">—</div></div>
+        <div class="row"><div class="label">Source</div><div id="meta-source" class="small-muted">—</div></div>
+      </div>
+    </div>
+    <div class="note">Si <strong>city</strong> / <strong>country</strong> manquent pour les tournois ATP, le fichier <code>ioc_places_atp.json</code> est consulté automatiquement.</div>
+  </div>
+
+  <div id="panel-draw" class="panel" style="display:none">
+    <div style="margin-bottom:10px">
+      <strong>Draw</strong> — le template chargé dépend de la taille du tableau.
+    </div>
+    <div class="iframe-wrap">
+      <iframe id="draw-frame" src="about:blank" style="width:100%;height:100%;border:0"></iframe>
+    </div>
+    <div class="note">Les templates doivent écouter un <code>postMessage</code> { type: 'tourney-data', payload: {...} }.</div>
+  </div>
+
+  <!-- zone debug optionnelle -->
+  <div style="margin:16px 24px;">
+    <details>
+      <summary class="small-muted">Debug / Informations (ouvrir si besoin)</summary>
+      <pre id="debug" class="debug" style="display:none"></pre>
+    </details>
+  </div>
 
 <script>
 /*
-  main.html
-  - attend un JSON (simulate for dev, or replace by server-side injection)
-  - si city/country vide et source=="ATP", va chercher ioc_places_atp.json (dans même dossier)
-  - choisit quel template charger en iframe selon singles_draw_size
-  - envoie le JSON au template via postMessage quand l'iframe est chargé
+  main.html (viewer de tournoi)
+  - lit querystring: ?source=atp&t=339&year=2026
+  - cherche plusieurs chemins pour charger le JSON du tournoi
+  - normalise les formats hétérogènes pour obtenir { meta: {...}, matches: [...] }
+  - si missing city/country pour ATP -> fetch ioc_places_atp.json
+  - charge template_5/6/7 dans iframe et envoie les données via postMessage
+  - expose window.setTournamentData(json) pour injection serveur
 */
 
-/* === Exemple JSON (tu peux remplacer par un fetch depuis ton serveur) === */
-const tournamentJson = {
-  "meta": {
-    "source": "ATP",
-    "tourney_id": "339",
-    "year": 2026,
-    "tourney_name": "Brisbane",
-    "tourney_title": "",
-    "surface": "Hard",
-    "level": "250",
-    "prize_money": "800045",
-    "prize_money_currency": "$",
-    "singles_draw_size": 32,
-    "city": "",
-    "country": "",
-    "start_date": "2026-01-04"
-  },
-  "matches": [
-    {"match_id":"MS001","round":"Final","winner_player_name":"D. Medvedev","loser_player_name":"B. Nakashima","score_string":"6-2,7-6(1)","player_id_winner":"MM58","player_id_loser":"N0AE","winner_country":"RUS","loser_country":"USA","winner_seed":"1","loser_seed":""},
-    {"match_id":"MS002","round":"Semifinals","winner_player_name":"D. Medvedev","loser_player_name":"A. Michelsen","score_string":"6-4,6-2","player_id_winner":"MM58","player_id_loser":"M0QI","winner_country":"RUS","loser_country":"USA","winner_seed":"1","loser_seed":""},
-    {"match_id":"MS003","round":"Semifinals","winner_player_name":"B. Nakashima","loser_player_name":"A. Kovacevic","score_string":"6-7(4),4-6","player_id_winner":"N0AE","player_id_loser":"K0AZ","winner_country":"USA","loser_country":"USA","winner_seed":"","loser_seed":""}
-    /* ... tronqué pour l'exemple ... */
-  ]
-};
-
-/* ===== helpers ===== */
-function surfaceToColor(surface){
-  if(!surface) return 'var(--accent-hard)';
-  const s = surface.toLowerCase();
-  if(s.includes('hard')) return getComputedStyle(document.documentElement).getPropertyValue('--accent-hard');
-  if(s.includes('clay')||s.includes('red')) return getComputedStyle(document.documentElement).getPropertyValue('--accent-clay');
-  if(s.includes('grass')) return getComputedStyle(document.documentElement).getPropertyValue('--accent-grass');
-  return getComputedStyle(document.documentElement).getPropertyValue('--accent-carpet');
+/* ---------- utilitaires ---------- */
+function qs(key){
+  const params = new URLSearchParams(location.search);
+  return params.get(key);
 }
+function surfaceClass(surface){
+  if(!surface) return 'surface-hard';
+  const s = (surface+'').toLowerCase();
+  if(s.includes('hard')) return 'surface-hard';
+  if(s.includes('clay') || s.includes('clay court') ) return 'surface-clay';
+  if(s.includes('grass')) return 'surface-grass';
+  return 'surface-carpet';
+}
+function formatDate(d){
+  if(!d) return '—';
+  try { return new Date(d).toLocaleDateString('fr-FR', {year:'numeric',month:'short',day:'numeric'}); } catch(e){ return d; }
+}
+function tryGet(obj, keys){
+  for(const k of keys) if(obj && (k in obj)) return obj[k];
+  return undefined;
+}
+function isArrayLike(x){ return Array.isArray(x); }
+function debugLog(msg){ const el = document.getElementById('debug'); if(!el) return; el.style.display='block'; el.textContent += msg + "\n"; }
 
-/* remplissage du panneau info */
-async function populateInfo(json){
-  const meta = json.meta || {};
-  // set banner
-  const banner = document.getElementById('banner');
-  banner.style.background = surfaceToColor(meta.surface);
-
-  document.getElementById('tour-type').textContent = (meta.source || 'ATP').toUpperCase();
-  document.getElementById('tourney-name').textContent = meta.tourney_name || ('Tourney ' + (meta.tourney_id||''));
-  document.getElementById('tourney-sub').textContent = `${meta.surface || '-'} • ${meta.level || '-'} • ${meta.start_date || '-'}`;
-
-  document.getElementById('meta-level').textContent = meta.level || '-';
-  document.getElementById('meta-surface').textContent = meta.surface || '-';
-  document.getElementById('meta-prize').textContent = (meta.prize_money_currency||'') + (meta.prize_money ? Number(meta.prize_money).toLocaleString() : '-');
-  document.getElementById('meta-draw').textContent = meta.singles_draw_size || '-';
-  document.getElementById('meta-source').textContent = meta.source || '-';
-  document.getElementById('meta-title').textContent = meta.tourney_title || '-';
-
-  // handle city/country lookup for ATP if missing
-  let city = meta.city || '';
-  let country = meta.country || '';
-  if(meta.source && meta.source.toUpperCase()==='ATP' && (!city || !country)){
+/* ---------- récupération flexible du JSON ---------- */
+async function fetchWithFallback(candidates){
+  for(const url of candidates){
     try{
-      const resp = await fetch('ioc_places_atp.json');
-      if(resp.ok){
-        const ioc = await resp.json();
-        const id = String(meta.tourney_id);
-        const year = String(meta.year);
-        if(ioc[id] && ioc[id][year]){
-          const arr = ioc[id][year];
-          // structure: [city, country, official name]
-          city = city || (arr[0] || '');
-          country = country || (arr[1] || '');
-          if(!meta.tourney_title && arr[2]) document.getElementById('meta-title').textContent = arr[2];
-        }
-      } else {
-        console.warn('ioc_places_atp.json non trouvé (status ' + resp.status + ')');
+      const r = await fetch(url, {cache:'no-cache'});
+      if(!r.ok){
+        debugLog(`fetch ${url} -> ${r.status}`);
+        continue;
       }
-    }catch(err){
-      console.warn('erreur fetch ioc_places_atp.json', err);
+      const j = await r.json();
+      debugLog(`fetch ${url} -> OK`);
+      return j;
+    }catch(e){
+      debugLog(`fetch ${url} -> error: ${e.message}`);
+      continue;
     }
   }
-
-  document.getElementById('meta-city').textContent = city || '-';
-  document.getElementById('meta-country').textContent = country || '-';
+  throw new Error('Aucun fichier JSON trouvé parmi les chemins testés.');
 }
 
-/* onglets */
+/* génère une liste de chemins candidats basés sur params */
+function buildCandidateUrls(source, t, year){
+  // chemins fréquents — adapte selon ta structure serveur
+  const c = [];
+  // prefer organized by source
+  if(source){
+    if(year) c.push(`/data/tournaments/${source}/${t}_${year}.json`);
+    if(year) c.push(`/data/tournaments/${source}/${t}/${year}.json`);
+    c.push(`/data/tournaments/${source}/${t}.json`);
+    c.push(`/data/tournaments/${source}/${t}.json`);
+  }
+  if(year) c.push(`/data/tournaments/${t}_${year}.json`);
+  if(year) c.push(`/data/tournaments/${t}/${year}.json`);
+  c.push(`/data/tournaments/${t}.json`);
+  c.push(`/data/tournaments/${tourneyIdFromPath()}.json`);
+  // also try api endpoints common names
+  if(source && year) c.push(`/api/tournaments/${source}/${t}?year=${year}`);
+  if(year) c.push(`/api/tournaments/${t}?year=${year}`);
+  // fallback to generic
+  c.push(`/data/tournament.json`);
+  // unique: try exact URL param 'json' if provided
+  const maybeJsonUrl = qs('json');
+  if(maybeJsonUrl) c.unshift(maybeJsonUrl);
+  // remove duplicates while keeping order
+  return Array.from(new Set(c));
+}
+
+/* helper: if page URL contains something useful as id */
+function tourneyIdFromPath(){
+  // try to extract numeric id from path like /tournament/339.html
+  const m = location.pathname.match(/(\d{2,6})/);
+  return m ? m[1] : '';
+}
+
+/* ---------- normalisation du JSON ---------- */
+function locateMatches(obj){
+  // tries many common field names to find an array of matches
+  if(!obj) return [];
+  const candidateKeys = ['matches','matchs','matches_list','data','matchesData','matchList','results','rounds','items'];
+  for(const k of candidateKeys){
+    if(Array.isArray(obj[k]) && obj[k].length>0) return obj[k];
+  }
+  // maybe the root itself is an array
+  if(Array.isArray(obj) && obj.length>0 && typeof obj[0] === 'object') return obj;
+  // try to find the largest array in object
+  let largest = null;
+  let largestKey = null;
+  for(const k in obj){
+    if(Array.isArray(obj[k]) && obj[k].length>0){
+      if(!largest || obj[k].length > largest.length){
+        largest = obj[k]; largestKey = k;
+      }
+    }
+  }
+  if(largest) return largest;
+  return [];
+}
+
+function mapMatchFields(m){
+  // map common variations to the canonical names used by templates
+  const out = {};
+  out.match_id = tryGet(m, ['match_id','id','mid','matchId','matchID']) || '';
+  out.round = tryGet(m, ['round','round_name','stage']) || '';
+  out.score_string = tryGet(m, ['score_string','score','result','score_str']) || tryGet(m, ['score_string_formatted','scoreFormatted']) || '';
+  out.winner_player_name = tryGet(m, ['winner_player_name','winner_name','w_name','wplayer','winner']) || tryGet(m, ['player_winner_name','player_winner']) || '';
+  out.loser_player_name = tryGet(m, ['loser_player_name','loser_name','l_name','lplayer','loser']) || tryGet(m, ['player_loser_name','player_loser']) || '';
+  out.player_id_winner = tryGet(m, ['player_id_winner','winner_id','w_id','wPlayerId','winner_player_id']) || '';
+  out.player_id_loser = tryGet(m, ['player_id_loser','loser_id','l_id','lPlayerId','loser_player_id']) || '';
+  out.winner_country = tryGet(m, ['winner_country','w_country','winner_nation','w_country_code']) || tryGet(m, ['winner_cc','w_cc']) || '';
+  out.loser_country = tryGet(m, ['loser_country','l_country','loser_nation','l_country_code']) || tryGet(m, ['loser_cc','l_cc']) || '';
+  out.winner_seed = tryGet(m, ['winner_seed','w_seed','seed_winner','seed_w']) || '';
+  out.loser_seed = tryGet(m, ['loser_seed','l_seed','seed_loser','seed_l']) || '';
+  // in case name fields are missing but nested player objects exist, try common patterns
+  if(!out.winner_player_name){
+    const wobj = tryGet(m, ['winner','w','player_winner','winnerPlayer']) || null;
+    if(wobj && typeof wobj === 'object') out.winner_player_name = tryGet(wobj, ['name','player_name','displayName']) || '';
+    if(wobj && typeof wobj === 'object' && !out.player_id_winner) out.player_id_winner = tryGet(wobj, ['id','player_id']) || '';
+    if(wobj && typeof wobj === 'object' && !out.winner_country) out.winner_country = tryGet(wobj, ['country','country_code','cc']) || '';
+    if(wobj && typeof wobj === 'object' && !out.winner_seed) out.winner_seed = tryGet(wobj, ['seed']) || '';
+  }
+  if(!out.loser_player_name){
+    const lobj = tryGet(m, ['loser','l','player_loser','loserPlayer']) || null;
+    if(lobj && typeof lobj === 'object') out.loser_player_name = tryGet(lobj, ['name','player_name','displayName']) || '';
+    if(lobj && typeof lobj === 'object' && !out.player_id_loser) out.player_id_loser = tryGet(lobj, ['id','player_id']) || '';
+    if(lobj && typeof lobj === 'object' && !out.loser_country) out.loser_country = tryGet(lobj, ['country','country_code','cc']) || '';
+    if(lobj && typeof lobj === 'object' && !out.loser_seed) out.loser_seed = tryGet(lobj, ['seed']) || '';
+  }
+  return out;
+}
+
+function normalizeTournament(raw){
+  // returns { meta: {...}, matches: [...] }
+  const meta = {};
+  // possible meta sources
+  const metaCandidates = ['meta','tourney','tournament','tourn','info','tourney_meta'];
+  for(const k of metaCandidates){
+    if(raw && raw[k] && typeof raw[k] === 'object'){ Object.assign(meta, raw[k]); break; }
+  }
+  // also accept root-level fields
+  if(!('tourney_id' in meta)) meta.tourney_id = tryGet(raw, ['tourney_id','tourneyId','id','tournament_id']) || meta.tourney_id || '';
+  if(!('tourney_name' in meta)) meta.tourney_name = tryGet(raw, ['tourney_name','name','tournament_name','title']) || meta.tourney_name || '';
+  if(!('year' in meta)) meta.year = tryGet(raw, ['year','season']) || meta.year || '';
+  if(!('surface' in meta)) meta.surface = tryGet(raw, ['surface','court','surface_type']) || meta.surface || '';
+  if(!('level' in meta)) meta.level = tryGet(raw, ['level','tier']) || meta.level || '';
+  if(!('prize_money' in meta)) meta.prize_money = tryGet(raw, ['prize_money','prizeMoney','prize']) || meta.prize_money || '';
+  if(!('prize_money_currency' in meta)) meta.prize_money_currency = tryGet(raw, ['prize_money_currency','currency']) || meta.prize_money_currency || '';
+  if(!('singles_draw_size' in meta)) meta.singles_draw_size = tryGet(raw, ['singles_draw_size','draw','draw_size','singlesDraw']) || meta.singles_draw_size || '';
+  if(!('city' in meta)) meta.city = tryGet(raw, ['city','place','location','venue_city']) || meta.city || '';
+  if(!('country' in meta)) meta.country = tryGet(raw, ['country','country_name','venue_country']) || meta.country || '';
+  if(!('tourney_title' in meta)) meta.tourney_title = tryGet(raw, ['tourney_title','official_name','title','officialTitle']) || meta.tourney_title || '';
+  if(!('source' in meta)) meta.source = tryGet(raw, ['source']) || meta.source || '';
+  if(!('start_date' in meta)) meta.start_date = tryGet(raw, ['start_date','date','startDate']) || meta.start_date || '';
+
+  // matches
+  const rawMatches = locateMatches(raw) || [];
+  const matches = rawMatches.map(mapMatchFields);
+
+  // if singles_draw_size still missing, try to infer from unique player count
+  let drawSize = meta.singles_draw_size ? Number(meta.singles_draw_size) : NaN;
+  if(!drawSize || isNaN(drawSize) || drawSize <= 0){
+    const players = new Set();
+    matches.forEach(m=>{
+      if(m.player_id_winner) players.add(m.player_id_winner);
+      if(m.player_id_loser) players.add(m.player_id_loser);
+      if(m.winner_player_name) players.add('N:' + m.winner_player_name);
+      if(m.loser_player_name) players.add('N:' + m.loser_player_name);
+    });
+    const count = players.size || 0;
+    // heuristique simple : arrondir au prochain power-of-two (32/64/128)
+    if(count === 0){
+      drawSize = 32;
+    } else if(count <= 32) drawSize = 32;
+    else if(count <= 64) drawSize = 64;
+    else if(count <= 128) drawSize = 128;
+    else drawSize = 256;
+  }
+
+  meta.singles_draw_size = Number(drawSize);
+
+  // normalize source casing
+  if(meta.source) meta.source = String(meta.source).toUpperCase();
+
+  return { meta, matches };
+}
+
+/* ---------- IOC lookup pour ATP si nécessaire ---------- */
+async function ensureIoc(meta){
+  if(!meta) return meta;
+  if((meta.city && meta.city.trim()) && (meta.country && meta.country.trim())) return meta;
+  if(!meta.tourney_id || !meta.year) return meta;
+  const isAtp = meta.source && String(meta.source).toUpperCase().startsWith('ATP');
+  if(!isAtp) return meta;
+  // essayer de charger ioc_places_atp.json (chemin configurable)
+  try{
+    const resp = await fetch('/data/ioc_places_atp.json');
+    if(!resp.ok) { debugLog('ioc_places_atp.json non trouvé: ' + resp.status); return meta; }
+    const ioc = await resp.json();
+    const id = String(meta.tourney_id);
+    const year = String(meta.year);
+    if(ioc && ioc[id]){
+      // prefer exact year, else try closest previous years
+      if(ioc[id][year]){
+        const arr = ioc[id][year];
+        meta.city = meta.city || arr[0] || meta.city;
+        meta.country = meta.country || arr[1] || meta.country;
+        meta.tourney_title = meta.tourney_title || arr[2] || meta.tourney_title;
+      } else {
+        // find nearest year available (descending)
+        const years = Object.keys(ioc[id]).sort((a,b)=>b-a);
+        for(const y of years){
+          const arr = ioc[id][y];
+          if(arr){
+            meta.city = meta.city || arr[0] || meta.city;
+            meta.country = meta.country || arr[1] || meta.country;
+            meta.tourney_title = meta.tourney_title || arr[2] || meta.tourney_title;
+            break;
+          }
+        }
+      }
+    }
+  }catch(e){
+    debugLog('Erreur fetch ioc_places_atp.json: ' + e.message);
+  }
+  return meta;
+}
+
+/* ---------- UI population ---------- */
+function populateInfoDisplay(meta){
+  document.getElementById('tour-type').textContent = meta.source ? meta.source.toUpperCase() : 'TOUR';
+  document.getElementById('tourney-name').textContent = meta.tourney_name || (meta.tourney_title || ('Tourney ' + (meta.tourney_id || '')));
+  const sub = `${meta.surface || '—'} • ${meta.level || '—'} • ${meta.start_date ? formatDate(meta.start_date) : '—'}`;
+  document.getElementById('tourney-sub').textContent = sub;
+
+  document.getElementById('meta-level').textContent = meta.level || '—';
+  document.getElementById('meta-surface').textContent = meta.surface || '—';
+  document.getElementById('meta-prize').textContent = (meta.prize_money_currency || '') + (meta.prize_money ? Number(meta.prize_money).toLocaleString() : '—');
+  document.getElementById('meta-draw').textContent = meta.singles_draw_size || '—';
+  document.getElementById('meta-city').textContent = meta.city || '—';
+  document.getElementById('meta-country').textContent = meta.country || '—';
+  document.getElementById('meta-title').textContent = meta.tourney_title || '—';
+  document.getElementById('meta-source').textContent = meta.source || '—';
+
+  // adjust banner color
+  const banner = document.getElementById('banner');
+  banner.className = 'banner';
+  banner.style.background = getComputedStyle(document.documentElement).getPropertyValue('--accent-hard');
+  const s = (meta.surface || '').toLowerCase();
+  if(s.includes('hard')) banner.style.background = getComputedStyle(document.documentElement).getPropertyValue('--accent-hard');
+  else if(s.includes('clay')) banner.style.background = getComputedStyle(document.documentElement).getPropertyValue('--accent-clay');
+  else if(s.includes('grass')) banner.style.background = getComputedStyle(document.documentElement).getPropertyValue('--accent-grass');
+  else banner.style.background = getComputedStyle(document.documentElement).getPropertyValue('--accent-carpet');
+}
+
+/* ---------- onglets et iframe ---------- */
 const tabInfo = document.getElementById('tab-info');
 const tabDraw = document.getElementById('tab-draw');
 const panelInfo = document.getElementById('panel-info');
 const panelDraw = document.getElementById('panel-draw');
+const iframe = document.getElementById('draw-frame');
 
 tabInfo.addEventListener('click', ()=>{
   tabInfo.classList.add('active'); tabDraw.classList.remove('active');
@@ -184,60 +367,128 @@ tabInfo.addEventListener('click', ()=>{
 tabDraw.addEventListener('click', ()=>{
   tabDraw.classList.add('active'); tabInfo.classList.remove('active');
   panelInfo.style.display='none'; panelDraw.style.display='block';
-  loadDrawTemplateAndSendData();
+  // load template (if not already)
+  if(!iframe.src || iframe.src === 'about:blank') loadDrawTemplateAndSendData();
 });
 
-/* charge le bon template et envoie les données via postMessage */
-function chooseTemplateForDraw(drawSize){
+/* select template by draw size */
+function chooseTemplate(drawSize){
   if(drawSize <= 32) return 'template_5.html';
   if(drawSize <= 64) return 'template_6.html';
   return 'template_7.html';
 }
 
+let lastPayload = null;
 let iframeReady = false;
+
+function postToIframe(payload){
+  // payload must be serializable
+  try {
+    iframe.contentWindow.postMessage({type:'tourney-data', payload}, '*');
+    debugLog('postMessage envoyé au template');
+  } catch(e){
+    debugLog('postMessage échoué : ' + e.message);
+  }
+}
+
+/* load template and post data; tolerant to templates that take time to init */
 function loadDrawTemplateAndSendData(){
-  const iframe = document.getElementById('draw-frame');
-  const drawSize = (tournamentJson.meta && tournamentJson.meta.singles_draw_size) ? Number(tournamentJson.meta.singles_draw_size) : 32;
-  const templateName = chooseTemplateForDraw(drawSize);
+  if(!lastPayload) return;
+  const drawSize = Number(lastPayload.meta && lastPayload.meta.singles_draw_size) || 32;
+  const template = chooseTemplate(drawSize);
   iframeReady = false;
 
-  // set src to template
-  iframe.src = templateName;
+  // set iframe src
+  iframe.src = template;
 
-  // when iframe loaded, postMessage the whole JSON
   const onLoad = ()=>{
     iframeReady = true;
-    try {
-      iframe.contentWindow.postMessage({type:'tourney-data', payload: tournamentJson}, '*');
-    } catch(e){
-      console.warn('postMessage failed', e);
-    }
+    // envoi initial
+    setTimeout(()=>postToIframe(lastPayload), 80);
+    // envoi de sécurisation (au cas où template met du temps à écouter)
+    setTimeout(()=>postToIframe(lastPayload), 700);
     iframe.removeEventListener('load', onLoad);
   };
   iframe.addEventListener('load', onLoad);
 
-  // also send again after 500ms in case iframe took longer to init
-  setTimeout(()=>{ if(iframeReady===true) return; try{ iframe.contentWindow.postMessage({type:'tourney-data', payload: tournamentJson}, '*'); }catch(e){} }, 700);
+  // également envoyer si template a déjà été chargé avant
+  setTimeout(()=>{
+    if(iframeReady) postToIframe(lastPayload);
+  }, 1000);
 }
 
-/* initialisation */
-document.addEventListener('DOMContentLoaded', async ()=>{
-  await populateInfo(tournamentJson);
-  // load draw template only when user opens the tab - but we can pre-load optionally
-  // Preload small (optional):
-  // loadDrawTemplateAndSendData();
-});
+/* ---------- point d'entrée principal ---------- */
+async function initViewer(){
+  let source = qs('source') || qs('s') || '';
+  let t = qs('t') || qs('id') || qs('tourney_id') || tourneyIdFromPath() || '';
+  let year = qs('year') || qs('y') || '';
 
-/* optionally, allow server à appeler applyData en patchant tournamentJson et appelant populateInfo() et loadDraw... */
-window.setTournamentData = function(json){
+  // si le serveur injecte directement les données dans window.__TOURNAMENT_JSON__ -> utilise-les
+  if(window.__TOURNAMENT_JSON__){
+    debugLog('Utilisation de window.__TOURNAMENT_JSON__ injecté');
+    const norm = normalizeTournament(window.__TOURNAMENT_JSON__);
+    norm.meta = await ensureIoc(norm.meta);
+    lastPayload = norm;
+    populateInfoDisplay(norm.meta);
+    return;
+  }
+
+  // construire ensemble d'URLs candidates
+  const candidates = buildCandidateUrls(source, t, year);
+  debugLog('Candidates: ' + JSON.stringify(candidates, null, 2));
+
+  try{
+    const raw = await fetchWithFallback(candidates);
+    // normaliser
+    const norm = normalizeTournament(raw);
+    // si meta lacks source, try to set from query param
+    if(!norm.meta.source && source) norm.meta.source = source;
+    if(!norm.meta.tourney_id && t) norm.meta.tourney_id = t;
+    if(!norm.meta.year && year) norm.meta.year = year;
+    // ensure city/country for ATP
+    norm.meta = await ensureIoc(norm.meta);
+    // populate info
+    populateInfoDisplay(norm.meta);
+    // keep for draw tab
+    lastPayload = norm;
+    // if user already on draw tab, load immediately
+    if(tabDraw.classList.contains('active')) loadDrawTemplateAndSendData();
+  }catch(e){
+    debugLog('Erreur chargement JSON: ' + e.message);
+    // afficher erreur simple dans panel info
+    document.getElementById('meta-name')?.remove?.();
+    const el = document.createElement('div');
+    el.className = 'text-danger';
+    el.textContent = 'Impossible de charger les données du tournoi: ' + e.message;
+    panelInfo.appendChild(el);
+  }
+}
+
+/* expose méthode d'injection (utile côté serveur) */
+window.setTournamentData = async function(json){
   if(!json) return;
-  // shallow merge
-  Object.assign(tournamentJson, json);
-  if(json.meta) Object.assign(tournamentJson.meta, json.meta);
-  populateInfo(tournamentJson);
-  // if draw tab active, reload template
+  const norm = normalizeTournament(json);
+  norm.meta = await ensureIoc(norm.meta);
+  lastPayload = norm;
+  populateInfoDisplay(norm.meta);
+  // reload draw if necessary
   if(tabDraw.classList.contains('active')) loadDrawTemplateAndSendData();
 };
+
+/* écoute d'éventuelles réponses depuis template (optionnel) */
+window.addEventListener('message', (ev)=>{
+  const d = ev.data || {};
+  if(d && d.type === 'template-ready'){
+    debugLog('Template ready: ' + (d.template || 'unknown'));
+    // renvoyer le payload au cas où
+    if(lastPayload) postToIframe(lastPayload);
+  }
+}, false);
+
+/* démarrage */
+document.addEventListener('DOMContentLoaded', ()=>{ initViewer().catch(e=>debugLog('initViewer err: '+ e.message)); });
+
 </script>
+
 </body>
 </html>
