@@ -3,385 +3,349 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Bracket — single mid-block winner (fixed)</title>
+<title>Bracket skeleton</title>
 <style>
   :root{
-    --winner-h:22px;
-    --loser-h:22px;
-    --midblock-h:38px;
-    --match-gap:52px;
-    --col-gap:34px;
-    --col-width:240px;
-    --col-width-small:180px;
-    --midblock-width:160px;
+    /* layout sizes (modifiable) */
+    --winner-h:22px;            /* height of top player row */
+    --loser-h:22px;             /* height of bottom player row */
+    --midblock-h:40px;          /* height of middle winner+score block */
+    --match-gap:48px;           /* vertical gap between matches */
+    --col-gap:36px;             /* horizontal gap between columns */
+    --col-width:220px;          /* width of the leftmost column */
+    --col-width-small:160px;    /* width of other columns */
+    --midblock-width:180px;     /* width of the mid block */
+    --mid-offset: 0px;          /* extra offset applied to mid-block X */
     --line-color:#797979;
     --seed-blue:#0b3d91;
-    --mid-offset: 220px;
+    --container-padding:12px;
   }
 
   html,body{height:100%;margin:0;font-family:Arial,Helvetica,sans-serif;background:#fff;color:#111}
-  .hero{padding:14px;color:#fff;background:#2b6cb0}
-  .container-main{max-width:1400px;margin:12px auto;padding:0 12px}
-  #bracketContainer{position:relative;background:transparent;overflow:visible}
+  .topbar{background:#2b6cb0;color:#fff;padding:12px}
+  .container{max-width:1400px;margin:12px auto;padding:var(--container-padding);position:relative}
+  #bracket{position:relative; min-height:640px; background:transparent; overflow:visible;}
 
-  /* flags */
-  .flag{display:inline-block;width:22px;height:14px;margin-right:8px;vertical-align:middle;overflow:hidden;border-radius:2px;background:#f5f5f5;line-height:14px;text-align:center}
-  .flag img{width:100%;height:100%;object-fit:cover;display:block}
+/* debug / placeholders visuals */
+.match-row{box-sizing:border-box;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 8px;background:#fff;position:absolute;display:flex;align-items:center;gap:8px;border-left:1px solid transparent;border-right:1px solid transparent;}
+.row-top{height:var(--winner-h); border-top:1px solid var(--line-color);}
+.row-bottom{height:var(--loser-h); border-bottom:1px solid var(--line-color);}
 
-  /* seeds */
-  .seed-num{float:left;width:22px;color:var(--seed-blue);font-size:11px;padding:2px 4px;font-weight:700;}
-  .seed-text{float:left;width:22px;color:#808080;font-size:11px;padding:2px 4px;}
+.mid-block{position:absolute;height:var(--midblock-h);width:var(--midblock-width);z-index:50;background:#fff;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;}
+.mid-winner{height:18px; display:block; width:100%; box-sizing:border-box; padding:0 8px; font-weight:700; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.mid-bar{height:1px;background:var(--line-color);width:100%;}
+.mid-score{font-size:12px;padding-top:4px;color:#515151;font-style:italic; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 
-  .player-link{font-size:11px;text-decoration:none;color:#000;display:inline-block;vertical-align:middle}
-  .player-first{font-size:11px;color:#565656;font-style:italic;margin-left:4px}
-  .bye{color:#808080;font-size:11px;padding-left:22px}
+/* svg overlay */
+.connectors{position:absolute;left:0;top:0;width:100%;height:100%;z-index:20;pointer-events:none}
 
-  /* rows for players (absolute) */
-  .match-row{box-sizing:border-box;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 6px;background:#fff;z-index:5;position:absolute;display:flex;align-items:center;gap:6px;}
-  .row-top{height:var(--winner-h); border-top:1px solid var(--line-color);}   /* top border above upper player */
-  .row-bottom{height:var(--loser-h); border-bottom:1px solid var(--line-color);}/* bottom border below lower player */
+/* visual hints (placeholders) */
+.placeholder-name{height:14px;width:80%;background:transparent;}
+.placeholder-seed{width:22px;height:16px;background:transparent;display:inline-block}
+.placeholder-score{height:12px;width:60%;background:transparent;display:block;margin-top:4px}
 
-  /* mid block placed at mid-axis; contains winner above line and score below */
-  .mid-block{position:absolute;height:var(--midblock-h);width:var(--midblock-width);text-align:center;transform:none;z-index:70;background:#fff;pointer-events:auto;margin-left:0;display:flex;flex-direction:column;justify-content:center;align-items:center;box-sizing:border-box}
-  .mid-winner{font-size:11px;font-weight:700;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 6px;display:flex;align-items:center;gap:6px}
-  .mid-bar{height:1px;background:var(--line-color);width:100%;margin:2px 0;}
-  .mid-score{font-size:11px;color:#515151;font-style:italic;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 6px}
-
-  /* svg connectors behind everything */
-  .connectors{position:absolute;left:0;top:0;width:100%;height:100%;z-index:2;pointer-events:none}
-
-  .highlight{background: rgba(255,235,59,0.15) !important}
-
-  @media (max-width:900px){
-    :root{ --col-width:160px; --col-width-small:120px; --match-gap:36px; --midblock-width:120px; }
-  }
+/* responsiveness tweak */
+@media (max-width:900px){
+  :root{ --col-width:160px; --col-width-small:120px; --midblock-width:140px; --match-gap:36px; }
+}
 </style>
 </head>
 <body>
-  <div class="hero"><div class="container-main"><h1 id="tourney-title" style="margin:0;color:#fff">Tournament</h1></div></div>
-  <div class="container-main" style="padding-top:12px">
-    <div id="bracketContainer" style="min-height:640px"></div>
+  <div class="topbar">
+    <div style="max-width:1400px;margin:0 auto;display:flex;gap:12px;align-items:center;">
+      <strong>Bracket skeleton</strong>
+      <div style="margin-left:auto;font-size:13px;color:#fff;opacity:0.9">Modifiable via CSS vars in :root</div>
+    </div>
+  </div>
+
+  <div class="container">
+    <div id="bracket"></div>
   </div>
 
 <script>
-/* ---------- utilitaires ---------- */
-const iocToAlpha2 = {
-"AFG":"AF","ALB":"AL","ALG":"DZ","AND":"AD","ANG":"AO","ANT":"AG","ARG":"AR","ARM":"AM","ARU":"AW",
-"AUS":"AU","AUT":"AT","AZE":"AZ","BAH":"BS","BRN":"BH","BAN":"BD","BAR":"BB","BLR":"BY","BEL":"BE",
-"BIZ":"BZ","BEN":"BJ","BER":"BM","BHU":"BT","BOL":"BO","BIH":"BA","BOT":"BW","BRA":"BR","IVB":"VG",
-"BRU":"BN","BUL":"BG","BUR":"BF","BDI":"BI","CPV":"CV","CAM":"KH","CMR":"CM","CAN":"CA","CAY":"KY",
-"CAF":"CF","CHA":"TD","CHI":"CL","CHN":"CN","COL":"CO","COM":"KM","CGO":"CG","COD":"CD","COK":"CK",
-"CRC":"CR","CIV":"CI","CRO":"HR","CUB":"CU","CYP":"CY","CZE":"CZ","DEN":"DK","DJI":"DJ","DMA":"DM",
-"DOM":"DO","ECU":"EC","EGY":"EG","ESA":"SV","ENG":"GB","GEQ":"GQ","ERI":"ER","EST":"EE","SWZ":"SZ",
-"ETH":"ET","FIJ":"FJ","FIN":"FI","FRA":"FR","GAB":"GA","GAM":"GM","GEO":"GE","GER":"DE","GHA":"GH",
-"GIB":"GI","GRE":"GR","GRN":"GD","GUM":"GU","GUA":"GT","GUI":"GN","GBS":"GW","GUY":"GY","HAI":"HT",
-"HON":"HN","HKG":"HK","HUN":"HU","ISL":"IS","IND":"IN","INA":"ID","IRI":"IR","IRQ":"IQ","IRL":"IE",
-"ISR":"IL","ITA":"IT","JAM":"JM","JPN":"JP","JOR":"JO","KAZ":"KZ","KEN":"KE","KOS":"XK","KUW":"KW",
-"KGZ":"KG","LAO":"LA","LAT":"LV","LBN":"LB","LES":"LS","LBR":"LR","LBA":"LY","LIE":"LI","LTU":"LT",
-"LUX":"LU","MAC":"MO","MAD":"MG","MAW":"MW","MAS":"MY","MDV":"MV","MLI":"ML","MLT":"MT","MHL":"MH",
-"MTN":"MR","MRI":"MU","MEX":"MX","FSM":"FM","MDA":"MD","MCO":"MC","MNG":"MN","MNE":"ME","MSR":"MS",
-"MAR":"MA","MOZ":"MZ","MYA":"MM","NAM":"NA","NRU":"NR","NEP":"NP","NED":"NL","NCL":"NC","NZL":"NZ",
-"NCA":"NI","NIG":"NE","NGR":"NG","MKD":"MK","NIR":"GB","NOR":"NO","OMA":"OM","PAK":"PK","PLE":"PS",
-"PAN":"PA","PNG":"PG","PAR":"PY","PER":"PE","PHI":"PH","POL":"PL","POR":"PT","PUR":"PR","QAT":"QA",
-"ROU":"RO","RUS":"RU","RWA":"RW","SKN":"KN","LCA":"LC","VIN":"VC","SAM":"WS","SMR":"SM","STP":"ST",
-"KSA":"SA","SCO":"GB","SEN":"SN","SRB":"RS","SEY":"SC","SLE":"SL","SGP":"SG","SVK":"SK","SLO":"SI",
-"SLB":"SB","SOM":"SO","RSA":"ZA","KOR":"KR","SSD":"SS","ESP":"ES","SRI":"LK","SUD":"SD","SUR":"SR",
-"SWE":"SE","SUI":"CH","SYR":"SY","TPE":"TW","TJK":"TJ","TAN":"TZ","THA":"TH","TLS":"TL","TOG":"TG",
-"TGA":"TO","TTO":"TT","TUN":"TN","TUR":"TR","TKM":"TM","TCA":"TC","UGA":"UG","UKR":"UA","UAE":"AE",
-"USA":"US","URU":"UY","UZB":"UZ","VAN":"VU","VEN":"VE","VIE":"VN","ISV":"VI","WAL":"GB","YEM":"YE",
-"ZAM":"ZM","ZIM":"ZW"
+/*
+  Bracket skeleton generator
+  - Determines rounds from singles_draw_size (or URL param ?size=)
+  - Renders empty placeholders for player rows (first column only have row-top/row-bottom)
+  - Renders mid-block placeholders per match
+  - Draws connectors as grouped vertical "spines" + horizontals to mid-blocks (no duplicate horizontals)
+  - No player names / scores are injected (placeholders only)
+*/
+
+/* ---------- configuration ---------- */
+// Try URL param ?size= or fallback to this constant
+function getParamSize(){
+  const p = new URLSearchParams(location.search).get('size');
+  if(p) { const n = parseInt(p,10); if(!isNaN(n) && n>0) return n; }
+  return null;
+}
+let singles_draw_size = getParamSize() || 32; // default 32
+// The number of players must be a power of 2; if not, round up to next power of 2.
+function nextPowerOfTwo(n){
+  return Math.pow(2, Math.ceil(Math.log2(n)));
+}
+function prevPowerOfTwo(n){
+  return Math.pow(2, Math.floor(Math.log2(n)));
+}
+singles_draw_size = nextPowerOfTwo(singles_draw_size);
+
+/* ---------- read CSS variables ---------- */
+const rootStyle = getComputedStyle(document.documentElement);
+const winnerH = parseInt(rootStyle.getPropertyValue('--winner-h')) || 22;
+const loserH  = parseInt(rootStyle.getPropertyValue('--loser-h')) || 22;
+const midH     = parseInt(rootStyle.getPropertyValue('--midblock-h')) || 40;
+const matchGap = parseInt(rootStyle.getPropertyValue('--match-gap')) || 48;
+const colGap   = parseInt(rootStyle.getPropertyValue('--col-gap')) || 36;
+const colWidth = parseInt(rootStyle.getPropertyValue('--col-width')) || 220;
+const colWidthSmall = parseInt(rootStyle.getPropertyValue('--col-width-small')) || 160;
+const midWidth = parseInt(rootStyle.getPropertyValue('--midblock-width')) || 180;
+const midOffset = parseInt(rootStyle.getPropertyValue('--mid-offset')) || 0;
+
+/* ---------- layout math ---------- */
+const totalPlayers = singles_draw_size;                 // power of two
+const rounds = Math.log2(totalPlayers);                // number of rounds (e.g. 32 -> 5 rounds)
+const firstRoundMatches = totalPlayers / 2;            // matches in first round
+// matches per round: round 0 (first round) -> firstRoundMatches,
+// round r -> firstRoundMatches / (2^r)
+function matchesInRound(r){ return Math.max(1, firstRoundMatches / Math.pow(2, r)); }
+
+/* container sizing */
+const perMatchBlock = winnerH + midH + loserH + matchGap;
+const maxMatchesInRound = firstRoundMatches; // leftmost column largest
+const containerHeight = Math.max(640, maxMatchesInRound * perMatchBlock + 80);
+
+const bracket = document.getElementById('bracket');
+bracket.style.height = containerHeight + 'px';
+bracket.innerHTML = ''; // reset
+
+/* create SVG overlay */
+const svgNS = 'http://www.w3.org/2000/svg';
+const svg = document.createElementNS(svgNS, 'svg');
+svg.classList.add('connectors');
+svg.setAttribute('width','100%');
+svg.setAttribute('height','100%');
+bracket.appendChild(svg);
+
+/* helper to create match placeholders and collect positions */
+const positionsByRound = [];
+
+for(let r=0;r<rounds;r++){
+  const matchCount = matchesInRound(r);
+  const columnHeight = (matchCount - 1) * perMatchBlock + (winnerH + midH + loserH) + 20;
+  const topOffset = Math.max(8, Math.round((containerHeight - columnHeight) / 2));
+  const thisPositions = [];
+  // compute left coordinate for this column
+  const colLeft = (r === 0) ? 0 : r * (colWidthSmall + colGap) + (colWidth - colWidthSmall);
+
+  for(let m=0;m<matchCount;m++){
+    // vertical positioning: when r==0 evenly spaced, else align to children average (handled later)
+    const topBlock = topOffset + m * perMatchBlock;
+    const topRowTop = topBlock;
+    const midTop = topRowTop + winnerH;
+    const bottomRowTop = midTop + midH;
+    const bottomRowBottom = bottomRowTop + loserH;
+    const center = Math.round((topRowTop + bottomRowBottom) / 2);
+
+    // left/width based on column
+    const left = colLeft;
+    const width = (r === 0) ? colWidth : colWidthSmall;
+
+    // TOP row placeholder
+    const topDiv = document.createElement('div');
+    topDiv.className = 'match-row' + (r===0 ? ' row-top' : '');
+    topDiv.style.top = topRowTop + 'px';
+    topDiv.style.left = left + 'px';
+    topDiv.style.height = winnerH + 'px';
+    topDiv.style.width = width + 'px';
+    if(r===0){
+      // first column: show seed/name placeholders (non-interactive)
+      const seed = document.createElement('span'); seed.className='placeholder-seed'; seed.style.visibility='hidden';
+      const name = document.createElement('span'); name.className='placeholder-name';
+      topDiv.appendChild(seed); topDiv.appendChild(name);
+    } else {
+      topDiv.innerHTML = '&nbsp;';
+    }
+    bracket.appendChild(topDiv);
+
+    // BOTTOM row placeholder
+    const bottomDiv = document.createElement('div');
+    bottomDiv.className = 'match-row' + (r===0 ? ' row-bottom' : '');
+    bottomDiv.style.top = bottomRowTop + 'px';
+    bottomDiv.style.left = left + 'px';
+    bottomDiv.style.height = loserH + 'px';
+    bottomDiv.style.width = width + 'px';
+    if(r===0){
+      const seed = document.createElement('span'); seed.className='placeholder-seed'; seed.style.visibility='hidden';
+      const name = document.createElement('span'); name.className='placeholder-name';
+      bottomDiv.appendChild(seed); bottomDiv.appendChild(name);
+    } else {
+      bottomDiv.innerHTML = '&nbsp;';
+    }
+    bracket.appendChild(bottomDiv);
+
+    // MID block placeholder
+    const midX_raw = ( (left + width) + ( (r===0) ? left+width : ( (r-1) * (colWidthSmall + colGap) + (colWidth - colWidthSmall) + ((r-1)===0?colWidth:colWidthSmall) ) ) )/2;
+    // simpler: place mid-block at left + width + midOffset
+    const midBlockX = Math.round(left + width + midOffset);
+    const midBlock = document.createElement('div');
+    midBlock.className = 'mid-block';
+    midBlock.style.left = midBlockX + 'px';
+    midBlock.style.top = (center - Math.round(midH/2)) + 'px';
+    midBlock.style.width = midWidth + 'px';
+    midBlock.style.marginLeft = (-Math.round(midWidth/2)) + 'px';
+    // inner placeholders (winner + bar + score)
+    const mw = document.createElement('div'); mw.className='mid-winner'; mw.textContent = ''; // empty
+    const mb = document.createElement('div'); mb.className='mid-bar';
+    const ms = document.createElement('div'); ms.className='mid-score';
+    midBlock.appendChild(mw); midBlock.appendChild(mb); midBlock.appendChild(ms);
+    bracket.appendChild(midBlock);
+
+    // store computed position (center x,y and midTop/midBottom)
+    const computedMidX = midBlockX;
+    thisPositions.push({
+      topRowTop, midTop, bottomRowTop, bottomRowBottom, center,
+      left, width,
+      midX: computedMidX,
+      midTop: (center - Math.round(midH/2)), midBottom: (center - Math.round(midH/2) + midH),
+      midBlockElem: midBlock
+    });
+  }
+
+  positionsByRound.push(thisPositions);
 }
 
-const nameToAlpha2 = {"UNITED STATES":"US","UNITED KINGDOM":"GB","ENGLAND":"GB","RUSSIA":"RU","CHINA":"CN"};
-function toAlpha2(input){ if(!input) return ''; let s=String(input).trim().toUpperCase(); if(/^[A-Z]{2}$/.test(s)) return s; if(s.length===3 && iocToAlpha2[s]) return iocToAlpha2[s]; if(nameToAlpha2[s]) return nameToAlpha2[s]; const letters = s.replace(/[^A-Z]/g,''); if(letters.length===2) return letters; return ''; }
-function alpha2ToFlagEmoji(alpha2){ if(!alpha2 || alpha2.length!==2) return ''; const A=0x1F1E6; const chars=[...alpha2.toUpperCase()].map(ch=>A+(ch.charCodeAt(0)-65)); try{return String.fromCodePoint(...chars);}catch(e){return'';} }
-function makeFlagElem(countryInput){ const alpha2 = toAlpha2(countryInput||''); const span = document.createElement('span'); span.className='flag'; if(alpha2){ const code = alpha2.toLowerCase(); const img = document.createElement('img'); img.alt=alpha2; img.src = `https://flagcdn.com/w40/${code}.png`; img.onload=()=>{}; img.onerror=()=>{ img.remove(); const emoji=alpha2ToFlagEmoji(alpha2); if(emoji) span.textContent=emoji; else { span.textContent=alpha2; span.style.fontSize='11px'; span.style.color='#666'; } }; span.appendChild(img); } else { span.textContent = countryInput ? String(countryInput).toUpperCase().slice(0,3) : ''; span.style.fontSize='11px'; span.style.color='#666'; } return span; }
-function slugify(name){ if(!name) return ''; name = name.trim(); if(name.indexOf(',')!==-1){ const parts=name.split(','); const last=parts[0].trim(); const rest=parts.slice(1).join(',').trim(); name = rest + ' ' + last; } return name.toLowerCase().replace(/[^a-z0-9\s-]/g,'').replace(/\s+/g,'-'); }
-function formatSeed(raw){ if(raw===null||raw===undefined) return ''; const n = typeof raw==='number' ? raw : parseFloat(String(raw).trim().replace(',','.')); if(isNaN(n)){ const s=String(raw).trim(); return s.length? s : ''; } if(Number.isInteger(n)) return String(n); return String(n); }
-function formatFirstInitial(fullFirst){ if(!fullFirst) return ''; const tokens=String(fullFirst).trim().split(/\s+/); return tokens.length? tokens[0].charAt(0).toUpperCase()+'.':''; }
-function splitNameToLastAndInitial(rawName){ if(!rawName) return {last:'', firstInitial:''}; let name=String(rawName).trim(); if(name.indexOf(',')!==-1){ const parts=name.split(','); const last=parts[0].trim(); const first=(parts[1]||'').trim(); return {last:last, firstInitial:formatFirstInitial(first)} } const parts=name.split(/\s+/); if(parts.length===1) return {last:parts[0], firstInitial:''}; const last=parts[parts.length-1]; const firstTokens=parts.slice(0,parts.length-1).join(' '); return {last:last, firstInitial:formatFirstInitial(firstTokens)} }
-function isValidMatchId(mid){ if(!mid) return false; const s=String(mid).trim().toUpperCase(); return /^[ML]S\d{3}$/.test(s); }
-function matchIdNumber(mid){ if(!mid) return Number.MAX_SAFE_INTEGER; const m=String(mid).toUpperCase().match(/^[ML]S0*([0-9]+)$/); if(m && m[1]) return parseInt(m[1],10); const d=String(mid).match(/\d+/); return d? parseInt(d[0],10) : Number.MAX_SAFE_INTEGER; }
-function scoreToHtml(s){ if(!s) return ''; return String(s).replace(/(\d+)\((\d+)\)/g,'$1<sup>$2</sup>'); }
-function highlight_player(mode, className){ const els=document.querySelectorAll('.' + className); if(mode===1) els.forEach(e=>e.classList.add('highlight')); else els.forEach(e=>e.classList.remove('highlight')); }
+/* After building all positions, we need to properly vertically align non-first columns
+   so that parents sit between their children. We'll reposition mid-blocks & top/bottom
+   placeholders based on averaging child centers for columns > 0. */
+for(let r=1;r<rounds;r++){
+  const parents = positionsByRound[r];
+  const children = positionsByRound[r-1];
+  if(!parents || !children) continue;
+  const parentCount = parents.length;
+  const childCount = children.length;
+  for(let p=0;p<parentCount;p++){
+    // determine which children map to this parent
+    const start = Math.floor(p * childCount / parentCount);
+    const end   = Math.floor(((p+1) * childCount) / parentCount) - 1;
+    let sum=0,cnt=0;
+    for(let k=Math.max(0,start); k<=Math.min(end, childCount-1); k++){
+      sum += children[k].center;
+      cnt++;
+    }
+    const parentCenter = cnt? Math.round(sum/cnt) : parents[p].center;
+    // recalc topRowTop etc such that center = parentCenter
+    const topRowTop = parentCenter - Math.round((winnerH + midH + loserH)/2);
+    const midTop = topRowTop + winnerH;
+    const bottomRowTop = midTop + midH;
+    const bottomRowBottom = bottomRowTop + loserH;
+    // move DOM elements: top, bottom, mid-block
+    const par = parents[p];
+    // find corresponding DOM elements by matching coordinates (we stored elements for mid-block only)
+    const midEl = par.midBlockElem;
+    if(midEl){
+      midEl.style.top = (parentCenter - Math.round(midH/2)) + 'px';
+      // update our stored positions
+      par.midTop = parentCenter - Math.round(midH/2);
+      par.midBottom = par.midTop + midH;
+      par.topRowTop = topRowTop;
+      par.bottomRowTop = bottomRowTop;
+      par.center = parentCenter;
+      // also move placeholder row divs at same index in DOM: easier to search by proximity
+      // We'll find the top/bottom divs by scanning .match-row near (left) position
+      const left = par.left;
+      // find .match-row elements at the left coordinate and similar width & move them
+      const allRows = document.querySelectorAll('.match-row');
+      for(const row of allRows){
+        const rleft = parseInt(row.style.left || '0',10);
+        const rwidth = parseInt(row.style.width || '0',10);
+        if(rleft===left && rwidth==par.width){
+          const rtop = parseInt(row.style.top||'0',10);
+          // heuristic: top rows have top border; if current top is close to old topRowTop then move
+          // We'll move both the top and bottom that are closest to the previous stored values
+          // For simplicity, move any row whose vertical distance to new topRowTop/bottomRowTop is less than perMatchBlock
+          if(Math.abs(rtop - par.topRowTop) > Math.abs(rtop - topRowTop)){
+            row.style.top = topRowTop + 'px';
+          }
+          if(Math.abs(rtop - par.bottomRowTop) > Math.abs(rtop - bottomRowTop)){
+            row.style.top = bottomRowTop + 'px';
+          }
+        }
+      }
+    }
+  }
+}
 
-/* ---------- render principal ---------- */
-async function render(){
-  const params = new URLSearchParams(location.search);
-  const source = (params.get('source') || 'wta').toLowerCase();
-  const id = params.get('t') || params.get('id') || '';
-  const year = params.get('year') || '';
+/* ---------- draw connectors (grouped spines + horizontals -> connect to mid-bar center) ---------- */
+function drawPolyline(points, strokeWidth){
+  // remove consecutive duplicate points
+  const reduced = points.filter((p,i,arr) => { if(i===0) return true; const prev = arr[i-1]; return !(prev[0]===p[0] && prev[1]===p[1]); });
+  if(reduced.length < 2) return;
+  const poly = document.createElementNS(svgNS,'polyline');
+  poly.setAttribute('points', reduced.map(p => (p[0]+','+p[1])).join(' '));
+  poly.setAttribute('fill','none');
+  poly.setAttribute('stroke', rootStyle.getPropertyValue('--line-color') || '#797979');
+  poly.setAttribute('stroke-width', (strokeWidth||1));
+  poly.setAttribute('stroke-linecap','square');
+  poly.setAttribute('stroke-linejoin','miter');
+  svg.appendChild(poly);
+}
 
-  if(!id || !year){
-    document.getElementById('bracketContainer').innerHTML = '<div style="padding:12px;color:#666">Missing tournament id or year. Use ?source=wta&t=528&year=2025</div>';
-    return;
+for(let r=0;r<positionsByRound.length-1;r++){
+  const children = positionsByRound[r];
+  const parents = positionsByRound[r+1];
+  if(!children || !parents) continue;
+
+  // map parents to their children indices
+  const mapping = new Array(parents.length).fill(0).map(()=>[]);
+  for(let i=0;i<children.length;i++){
+    const parentIndex = Math.floor(i * parents.length / children.length);
+    mapping[Math.min(Math.max(parentIndex,0), parents.length-1)].push(i);
   }
 
-  const path = `/data/tournaments/${source}_${id}_${year}.json`;
-  let json;
-  try{
-    const resp = await fetch(path);
-    if(!resp.ok) throw new Error('JSON not found: ' + path);
-    json = await resp.json();
-  }catch(err){
-    document.getElementById('bracketContainer').innerHTML = '<div style="padding:12px;color:red">Error loading JSON: ' + err.message + '</div>';
-    console.error(err); return;
-  }
+  // for each parent create a single spine and horizontals
+  for(let p=0;p<parents.length;p++){
+    const childIndices = mapping[p];
+    if(!childIndices || childIndices.length===0) continue;
+    const parent = parents[p];
 
-  document.getElementById('tourney-title').textContent = json.meta?.tourney_name || (source.toUpperCase() + ' ' + id);
+    // vertical extent from children centers
+    let minY = Infinity, maxY = -Infinity, sumX = 0;
+    childIndices.forEach(ci => { const c = children[ci]; minY = Math.min(minY, c.center); maxY = Math.max(maxY, c.center); sumX += c.midX; });
 
-  function norm(r){ if(!r) return 'Unknown'; r=r.trim(); const u=r.toUpperCase(); if(u==='F' || u.startsWith('FINAL')) return 'F'; if(u==='SF' || u.startsWith('SEMIF')) return 'SF'; if(u==='QF' || u.startsWith('QUART')) return 'QF'; return u; }
+    const avgChildX = Math.round(sumX / childIndices.length);
 
-  const rawMatches = (json.matches || []).map(m => Object.assign({}, m));
-  const matches = rawMatches.filter(m => isValidMatchId(m.match_id));
-  const groups = {}; matches.forEach(m => { const r = norm(m.round || ''); groups[r] = groups[r] || []; groups[r].push(m); });
-  const rounds = Object.keys(groups).sort((a,b) => groups[b].length - groups[a].length);
+    // position spine just to the left of the parent's mid-block (so that mid-bar remains sole horizontal)
+    const parentMidLeft = parent.midX - Math.round(midWidth/2);
+    let preferred = Math.round((avgChildX + parent.midX) / 2);
+    let spineX = preferred;
+    const minSpineX = parentMidLeft - 6;
+    const maxSpineX = parentMidLeft - 36;
+    if(spineX > minSpineX) spineX = minSpineX;
+    if(spineX < maxSpineX) spineX = maxSpineX;
 
-  const winnerH = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--winner-h')) || 22;
-  const loserH  = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--loser-h')) || 22;
-  const midH     = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--midblock-h')) || 38;
-  const matchGap = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--match-gap')) || 52;
-  const colGap = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--col-gap')) || 34;
-  const colWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--col-width')) || 220;
-  const colWidthSmall = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--col-width-small')) || 140;
-  const midWidth = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--midblock-width')) || 160;
+    // make the spine reach at least the vertical range of the children, and extend to parent's mid-bar Y
+    const parentBarY = parent.midTop + Math.round((parent.midBottom - parent.midTop)/2);
+    const vTop = Math.min(minY, parentBarY);
+    const vBottom = Math.max(maxY, parentBarY);
 
-  let maxBlocks = 0; rounds.forEach(r => { maxBlocks = Math.max(maxBlocks, groups[r].length); });
-  const perMatchBlock = (winnerH + midH + loserH) + matchGap;
-  const containerHeight = Math.max(640, maxBlocks * perMatchBlock + 80);
-  const container = document.getElementById('bracketContainer');
-  container.style.height = containerHeight + 'px';
-  container.innerHTML = '';
+    if(vBottom - vTop > 0){
+      drawPolyline([[spineX, vTop], [spineX, vBottom]], 1);
+    }
 
-  // SVG overlay
-  const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
-  svg.setAttribute('class','connectors'); svg.setAttribute('width','100%'); svg.setAttribute('height','100%');
-  svg.style.position='absolute'; svg.style.left='0'; svg.style.top='0'; svg.style.zIndex='2';
-  container.appendChild(svg);
-
-  const positionsByRound = [];
-
-  rounds.forEach((rnd, colIndex) => {
-    const matchesInRound = groups[rnd].slice();
-    matchesInRound.sort((a,b) => matchIdNumber(a.match_id) - matchIdNumber(b.match_id));
-    const n = matchesInRound.length;
-    const columnHeight = (n - 1) * perMatchBlock + (winnerH + midH + loserH) + 20;
-    const topOffset = Math.max(8, Math.round((containerHeight - columnHeight) / 2));
-    const prevPositions = colIndex > 0 ? positionsByRound[colIndex - 1] : null;
-    const prevCount = prevPositions ? prevPositions.length : 0;
-    const currCount = matchesInRound.length;
-    const thisPositions = [];
-
-    matchesInRound.forEach((m, j) => {
-      let topBlock;
-      if(colIndex === 0){
-        topBlock = topOffset + j * perMatchBlock;
-      } else {
-        let startIndex = Math.floor(j * prevCount / currCount);
-        let endIndex = Math.floor(((j+1) * prevCount) / currCount) - 1;
-        if(endIndex < startIndex) endIndex = startIndex;
-        if(startIndex >= prevCount) startIndex = prevCount - 1;
-        if(endIndex >= prevCount) endIndex = prevCount - 1;
-        let sum=0,cnt=0;
-        for(let k=startIndex;k<=endIndex;k++){
-          if(prevPositions[k]){ sum += prevPositions[k].center; cnt++; }
-        }
-        if(cnt===0) topBlock = topOffset + j * perMatchBlock;
-        else topBlock = Math.round(sum/cnt) - Math.floor((winnerH + midH + loserH)/2);
-      }
-
-      const topRowTop = topBlock;
-      const midTop = topRowTop + winnerH;
-      const bottomRowTop = midTop + midH;
-      const bottomRowBottom = bottomRowTop + loserH;
-      const center = Math.round((topRowTop + bottomRowBottom) / 2);
-
-      const colLeft = colIndex === 0 ? 0 : colIndex * (colWidthSmall + colGap) + (colWidth - colWidthSmall);
-      const left = colLeft;
-      const width = colIndex === 0 ? colWidth : colWidthSmall;
-
-      const wId = m.player_id_winner || ('pwin_'+colIndex+'_'+j);
-      const lId = m.player_id_loser || ('plos_'+colIndex+'_'+j);
-      const wClass = 'j_' + String(wId);
-      const lClass = 'j_' + String(lId);
-
-      /* --- TOP ROW (only full/interactive for leftmost col) --- */
-      const topDiv = document.createElement('div');
-      // base class always 'match-row'; only add row-top in first column
-      topDiv.className = wClass + ' match-row' + (colIndex === 0 ? ' row-top' : '');
-      topDiv.style.top = topRowTop + 'px';
-      topDiv.style.left = left + 'px';
-      topDiv.style.height = winnerH + 'px';
-      topDiv.style.width = width + 'px';
-
-      if(colIndex === 0){
-        // leftmost column: render full player info and add hover handlers
-        topDiv.setAttribute('onmouseover', `highlight_player(1,'${wClass}'); highlight_player(1,'${lClass}');`);
-        topDiv.setAttribute('onmouseout',  `highlight_player(2,'${wClass}'); highlight_player(2,'${lClass}');`);
-
-        const wseedRaw = m.winner_seed || m.winnerSeed || '';
-        const wseed = formatSeed(wseedRaw);
-        const seedNode = document.createElement('div');
-        if(wseed && /^\d+$/.test(wseed)){ seedNode.className='seed-num'; seedNode.textContent = wseed; }
-        else { seedNode.className='seed-text'; seedNode.innerHTML = (wseed ? wseed : '\u00A0'); }
-        topDiv.appendChild(seedNode);
-        topDiv.appendChild(makeFlagElem(m.winner_country || m.winner_nationality || m.winner_country_code || ''));
-        const wname = m.winner_player_name || m.winner_name || '';
-        const { last: wlast, firstInitial: wfirstInitial } = splitNameToLastAndInitial(wname);
-        const wA = document.createElement('a'); wA.href = m.player_id_winner ? `/player/${slugify(wname)}/${m.player_id_winner}/` : '#';
-        wA.className = 'player-link';
-        wA.innerHTML = `<strong style="font-size:11px">${(wlast||'—').toUpperCase()}</strong><span class="player-first">${ wfirstInitial ? ', ' + wfirstInitial : '' }</span>`;
-        topDiv.appendChild(wA);
-      } else {
-        // placeholder only (no hover handlers, no row-top class)
-        topDiv.innerHTML = '&nbsp;';
-      }
-      container.appendChild(topDiv);
-
-      /* --- BOTTOM ROW (only full/interactive for leftmost col) --- */
-      const bottomDiv = document.createElement('div');
-      bottomDiv.className = lClass + ' match-row' + (colIndex === 0 ? ' row-bottom' : '');
-      bottomDiv.style.top = bottomRowTop + 'px';
-      bottomDiv.style.left = left + 'px';
-      bottomDiv.style.height = loserH + 'px';
-      bottomDiv.style.width = width + 'px';
-
-      if(colIndex === 0){
-        bottomDiv.setAttribute('onmouseover', `highlight_player(1,'${lClass}');`);
-        bottomDiv.setAttribute('onmouseout',  `highlight_player(2,'${lClass}');`);
-
-        const lseedRaw = m.loser_seed || m.loserSeed || '';
-        const lseed = formatSeed(lseedRaw);
-        const seedNode2 = document.createElement('div');
-        if(lseed && /^\d+$/.test(lseed)){ seedNode2.className='seed-num'; seedNode2.textContent = lseed; }
-        else { seedNode2.className='seed-text'; seedNode2.innerHTML = (lseed? lseed : '\u00A0'); }
-        bottomDiv.appendChild(seedNode2);
-        bottomDiv.appendChild(makeFlagElem(m.loser_country || m.loser_nationality || m.loser_country_code || ''));
-        const lname = m.loser_player_name || m.loser_name || '';
-        if(!lname || /^BYE$/i.test(lname)){
-          const byeSpan = document.createElement('span'); byeSpan.className='bye'; byeSpan.textContent='BYE'; bottomDiv.appendChild(byeSpan);
-        } else {
-          const { last: llast, firstInitial: lfirstInitial } = splitNameToLastAndInitial(lname);
-          const lA = document.createElement('a'); lA.href = m.player_id_loser ? `/player/${slugify(lname)}/${m.player_id_loser}/` : '#';
-          lA.className = 'player-link';
-          lA.innerHTML = `<strong style="font-size:11px">${(llast||'—').toUpperCase()}</strong><span class="player-first">${ lfirstInitial ? ', ' + lfirstInitial : '' }</span>`;
-          bottomDiv.appendChild(lA);
-        }
-      } else {
-        // placeholder only (no handlers)
-        bottomDiv.innerHTML = '&nbsp;';
-      }
-      container.appendChild(bottomDiv);
-
-      /* --- MID-BLOCK (keep hover as before) --- */
-      const midOffsetCss = getComputedStyle(document.documentElement).getPropertyValue('--mid-offset') || '0px';
-      const midOffsetPx = parseInt(midOffsetCss, 10) || 0;
-      const prevColRight = (colIndex === 0)
-        ? (left + width)
-        : ((colIndex - 1) * (colWidthSmall + colGap) + (colWidth - colWidthSmall) + ((colIndex - 1) === 0 ? colWidth : colWidthSmall));
-      const midX = Math.round((prevColRight + left) / 2) + midOffsetPx;
-
-      const midBlock = document.createElement('div');
-      midBlock.className = 'mid-block';
-      midBlock.style.left = midX + 'px';
-      midBlock.style.top = (center - Math.round(midH / 2)) + 'px';
-      midBlock.style.width = midWidth + 'px';
-      midBlock.style.marginLeft = (-Math.round(midWidth/2)) + 'px';
-
-      const wname_full = m.winner_player_name || m.winner_name || '';
-      const winnerHref = m.player_id_winner ? `/player/${slugify(wname_full)}/${m.player_id_winner}/` : '#';
-      const winnerContain = document.createElement('a');
-      winnerContain.href = winnerHref;
-      winnerContain.style.textDecoration = 'none';
-      winnerContain.style.color = 'inherit';
-      winnerContain.className = 'mid-winner player-link';
-
-      const wseedRaw2 = m.winner_seed || m.winnerSeed || '';
-      const wseed2 = formatSeed(wseedRaw2);
-      if(wseed2 && /^\d+$/.test(wseed2)){
-        const sn = document.createElement('div'); sn.className='seed-num'; sn.textContent = wseed2; winnerContain.appendChild(sn);
-      } else {
-        const sn2 = document.createElement('div'); sn2.className='seed-text'; sn2.innerHTML = (wseed2 ? wseed2 : '\u00A0'); winnerContain.appendChild(sn2);
-      }
-
-      winnerContain.appendChild(makeFlagElem(m.winner_country || m.winner_nationality || m.winner_country_code || ''));
-
-      const { last: wlast2, firstInitial: wfirstInitial2 } = splitNameToLastAndInitial(wname_full);
-      const nameSpan = document.createElement('strong');
-      nameSpan.style.fontSize = '11px';
-      nameSpan.textContent = (wlast2 || '—').toUpperCase();
-      winnerContain.appendChild(nameSpan);
-      if(wfirstInitial2){
-        const fi = document.createElement('span'); fi.className='player-first'; fi.textContent = ', ' + wfirstInitial2; winnerContain.appendChild(fi);
-      }
-      midBlock.appendChild(winnerContain);
-
-      const midBar = document.createElement('div'); midBar.className='mid-bar'; midBlock.appendChild(midBar);
-      const scoreLabel = document.createElement('div'); scoreLabel.className='mid-score';
-      scoreLabel.innerHTML = scoreToHtml(m.score_string || m.score || '') || '\u00A0';
-      midBlock.appendChild(scoreLabel);
-
-      midBlock.onmouseover = () => { highlight_player(1, wClass); highlight_player(1, lClass); };
-      midBlock.onmouseout  = () => { highlight_player(2, wClass); highlight_player(2, lClass); };
-
-      container.appendChild(midBlock);
-
-      thisPositions.push({ topRowTop, midTop, bottomRowTop, bottomRowBottom, center, left, width, midX, midTop, midBottom: midTop + midH, matchRef: m });
+    // horizontals from each child to spine
+    childIndices.forEach(ci => {
+      const c = children[ci];
+      drawPolyline([[c.midX, c.center], [spineX, c.center]], 1);
     });
 
-    positionsByRound.push(thisPositions);
-  });
-
-  /* draw connectors (kept as in previous step) */
-  function drawPolyline(points, strokeWidth){
-    const reduced = points.filter((p,i,arr) => { if(i===0) return true; const prev = arr[i-1]; return !(prev[0]===p[0] && prev[1]===p[1]); });
-    if(reduced.length < 2) return;
-    const poly = document.createElementNS('http://www.w3.org/2000/svg','polyline');
-    poly.setAttribute('points', reduced.map(p => (p[0] + ',' + p[1])).join(' '));
-    poly.setAttribute('fill','none');
-    poly.setAttribute('stroke', getComputedStyle(document.documentElement).getPropertyValue('--line-color') || '#797979');
-    poly.setAttribute('stroke-width', (strokeWidth || 1));
-    poly.setAttribute('stroke-linecap','square');
-    poly.setAttribute('stroke-linejoin','miter');
-    svg.appendChild(poly);
+    // Note: we do NOT draw a horizontal from parent.midX to spineX.
+    // The mid-block's internal .mid-bar is the visible horizontal at parent.
   }
+}
 
-  for(let colIndex=0; colIndex<positionsByRound.length - 1; colIndex++){
-    const children = positionsByRound[colIndex];
-    const parents = positionsByRound[colIndex + 1];
-    if(!children || !parents) continue;
-
-    const mapping = new Array(parents.length).fill(0).map(()=>[]);
-    for(let i=0;i<children.length;i++){
-      const parentIndex = Math.floor(i * parents.length / children.length);
-      const idx = Math.min(Math.max(parentIndex,0), parents.length-1);
-      mapping[idx].push(i);
-    }
-
-    for(let p=0;p<parents.length;p++){
-      const childIndices = mapping[p];
-      if(!childIndices || childIndices.length===0) continue;
-      const parent = parents[p];
-
-      let minY = Infinity, maxY = -Infinity, sumX = 0;
-      childIndices.forEach(ci => { const c = children[ci]; minY = Math.min(minY,c.center); maxY = Math.max(maxY,c.center); sumX += c.midX; });
-      const avgChildX = Math.round(sumX / childIndices.length);
-      const spineX = Math.round((avgChildX + parent.midX) / 2);
-
-      const parentBarY = parent.midTop + Math.round((parent.midBottom - parent.midTop)/2);
-      const vTop = Math.min(minY, parentBarY);
-      const vBottom = Math.max(maxY, parentBarY);
-      if(vBottom - vTop > 0) drawPolyline([[spineX, vTop], [spineX, vBottom]], 1);
-
-      childIndices.forEach(ci =>{
-        const c = children[ci];
-        drawPolyline([[c.midX, c.center], [spineX, c.center]], 1);
-      });
-    }
-  }
-
-} // end render
-render();
+/* Done. The structure is drawn. */
+/* Optional: print some debug info in console */
+console.log('Bracket skeleton generated: players=', totalPlayers, 'rounds=', rounds, 'firstRoundMatches=', firstRoundMatches);
 </script>
 </body>
 </html>
