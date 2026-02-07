@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Template bracket — squelette (iframe)</title>
+<title>Template bracket — squelette fidèle (JSON driven)</title>
 <style>
   body{font-family:Arial,Helvetica,sans-serif;background:#f3f3f3;margin:16px;}
   .container{padding:25px;background:white;overflow:auto;}
@@ -43,14 +43,11 @@
 <body>
 
 <h2>Template bracket — iframe (reçoit JSON via postMessage)</h2>
-<p class="note">Ce template ne charge pas de JSON lui-même — il attend un <code>postMessage</code> de la page parent avec <code>{type: 'tourney-data', payload}</code>.</p>
+<p class="note">Ce template ne charge pas le JSON SI le parent lui envoie un <code>postMessage</code>. Si aucun message ne vient, il tentera de charger le JSON en fallback via les query params <code>?source=...&t=...&year=...</code>.</p>
 
 <div class="container">
   <div class="wrapper">
     <div class="canvas" id="canvas">
-<hr>
-
-
 
       <!-- ======= COLONNE GAUCHE : LIGNES / BORDURES EXACTES ======= -->
       <div style="position: absolute; top: 0px; left: 0px; height: 20px; width: 180px; border-top: 1px solid rgb(121, 121, 121); text-align: left;" class="j_7874">
@@ -201,6 +198,10 @@
           <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
           <span class="flag" aria-hidden="true" data-match="MS028"></span>
           <span class="player-text" data-match="MS028" data-side="bottom" data-field="player">PlayerMS028</span>
+      </div>
+
+      <div style="position:absolute;top:720px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;" class="j_4162">
+          <!-- duplicate removed earlier, keep structure consistent -->
       </div>
 
       <div style="position:absolute;top:780px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;" class="j_8538">
@@ -377,8 +378,6 @@
       <div style="position:absolute;top:920px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">&nbsp;</div>
 
       <!-- ======= colonnes suivant le même squelette (droite) : conservent la même logique ======= -->
-      <!-- (Je reproduis ici les positions/bordures EXACTES comme dans ton exemple) -->
-
       <!-- Colonne 3 (exemples, mêmes positions) -->
       <div style="position:absolute; top: 30px; left: 310px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121,121,121); border-left: 1px solid rgb(121,121,121); text-align:left;">
           <span class="flag"></span>
@@ -507,65 +506,19 @@
 </div>
 
 <script>
-/* --- Helpers généraux --- */
-function parseJSON() {
-  const txt = document.getElementById('jsonArea').value;
-  try {
-    return JSON.parse(txt);
-  } catch (err) {
-    alert('JSON invalide : ' + err.message);
-    return null;
-  }
+/* ----------------------- UTILS ----------------------- */
+function qs(k){
+  try{ return new URLSearchParams(location.search).get(k); }catch(e){ return null; }
 }
-
-function buildMap(data) {
-  const map = new Map();
-  if (!data || !Array.isArray(data.matches)) return map;
-  for (const m of data.matches) {
-    if (!m.match_id) continue;
-    map.set(String(m.match_id).toUpperCase(), m);
-  }
-  return map;
-}
-
-/* small slugify fallback (used if aucun slug/id explicite) */
 function slugify(name){
   if(!name) return '';
   return String(name).trim().toLowerCase()
-    .normalize('NFKD').replace(/[\u0300-\u036F]/g, '') // remove accents
+    .normalize('NFKD').replace(/[\u0300-\u036F]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g,'');
 }
 
-/* determine if tournament JSON indicates WTA/female */
-function isWTAFromData(data){
-  if(!data) return false;
-  const s = (data.meta && (data.meta.source || data.meta.tourney || data.meta.tourney_id || data.meta.tourney_gender)) || data.source || '';
-  const up = String(s).toUpperCase();
-  if(up.includes('WTA') || up.includes('WOM') || up.includes('FEMALE')) return true;
-  // fallback: explicit flag
-  if(data.meta && (data.meta.gender === 'F' || data.meta.gender === 'W' || data.meta.tourney_gender === 'F')) return true;
-  return false;
-}
-
-function buildPlayerPageUrl({slug, id, name, useWta}) {
-  const base = useWta ? '/player_wta.html/' : '/player.html/';
-  if(slug) return base + encodeURIComponent(String(slug));
-  if(id) return base + encodeURIComponent(String(id).toLowerCase());
-  if(name) {
-    const s = slugify(name);
-    if(s) return base + encodeURIComponent(s);
-  }
-  return base; // worst-case: open index of player page
-}
-
-function buildMatchPageUrl({matchId, useWta}) {
-  const base = useWta ? '/match_wta.html/' : '/match.html/';
-  if(!matchId) return base;
-  return base + encodeURIComponent(String(matchId));
-}
-
-/* --- IOC / flag helpers (inchangés) --- */
+/* IOC -> ISO */
 const iocToIso = {
   "AUS":"AU","AUT":"AT","ARG":"AR","BEL":"BE","BRA":"BR","CAN":"CA",
   "CHN":"CN","CZE":"CZ","DEN":"DK","ESP":"ES","EST":"EE","FIN":"FI",
@@ -586,20 +539,54 @@ function iso2ToFlagEmoji(iso2) {
   return s;
 }
 
-/* --- Fonction principale : injecte noms / seeds / flags / liens --- */
+/* ---------- Fill from Map (same logic que ton original) ---------- */
+function buildMap(data) {
+  const map = new Map();
+  if (!data || !Array.isArray(data.matches)) return map;
+  for (const m of data.matches) {
+    if (!m.match_id) continue;
+    map.set(String(m.match_id).toUpperCase(), m);
+  }
+  return map;
+}
+
+/* detect WTA */
+function isWTAFromData(data){
+  if(!data) return false;
+  const s = (data.meta && (data.meta.source || data.meta.tourney || data.meta.tourney_id || data.meta.tourney_gender)) || data.source || '';
+  const up = String(s).toUpperCase();
+  if(up.includes('WTA') || up.includes('WOM') || up.includes('FEMALE')) return true;
+  if(data.meta && (data.meta.gender === 'F' || data.meta.gender === 'W' || data.meta.tourney_gender === 'F')) return true;
+  return false;
+}
+
+function buildPlayerPageUrl({slug, id, name, useWta}) {
+  const base = useWta ? '/player_wta.html/' : '/player.html/';
+  if(slug) return base + encodeURIComponent(String(slug));
+  if(id) return base + encodeURIComponent(String(id).toLowerCase());
+  if(name) {
+    const s = slugify(name);
+    if(s) return base + encodeURIComponent(s);
+  }
+  return base;
+}
+
+function buildMatchPageUrl({matchId, useWta}) {
+  const base = useWta ? '/match_wta.html/' : '/match.html/';
+  if(!matchId) return base;
+  return base + encodeURIComponent(String(matchId));
+}
+
 function fillFromMap(matchMap) {
-  // tentative de détecter si on est sur un bracket WTA via la data brute gardée globalement
   const rawData = window._bracketData || {};
   const useWta = isWTAFromData(rawData);
 
-  // players (top / bottom)
   document.querySelectorAll('[data-field="player"]').forEach(el => {
     const matchId = (el.dataset.match || '').toUpperCase();
     const side = (el.dataset.side || '').toLowerCase();
     const m = matchMap.get(matchId);
-    if (!m) return; // laisse placeholder
+    if (!m) return;
 
-    // priorités : explicit top/bottom fields si présents, sinon loser/winner fallback
     let topName = m.top_player_name || m.loser_player_name || '';
     let bottomName = m.bottom_player_name || m.winner_player_name || '';
 
@@ -632,16 +619,13 @@ function fillFromMap(matchMap) {
       playerSlug = m.winner_slug || m.loser_slug || m.slug || '';
     }
 
-    // Vider l'élément player pour éviter placeholder + vrai nom
     el.innerHTML = '';
 
-    // seed
     const seedSpan = document.createElement('span');
     seedSpan.className = 'seed';
     seedSpan.textContent = seed ? seed : '';
     el.appendChild(seedSpan);
 
-    // name (link si possible)
     const nameSpan = document.createElement('span');
     nameSpan.className = 'name';
     if(playerSlug || playerId || name){
@@ -651,14 +635,12 @@ function fillFromMap(matchMap) {
       a.href = url;
       a.textContent = name || (playerId ? playerId : '—');
       a.setAttribute('title', name || url);
-      // accessible: ouvrir dans même onglet par défaut, Ctrl/Right click remains supported
       nameSpan.appendChild(a);
     } else {
       nameSpan.textContent = name || '';
     }
     el.appendChild(nameSpan);
 
-    // flag : retrouver le .flag frère et mettre l'emoji
     const flag = el.parentElement ? el.parentElement.querySelector('.flag') : null;
     if (flag) {
       let iso2 = '';
@@ -673,14 +655,11 @@ function fillFromMap(matchMap) {
     }
   });
 
-
-  // winners (colonne des vainqueurs) : afficher nom + seed + emoji et lien
   document.querySelectorAll('[data-field="winner"]').forEach(el => {
     const matchId = (el.dataset.match || '').toUpperCase();
     const m = matchMap.get(matchId);
     if (!m) return;
 
-    // vidage
     el.innerHTML = '';
 
     const seedSpan = document.createElement('span');
@@ -693,7 +672,6 @@ function fillFromMap(matchMap) {
 
     const playerSlug = m.winner_slug || m.winner_player_slug || m.slug || '';
     const playerId = m.winner_player_id || m.winner_id || '';
-
     const displayName = m.winner_player_name || m.winner || '';
 
     if(playerSlug || playerId || displayName){
@@ -710,7 +688,6 @@ function fillFromMap(matchMap) {
 
     el.appendChild(nameSpan);
 
-    // flag voisin
     const flag = el.parentElement ? el.parentElement.querySelector('.flag') : null;
     if (flag) {
       let countryIOC = m.winner_country || '';
@@ -721,28 +698,25 @@ function fillFromMap(matchMap) {
     }
   });
 
-
-  // scores -> lien vers match.html / match_wta.html
   document.querySelectorAll('[data-field="score"]').forEach(el => {
     const matchId = (el.dataset.match || '').toUpperCase();
     const m = matchMap.get(matchId);
     if (!m) return;
     const score = m.score_string || m.score || m.scoreString || el.textContent || '';
 
-    // clear and create anchor
     el.innerHTML = '';
     const a = document.createElement('a');
     a.className = 'score-link';
-    a.href = buildMatchPageUrl({ matchId: m.match_id || matchId || m.event_id || m.matchId, useWta });
+    a.href = buildMatchPageUrl({ matchId: m.match_id || matchId || m.event_id || m.matchId });
     a.textContent = score;
     a.setAttribute('title', 'Voir le match ' + (m.match_id || matchId || ''));
     el.appendChild(a);
   });
+
+  setTimeout(createConnectors, 20);
 }
 
-/* ---------- Connectors (inchangés) ---------- */
-/* (la fonction createConnectors reste la même que dans ton original;
-   tu peux coller ici ta version existante sans modification) */
+/* ---------- Connectors (identique) ---------- */
 function createConnectors() {
   const canvas = document.getElementById('canvas');
   if (!canvas) return;
@@ -805,7 +779,7 @@ function createConnectors() {
   });
 }
 
-/* ---------- Reset placeholders et événements ---------- */
+/* ---------- placeholders reset ---------- */
 function resetPlaceholders() {
   document.querySelectorAll('[data-field="player"]').forEach(el => {
     const id = el.dataset.match || '';
@@ -831,32 +805,87 @@ function resetPlaceholders() {
   setTimeout(createConnectors, 20);
 }
 
-/* debounce utilitaire */
+/* debounce */
 function debounce(fn, wait=120){
   let t;
   return function(...a){ clearTimeout(t); t = setTimeout(()=>fn.apply(this,a), wait); };
 }
 
-/* évènements UI */
-document.getElementById('loadBtn').addEventListener('click', () => {
-  const data = parseJSON();
-  if (!data) return;
-  // store raw data globally so fillFromMap can inspect meta (ATP/WTA)
-  window._bracketData = data;
-  const map = buildMap(data);
+/* ------------------ postMessage handler ------------------ */
+window.addEventListener('message', function(ev){
+  try{
+    const d = ev.data || {};
+    if(d && d.type === 'tourney-data' && d.payload){
+      window._bracketData = d.payload;
+      const map = buildMap(d.payload);
+      fillFromMap(map);
+      setTimeout(createConnectors, 20);
+    }
+  }catch(e){
+    console.error('msg handler err', e);
+  }
+}, false);
+
+/* notify parent ready */
+function notifyReady(){
+  try{ window.parent.postMessage({type:'template-ready', template:'template_5'}, '*'); }catch(e){}
+}
+
+/* ---------- fallback fetch if opened standalone ---------- */
+/* build candidates similar to tournament.html */
+function buildJsonCandidates(source, id, year){
+  const s = (source||'').toLowerCase();
+  const candidates = [];
+  if(s && id && year) candidates.push(`/data/tournaments/${s}_${id}_${year}.json`);
+  if(s && id) candidates.push(`/data/tournaments/${s}_${id}.json`);
+  if(id && year) candidates.push(`/data/tournaments/${id}_${year}.json`);
+  if(id) candidates.push(`/data/tournaments/${id}.json`);
+  candidates.push(`/data/tournament.json`);
+  return Array.from(new Set(candidates));
+}
+async function fetchFirst(candidates){
+  for(const url of candidates){
+    try{
+      const r = await fetch(url, {cache:'no-cache'});
+      if(!r.ok) continue;
+      const j = await r.json();
+      return j;
+    }catch(e){}
+  }
+  return null;
+}
+
+/* try auto-load (fallback) if no postMessage after short wait */
+async function tryAutoLoadFallback(){
+  // if we already have bracketData from parent, stop
+  if(window._bracketData && window._bracketData.matches) return;
+  const source = qs('source') || 'atp';
+  const id = qs('t') || qs('id') || '';
+  const year = qs('year') || qs('y') || new Date().getFullYear();
+  if(!id) return; // nothing to do
+  const candidates = buildJsonCandidates(source, id, year);
+  const raw = await fetchFirst(candidates);
+  if(!raw) return;
+  // attempt to normalize a minimal structure if raw already much like your normalizeTournament
+  const meta = raw.meta || raw.tourney || raw.tournament || {};
+  const matches = Array.isArray(raw.matches) ? raw.matches : (Array.isArray(raw) ? raw : (raw.data || []));
+  const payload = { meta: Object.assign({source: source, tourney_id: id, year: year}, meta), matches: matches };
+  window._bracketData = payload;
+  const map = buildMap(payload);
   fillFromMap(map);
   setTimeout(createConnectors, 20);
-});
+}
 
-document.getElementById('resetBtn').addEventListener('click', () => {
-  resetPlaceholders();
-});
-
-window.addEventListener('resize', debounce(()=> { createConnectors(); }, 100));
-
-document.addEventListener('DOMContentLoaded', () => {
+/* ---------- init ---------- */
+document.addEventListener('DOMContentLoaded', function(){
   resetPlaceholders();
   setTimeout(createConnectors, 30);
+  notifyReady();
+
+  // if no postMessage received within 400ms, try to fetch based on query params
+  setTimeout(tryAutoLoadFallback, 400);
+
+  window.addEventListener('resize', debounce(()=> { createConnectors(); }, 100));
 });
 </script>
 
