@@ -180,7 +180,7 @@ def process_csv_file(path_csv, out_base, kind='atp', allowed_pairs=None):
         "kind": kind,
         "matches": index_matches
     }
-    index_file = out_dir / 'index.json'
+    index_file = 'docs' / 'index.json'
     with open(index_file, 'w', encoding='utf-8') as ii:
         json.dump(index_payload, ii, ensure_ascii=False, indent=2)
     print(f"[OK] Wrote index {index_file} (contains {len(index_matches)} matches)")

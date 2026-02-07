@@ -640,15 +640,19 @@ async function loadPlayerIndex(useWta){
   return p;
 }
 
-/* ---------- RESOLVE PLAYER HREF FROM INDEX ---------- */
 function resolveHrefFromIndex(idx, playerId){
   if(!idx || !playerId) return null;
   const candidates = [String(playerId), String(playerId).toUpperCase(), String(playerId).toLowerCase()];
   for(const k of candidates){
     const ent = idx.byId.get(k);
     if(ent && ent.page_href && typeof ent.page_href === 'string'){
-      const href = ent.page_href.replace(/^\/+/,''); // remove leading slash
-      return window.location.origin + '/' + href;
+      const href = ent.page_href.trim();
+      // Si c'est déjà une URL absolue, la renvoyer telle quelle
+      if (/^https?:\/\//i.test(href)) return href;
+      // Si c'est un chemin absolu '/foo/bar', concaténer avec origin proprement
+      if (href.startsWith('/')) return window.location.origin + href;
+      // sinon traiter comme chemin relatif
+      return window.location.origin + '/' + href.replace(/^\/+/, '');
     }
   }
   return null;
@@ -962,29 +966,21 @@ async function fillFromMap(matchMap) {
     a.setAttribute('title', 'Voir le match ' + (m.match_id || matchId || ''));
 
     // prefer explicit page link produced by generator
-    if(m.page_link) {
-      a.href = m.page_link;
-    } else if(m._index && m._index.link) {
-      a.href = m._index.link;
-    } else {
-      // deterministic candidates (first one wins, no network calls)
-      const useWta = isWTAFromData(window._bracketData);
-      const folderTemplate = useWta ? '/wta_matches/match_wta.html' : '/atp_matches/match_atp.html';
-      const rootTemplate   = useWta ? '/match_wta.html' : '/match_atp.html';
-      const tourney = m.tourney || (m._raw && (m._raw.event_id || m._raw.tourney_id)) || (window._bracketData && window._bracketData.meta && window._bracketData.meta.tourney_id) || '';
-      const year   = m.year   || (m._raw && (m._raw.event_year || m._raw.tourney_year)) || (window._bracketData && window._bracketData.meta && window._bracketData.meta.year) || '';
-      const mid    = m.match_id || m.matchId || (m._raw && (m._raw.match_id || m._raw.id)) || matchId || '';
-
-      const params = new URLSearchParams();
-      if(tourney) params.set('t', tourney);
-      if(year)   params.set('y', year);
-      if(mid)    params.set('m', mid);
-      const qs = params.toString();
-
-      const cand1 = qs ? (folderTemplate + '?' + qs) : folderTemplate;
-      const cand2 = qs ? (rootTemplate + '?' + qs) : rootTemplate;
-      const cand3 = (tourney && year && mid) ? (`/atp/${tourney}/${year}/${encodeURIComponent(mid)}`) : null;
-      const cand4 = (tourney && year && mid) ? (`/wta/${tourney}/${year}/${encodeURIComponent(mid)}`) : null;
+    // prefer explicit page link produced by generator (support multiple property names)
+const explicitLink = m.page_link || m.pageLink || m.link || m.page || (m._index && m._index.link) || null;
+if (explicitLink) {
+  const el = String(explicitLink).trim();
+  if (/^https?:\/\//i.test(el)) {
+    a.href = el;                    // absolute URL
+  } else if (el.startsWith('/')) {
+    a.href = el;                    // root-relative path
+  } else {
+    a.href = window.location.origin + '/' + el.replace(/^\/+/, ''); // relative -> resolve to origin
+  }
+} else {
+  a.href = cand1 || cand2 || cand3 || cand4 || '#';
+  a.dataset.candidates = JSON.stringify([cand1, cand2, cand3, cand4].filter(Boolean));
+}
 
       // --- remplacement recommandé (coller à la place de l'affectation a.href = ... ) ---
 /* normalize chosen link (avoid accidental whitespace, ensure starts with / or http) */
