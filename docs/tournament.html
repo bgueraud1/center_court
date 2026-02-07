@@ -253,16 +253,43 @@ function chooseTemplate(drawSize){
 let lastPayload = null;
 function loadTemplateAndSend(payload){
   if(!payload) return;
-  const template = chooseTemplate(payload.meta.singles_draw_size || 32);
-  iframe.src = template;
+  const drawSize = Number(payload.meta && payload.meta.singles_draw_size) || 32;
+  const template = chooseTemplate(drawSize);
+
+  // add query params as a helpful fallback (template can optionally use them)
+  const s = encodeURIComponent((payload.meta && payload.meta.source) || qs('source') || 'atp');
+  const tid = encodeURIComponent((payload.meta && payload.meta.tourney_id) || qs('t') || qs('id') || '');
+  const yr = encodeURIComponent((payload.meta && payload.meta.year) || qs('year') || qs('y') || '');
+  const templateUrl = `${template}?source=${s}&t=${tid}&year=${yr}`;
+
+  // set src (this triggers a load)
+  iframe.src = templateUrl;
+
+  // helper to try to postMessage (safe with try/catch)
+  function tryPost(){
+    try{
+      if(iframe && iframe.contentWindow){
+        iframe.contentWindow.postMessage({type:'tourney-data', payload}, '*');
+        debug('postMessage envoyé (attempt)');
+      }
+    }catch(e){
+      debug('postMessage err: '+ (e && e.message));
+    }
+  }
+
+  // on load try immediately
   const onLoad = ()=>{
-    try{ iframe.contentWindow.postMessage({type:'tourney-data', payload}, '*'); debug('postMessage envoyé'); }catch(e){ debug('postMessage err: '+e.message); }
+    tryPost();
+    // also retry a couple times with small delays (robustness)
+    setTimeout(tryPost, 250);
+    setTimeout(tryPost, 700);
     iframe.removeEventListener('load', onLoad);
-    // send again after short delay (templates may set their listener after load)
-    setTimeout(()=>{ try{ iframe.contentWindow.postMessage({type:'tourney-data', payload}, '*'); }catch(e){} }, 600);
   };
   iframe.addEventListener('load', onLoad);
+
+  // also: if template already signalled ready later, parent will send again
 }
+
 
 /* ---------- main entry ---------- */
 async function main(){
@@ -287,8 +314,13 @@ async function main(){
     if(!norm.meta.year) norm.meta.year = year;
     populateInfo(norm.meta);
     lastPayload = norm;
-    // if draw tab already active (unlikely), load it
+    lastPayload = norm;
+    // nouvelle ligne : charge automatiquement le template et envoie les données
+    loadTemplateAndSend(norm);
+
+    // si draw tab déjà actif, on l'avait déjà prévu ; conserver l'ancien comportement reste ok
     if(tabDraw.classList.contains('active')) loadTemplateAndSend(norm);
+    // if draw tab already active (unlikely), load it
   }catch(e){
     debug('load error: '+ e.message);
     document.getElementById('panel-info').appendChild(Object.assign(document.createElement('div'), {textContent:'Erreur chargement JSON: '+e.message, className:'text-danger mt-2'}));
