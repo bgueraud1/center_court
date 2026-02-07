@@ -538,7 +538,8 @@
 </div>
 
 <script>
-//* ---------- UTILITAIRES ---------- */
+/<script>
+/* ---------- UTILITAIRES ---------- */
 function qs(k){
   try{ return new URLSearchParams(location.search).get(k); }catch(e){ return null; }
 }
@@ -550,7 +551,7 @@ function slugify(name){
     .replace(/^-+|-+$/g,'');
 }
 
-/* IOC -> ISO + emoji (inchangé) */
+/* IOC -> ISO + emoji */
 const iocToIso = {
   "AUS":"AU","AUT":"AT","ARG":"AR","BEL":"BE","BRA":"BR","CAN":"CA",
   "CHN":"CN","CZE":"CZ","DEN":"DK","ESP":"ES","EST":"EE","FIN":"FI",
@@ -594,7 +595,6 @@ function isWTAFromData(data){
 }
 
 /* ---------- PLAYER INDEX LOADER (ATPI / WTA) ---------- */
-/* (inchangé) */
 window._playerIndexCache = window._playerIndexCache || { atp: null, wta: null, loading: {} };
 
 async function loadPlayerIndex(useWta){
@@ -670,7 +670,7 @@ function buildMatchPageUrlFromMatch(m){
   return q ? (base + '?' + q) : base;
 }
 
-/* ---------- CREATE CONNECTORS (identique) ---------- */
+/* ---------- CREATE CONNECTORS ---------- */
 function createConnectors() {
   const canvas = document.getElementById('canvas');
   if (!canvas) return;
@@ -764,8 +764,8 @@ function debounce(fn, wait=120){
   return function(...a){ clearTimeout(t); t = setTimeout(()=>fn.apply(this,a), wait); };
 }
 
-/* ---------- FILL FROM MATCH MAP (seulement via IDs pour les joueurs) ---------- */
-let _indexPromise = null; // promise de chargement de l'index courant (selon gender)
+/* ---------- FILL FROM MATCH MAP ---------- */
+let _indexPromise = null;
 
 async function fillFromMap(matchMap) {
   const rawData = window._bracketData || {};
@@ -851,7 +851,7 @@ async function fillFromMap(matchMap) {
     containerEl.appendChild(nameSpan);
   }
 
-  /* ---- fill players (top/bottom) ---- */
+  /* ---- fill players ---- */
   document.querySelectorAll('[data-field="player"]').forEach(el => {
     const matchId = (el.dataset.match || '').toUpperCase();
     const side = (el.dataset.side || '').toLowerCase();
@@ -888,7 +888,7 @@ async function fillFromMap(matchMap) {
     }
   });
 
-  /* ---- fill winners (use winner ids) ---- */
+  /* ---- fill winners ---- */
   document.querySelectorAll('[data-field="winner"]').forEach(el => {
     const matchId = (el.dataset.match || '').toUpperCase();
     const m = matchMap.get(matchId);
@@ -949,64 +949,103 @@ async function fillFromMap(matchMap) {
     }
   });
 
-  /* ---- fill scores: create top-level clickable link for the score ---- */
-  /* ---- fill scores: create top-level clickable link for the score (deterministic, no fetch) ---- */
-document.querySelectorAll('[data-field="score"]').forEach(el => {
-  const matchId = (el.dataset.match || '').toUpperCase();
-  const m = matchMap.get(matchId);
-  if(!m) return;
-  const score = m.score_string || m.score || m.scoreString || el.textContent || '';
+  /* ---- fill scores: deterministic, no fetch (safe) ---- */
+  document.querySelectorAll('[data-field="score"]').forEach(el => {
+    const matchId = (el.dataset.match || '').toUpperCase();
+    const m = matchMap.get(matchId);
+    if(!m) return;
+    const score = m.score_string || m.score || m.scoreString || el.textContent || '';
 
-  el.innerHTML = '';
-  const a = document.createElement('a');
-  a.className = 'score-link';
-  a.textContent = score || (m.match_id || matchId || '');
-  a.setAttribute('title', 'Voir le match ' + (m.match_id || matchId || ''));
+    el.innerHTML = '';
+    const a = document.createElement('a');
+    a.className = 'score-link';
+    a.textContent = score || (m.match_id || matchId || '');
+    a.setAttribute('title', 'Voir le match ' + (m.match_id || matchId || ''));
 
-  // 1) préférer un lien explicite généré par le script de génération (index.json)
-  if(m.page_link) {
-    a.href = m.page_link;
-  } else if(m._index && m._index.link) {
-    a.href = m._index.link;
-  } else {
-    // 2) construire des candidats plausibles (ordre de priorité)
-    const useWta = isWTAFromData(window._bracketData);
-    const folderTemplate = useWta ? '/wta_matches/match_wta.html' : '/atp_matches/match_atp.html';
-    const rootTemplate   = useWta ? '/match_wta.html' : '/match_atp.html';
-    // tenter d'extraire tourney/year depuis l'objet match ou depuis le payload
-    const tourney = m.tourney || (m._raw && (m._raw.event_id || m._raw.tourney_id)) || (window._bracketData && window._bracketData.meta && window._bracketData.meta.tourney_id) || '';
-    const year   = m.year   || (m._raw && (m._raw.event_year || m._raw.tourney_year)) || (window._bracketData && window._bracketData.meta && window._bracketData.meta.year) || '';
-    const mid    = m.match_id || m.matchId || (m._raw && (m._raw.match_id || m._raw.id)) || matchId || '';
+    // prefer explicit page link produced by generator
+    if(m.page_link) {
+      a.href = m.page_link;
+    } else if(m._index && m._index.link) {
+      a.href = m._index.link;
+    } else {
+      // deterministic candidates (first one wins, no network calls)
+      const useWta = isWTAFromData(window._bracketData);
+      const folderTemplate = useWta ? '/wta_matches/match_wta.html' : '/atp_matches/match_atp.html';
+      const rootTemplate   = useWta ? '/match_wta.html' : '/match_atp.html';
+      const tourney = m.tourney || (m._raw && (m._raw.event_id || m._raw.tourney_id)) || (window._bracketData && window._bracketData.meta && window._bracketData.meta.tourney_id) || '';
+      const year   = m.year   || (m._raw && (m._raw.event_year || m._raw.tourney_year)) || (window._bracketData && window._bracketData.meta && window._bracketData.meta.year) || '';
+      const mid    = m.match_id || m.matchId || (m._raw && (m._raw.match_id || m._raw.id)) || matchId || '';
 
-    const params = new URLSearchParams();
-    if(tourney) params.set('t', tourney);
-    if(year)   params.set('y', year);
-    if(mid)    params.set('m', mid);
-    const qs = params.toString();
+      const params = new URLSearchParams();
+      if(tourney) params.set('t', tourney);
+      if(year)   params.set('y', year);
+      if(mid)    params.set('m', mid);
+      const qs = params.toString();
 
-    // premier candidat : dossier (conserve ton comportement actuel)
-    const cand1 = qs ? (folderTemplate + '?' + qs) : folderTemplate;
-    // deuxième : racine (au cas où tes templates sont en root)
-    const cand2 = qs ? (rootTemplate + '?' + qs) : rootTemplate;
-    // troisième : "pretty" URL (si tu souhaites supporter /atp/ID/YEAR/MID)
-    const cand3 = (tourney && year && mid) ? (`/atp/${tourney}/${year}/${encodeURIComponent(mid)}`) : null;
-    const cand4 = (tourney && year && mid) ? (`/wta/${tourney}/${year}/${encodeURIComponent(mid)}`) : null;
+      const cand1 = qs ? (folderTemplate + '?' + qs) : folderTemplate;
+      const cand2 = qs ? (rootTemplate + '?' + qs) : rootTemplate;
+      const cand3 = (tourney && year && mid) ? (`/atp/${tourney}/${year}/${encodeURIComponent(mid)}`) : null;
+      const cand4 = (tourney && year && mid) ? (`/wta/${tourney}/${year}/${encodeURIComponent(mid)}`) : null;
 
-    // sélectionner le premier non-null
-    a.href = cand1 || cand2 || cand3 || cand4 || '#';
-    // utile pour debug, tu peux retirer en prod
-    a.dataset.candidates = JSON.stringify([cand1, cand2, cand3, cand4].filter(Boolean));
-  }
+      a.href = cand1 || cand2 || cand3 || cand4 || '#';
+      a.dataset.candidates = JSON.stringify([cand1, cand2, cand3, cand4].filter(Boolean));
+    }
 
-  // forcer top-level navigation (escape iframe)
-  a.target = '_top';
-  a.rel = 'noopener noreferrer';
+    a.target = '_top';
+    a.rel = 'noopener noreferrer';
+    el.appendChild(a);
+  });
 
-  el.appendChild(a);
-});
+  // after initial render, upgrade anchors if player index later resolves
+  _indexPromise.then(idx => {
+    if(!idx) return;
+    // elements that were rendered with data-player-id
+    const allNodes = document.querySelectorAll('[data-player-id]');
+    allNodes.forEach(node => {
+      const pid = node.dataset.playerId;
+      if(!pid) return;
+      const href = resolveHrefFromIndex(idx, pid);
+      if(!href) return;
+      if(node.tagName && node.tagName.toLowerCase() === 'a'){
+        try{
+          node.href = href;
+          node.setAttribute('title', node.textContent || href);
+          node.target = '_top';
+          node.rel = 'noopener noreferrer';
+        }catch(e){}
+        return;
+      }
+      const a = document.createElement('a');
+      a.className = 'player-link';
+      a.href = href;
+      a.target = '_top';
+      a.rel = 'noopener noreferrer';
+      a.textContent = node.textContent || pid;
+      a.setAttribute('title', node.textContent || href);
+      a.dataset.playerId = pid;
+      node.parentNode.replaceChild(a, node);
+    });
 
+    document.querySelectorAll('.player-text-plain').forEach(span => {
+      const pid = span.dataset.playerId;
+      if(!pid) return;
+      const href = resolveHrefFromIndex(idx, pid);
+      if(!href) return;
+      const a = document.createElement('a');
+      a.className = 'player-link';
+      a.href = href;
+      a.target = '_top';
+      a.rel = 'noopener noreferrer';
+      a.textContent = span.textContent || pid;
+      a.setAttribute('title', span.textContent || href);
+      a.dataset.playerId = pid;
+      span.parentNode.replaceChild(a, span);
+    });
 
+  }).catch(()=>{ /* ignore index errors */ });
 
+  setTimeout(createConnectors, 20);
+} // end fillFromMap
 
 /* ------------------ postMessage handler ------------------ */
 window.addEventListener('message', function(ev){
@@ -1028,7 +1067,7 @@ function notifyReady(){
   try{ window.parent.postMessage({type:'template-ready', template:'template_5'}, '*'); }catch(e){}
 }
 
-/* try auto-load fallback ONLY to fetch tournament JSON */
+/* try auto-load fallback ONLY to fetch tournament JSON (keeps original behaviour for standalone) */
 async function fetchFirst(candidates){
   for(const url of candidates){
     try{
@@ -1077,6 +1116,3 @@ document.addEventListener('DOMContentLoaded', function(){
   window.addEventListener('resize', debounce(()=> { createConnectors(); }, 100));
 });
 </script>
-
-</body>
-</html>
