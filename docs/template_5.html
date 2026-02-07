@@ -587,42 +587,120 @@ window._playerIndexCache = window._playerIndexCache || { atp: null, wta: null, l
  * charge (une seule fois) l'index players (atp ou wta) et renvoie une map lookup
  * key => entry (key: player_id , slug)
  */
+/* ---------- buildPlayerPageUrlAsync & wrapper (PRIORITÉ page_href) ---------- */
+
 async function loadPlayerIndex(useWta){
   const key = useWta ? 'wta' : 'atp';
-  if(window._playerIndexCache[key]) return window._playerIndexCache[key];
-
-  // si déjà en cours de chargement, retourne la même promesse
+  if(window._playerIndexCache && window._playerIndexCache[key]) return window._playerIndexCache[key];
+  window._playerIndexCache = window._playerIndexCache || { atp: null, wta: null, loading: {} };
   if(window._playerIndexCache.loading[key]) return window._playerIndexCache.loading[key];
 
-  const url = useWta ? '/index/players_wta_index.json' : '/index/players_index.json';
-  const p = fetch(url, {cache:'no-cache'}).then(async r => {
-    if(!r.ok) return null;
-    try{
-      const j = await r.json();
-      // construire deux maps : byId et bySlug
-      const byId = new Map();
-      const bySlug = new Map();
-      const arr = j && Array.isArray(j.players) ? j.players : (Array.isArray(j) ? j : (j && j.players) ? j.players : []);
-      for(const ent of arr){
-        if(ent.player_id) byId.set(String(ent.player_id), ent);
-        if(ent.slug) bySlug.set(String(ent.slug), ent);
-        // also register page_href tail for quick lookup
-        if(ent.page_href && typeof ent.page_href === 'string'){
-          const tail = ent.page_href.split('/').pop();
-          if(tail) bySlug.set(String(tail), ent);
+  const candidates = useWta
+    ? ['/index/players_wta_index.json','index/players_wta_index.json']
+    : ['/index/players_index.json','index/players_index.json'];
+
+  const p = (async ()=>{
+    for(const url of candidates){
+      try{
+        const r = await fetch(url, {cache:'no-cache'});
+        if(!r.ok) continue;
+        const j = await r.json();
+        const byId = new Map();
+        const bySlug = new Map();
+        const arr = j && Array.isArray(j.players) ? j.players : (Array.isArray(j) ? j : (j && j.players) ? j.players : []);
+        for(const ent of arr){
+          if(ent.player_id) byId.set(String(ent.player_id), ent);
+          if(ent.slug) bySlug.set(String(ent.slug), ent);
+          // page_href tail registration
+          if(ent.page_href && typeof ent.page_href === 'string'){
+            const tail = ent.page_href.split('/').pop();
+            if(tail) bySlug.set(String(tail), ent);
+            // also index by exact page_href
+            bySlug.set(String(ent.page_href), ent);
+          }
         }
+        const result = { byId, bySlug };
+        window._playerIndexCache[key] = result;
+        return result;
+      }catch(e){
+        // ignore, try next
       }
-      const result = { byId, bySlug };
-      window._playerIndexCache[key] = result;
-      return result;
-    }catch(e){
-      return null;
     }
-  }).catch(()=>null).finally(()=>{ delete window._playerIndexCache.loading[key]; });
+    return null;
+  })().finally(()=>{ delete window._playerIndexCache.loading[key]; });
 
   window._playerIndexCache.loading[key] = p;
   return p;
 }
+
+/**
+ * buildPlayerPageUrlAsync : retourne l'URL complète finale si page_href disponible
+ * priority:
+ *  - lookup by player_id => use ent.page_href if present
+ *  - lookup by slug => use ent.page_href if present
+ *  - fallback: old behaviour (player.html or player_wta.html or slug)
+ */
+async function buildPlayerPageUrlAsync({slug, id, name, useWta}){
+  try{
+    const idx = await loadPlayerIndex(!!useWta);
+    if(idx){
+      // 1) by id
+      if(id){
+        const ent = idx.byId.get(String(id)) || idx.byId.get(String(Number(id))) || null;
+        if(ent && ent.page_href){
+          const href = (ent.page_href.startsWith('/') ? ent.page_href.slice(1) : ent.page_href);
+          return window.location.origin + '/' + href;
+        }
+      }
+      // 2) by slug (or page_href-tail)
+      if(slug){
+        const ent = idx.bySlug.get(String(slug)) || null;
+        if(ent && ent.page_href){
+          const href = (ent.page_href.startsWith('/') ? ent.page_href.slice(1) : ent.page_href);
+          return window.location.origin + '/' + href;
+        }
+      }
+      // 3) by name (slow scan)
+      if(name){
+        const nameLower = String(name).trim().toLowerCase();
+        for(const ent of idx.byId.values()){
+          if(ent.name && String(ent.name).trim().toLowerCase() === nameLower){
+            if(ent.page_href){
+              const href = (ent.page_href.startsWith('/') ? ent.page_href.slice(1) : ent.page_href);
+              return window.location.origin + '/' + href;
+            }
+          }
+        }
+      }
+    }
+  }catch(e){
+    // ignore and fallback
+  }
+
+  // fallback old behaviour (sync-like)
+  const base = useWta ? '/player_wta.html/' : '/player.html/';
+  if(slug) return window.location.origin + base + encodeURIComponent(String(slug));
+  if(id) return window.location.origin + base + encodeURIComponent(String(id).toLowerCase());
+  if(name){
+    const s = slugify(name);
+    if(s) return window.location.origin + base + encodeURIComponent(s);
+  }
+  return window.location.origin + base;
+}
+
+/* synchronous wrapper: immediate fallback (keeps existing visible href), async resolver will update later */
+function buildPlayerPageUrl(params){
+  const useWta = !!params.useWta;
+  const base = useWta ? '/player_wta.html/' : '/player.html/';
+  if(params.slug) return window.location.origin + base + encodeURIComponent(String(params.slug));
+  if(params.id) return window.location.origin + base + encodeURIComponent(String(params.id).toLowerCase());
+  if(params.name){
+    const s = slugify(params.name);
+    if(s) return window.location.origin + base + encodeURIComponent(s);
+  }
+  return window.location.origin + base;
+}
+
 
 /**
  * buildPlayerPageUrl - utilise maintenant l'index si dispo.
@@ -753,10 +831,10 @@ function fillFromMap(matchMap) {
     seedSpan.textContent = seed ? seed : '';
     el.appendChild(seedSpan);
 
-        const nameSpan = document.createElement('span');
+           const nameSpan = document.createElement('span');
     nameSpan.className = 'name';
     if(playerSlug || playerId || name){
-      // sync fallback url (immediate)
+      // href immédiat (fallback)
       const urlSync = buildPlayerPageUrl({slug: playerSlug, id: playerId, name: name, useWta});
       const a = document.createElement('a');
       a.className = 'player-link';
@@ -765,20 +843,18 @@ function fillFromMap(matchMap) {
       a.setAttribute('title', name || urlSync);
       nameSpan.appendChild(a);
 
-      // async: try to fetch index and update href when known
+      // async : remplacer href si index fournit page_href
       buildPlayerPageUrlAsync({slug: playerSlug, id: playerId, name: name, useWta})
         .then(realUrl => {
           if(realUrl && realUrl !== a.href){
-            try{
-              a.href = realUrl;
-              a.setAttribute('title', name || realUrl);
-            }catch(e){}
+            try{ a.href = realUrl; a.setAttribute('title', name || realUrl); }catch(e){}
           }
         }).catch(()=>{});
     } else {
       nameSpan.textContent = name || '';
     }
     el.appendChild(nameSpan);
+
 
 
     const flag = el.parentElement ? el.parentElement.querySelector('.flag') : null;
