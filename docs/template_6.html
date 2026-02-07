@@ -1,0 +1,1346 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Template bracket — squelette fidèle (JSON driven)</title>
+<style>
+  body{font-family:Arial,Helvetica,sans-serif;background:#f3f3f3;margin:16px;}
+  .container{padding:25px;background:white;overflow:auto;}
+  .wrapper{position:relative;padding:80px 0 80px 0;}
+  .canvas{position:relative;height:950px;} /* hauteur identique à l'exemple */
+
+  .flag{display:inline-block;width:18px;height:12px;background:#eee;margin-right:4px;vertical-align:middle}
+  .player-text, .score-text, .winner-text{font-size:11px;color:#000;vertical-align:middle}
+  .muted{color:#808080;font-size:11px;padding-left:22px}
+  #jsonArea{width:100%;height:160px;font-family:monospace;margin-top:8px}
+  .controls{margin-top:8px;display:flex;gap:8px;align-items:center}
+  button{padding:8px 12px;cursor:pointer}
+  .note{font-size:13px;color:#444;margin-top:6px}
+  /* empêche la sélection des bordures lors du clic */
+  .canvas div{user-select:none}
+
+  /* Connectors (petits segments verticaux) */
+  .connector { position:absolute; width:0px; border-left:1px solid #797979; z-index:0; pointer-events:none; }
+</style>
+</head>
+<body>
+
+<h2>Template bracket — squelette fidèle (sans liens ni seeds visibles)</h2>
+<p class="note">Colle un JSON contenant une clé <code>matches</code> (tableau d'objets avec <code>match_id</code>, <code>winner_player_name</code>, <code>loser_player_name</code>, <code>score_string</code>, etc.) puis clique <strong>Charger JSON</strong>.</p>
+
+<textarea id="jsonArea">
+{
+  "meta": {
+    "source": "ATP",
+    "tourney_id": "336",
+    "year": 2026,
+    "tourney_name": "Hong Kong"
+  },
+  "matches": [
+    {
+      "match_id": "MS001",
+      "round": "Final",
+      "winner_player_name": "A. Bublik",
+      "loser_player_name": "L. Musetti",
+      "score_string": "6-7(2),3-6"
+    },
+    {
+      "match_id": "MS002",
+      "round": "Semifinals",
+      "winner_player_name": "L. Musetti",
+      "loser_player_name": "A. Rublev",
+      "score_string": "6-7(3),7-5,6-4"
+    }
+  ]
+}
+</textarea>
+
+<div class="controls">
+  <button id="loadBtn">Charger JSON</button>
+  <button id="resetBtn">Réinitialiser (placeholders)</button>
+  <div class="note">Aucun <code>href</code> n'est généré ; tout est injecté via JSON.</div>
+</div>
+
+<hr>
+
+<div class="container">
+  <div class="wrapper">
+    <div style="width:300px;height:62px;position:absolute;top:0;right:350px;"></div>
+
+    <div class="canvas" id="canvas">
+
+      <!-- ======= COLONNE GAUCHE : PLAYERS MS032 → MS063 ======= -->
+      <div style="position: absolute; top: 0px; left: 0px; height: 20px; width: 180px; border-top: 1px solid rgb(121, 121, 121); text-align: left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS032"></span>
+          <span class="player-text" data-match="MS032" data-side="top" data-field="player">PlayerMS032</span>
+      </div>
+
+      <div style="position:absolute;top:20px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS032"></span>
+          <span class="player-text" data-match="MS032" data-side="bottom" data-field="player">PlayerMS032</span>
+      </div>
+
+      <div style="position: absolute; top: 60px; left: 0px; height: 20px; width: 180px; border-top: 1px solid rgb(121, 121, 121); text-align: left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS033"></span>
+          <span class="player-text" data-match="MS033" data-side="top" data-field="player">PlayerMS033</span>
+      </div>
+
+      <div style="position:absolute;top:80px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS033"></span>
+          <span class="player-text" data-match="MS033" data-side="bottom" data-field="player">PlayerMS033</span>
+      </div>
+
+      <div style="position: absolute; top: 120px; left: 0px; height: 20px; width: 180px; border-top: 1px solid rgb(121, 121, 121); text-align: left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS034"></span>
+          <span class="player-text" data-match="MS034" data-side="top" data-field="player">PlayerMS034</span>
+      </div>
+
+      <div style="position:absolute;top:140px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS034"></span>
+          <span class="player-text" data-match="MS034" data-side="bottom" data-field="player">PlayerMS034</span>
+      </div>
+
+      <div style="position: absolute; top: 180px; left: 0px; height: 20px; width: 180px; border-top: 1px solid rgb(121, 121, 121); text-align: left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS035"></span>
+          <span class="player-text" data-match="MS035" data-side="top" data-field="player">PlayerMS035</span>
+      </div>
+
+      <div style="position:absolute;top:200px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS035"></span>
+          <span class="player-text" data-match="MS035" data-side="bottom" data-field="player">PlayerMS035</span>
+      </div>
+
+      <div style="position:absolute;top:240px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS036"></span>
+          <span class="player-text" data-match="MS036" data-side="top" data-field="player">PlayerMS036</span>
+      </div>
+
+      <div style="position:absolute;top:260px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS036"></span>
+          <span class="player-text" data-match="MS036" data-side="bottom" data-field="player">PlayerMS036</span>
+      </div>
+
+      <div style="position:absolute;top:300px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS037"></span>
+          <span class="player-text" data-match="MS037" data-side="top" data-field="player">PlayerMS037</span>
+      </div>
+
+      <div style="position:absolute;top:320px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS037"></span>
+          <span class="player-text" data-match="MS037" data-side="bottom" data-field="player">PlayerMS037</span>
+      </div>
+
+      <div style="position: absolute; top: 360px; left: 0px; height: 20px; width: 180px; border-top: 1px solid rgb(121, 121, 121); text-align: left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS038"></span>
+          <span class="player-text" data-match="MS038" data-side="top" data-field="player">PlayerMS038</span>
+      </div>
+
+      <div style="position: absolute; top: 380px; left: 0px; height: 20px; width: 180px; border-bottom: 1px solid rgb(121, 121, 121); text-align: left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS038"></span>
+          <span class="player-text" data-match="MS038" data-side="bottom" data-field="player">PlayerMS038</span>
+      </div>
+
+      <div style="position: absolute; top: 420px; left: 0px; height: 20px; width: 180px; border-top: 1px solid rgb(121, 121, 121); text-align: left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS039"></span>
+          <span class="player-text" data-match="MS039" data-side="top" data-field="player">PlayerMS039</span>
+      </div>
+
+      <div style="position: absolute; top: 440px; left: 0px; height: 20px; width: 180px; border-bottom: 1px solid rgb(121, 121, 121); text-align: left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS039"></span>
+          <span class="player-text" data-match="MS039" data-side="bottom" data-field="player">PlayerMS039</span>
+      </div>
+
+      <div style="position: absolute; top: 480px; left: 0px; height: 20px; width: 180px; border-top: 1px solid rgb(121, 121, 121); text-align: left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS040"></span>
+          <span class="player-text" data-match="MS040" data-side="top" data-field="player">PlayerMS040</span>
+      </div>
+
+      <div style="position: absolute; top: 500px; left: 0px; height: 20px; width: 180px; border-bottom: 1px solid rgb(121, 121, 121); text-align: left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS040"></span>
+          <span class="player-text" data-match="MS040" data-side="bottom" data-field="player">PlayerMS040</span>
+      </div>
+
+      <div style="position: absolute; top: 540px; left: 0px; height: 20px; width: 180px; border-top: 1px solid rgb(121, 121, 121); text-align: left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS041"></span>
+          <span class="player-text" data-match="MS041" data-side="top" data-field="player">PlayerMS041</span>
+      </div>
+
+      <div style="position: absolute; top: 560px; left: 0px; height: 20px; width: 180px; border-bottom: 1px solid rgb(121, 121, 121); text-align: left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS041"></span>
+          <span class="player-text" data-match="MS041" data-side="bottom" data-field="player">PlayerMS041</span>
+      </div>
+
+      <div style="position:absolute;top:600px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS042"></span>
+          <span class="player-text" data-match="MS042" data-side="top" data-field="player">PlayerMS042</span>
+      </div>
+
+      <div style="position: absolute; top: 620px; left: 0px; height: 20px; width: 180px; border-bottom: 1px solid rgb(121, 121, 121); text-align: left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS042"></span>
+          <span class="player-text" data-match="MS042" data-side="bottom" data-field="player">PlayerMS042</span>
+      </div>
+
+      <div style="position:absolute;top:660px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS043"></span>
+          <span class="player-text" data-match="MS043" data-side="top" data-field="player">PlayerMS043</span>
+      </div>
+
+      <div style="position:absolute;top:680px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS043"></span>
+          <span class="player-text" data-match="MS043" data-side="bottom" data-field="player">PlayerMS043</span>
+      </div>
+
+      <div style="position:absolute;top:720px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS044"></span>
+          <span class="player-text" data-match="MS044" data-side="top" data-field="player">PlayerMS044</span>
+      </div>
+
+      <div style="position:absolute;top:740px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS044"></span>
+          <span class="player-text" data-match="MS044" data-side="bottom" data-field="player">PlayerMS044</span>
+      </div>
+
+      <div style="position:absolute;top:780px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS045"></span>
+          <span class="player-text" data-match="MS045" data-side="top" data-field="player">PlayerMS045</span>
+      </div>
+
+      <div style="position:absolute;top:800px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS045"></span>
+          <span class="player-text" data-match="MS045" data-side="bottom" data-field="player">PlayerMS045</span>
+      </div>
+
+      <div style="position:absolute;top:840px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS046"></span>
+          <span class="player-text" data-match="MS046" data-side="top" data-field="player">PlayerMS046</span>
+      </div>
+
+      <div style="position:absolute;top:860px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS046"></span>
+          <span class="player-text" data-match="MS046" data-side="bottom" data-field="player">PlayerMS046</span>
+      </div>
+
+      <div style="position:absolute;top:900px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS047"></span>
+          <span class="player-text" data-match="MS047" data-side="top" data-field="player">PlayerMS047</span>
+      </div>
+
+      <div style="position: absolute; top: 920px; left: 0px; height: 20px; width: 180px; border-bottom: 1px solid rgb(121, 121, 121); text-align: left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS047"></span>
+          <span class="player-text" data-match="MS047" data-side="bottom" data-field="player">PlayerMS047</span>
+      </div>
+
+      <div style="position: absolute; top: 960px; left: 0px; height: 20px; width: 180px; border-top: 1px solid rgb(121, 121, 121); text-align: left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS048"></span>
+          <span class="player-text" data-match="MS048" data-side="top" data-field="player">PlayerMS048</span>
+      </div>
+
+      <div style="position: absolute; top: 980px; left: 0px; height: 20px; width: 180px; border-bottom: 1px solid rgb(121, 121, 121); text-align: left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS048"></span>
+          <span class="player-text" data-match="MS048" data-side="bottom" data-field="player">PlayerMS048</span>
+      </div>
+
+      <div style="position:absolute;top:1020px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS049"></span>
+          <span class="player-text" data-match="MS049" data-side="top" data-field="player">PlayerMS049</span>
+      </div>
+
+      <div style="position:absolute;top:1040px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS049"></span>
+          <span class="player-text" data-match="MS049" data-side="bottom" data-field="player">PlayerMS049</span>
+      </div>
+
+      <div style="position:absolute;top:1080px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;" >
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS050"></span>
+          <span class="player-text" data-match="MS050" data-side="top" data-field="player">PlayerMS050</span>
+      </div>
+
+      <div style="position:absolute;top:1100px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;" >
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS050"></span>
+          <span class="player-text" data-match="MS050" data-side="bottom" data-field="player">PlayerMS050</span>
+      </div>
+
+      <div style="position:absolute;top:1140px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS051"></span>
+          <span class="player-text" data-match="MS051" data-side="top" data-field="player">PlayerMS051</span>
+      </div>
+
+      <div style="position:absolute;top:1160px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS051"></span>
+          <span class="player-text" data-match="MS051" data-side="bottom" data-field="player">PlayerMS051</span>
+      </div>
+
+      <div style="position:absolute;top:1200px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS052"></span>
+          <span class="player-text" data-match="MS052" data-side="top" data-field="player">PlayerMS052</span>
+      </div>
+
+      <div style="position:absolute;top:1220px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS052"></span>
+          <span class="player-text" data-match="MS052" data-side="bottom" data-field="player">PlayerMS052</span>
+      </div>
+
+      <div style="position:absolute;top:1260px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS053"></span>
+          <span class="player-text" data-match="MS053" data-side="top" data-field="player">PlayerMS053</span>
+      </div>
+
+      <div style="position:absolute;top:1280px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS053"></span>
+          <span class="player-text" data-match="MS053" data-side="bottom" data-field="player">PlayerMS053</span>
+      </div>
+
+      <div style="position:absolute;top:1320px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS054"></span>
+          <span class="player-text" data-match="MS054" data-side="top" data-field="player">PlayerMS054</span>
+      </div>
+
+      <div style="position:absolute;top:1340px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS054"></span>
+          <span class="player-text" data-match="MS054" data-side="bottom" data-field="player">PlayerMS054</span>
+      </div>
+
+      <div style="position:absolute;top:1380px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS055"></span>
+          <span class="player-text" data-match="MS055" data-side="top" data-field="player">PlayerMS055</span>
+      </div>
+
+      <div style="position:absolute;top:1400px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS055"></span>
+          <span class="player-text" data-match="MS055" data-side="bottom" data-field="player">PlayerMS055</span>
+      </div>
+
+      <div style="position:absolute;top:1440px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS056"></span>
+          <span class="player-text" data-match="MS056" data-side="top" data-field="player">PlayerMS056</span>
+      </div>
+
+      <div style="position:absolute;top:1460px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS056"></span>
+          <span class="player-text" data-match="MS056" data-side="bottom" data-field="player">PlayerMS056</span>
+      </div>
+
+      <div style="position:absolute;top:1500px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS057"></span>
+          <span class="player-text" data-match="MS057" data-side="top" data-field="player">PlayerMS057</span>
+      </div>
+
+      <div style="position:absolute;top:1520px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS057"></span>
+          <span class="player-text" data-match="MS057" data-side="bottom" data-field="player">PlayerMS057</span>
+      </div>
+
+      <div style="position:absolute;top:1560px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS058"></span>
+          <span class="player-text" data-match="MS058" data-side="top" data-field="player">PlayerMS058</span>
+      </div>
+
+      <div style="position:absolute;top:1580px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS058"></span>
+          <span class="player-text" data-match="MS058" data-side="bottom" data-field="player">PlayerMS058</span>
+      </div>
+
+      <div style="position:absolute;top:1620px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS059"></span>
+          <span class="player-text" data-match="MS059" data-side="top" data-field="player">PlayerMS059</span>
+      </div>
+
+      <div style="position:absolute;top:1640px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS059"></span>
+          <span class="player-text" data-match="MS059" data-side="bottom" data-field="player">PlayerMS059</span>
+      </div>
+
+      <div style="position:absolute;top:1680px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS060"></span>
+          <span class="player-text" data-match="MS060" data-side="top" data-field="player">PlayerMS060</span>
+      </div>
+
+      <div style="position:absolute;top:1700px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS060"></span>
+          <span class="player-text" data-match="MS060" data-side="bottom" data-field="player">PlayerMS060</span>
+      </div>
+
+      <div style="position:absolute;top:1740px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS061"></span>
+          <span class="player-text" data-match="MS061" data-side="top" data-field="player">PlayerMS061</span>
+      </div>
+
+      <div style="position:absolute;top:1760px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS061"></span>
+          <span class="player-text" data-match="MS061" data-side="bottom" data-field="player">PlayerMS061</span>
+      </div>
+
+      <div style="position:absolute;top:1800px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS062"></span>
+          <span class="player-text" data-match="MS062" data-side="top" data-field="player">PlayerMS062</span>
+      </div>
+
+      <div style="position:absolute;top:1820px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS062"></span>
+          <span class="player-text" data-match="MS062" data-side="bottom" data-field="player">PlayerMS062</span>
+      </div>
+
+      <div style="position:absolute;top:1860px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS063"></span>
+          <span class="player-text" data-match="MS063" data-side="top" data-field="player">PlayerMS063</span>
+      </div>
+
+      <div style="position:absolute;top:1880px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;">
+          <div style="float:left;width:22px;font-size:11px;padding:2px;">&nbsp;</div>
+          <span class="flag" aria-hidden="true" data-match="MS063"></span>
+          <span class="player-text" data-match="MS063" data-side="bottom" data-field="player">PlayerMS063</span>
+      </div>
+
+      <!-- ======= COLONNE 2 : WINNERS & SCORES (MS032 → MS063) ======= -->
+      <div style="position: absolute; top: 0px; left: 180px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;">
+          <span class="flag" aria-hidden="true" data-match="MS032"></span>
+          <span class="winner-text" data-match="MS032" data-field="winner">VainqueurMS032</span>
+      </div>
+
+      <div style="position:absolute;top:20px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS032" data-field="score">ScoreMS032</span>
+      </div>
+
+      <div style="position: absolute; top: 60px; left: 180px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;">
+          <span class="flag" aria-hidden="true" data-match="MS033"></span>
+          <span class="winner-text" data-match="MS033" data-field="winner">VainqueurMS033</span>
+      </div>
+
+      <div style="position:absolute;top:80px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS033" data-field="score">ScoreMS033</span>
+      </div>
+
+      <div style="position: absolute; top: 120px; left: 180px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;">
+          <span class="flag" aria-hidden="true" data-match="MS034"></span>
+          <span class="winner-text" data-match="MS034" data-field="winner">VainqueurMS034</span>
+      </div>
+
+      <div style="position:absolute;top:140px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS034" data-field="score">ScoreMS034</span>
+      </div>
+
+      <div style="position:absolute;top:180px;left:180px;height:20px;width:130px;border-bottom:1px solid #797979;border-left:1px solid #797979;text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS035"></span>
+          <span class="winner-text" data-match="MS035" data-field="winner">VainqueurMS035</span>
+      </div>
+
+      <div style="position:absolute;top:200px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS035" data-field="score">ScoreMS035</span>
+      </div>
+
+      <div style="position:absolute;top:240px;left:180px;height:20px;width:130px;border-bottom:1px solid #797979;border-left:1px solid #797979;text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS036"></span>
+          <span class="winner-text" data-match="MS036" data-field="winner">VainqueurMS036</span>
+      </div>
+
+      <div style="position:absolute;top:260px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS036" data-field="score">ScoreMS036</span>
+      </div>
+
+      <div style="position:absolute;top:300px;left:180px;height:20px;width:130px;border-bottom:1px solid #797979;border-left:1px solid #797979;text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS037"></span>
+          <span class="winner-text" data-match="MS037" data-field="winner">VainqueurMS037</span>
+      </div>
+
+      <div style="position:absolute;top:320px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS037" data-field="score">ScoreMS037</span>
+      </div>
+
+      <div style="position:absolute;top:360px;left:180px;height:20px;width:130px;border-bottom:1px solid #797979;border-left:1px solid #797979;text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS038"></span>
+          <span class="winner-text" data-match="MS038" data-field="winner">VainqueurMS038</span>
+      </div>
+
+      <div style="position:absolute;top:380px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS038" data-field="score">ScoreMS038</span>
+      </div>
+
+      <div style="position:absolute;top:420px;left:180px;height:20px;width:130px;border-bottom:1px solid #797979;border-left:1px solid #797979;text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS039"></span>
+          <span class="winner-text" data-match="MS039" data-field="winner">VainqueurMS039</span>
+      </div>
+
+      <div style="position:absolute;top:440px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS039" data-field="score">ScoreMS039</span>
+      </div>
+
+      <div style="position:absolute;top:480px;left:180px;height:20px;width:130px;border-bottom:1px solid #797979;border-left:1px solid #797979;text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS040"></span>
+          <span class="winner-text" data-match="MS040" data-field="winner">VainqueurMS040</span>
+      </div>
+
+      <div style="position:absolute;top:500px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS040" data-field="score">ScoreMS040</span>
+      </div>
+
+      <div style="position:absolute;top:540px;left:180px;height:20px;width:130px;border-bottom:1px solid #797979;border-left:1px solid #797979;text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS041"></span>
+          <span class="winner-text" data-match="MS041" data-field="winner">VainqueurMS041</span>
+      </div>
+
+      <div style="position:absolute;top:560px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS041" data-field="score">ScoreMS041</span>
+      </div>
+
+      <div style="position:absolute;top:600px;left:180px;height:20px;width:130px;border-bottom:1px solid #797979;border-left:1px solid #797979;text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS042"></span>
+          <span class="winner-text" data-match="MS042" data-field="winner">VainqueurMS042</span>
+      </div>
+
+      <div style="position:absolute;top:620px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS042" data-field="score">ScoreMS042</span>
+      </div>
+
+      <div style="position:absolute;top:660px;left:180px;height:20px;width:130px;border-bottom:1px solid #797979;border-left:1px solid #797979;text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS043"></span>
+          <span class="winner-text" data-match="MS043" data-field="winner">VainqueurMS043</span>
+      </div>
+
+      <div style="position:absolute;top:680px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS043" data-field="score">ScoreMS043</span>
+      </div>
+
+      <div style="position:absolute;top:720px;left:180px;height:20px;width:130px;border-bottom:1px solid #797979;border-left:1px solid #797979;text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS044"></span>
+          <span class="winner-text" data-match="MS044" data-field="winner">VainqueurMS044</span>
+      </div>
+
+      <div style="position:absolute;top:740px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS044" data-field="score">ScoreMS044</span>
+      </div>
+
+      <div style="position:absolute;top:780px;left:180px;height:20px;width:130px;border-bottom:1px solid #797979;border-left:1px solid #797979;text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS045"></span>
+          <span class="winner-text" data-match="MS045" data-field="winner">VainqueurMS045</span>
+      </div>
+
+      <div style="position:absolute;top:800px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS045" data-field="score">ScoreMS045</span>
+      </div>
+
+      <div style="position:absolute;top:840px;left:180px;height:20px;width:130px;border-bottom:1px solid #797979;border-left:1px solid #797979;text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS046"></span>
+          <span class="winner-text" data-match="MS046" data-field="winner">VainqueurMS046</span>
+      </div>
+
+      <div style="position:absolute;top:860px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS046" data-field="score">ScoreMS046</span>
+      </div>
+
+      <div style="position:absolute;top:900px;left:180px;height:20px;width:130px;border-bottom:1px solid rgb(121,121,121);border-left:1px solid rgb(121,121,121);text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS047"></span>
+          <span class="winner-text" data-match="MS047" data-field="winner">VainqueurMS047</span>
+      </div>
+
+      <div style="position:absolute;top:920px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS047" data-field="score">ScoreMS047</span>
+      </div>
+
+      <div style="position:absolute;top:960px;left:180px;height:20px;width:130px;border-bottom:1px solid rgb(121,121,121);border-left:1px solid rgb(121,121,121);text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS048"></span>
+          <span class="winner-text" data-match="MS048" data-field="winner">VainqueurMS048</span>
+      </div>
+
+      <div style="position:absolute;top:980px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS048" data-field="score">ScoreMS048</span>
+      </div>
+
+      <div style="position:absolute;top:1020px;left:180px;height:20px;width:130px;border-bottom:1px solid rgb(121,121,121);border-left:1px solid rgb(121,121,121);text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS049"></span>
+          <span class="winner-text" data-match="MS049" data-field="winner">VainqueurMS049</span>
+      </div>
+
+      <div style="position:absolute;top:1040px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS049" data-field="score">ScoreMS049</span>
+      </div>
+
+      <div style="position:absolute;top:1080px;left:180px;height:20px;width:130px;border-bottom:1px solid rgb(121,121,121);border-left:1px solid rgb(121,121,121);text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS050"></span>
+          <span class="winner-text" data-match="MS050" data-field="winner">VainqueurMS050</span>
+      </div>
+
+      <div style="position:absolute;top:1100px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS050" data-field="score">ScoreMS050</span>
+      </div>
+
+      <div style="position:absolute;top:1140px;left:180px;height:20px;width:130px;border-bottom:1px solid rgb(121,121,121);border-left:1px solid rgb(121,121,121);text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS051"></span>
+          <span class="winner-text" data-match="MS051" data-field="winner">VainqueurMS051</span>
+      </div>
+
+      <div style="position:absolute;top:1160px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS051" data-field="score">ScoreMS051</span>
+      </div>
+
+      <div style="position:absolute;top:1200px;left:180px;height:20px;width:130px;border-bottom:1px solid rgb(121,121,121);border-left:1px solid rgb(121,121,121);text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS052"></span>
+          <span class="winner-text" data-match="MS052" data-field="winner">VainqueurMS052</span>
+      </div>
+
+      <div style="position:absolute;top:1220px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS052" data-field="score">ScoreMS052</span>
+      </div>
+
+      <div style="position:absolute;top:1260px;left:180px;height:20px;width:130px;border-bottom:1px solid rgb(121,121,121);border-left:1px solid rgb(121,121,121);text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS053"></span>
+          <span class="winner-text" data-match="MS053" data-field="winner">VainqueurMS053</span>
+      </div>
+
+      <div style="position:absolute;top:1280px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS053" data-field="score">ScoreMS053</span>
+      </div>
+
+      <div style="position:absolute;top:1320px;left:180px;height:20px;width:130px;border-bottom:1px solid rgb(121,121,121);border-left:1px solid rgb(121,121,121);text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS054"></span>
+          <span class="winner-text" data-match="MS054" data-field="winner">VainqueurMS054</span>
+      </div>
+
+      <div style="position:absolute;top:1340px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS054" data-field="score">ScoreMS054</span>
+      </div>
+
+      <div style="position:absolute;top:1380px;left:180px;height:20px;width:130px;border-bottom:1px solid rgb(121,121,121);border-left:1px solid rgb(121,121,121);text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS055"></span>
+          <span class="winner-text" data-match="MS055" data-field="winner">VainqueurMS055</span>
+      </div>
+
+      <div style="position:absolute;top:1400px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS055" data-field="score">ScoreMS055</span>
+      </div>
+
+      <div style="position:absolute;top:1440px;left:180px;height:20px;width:130px;border-bottom:1px solid rgb(121,121,121);border-left:1px solid rgb(121,121,121);text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS056"></span>
+          <span class="winner-text" data-match="MS056" data-field="winner">VainqueurMS056</span>
+      </div>
+
+      <div style="position:absolute;top:1460px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS056" data-field="score">ScoreMS056</span>
+      </div>
+
+      <div style="position:absolute;top:1500px;left:180px;height:20px;width:130px;border-bottom:1px solid rgb(121,121,121);border-left:1px solid rgb(121,121,121);text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS057"></span>
+          <span class="winner-text" data-match="MS057" data-field="winner">VainqueurMS057</span>
+      </div>
+
+      <div style="position:absolute;top:1520px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS057" data-field="score">ScoreMS057</span>
+      </div>
+
+      <div style="position:absolute;top:1560px;left:180px;height:20px;width:130px;border-bottom:1px solid rgb(121,121,121);border-left:1px solid rgb(121,121,121);text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS058"></span>
+          <span class="winner-text" data-match="MS058" data-field="winner">VainqueurMS058</span>
+      </div>
+
+      <div style="position:absolute;top:1580px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS058" data-field="score">ScoreMS058</span>
+      </div>
+
+      <div style="position:absolute;top:1620px;left:180px;height:20px;width:130px;border-bottom:1px solid rgb(121,121,121);border-left:1px solid rgb(121,121,121);text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS059"></span>
+          <span class="winner-text" data-match="MS059" data-field="winner">VainqueurMS059</span>
+      </div>
+
+      <div style="position:absolute;top:1640px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS059" data-field="score">ScoreMS059</span>
+      </div>
+
+      <div style="position:absolute;top:1680px;left:180px;height:20px;width:130px;border-bottom:1px solid rgb(121,121,121);border-left:1px solid rgb(121,121,121);text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS060"></span>
+          <span class="winner-text" data-match="MS060" data-field="winner">VainqueurMS060</span>
+      </div>
+
+      <div style="position:absolute;top:1700px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS060" data-field="score">ScoreMS060</span>
+      </div>
+
+      <div style="position:absolute;top:1740px;left:180px;height:20px;width:130px;border-bottom:1px solid rgb(121,121,121);border-left:1px solid rgb(121,121,121);text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS061"></span>
+          <span class="winner-text" data-match="MS061" data-field="winner">VainqueurMS061</span>
+      </div>
+
+      <div style="position:absolute;top:1760px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS061" data-field="score">ScoreMS061</span>
+      </div>
+
+      <div style="position:absolute;top:1800px;left:180px;height:20px;width:130px;border-bottom:1px solid rgb(121,121,121);border-left:1px solid rgb(121,121,121);text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS062"></span>
+          <span class="winner-text" data-match="MS062" data-field="winner">VainqueurMS062</span>
+      </div>
+
+      <div style="position:absolute;top:1820px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS062" data-field="score">ScoreMS062</span>
+      </div>
+
+      <div style="position:absolute;top:1860px;left:180px;height:20px;width:130px;border-bottom:1px solid rgb(121,121,121);border-left:1px solid rgb(121,121,121);text-align:left;">
+          <span class="flag" aria-hidden="true" data-match="MS063"></span>
+          <span class="winner-text" data-match="MS063" data-field="winner">VainqueurMS063</span>
+      </div>
+
+      <div style="position:absolute;top:1880px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS063" data-field="score">ScoreMS063</span>
+      </div>
+
+      <!-- ======= COLONNE 3 : WINNERS 2nd round (MS016 → MS031) ======= -->
+      <div style="position:absolute; top: 30px; left: 310px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;">
+          <span class="flag" aria-hidden="true" data-match="MS016"></span>
+          <span class="winner-text" data-match="MS016" data-field="winner">VainqueurMS016</span>
+      </div>
+      <div style="position:absolute;top:50px;left:310px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS016" data-field="score">ScoreMS016</span>
+      </div>
+
+      <div style="position:absolute; top: 150px; left: 310px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;">
+          <span class="flag" aria-hidden="true" data-match="MS017"></span>
+          <span class="winner-text" data-match="MS017" data-field="winner">VainqueurMS017</span>
+      </div>
+      <div style="position:absolute;top:170px;left:310px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS017" data-field="score">ScoreMS017</span>
+      </div>
+
+      <div style="position:absolute; top: 270px; left: 310px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;">
+          <span class="flag" aria-hidden="true" data-match="MS018"></span>
+          <span class="winner-text" data-match="MS018" data-field="winner">VainqueurMS018</span>
+      </div>
+      <div style="position:absolute;top:290px;left:310px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS018" data-field="score">ScoreMS018</span>
+      </div>
+
+      <div style="position:absolute; top: 390px; left: 310px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;">
+          <span class="flag" aria-hidden="true" data-match="MS019"></span>
+          <span class="winner-text" data-match="MS019" data-field="winner">VainqueurMS019</span>
+      </div>
+      <div style="position:absolute;top:410px;left:310px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS019" data-field="score">ScoreMS019</span>
+      </div>
+
+      <div style="position:absolute; top: 510px; left: 310px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;">
+          <span class="flag" aria-hidden="true" data-match="MS020"></span>
+          <span class="winner-text" data-match="MS020" data-field="winner">VainqueurMS020</span>
+      </div>
+      <div style="position:absolute;top:530px;left:310px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS020" data-field="score">ScoreMS020</span>
+      </div>
+
+      <div style="position:absolute; top: 630px; left: 310px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;">
+          <span class="flag" aria-hidden="true" data-match="MS021"></span>
+          <span class="winner-text" data-match="MS021" data-field="winner">VainqueurMS021</span>
+      </div>
+      <div style="position:absolute;top:650px;left:310px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS021" data-field="score">ScoreMS021</span>
+      </div>
+
+      <div style="position:absolute; top: 750px; left: 310px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;">
+          <span class="flag" aria-hidden="true" data-match="MS022"></span>
+          <span class="winner-text" data-match="MS022" data-field="winner">VainqueurMS022</span>
+      </div>
+      <div style="position:absolute;top:770px;left:310px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS022" data-field="score">ScoreMS022</span>
+      </div>
+
+      <div style="position:absolute; top: 870px; left: 310px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;">
+          <span class="flag" aria-hidden="true" data-match="MS023"></span>
+          <span class="winner-text" data-match="MS023" data-field="winner">VainqueurMS023</span>
+      </div>
+      <div style="position:absolute;top:890px;left:310px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS023" data-field="score">ScoreMS023</span>
+      </div>
+
+      <div style="position:absolute; top: 990px; left: 310px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;">
+          <span class="flag" aria-hidden="true" data-match="MS024"></span>
+          <span class="winner-text" data-match="MS024" data-field="winner">VainqueurMS024</span>
+      </div>
+      <div style="position:absolute;top:1010px;left:310px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS024" data-field="score">ScoreMS024</span>
+      </div>
+
+      <div style="position:absolute; top: 1110px; left: 310px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;">
+          <span class="flag" aria-hidden="true" data-match="MS025"></span>
+          <span class="winner-text" data-match="MS025" data-field="winner">VainqueurMS025</span>
+      </div>
+      <div style="position:absolute;top:1130px;left:310px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS025" data-field="score">ScoreMS025</span>
+      </div>
+
+      <div style="position:absolute; top: 1230px; left: 310px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;">
+          <span class="flag" aria-hidden="true" data-match="MS026"></span>
+          <span class="winner-text" data-match="MS026" data-field="winner">VainqueurMS026</span>
+      </div>
+      <div style="position:absolute;top:1250px;left:310px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS026" data-field="score">ScoreMS026</span>
+      </div>
+
+      <div style="position:absolute; top: 1350px; left: 310px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;">
+          <span class="flag" aria-hidden="true" data-match="MS027"></span>
+          <span class="winner-text" data-match="MS027" data-field="winner">VainqueurMS027</span>
+      </div>
+      <div style="position:absolute;top:1370px;left:310px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS027" data-field="score">ScoreMS027</span>
+      </div>
+
+      <div style="position:absolute; top: 1470px; left: 310px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;">
+          <span class="flag" aria-hidden="true" data-match="MS028"></span>
+          <span class="winner-text" data-match="MS028" data-field="winner">VainqueurMS028</span>
+      </div>
+      <div style="position:absolute;top:1490px;left:310px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS028" data-field="score">ScoreMS028</span>
+      </div>
+
+      <div style="position:absolute; top: 1590px; left: 310px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;">
+          <span class="flag" aria-hidden="true" data-match="MS029"></span>
+          <span class="winner-text" data-match="MS029" data-field="winner">VainqueurMS029</span>
+      </div>
+      <div style="position:absolute;top:1610px;left:310px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS029" data-field="score">ScoreMS029</span>
+      </div>
+
+      <div style="position:absolute; top: 1710px; left: 310px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;">
+          <span class="flag" aria-hidden="true" data-match="MS030"></span>
+          <span class="winner-text" data-match="MS030" data-field="winner">VainqueurMS030</span>
+      </div>
+      <div style="position:absolute;top:1730px;left:310px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS030" data-field="score">ScoreMS030</span>
+      </div>
+
+      <div style="position:absolute; top: 1830px; left: 310px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;">
+          <span class="flag" aria-hidden="true" data-match="MS031"></span>
+          <span class="winner-text" data-match="MS031" data-field="winner">VainqueurMS031</span>
+      </div>
+      <div style="position:absolute;top:1850px;left:310px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS031" data-field="score">ScoreMS031</span>
+      </div>
+
+      <!-- ======= COLONNE 4 : WINNERS 3rd round (MS008 → MS015) ======= -->
+      <div style="position:absolute; top: 90px; left: 440px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121,121,121); border-left: 1px solid rgb(121,121,121); text-align:left;">
+          <span class="winner-text" data-match="MS008" data-field="winner">VainqueurMS008</span>
+      </div>
+      <div style="position:absolute; top: 110px; left: 440px; height: 20px; width: 150px; border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS008" data-field="score">ScoreMS008</span>
+      </div>
+
+      <div style="position:absolute; top: 330px; left: 440px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121,121,121); border-left: 1px solid rgb(121,121,121); text-align:left;">
+          <span class="winner-text" data-match="MS009" data-field="winner">VainqueurMS009</span>
+      </div>
+      <div style="position:absolute; top: 350px; left: 440px; height: 20px; width:150px; border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS009" data-field="score">ScoreMS009</span>
+      </div>
+
+      <div style="position:absolute; top: 570px; left: 440px; height: 20px; width: 130px; border-bottom: 1px solid #797979; border-left: 1px solid #797979; text-align:left;">
+          <span class="winner-text" data-match="MS010" data-field="winner">VainqueurMS010</span>
+      </div>
+      <div style="position:absolute; top: 590px; left: 440px; height: 20px; width:150px; border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS010" data-field="score">ScoreMS010</span>
+      </div>
+
+      <div style="position:absolute; top: 810px; left: 440px; height: 20px; width: 130px; border-bottom: 1px solid #797979; border-left: 1px solid #797979; text-align:left;">
+          <span class="winner-text" data-match="MS011" data-field="winner">VainqueurMS011</span>
+      </div>
+      <div style="position:absolute; top: 830px; left: 440px; height: 20px; width:150px; border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS011" data-field="score">ScoreMS011</span>
+      </div>
+
+      <div style="position:absolute; top: 1050px; left: 440px; height: 20px; width: 130px; border-bottom: 1px solid #797979; border-left: 1px solid #797979; text-align:left;">
+          <span class="winner-text" data-match="MS012" data-field="winner">VainqueurMS012</span>
+      </div>
+      <div style="position:absolute; top: 1070px; left: 440px; height: 20px; width:150px; border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS012" data-field="score">ScoreMS012</span>
+      </div>
+
+      <div style="position:absolute; top: 1290px; left: 440px; height: 20px; width: 130px; border-bottom: 1px solid #797979; border-left: 1px solid #797979; text-align:left;">
+          <span class="winner-text" data-match="MS013" data-field="winner">VainqueurMS013</span>
+      </div>
+      <div style="position:absolute; top: 1310px; left: 440px; height: 20px; width:150px; border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS013" data-field="score">ScoreMS013</span>
+      </div>
+
+      <div style="position:absolute; top: 1530px; left: 440px; height: 20px; width: 130px; border-bottom: 1px solid #797979; border-left: 1px solid #797979; text-align:left;">
+          <span class="winner-text" data-match="MS014" data-field="winner">VainqueurMS014</span>
+      </div>
+      <div style="position:absolute; top: 1550px; left: 440px; height: 20px; width:150px; border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS014" data-field="score">ScoreMS014</span>
+      </div>
+
+      <div style="position:absolute; top: 1770px; left: 440px; height: 20px; width: 130px; border-bottom: 1px solid #797979; border-left: 1px solid #797979; text-align:left;">
+          <span class="winner-text" data-match="MS015" data-field="winner">VainqueurMS015</span>
+      </div>
+      <div style="position:absolute; top: 1790px; left: 440px; height: 20px; width:150px; border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS015" data-field="score">ScoreMS015</span>
+      </div>
+
+      <!-- ======= COLONNE 5 : WINNERS 4th round (MS004 → MS007) ======= -->
+      <div style="position:absolute; top: 210px; left: 570px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121,121,121); border-left: 1px solid rgb(121,121,121); text-align:left;">
+          <span class="winner-text" data-match="MS004" data-field="winner">VainqueurMS004</span>
+      </div>
+      <div style="position:absolute; top: 230px; left: 570px; height: 20px; width:150px; border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS004" data-field="score">ScoreMS004</span>
+      </div>
+
+      <div style="position:absolute; top: 690px; left: 570px; height: 20px; width: 130px; border-bottom: 1px solid #797979; border-left: 1px solid #797979; text-align:left;">
+          <span class="winner-text" data-match="MS005" data-field="winner">VainqueurMS005</span>
+      </div>
+      <div style="position:absolute; top: 710px; left: 570px; height: 20px; width:150px; border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS005" data-field="score">ScoreMS005</span>
+      </div>
+
+      <div style="position:absolute; top: 1170px; left: 570px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121,121,121); border-left: 1px solid rgb(121,121,121); text-align:left;">
+          <span class="winner-text" data-match="MS006" data-field="winner">VainqueurMS006</span>
+      </div>
+      <div style="position:absolute; top: 1190px; left: 570px; height: 20px; width:150px; border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS006" data-field="score">ScoreMS006</span>
+      </div>
+
+      <div style="position:absolute; top: 1650px; left: 570px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121,121,121); border-left: 1px solid rgb(121,121,121); text-align:left;">
+          <span class="winner-text" data-match="MS007" data-field="winner">VainqueurMS007</span>
+      </div>
+      <div style="position:absolute; top: 1670px; left: 570px; height: 20px; width:150px; border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS007" data-field="score">ScoreMS007</span>
+      </div>
+
+      <!-- ======= COLONNE 6 : WINNERS 5th round (MS002 → MS003) ======= -->
+      <div style="position:absolute; top: 450px; left: 700px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121,121,121); border-left: 1px solid rgb(121,121,121); text-align:left;">
+          <span class="winner-text" data-match="MS002" data-field="winner">VainqueurMS002</span>
+      </div>
+      <div style="position:absolute; top: 470px; left: 700px; height:20px; width:150px; border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS002" data-field="score">ScoreMS002</span>
+      </div>
+
+      <div style="position:absolute; top: 1410px; left: 700px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121,121,121); border-left: 1px solid rgb(121,121,121); text-align:left;">
+          <span class="winner-text" data-match="MS003" data-field="winner">VainqueurMS003</span>
+      </div>
+      <div style="position:absolute; top: 1430px; left: 700px; height:20px; width:150px; border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS003" data-field="score">ScoreMS003</span>
+      </div>
+
+      <!-- ======= COLONNE 7 : FINAL (MS001) ======= -->
+      <div style="position:absolute; top: 930px; left: 830px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121,121,121); border-left: 1px solid rgb(121,121,121); text-align:left;">
+          <span class="winner-text" data-match="MS001" data-field="winner">VainqueurMS001</span>
+      </div>
+      <div style="position:absolute; top: 950px; left: 830px; height:20px; width:150px; border-left:1px solid #797979;text-align:left;">
+          <span class="score-text" data-match="MS001" data-field="score">ScoreMS001</span>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+
+<script>
+/* --- Helpers généraux --- */
+function parseJSON() {
+  const txt = document.getElementById('jsonArea').value;
+  try {
+    return JSON.parse(txt);
+  } catch (err) {
+    alert('JSON invalide : ' + err.message);
+    return null;
+  }
+}
+
+function buildMap(data) {
+  const map = new Map();
+  if (!data || !Array.isArray(data.matches)) return map;
+  for (const m of data.matches) {
+    if (!m.match_id) continue;
+    map.set(String(m.match_id).toUpperCase(), m);
+  }
+  return map;
+}
+
+/* small slugify fallback (used if aucun slug/id explicite) */
+function slugify(name){
+  if(!name) return '';
+  return String(name).trim().toLowerCase()
+    .normalize('NFKD').replace(/[\u0300-\u036F]/g, '') // remove accents
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g,'');
+}
+
+/* determine if tournament JSON indicates WTA/female */
+function isWTAFromData(data){
+  if(!data) return false;
+  const s = (data.meta && (data.meta.source || data.meta.tourney || data.meta.tourney_id || data.meta.tourney_gender)) || data.source || '';
+  const up = String(s).toUpperCase();
+  if(up.includes('WTA') || up.includes('WOM') || up.includes('FEMALE')) return true;
+  // fallback: explicit flag
+  if(data.meta && (data.meta.gender === 'F' || data.meta.gender === 'W' || data.meta.tourney_gender === 'F')) return true;
+  return false;
+}
+
+function buildPlayerPageUrl({slug, id, name, useWta}) {
+  const base = useWta ? '/player_wta.html/' : '/player.html/';
+  if(slug) return base + encodeURIComponent(String(slug));
+  if(id) return base + encodeURIComponent(String(id).toLowerCase());
+  if(name) {
+    const s = slugify(name);
+    if(s) return base + encodeURIComponent(s);
+  }
+  return base; // worst-case: open index of player page
+}
+
+function buildMatchPageUrl({matchId, useWta}) {
+  const base = useWta ? '/match_wta.html/' : '/match.html/';
+  if(!matchId) return base;
+  return base + encodeURIComponent(String(matchId));
+}
+
+/* --- IOC / flag helpers (inchangés) --- */
+const iocToIso = {
+  "AUS":"AU","AUT":"AT","ARG":"AR","BEL":"BE","BRA":"BR","CAN":"CA",
+  "CHN":"CN","CZE":"CZ","DEN":"DK","ESP":"ES","EST":"EE","FIN":"FI",
+  "FRA":"FR","GBR":"GB","GER":"DE","GRE":"GR","HUN":"HU","ITA":"IT",
+  "JPN":"JP","KOR":"KR","NED":"NL","NZL":"NZ","POL":"PL","POR":"PT",
+  "RSA":"ZA","RUS":"RU","SUI":"CH","SWE":"SE","USA":"US"
+};
+function iso2ToFlagEmoji(iso2) {
+  if (!iso2 || iso2.length !== 2) return '';
+  const A = 'A'.charCodeAt(0);
+  let s = '';
+  iso2 = iso2.toUpperCase();
+  for (let i = 0; i < 2; i++) {
+    const code = iso2.charCodeAt(i);
+    if (code < A || code > A+25) return '';
+    s += String.fromCodePoint(0x1F1E6 + (code - A));
+  }
+  return s;
+}
+
+/* --- Fonction principale : injecte noms / seeds / flags / liens --- */
+function fillFromMap(matchMap) {
+  // tentative de détecter si on est sur un bracket WTA via la data brute gardée globalement
+  const rawData = window._bracketData || {};
+  const useWta = isWTAFromData(rawData);
+
+  // players (top / bottom)
+  document.querySelectorAll('[data-field="player"]').forEach(el => {
+    const matchId = (el.dataset.match || '').toUpperCase();
+    const side = (el.dataset.side || '').toLowerCase();
+    const m = matchMap.get(matchId);
+    if (!m) return; // laisse placeholder
+
+    // priorités : explicit top/bottom fields si présents, sinon loser/winner fallback
+    let topName = m.top_player_name || m.loser_player_name || '';
+    let bottomName = m.bottom_player_name || m.winner_player_name || '';
+
+    if (!topName && bottomName && m.other_player_name) topName = m.other_player_name;
+    if (!bottomName && topName && m.other_player_name) bottomName = m.other_player_name;
+
+    let name = '';
+    let seed = '';
+    let countryIOC = '';
+    let playerId = '';
+    let playerSlug = '';
+
+    if (side === 'top') {
+      name = topName || bottomName || '';
+      seed = m.loser_seed || m.top_seed || '';
+      countryIOC = m.loser_country || m.top_country || '';
+      playerId = m.top_player_id || m.loser_player_id || m.top_id || m.loser_id || m.player_id || '';
+      playerSlug = m.top_slug || m.loser_slug || m.top_player_slug || m.loser_player_slug || m.slug || '';
+    } else if (side === 'bottom') {
+      name = bottomName || topName || '';
+      seed = m.winner_seed || m.bottom_seed || '';
+      countryIOC = m.winner_country || m.bottom_country || '';
+      playerId = m.bottom_player_id || m.winner_player_id || m.bottom_id || m.winner_id || m.player_id || '';
+      playerSlug = m.bottom_slug || m.winner_slug || m.bottom_player_slug || m.winner_player_slug || m.slug || '';
+    } else {
+      name = m.winner_player_name || m.loser_player_name || '';
+      seed = m.winner_seed || m.loser_seed || '';
+      countryIOC = m.winner_country || m.loser_country || '';
+      playerId = m.winner_player_id || m.loser_player_id || m.player_id || '';
+      playerSlug = m.winner_slug || m.loser_slug || m.slug || '';
+    }
+
+    // Vider l'élément player pour éviter placeholder + vrai nom
+    el.innerHTML = '';
+
+    // seed
+    const seedSpan = document.createElement('span');
+    seedSpan.className = 'seed';
+    seedSpan.textContent = seed ? seed : '';
+    el.appendChild(seedSpan);
+
+    // name (link si possible)
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'name';
+    if(playerSlug || playerId || name){
+      const url = buildPlayerPageUrl({slug: playerSlug, id: playerId, name: name, useWta});
+      const a = document.createElement('a');
+      a.className = 'player-link';
+      a.href = url;
+      a.textContent = name || (playerId ? playerId : '—');
+      a.setAttribute('title', name || url);
+      // accessible: ouvrir dans même onglet par défaut, Ctrl/Right click remains supported
+      nameSpan.appendChild(a);
+    } else {
+      nameSpan.textContent = name || '';
+    }
+    el.appendChild(nameSpan);
+
+    // flag : retrouver le .flag frère et mettre l'emoji
+    const flag = el.parentElement ? el.parentElement.querySelector('.flag') : null;
+    if (flag) {
+      let iso2 = '';
+      if (countryIOC && typeof countryIOC === 'string') {
+        iso2 = iocToIso[countryIOC.toUpperCase()] || '';
+      }
+      if (!iso2 && countryIOC && countryIOC.length >= 2) {
+        iso2 = countryIOC.slice(0,2).toUpperCase();
+      }
+      flag.textContent = iso2 ? iso2ToFlagEmoji(iso2) : '';
+      flag.title = countryIOC || '';
+    }
+  });
+
+
+  // winners (colonne des vainqueurs) : afficher nom + seed + emoji et lien
+  document.querySelectorAll('[data-field="winner"]').forEach(el => {
+    const matchId = (el.dataset.match || '').toUpperCase();
+    const m = matchMap.get(matchId);
+    if (!m) return;
+
+    // vidage
+    el.innerHTML = '';
+
+    const seedSpan = document.createElement('span');
+    seedSpan.className = 'seed';
+    seedSpan.textContent = m.winner_seed ? m.winner_seed : '';
+    el.appendChild(seedSpan);
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'name';
+
+    const playerSlug = m.winner_slug || m.winner_player_slug || m.slug || '';
+    const playerId = m.winner_player_id || m.winner_id || '';
+
+    const displayName = m.winner_player_name || m.winner || '';
+
+    if(playerSlug || playerId || displayName){
+      const url = buildPlayerPageUrl({slug: playerSlug, id: playerId, name: displayName, useWta});
+      const a = document.createElement('a');
+      a.className = 'player-link';
+      a.href = url;
+      a.textContent = displayName || (playerId ? playerId : '');
+      a.setAttribute('title', displayName || url);
+      nameSpan.appendChild(a);
+    } else {
+      nameSpan.textContent = displayName || '';
+    }
+
+    el.appendChild(nameSpan);
+
+    // flag voisin
+    const flag = el.parentElement ? el.parentElement.querySelector('.flag') : null;
+    if (flag) {
+      let countryIOC = m.winner_country || '';
+      let iso2 = iocToIso[(countryIOC || '').toUpperCase()] || '';
+      if (!iso2 && countryIOC && countryIOC.length >= 2) iso2 = countryIOC.slice(0,2).toUpperCase();
+      flag.textContent = iso2 ? iso2ToFlagEmoji(iso2) : '';
+      flag.title = countryIOC || '';
+    }
+  });
+
+
+  // scores -> lien vers match.html / match_wta.html
+  document.querySelectorAll('[data-field="score"]').forEach(el => {
+    const matchId = (el.dataset.match || '').toUpperCase();
+    const m = matchMap.get(matchId);
+    if (!m) return;
+    const score = m.score_string || m.score || m.scoreString || el.textContent || '';
+
+    // clear and create anchor
+    el.innerHTML = '';
+    const a = document.createElement('a');
+    a.className = 'score-link';
+    a.href = buildMatchPageUrl({ matchId: m.match_id || matchId || m.event_id || m.matchId, useWta });
+    a.textContent = score;
+    a.setAttribute('title', 'Voir le match ' + (m.match_id || matchId || ''));
+    el.appendChild(a);
+  });
+}
+
+/* ---------- Connectors (inchangés) ---------- */
+/* (la fonction createConnectors reste la même que dans ton original;
+   tu peux coller ici ta version existante sans modification) */
+function createConnectors() {
+  const canvas = document.getElementById('canvas');
+  if (!canvas) return;
+  canvas.querySelectorAll('.connector').forEach(n => n.remove());
+  const columns = [310, 440, 570, 700, 830];
+  function getMatchNumberFromElement(el) {
+    if (!el) return null;
+    const node = el.querySelector('[data-match]');
+    if (!node) return null;
+    const raw = (node.dataset.match || '').toString();
+    const m = raw.match(/(\d+)/);
+    return m ? parseInt(m[1], 10) : null;
+  }
+  function isEven(n) { return Number.isInteger(n) && (n % 2 === 0); }
+  function isOdd(n)  { return Number.isInteger(n) && (n % 2 === 1); }
+
+  columns.forEach(colLeft => {
+    const points = [];
+    Array.from(canvas.children).forEach(el => {
+      if (!(el instanceof HTMLElement)) return;
+      if (el.classList.contains('connector')) return;
+      const st = el.style;
+      if (!st.top || !st.left) return;
+      const elLeft = parseFloat(st.left);
+      const elWidth = parseFloat(st.width) || el.getBoundingClientRect().width || 0;
+      if (!(colLeft >= elLeft && colLeft <= elLeft + elWidth)) return;
+      const elTop = parseFloat(st.top);
+      const elHeight = el.offsetHeight || parseFloat(st.height) || 20;
+      const cs = getComputedStyle(el);
+      const matchNum = getMatchNumberFromElement(el);
+      if (cs.borderTopWidth && cs.borderTopWidth !== '0px') {
+        points.push({ y: elTop, matchNum: matchNum, kind: 'top', el: el });
+      }
+      if (cs.borderBottomWidth && cs.borderBottomWidth !== '0px') {
+        points.push({ y: elTop + elHeight, matchNum: matchNum, kind: 'bottom', el: el });
+      }
+    });
+
+    points.sort((a, b) => a.y - b.y);
+
+    for (let i = 0; i < points.length - 1; i++) {
+      const topP = points[i];
+      const botP = points[i + 1];
+      if (!topP || !botP) continue;
+      if (topP.y >= botP.y) continue;
+      const topNum = topP.matchNum;
+      const botNum = botP.matchNum;
+      if (!Number.isInteger(topNum) || !Number.isInteger(botNum)) continue;
+      if (isOdd(topNum) && isEven(botNum)) continue;
+      if (topP.el === botP.el) continue;
+      const height = botP.y - topP.y;
+      if (height <= 0) continue;
+      const d = document.createElement('div');
+      d.className = 'connector';
+      d.style.left = colLeft + 'px';
+      d.style.top  = topP.y + 'px';
+      d.style.height = height + 'px';
+      canvas.appendChild(d);
+    }
+  });
+}
+
+/* ---------- Reset placeholders et événements ---------- */
+function resetPlaceholders() {
+  document.querySelectorAll('[data-field="player"]').forEach(el => {
+    const id = el.dataset.match || '';
+    el.textContent = 'Player' + id;
+    const flag = el.parentElement.querySelector('.flag');
+    if (flag) flag.title = '';
+  });
+  document.querySelectorAll('[data-field="winner"]').forEach(el => {
+    const id = el.dataset.match || '';
+    el.textContent = 'Vainqueur' + id;
+    const flag = el.parentElement.querySelector('.flag');
+    if (flag) flag.title = '';
+  });
+  document.querySelectorAll('[data-field="score"]').forEach(el => {
+    const id = el.dataset.match || '';
+    el.textContent = 'Score' + id;
+  });
+
+  document.querySelectorAll('.seed').forEach(s => s.textContent = '');
+  document.querySelectorAll('.flag').forEach(f => f.textContent = '');
+  document.querySelectorAll('.flag').forEach(f => f.title = '');
+
+  setTimeout(createConnectors, 20);
+}
+
+/* debounce utilitaire */
+function debounce(fn, wait=120){
+  let t;
+  return function(...a){ clearTimeout(t); t = setTimeout(()=>fn.apply(this,a), wait); };
+}
+
+/* évènements UI */
+document.getElementById('loadBtn').addEventListener('click', () => {
+  const data = parseJSON();
+  if (!data) return;
+  // store raw data globally so fillFromMap can inspect meta (ATP/WTA)
+  window._bracketData = data;
+  const map = buildMap(data);
+  fillFromMap(map);
+  setTimeout(createConnectors, 20);
+});
+
+document.getElementById('resetBtn').addEventListener('click', () => {
+  resetPlaceholders();
+});
+
+window.addEventListener('resize', debounce(()=> { createConnectors(); }, 100));
+
+document.addEventListener('DOMContentLoaded', () => {
+  resetPlaceholders();
+  setTimeout(createConnectors, 30);
+});
+</script>
+
+
+</body>
+</html>
