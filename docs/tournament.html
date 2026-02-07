@@ -3,627 +3,241 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Bracket — template JSON → HTML (complet et sans flash)</title>
+<title>Tournoi — Viewer</title>
 <style>
   :root{
-    --winner-h:22px;
-    --loser-h:22px;
-    --midblock-h:38px;
-    --match-gap:52px;
-    --col-gap:34px;
-    --col-width:220px;
-    --col-width-small:140px;
-    --midblock-width:160px;
-    --line-color:#797979;
-    --seed-blue:#0b3d91;
-    --mid-offset: 220px;
+    --band-h:72px;
+    --padding:18px;
+    --bg:#fff;
+    --muted:#6b6b6b;
+    --accent-hard:#0b3d91;   /* blue */
+    --accent-clay:#b22222;   /* red */
+    --accent-grass:#2e8b57;  /* green */
+    --accent-carpet:#6f42c1; /* purple */
   }
-
-  html,body{height:100%;margin:0;font-family:Arial,Helvetica,sans-serif;background:#fff;color:#111}
-  .hero{padding:14px;color:#fff;background:#2b6cb0}
-  .container-main{max-width:1400px;margin:12px auto;padding:0 12px}
-  /* Au départ on cache le container pour éviter le flash "MSXXX" visible */
-  #bracketContainer{position:relative;background:transparent;overflow:visible;visibility:hidden;}
-
-  /* flags */
-  .flag{display:inline-block;width:22px;height:14px;margin-right:8px;vertical-align:middle;overflow:hidden;border-radius:2px;background:#f5f5f5;line-height:14px;text-align:center}
-  .flag img{width:100%;height:100%;object-fit:cover;display:block}
-
-  /* seeds */
-  .seed-num{float:left;width:22px;color:var(--seed-blue);font-size:11px;padding:2px 4px;font-weight:700;}
-  .seed-text{float:left;width:22px;color:#808080;font-size:11px;padding:2px 4px;}
-
-  .player-link{font-size:11px;text-decoration:none;color:#000;display:inline-block;vertical-align:middle}
-  .player-first{font-size:11px;color:#565656;font-style:italic;margin-left:4px}
-  .bye{color:#808080;font-size:11px;padding-left:22px}
-
-  /* rows for players (absolute) */
-  .match-row{box-sizing:border-box;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 6px;background:#fff;z-index:5;position:absolute;display:flex;align-items:center;gap:6px;}
-  .row-top{height:var(--winner-h); border-top:1px solid var(--line-color);}   /* top border above upper player */
-  .row-bottom{height:var(--loser-h); border-bottom:1px solid var(--line-color);}/* bottom border below lower player */
-
-  /* mid block placed at mid-axis; contains winner above line and score below */
-  .mid-block{position:absolute;height:var(--midblock-h);width:var(--midblock-width);text-align:center;transform:none;z-index:70;background:#fff;pointer-events:auto;margin-left:0;display:flex;flex-direction:column;justify-content:center;align-items:center;box-sizing:border-box}
-  .mid-winner{font-size:11px;font-weight:700;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 6px;display:flex;align-items:center;gap:6px}
-  .mid-bar{height:1px;background:var(--line-color);width:100%;margin:2px 0;}
-  .mid-score{font-size:11px;color:#515151;font-style:italic;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 6px}
-
-  /* svg connectors behind everything */
-  .connectors{position:absolute;left:0;top:0;width:100%;height:100%;z-index:2;pointer-events:none}
-
-  .highlight{background: rgba(255,235,59,0.15) !important}
-
-  @media (max-width:900px){
-    :root{ --col-width:160px; --col-width-small:120px; --match-gap:36px; --midblock-width:120px; }
-  }
+  html,body{height:100%;margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:#111}
+  .container{padding:18px; max-width:1200px; margin:0 auto;}
+  .banner{height:var(--band-h); display:flex;align-items:center;padding:0 var(--padding); color:#fff; gap:16px;}
+  .brand{font-weight:700;font-size:22px;letter-spacing:0.2px}
+  .title{font-size:28px;font-weight:800}
+  .meta-small{font-size:13px;color:rgba(255,255,255,0.9)}
+  .tabs{margin-top:18px;border-bottom:1px solid #e6e6e6;display:flex;gap:8px}
+  .tab{padding:10px 14px;cursor:pointer;border-radius:6px 6px 0 0;background:#f6f6f6;color:#222}
+  .tab.active{background:#fff;border:1px solid #e6e6e6;border-bottom:1px solid white}
+  .panel{padding:14px;border:1px solid #e6e6e6;background:#fff}
+  .row{display:flex;gap:12px;align-items:center;margin-bottom:8px}
+  .label{width:140px;color:var(--muted);font-size:13px}
+  .value{font-weight:600}
+  .small-muted{font-size:13px;color:var(--muted)}
+  .iframe-wrap{height:720px;border:1px solid #ddd;border-radius:6px;overflow:hidden}
+  .info-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+  .flag{display:inline-block;width:20px;height:14px;vertical-align:middle;margin-right:8px;border-radius:2px;background:#f0f0f0}
+  .note{font-size:13px;color:#777;margin-top:8px}
 </style>
 </head>
 <body>
-  <div class="hero"><div class="container-main"><h1 id="tourney-title" style="margin:0;color:#fff">Tournament</h1></div></div>
-  <div class="container-main" style="padding-top:12px">
-    <div id="bracketContainer" style="min-height:640px">
+<div class="container">
+  <div id="banner" class="banner" style="background:var(--accent-hard)">
+    <div>
+      <div class="brand" id="tour-type">ATP</div>
+      <div class="title" id="tourney-name">Brisbane</div>
+      <div class="meta-small" id="tourney-sub">Hard • 250 • Jan 4, 2026</div>
+    </div>
+  </div>
 
-<!-- ============================
-    TON SQUELETTE (INTÉGRAL) :
-    colle ici ton HTML exactement (je l'ai inclus tel quel)
-   ============================ -->
+  <div style="margin-top:12px">
+    <div class="tabs">
+      <div id="tab-info" class="tab active">Info</div>
+      <div id="tab-draw" class="tab">Draw</div>
+    </div>
 
-<div style="padding:25px;background:white;overflow:auto;">
-      
-      
-      <div style="position:relative;padding:80px 0 80px 0;">
-        <div style="width:300px;height:62px;position:absolute;top:0;right:350px;;">
-          
+    <div id="panel-info" class="panel">
+      <div class="info-grid">
+        <div>
+          <div class="row"><div class="label">Tour</div><div class="value" id="meta-level"></div></div>
+          <div class="row"><div class="label">Surface</div><div class="value" id="meta-surface"></div></div>
+          <div class="row"><div class="label">Prize money</div><div class="value" id="meta-prize"></div></div>
+          <div class="row"><div class="label">Draw (Singles)</div><div class="value" id="meta-draw"></div></div>
         </div>
+        <div>
+          <div class="row"><div class="label">Ville</div><div class="value" id="meta-city"></div></div>
+          <div class="row"><div class="label">Pays</div><div class="value" id="meta-country"></div></div>
+          <div class="row"><div class="label">Official title</div><div class="value" id="meta-title"></div></div>
+          <div class="row"><div class="label">Source</div><div class="value" id="meta-source"></div></div>
+        </div>
+      </div>
+      <div class="note">Si <strong>city</strong> ou <strong>country</strong> sont manquants pour un tournoi ATP, la page tente de les récupérer depuis <code>ioc_places_atp.json</code>.</div>
+    </div>
 
-        <div style="position:relative;height:950px;">
-
-        
-            <div style="position: absolute; top: 0px; left: 0px; height: 20px; width: 180px; border-top: 1px solid rgb(121, 121, 121); text-align: left;" class="j_7874" onmouseover="highlight_player(1, 'j_7874', 2);" onmouseout="highlight_player(2, 'j_7874');">
-              
-                  <div style="float:left;width:22px;color:red;font-size:11px;padding:2px;">1</div>
-                  <span class="flag ITA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-
-                  <a href="/player/lorenzo-musetti/7874/" style="font-size:11px;text-decoration:none;color:black;">Player MS016</a>
-                  
-            </div>
-            <div style="position:absolute;top:20px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;" class="j_2000" onmouseover="highlight_player(1, 'j_2000', 2);" onmouseout="highlight_player(2, 'j_2000');">
-              
-                  <span style="color:#808080;font-size:11px;padding-left:22px;">Player MS016</span>
-                  
-            </div>
-            
-            <div style="position: absolute; top: 60px; left: 0px; height: 20px; width: 180px; border-top: 1px solid rgb(121, 121, 121); text-align: left;" class="j_7840" onmouseover="highlight_player(1, 'j_7840', 2);" onmouseout="highlight_player(2, 'j_7840');">
-              
-                  <div style="float:left;width:22px;color:#808080;font-size:11px;padding:2px;">&nbsp;</div>
-                  <span class="flag ARG" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-
-                  <a href="/player/tomas-martin-etcheverry/7840/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS017</a>
-                  
-            </div>
-            <div style="position:absolute;top:80px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;" class="j_8238" onmouseover="highlight_player(1, 'j_8238', 2);" onmouseout="highlight_player(2, 'j_8238');">
-              
-                  <div style="float:left;width:22px;font-weight:bold;color:#808080;font-size:11px;padding:2px;">&nbsp;</div>
-                  <span class="flag FRA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-                  <a href="/player/valentin-royer/8238/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS017</a>
-                  
-            </div>
-            
-            <div style="position: absolute; top: 120px; left: 0px; height: 20px; width: 180px; border-top: 1px solid rgb(121, 121, 121); text-align: left;" class="j_9815" onmouseover="highlight_player(1, 'j_9815', 2);" onmouseout="highlight_player(2, 'j_9815');">
-              
-                  <div style="float:left;width:22px;color:#808080;font-size:11px;padding:2px;">WC</div>
-                  <span class="flag HKG" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-
-                  <a href="/player/coleman-wong/9815/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS018</a>
-                  
-            </div>
-            <div style="position:absolute;top:140px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;" class="j_8809" onmouseover="highlight_player(1, 'j_8809', 2);" onmouseout="highlight_player(2, 'j_8809');">
-              
-                  <div style="float:left;width:22px;font-weight:bold;color:#808080;font-size:11px;padding:2px;">&nbsp;</div>
-                  <span class="flag ARG" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-                  <a href="/player/mariano-navone/8809/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS018</a>
-                  
-            </div>
-            
-            <div style="position:absolute;top:180px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;" class="j_8117" onmouseover="highlight_player(1, 'j_8117', 2);" onmouseout="highlight_player(2, 'j_8117');">
-              
-                  <div style="float:left;width:22px;color:#808080;font-size:11px;padding:2px;">&nbsp;</div>
-                  <span class="flag NED" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-
-                  <a href="/player/jesper-de-jong/8117/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS019</a>
-                  
-            </div>
-            <div style="position:absolute;top:200px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;" class="j_8103" onmouseover="highlight_player(1, 'j_8103', 2);" onmouseout="highlight_player(2, 'j_8103');">
-              
-                  <div style="float:left;width:22px;font-weight:bold;color:red;font-size:11px;padding:2px;">6</div>
-                  <span class="flag CAN" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-                  <a href="/player/gabriel-diallo/8103/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS019</a>
-                  
-            </div>
-            
-            <div style="position:absolute;top:240px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;" class="j_3713" onmouseover="highlight_player(1, 'j_3713', 2);" onmouseout="highlight_player(2, 'j_3713');">
-              
-                  <div style="float:left;width:22px;color:red;font-size:11px;padding:2px;">3</div>
-                  <span class="flag RUS" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-
-                  <a href="/player/andrey-rublev/3713/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS020</a>
-                  
-            </div>
-            <div style="position:absolute;top:260px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;" class="j_2000" onmouseover="highlight_player(1, 'j_2000', 2);" onmouseout="highlight_player(2, 'j_2000');">
-              
-                  <span style="color:#808080;font-size:11px;padding-left:22px;">PlayerMS020</span>
-                  
-            </div>
-            
-            <div style="position:absolute;top:300px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;" class="j_7223" onmouseover="highlight_player(1, 'j_7223', 2);" onmouseout="highlight_player(2, 'j_7223');">
-              
-                  <div style="float:left;width:22px;color:#808080;font-size:11px;padding:2px;">WC</div>
-                  <span class="flag CHN" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-
-                  <a href="/player/yibing-wu/7223/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS021</a>
-                  
-            </div>
-            <div style="position:absolute;top:320px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;" class="j_8840" onmouseover="highlight_player(1, 'j_8840', 2);" onmouseout="highlight_player(2, 'j_8840');">
-              
-                  <div style="float:left;width:22px;font-weight:bold;color:#808080;font-size:11px;padding:2px;">&nbsp;</div>
-                  <span class="flag HUN" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-                  <a href="/player/fabian-marozsan/8840/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS021</a>
-                  
-            </div>
-            
-            <div style="position: absolute; top: 360px; left: 0px; height: 20px; width: 180px; border-top: 1px solid rgb(121, 121, 121); text-align: left;" class="j_2078" onmouseover="highlight_player(1, 'j_2078', 2);" onmouseout="highlight_player(2, 'j_2078');">
-              
-                  <div style="float:left;width:22px;color:#808080;font-size:11px;padding:2px;">&nbsp;</div>
-                  <span class="flag CRO" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-
-                  <a href="/player/marin-cilic/2078/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS022</a>
-                  
-            </div>
-            <div style="position: absolute; top: 380px; left: 0px; height: 20px; width: 180px; border-bottom: 1px solid rgb(121, 121, 121); text-align: left;" class="j_2315" onmouseover="highlight_player(1, 'j_2315', 2);" onmouseout="highlight_player(2, 'j_2315');">
-              
-                  <div style="float:left;width:22px;font-weight:bold;color:#808080;font-size:11px;padding:2px;">&nbsp;</div>
-                  <span class="flag FRA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-                  <a href="/player/adrian-mannarino/2315/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS022/a>
-                  
-            </div>
-            
-            <div style="position: absolute; top: 420px; left: 0px; height: 20px; width: 180px; border-top: 1px solid rgb(121, 121, 121); text-align: left;" class="j_2842" onmouseover="highlight_player(1, 'j_2842', 2);" onmouseout="highlight_player(2, 'j_2842');">
-              
-                  <div style="float:left;width:22px;color:#808080;font-size:11px;padding:2px;">&nbsp;</div>
-                  <span class="flag BIH" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-
-                  <a href="/player/damir-dzumhur/2842/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS023</a>
-                  
-            </div>
-            <div style="position: absolute; top: 440px; left: 0px; height: 20px; width: 180px; border-bottom: 1px solid rgb(121, 121, 121); text-align: left;" class="j_8314" onmouseover="highlight_player(1, 'j_8314', 2);" onmouseout="highlight_player(2, 'j_8314');">
-              
-                  <div style="float:left;width:22px;font-weight:bold;color:red;font-size:11px;padding:2px;">8</div>
-                  <span class="flag POR" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-                  <a href="/player/nuno-borges/8314/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS023</a>
-                  
-            </div>
-            
-            <div style="position: absolute; top: 480px; left: 0px; height: 20px; width: 180px; border-top: 1px solid rgb(121, 121, 121); text-align: left;" class="j_2964" onmouseover="highlight_player(1, 'j_2964', 2);" onmouseout="highlight_player(2, 'j_2964');">
-              
-                  <div style="float:left;width:22px;color:red;font-size:11px;padding:2px;">7</div>
-                  <span class="flag FRA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-
-                  <a href="/player/alexandre-muller/2964/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS024</a>
-                  
-            </div>
-            <div style="position: absolute; top: 500px; left: 0px; height: 20px; width: 180px; border-bottom: 1px solid rgb(121, 121, 121); text-align: left;" class="j_7046" onmouseover="highlight_player(1, 'j_7046', 2);" onmouseout="highlight_player(2, 'j_7046');">
-              
-                  <div style="float:left;width:22px;font-weight:bold;color:#808080;font-size:11px;padding:2px;">&nbsp;</div>
-                  <span class="flag SRB" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-                  <a href="/player/miomir-kecmanovic/7046/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS024</a>
-                  
-            </div>
-            
-            <div style="position: absolute; top: 540px; left: 0px; height: 20px; width: 180px; border-top: 1px solid rgb(121, 121, 121); text-align: left;" class="j_2931" onmouseover="highlight_player(1, 'j_2931', 2);" onmouseout="highlight_player(2, 'j_2931');">
-              
-                  <div style="float:left;width:22px;color:#808080;font-size:11px;padding:2px;">Q</div>
-                  <span class="flag SRB" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-
-                  <a href="/player/laslo-djere/2931/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS025</a>
-                  
-            </div>
-            <div style="position: absolute; top: 560px; left: 0px; height: 20px; width: 180px; border-bottom: 1px solid rgb(121, 121, 121); text-align: left;" class="j_3700" onmouseover="highlight_player(1, 'j_3700', 2);" onmouseout="highlight_player(2, 'j_3700');">
-              
-                  <div style="float:left;width:22px;font-weight:bold;color:#808080;font-size:11px;padding:2px;">&nbsp;</div>
-                  <span class="flag USA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-                  <a href="/player/marcos-giron/3700/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS025</a>
-                  
-            </div>
-            
-            <div style="position:absolute;top:600px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;" class="j_7168" onmouseover="highlight_player(1, 'j_7168', 2);" onmouseout="highlight_player(2, 'j_7168');">
-              
-                  <div style="float:left;width:22px;color:#808080;font-size:11px;padding:2px;">Q</div>
-                  <span class="flag CHI" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-
-                  <a href="/player/alejandro-tabilo/7168/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS026</a>
-                  
-            </div>
-            <div style="position: absolute; top: 620px; left: 0px; height: 20px; width: 180px; border-bottom: 1px solid rgb(121, 121, 121); text-align: left;" class="j_4303" onmouseover="highlight_player(1, 'j_4303', 2);" onmouseout="highlight_player(2, 'j_4303');">
-              
-                  <div style="float:left;width:22px;font-weight:bold;color:#808080;font-size:11px;padding:2px;">Q</div>
-                  <span class="flag USA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-                  <a href="/player/michael-mmoh/4303/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS026</a>
-                  
-            </div>
-            
-            <div style="position:absolute;top:660px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;" class="j_2000" onmouseover="highlight_player(1, 'j_2000', 2);" onmouseout="highlight_player(2, 'j_2000');">
-              
-                  <span style="color:#808080;font-size:11px;padding-left:22px;">PlayerMS027</span>
-                  
-            </div>
-            <div style="position:absolute;top:680px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;" class="j_3663" onmouseover="highlight_player(1, 'j_3663', 2);" onmouseout="highlight_player(2, 'j_3663');">
-              
-                  <div style="float:left;width:22px;font-weight:bold;color:red;font-size:11px;padding:2px;">4</div>
-                  <span class="flag RUS" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-                  <a href="/player/karen-khachanov/3663/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS027</a>
-                  
-            </div>
-            
-            <div style="position:absolute;top:720px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;" class="j_4162" onmouseover="highlight_player(1, 'j_4162', 2);" onmouseout="highlight_player(2, 'j_4162');">
-              
-                  <div style="float:left;width:22px;color:red;font-size:11px;padding:2px;">5</div>
-                  <span class="flag ITA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-
-                  <a href="/player/lorenzo-sonego/4162/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS028</a>
-                  
-            </div>
-            <div style="position:absolute;top:740px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;" class="j_10790" onmouseover="highlight_player(1, 'j_10790', 2);" onmouseout="highlight_player(2, 'j_10790');">
-              
-                  <div style="float:left;width:22px;font-weight:bold;color:#808080;font-size:11px;padding:2px;">NG</div>
-                  <span class="flag JPN" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-                  <a href="/player/rei-sakamoto/10790/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS028</a>
-                  
-            </div>
-            
-            <div style="position:absolute;top:780px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;" class="j_8538" onmouseover="highlight_player(1, 'j_8538', 2);" onmouseout="highlight_player(2, 'j_8538');">
-              
-                  <div style="float:left;width:22px;color:#808080;font-size:11px;padding:2px;">WC</div>
-                  <span class="flag CHN" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-
-                  <a href="/player/juncheng-shang/8538/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS029</a>
-                  
-            </div>
-            <div style="position:absolute;top:800px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;" class="j_8812" onmouseover="highlight_player(1, 'j_8812', 2);" onmouseout="highlight_player(2, 'j_8812');">
-              
-                  <div style="float:left;width:22px;font-weight:bold;color:#808080;font-size:11px;padding:2px;">&nbsp;</div>
-                  <span class="flag ARG" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-                  <a href="/player/francisco-comesana/8812/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS029</a>
-                  
-            </div>
-            
-            <div style="position:absolute;top:840px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;" class="j_2844" onmouseover="highlight_player(1, 'j_2844', 2);" onmouseout="highlight_player(2, 'j_2844');">
-              
-                  <div style="float:left;width:22px;color:#808080;font-size:11px;padding:2px;">Q</div>
-                  <span class="flag GER" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-
-                  <a href="/player/jan-lennard-struff/2844/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS030</a>
-                  
-            </div>
-            <div style="position:absolute;top:860px;left:0px;height:20px;width:180px;border-bottom:1px solid #797979;text-align:left;" class="j_7248" onmouseover="highlight_player(1, 'j_7248', 2);" onmouseout="highlight_player(2, 'j_7248');">
-              
-                  <div style="float:left;width:22px;font-weight:bold;color:#808080;font-size:11px;padding:2px;">&nbsp;</div>
-                  <span class="flag NED" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-                  <a href="/player/botic-van-de-zandschulp/7248/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS030</a>
-                  
-            </div>
-            
-            <div style="position:absolute;top:900px;left:0px;height:20px;width:180px;border-top:1px solid #797979;text-align:left;" class="j_2000" onmouseover="highlight_player(1, 'j_2000', 2);" onmouseout="highlight_player(2, 'j_2000');">
-              
-                  <span style="color:#808080;font-size:11px;padding-left:22px;">PlayerMS031</span>
-                  
-            </div>
-            <div style="position: absolute; top: 920px; left: 0px; height: 20px; width: 180px; border-bottom: 1px solid rgb(121, 121, 121); text-align: left;" class="j_4231" onmouseover="highlight_player(1, 'j_4231', 2);" onmouseout="highlight_player(2, 'j_4231');">
-              
-                  <div style="float:left;width:22px;font-weight:bold;color:red;font-size:11px;padding:2px;">2</div>
-                  <span class="flag KAZ" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-                  <a href="/player/alexander-bublik/4231/" style="font-size:11px;text-decoration:none;color:black;">PlayerMS031</a>
-                  
-            </div>
-            
-          <div style="position: absolute; top: 0px; left: 180px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;" class="j_7874" onmouseover="highlight_player(1, 'j_7874', 2);" onmouseout="highlight_player(2, 'j_7874');">
-            
-              &nbsp;<span class="flag ITA" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-              <a href="/player/lorenzo-musetti/7874/" style="font-size:11px;text-decoration:none;color:black;">VainqueurMS016</a>
-              
-          </div>
-          <div style="position:absolute;top:20px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
-            &nbsp;
-          </div>
-          
-          <div style="position: absolute; top: 60px; left: 180px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;" class="j_7840" onmouseover="highlight_player(1, 'j_7840', 2);" onmouseout="highlight_player(2, 'j_7840');">
-            
-              &nbsp;<span class="flag ARG" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-              <a href="/player/tomas-martin-etcheverry/7840/" style="font-size:11px;text-decoration:none;color:black;">VainqueurMS017</a>
-              
-          </div>
-          <div style="position:absolute;top:80px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
-            
-              <a href="/match/etcheverry-royer-hong-kong-2026/9448630/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">ScoreMS017</a>
-              
-          </div>
-          
-          <div style="position: absolute; top: 120px; left: 180px; height: 20px; width: 130px; border-bottom: 1px solid rgb(121, 121, 121); border-left: 1px solid rgb(121, 121, 121); text-align: left;" class="j_9815" onmouseover="highlight_player(1, 'j_9815', 2);" onmouseout="highlight_player(2, 'j_9815');">
-            
-              &nbsp;<span class="flag HKG" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-              <a href="/player/coleman-wong/9815/" style="font-size:11px;text-decoration:none;color:black;">Vainqueur MS018</a>
-              
-          </div>
-          <div style="position:absolute;top:140px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
-            
-              <a href="/match/wong-navone-hong-kong-2026/9448631/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">ScoreMS018</a>
-              
-          </div>
-          
-          <div style="position:absolute;top:180px;left:180px;height:20px;width:130px;border-bottom:1px solid #797979;border-left:1px solid #797979;text-align:left;" class="j_8103" onmouseover="highlight_player(1, 'j_8103', 2);" onmouseout="highlight_player(2, 'j_8103');">
-            
-              &nbsp;<span class="flag CAN" style="margin-top:-1px;margin-right:2px;vertical-align:middle;"></span>
-              <a href="/player/gabriel-diallo/8103/" style="font-size:11px;text-decoration:none;color:black;">VainqueurMS019</a>
-              
-          </div>
-          <div style="position:absolute;top:200px;left:180px;height:21px;width:150px;border-left:1px solid #797979;text-align:left;">
-            
-              <a href="/match/de-jong-diallo-hong-kong-2026/9448632/" style="padding-left:2px;color:#515151;font-size:11px;font-style:italic;">ScoreMS019</a>
-              
-          </div>
-
-          <!-- (Reste du squelette - déjà inclus ci-dessus) -->
+    <div id="panel-draw" class="panel" style="display:none">
+      <div style="margin-bottom:8px">
+        <strong>Draw</strong> — le template chargé dépend de la taille du tableau.
+      </div>
+      <div class="iframe-wrap">
+        <iframe id="draw-frame" src="about:blank" style="width:100%;height:100%;border:0"></iframe>
       </div>
     </div>
   </div>
 </div>
 
-<!-- ============================
-    FIN SQUELETTE
-   ============================ -->
-
-    </div>
-  </div>
-
 <script>
 /*
-  SCRIPT : remplace chaque placeholder MS### par la donnée correspondante.
-  - Utilise window.tourneyData si présent.
-  - Si pas présent, logue un warning et n'affiche rien (le skeleton restera tel quel).
+  main.html
+  - attend un JSON (simulate for dev, or replace by server-side injection)
+  - si city/country vide et source=="ATP", va chercher ioc_places_atp.json (dans même dossier)
+  - choisit quel template charger en iframe selon singles_draw_size
+  - envoie le JSON au template via postMessage quand l'iframe est chargé
 */
 
-/* ---------- CONFIG (modifie ici si besoin) ---------- */
-const config = {
-  // si window.tourneyData est déjà injecté par ton site, on l'utilisera.
-  preferGlobalTourneyData: true,
-
-  // mapping lorsque 2 placeholders "PlayerMS###" existent pour le même match
-  // ordre du haut vers le bas : 'loser_player_name' puis 'winner_player_name'
-  // (change l'ordre ici si tu veux top->winner)
-  playerTwoOrder: ['loser_player_name','winner_player_name'],
-
-  // si un seul placeholder "PlayerMS###" => champ par défaut
-  singlePlayerDefaultField: 'winner_player_name' // 'winner_player_name' ou 'loser_player_name'
+/* === Exemple JSON (tu peux remplacer par un fetch depuis ton serveur) === */
+const tournamentJson = {
+  "meta": {
+    "source": "ATP",
+    "tourney_id": "339",
+    "year": 2026,
+    "tourney_name": "Brisbane",
+    "tourney_title": "",
+    "surface": "Hard",
+    "level": "250",
+    "prize_money": "800045",
+    "prize_money_currency": "$",
+    "singles_draw_size": 32,
+    "city": "",
+    "country": "",
+    "start_date": "2026-01-04"
+  },
+  "matches": [
+    {"match_id":"MS001","round":"Final","winner_player_name":"D. Medvedev","loser_player_name":"B. Nakashima","score_string":"6-2,7-6(1)","player_id_winner":"MM58","player_id_loser":"N0AE","winner_country":"RUS","loser_country":"USA","winner_seed":"1","loser_seed":""},
+    {"match_id":"MS002","round":"Semifinals","winner_player_name":"D. Medvedev","loser_player_name":"A. Michelsen","score_string":"6-4,6-2","player_id_winner":"MM58","player_id_loser":"M0QI","winner_country":"RUS","loser_country":"USA","winner_seed":"1","loser_seed":""},
+    {"match_id":"MS003","round":"Semifinals","winner_player_name":"B. Nakashima","loser_player_name":"A. Kovacevic","score_string":"6-7(4),4-6","player_id_winner":"N0AE","player_id_loser":"K0AZ","winner_country":"USA","loser_country":"USA","winner_seed":"","loser_seed":""}
+    /* ... tronqué pour l'exemple ... */
+  ]
 };
 
-/* ---------- utilitaires ---------- */
-function slugify(s){
-  if(!s) return '';
-  return String(s).toLowerCase().trim()
-    .normalize('NFD').replace(/\p{Diacritic}/gu,'')
-    .replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');
-}
-function escapeHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function scoreToHtml(s){ if(!s) return ''; return String(s).replace(/(\d+)\((\d+)\)/g,'$1<sup>$2</sup>').replace(/,/g,', '); }
-
-/* IOC -> alpha2 (petite table, complète si tu veux) */
-const iocToAlpha2 = {"ARG":"AR","AUS":"AU","AUT":"AT","BEL":"BE","BRA":"BR","CAN":"CA","CHN":"CN","CRO":"HR","CZE":"CZ","DEN":"DK","ESP":"ES","FRA":"FR","GBR":"GB","GER":"DE","HKG":"HK","HUN":"HU","ITA":"IT","JPN":"JP","KAZ":"KZ","NED":"NL","POR":"PT","RUS":"RU","SRB":"RS","SUI":"CH","USA":"US"};
-function toAlpha2(code){ if(!code) return ''; let s=String(code||'').trim().toUpperCase(); if(/^[A-Z]{2}$/.test(s)) return s; if(iocToAlpha2[s]) return iocToAlpha2[s]; const letters = s.replace(/[^A-Z]/g,''); return letters.length>=2?letters.slice(0,2):''; }
-function alpha2ToFlagEmoji(alpha2){ if(!alpha2 || alpha2.length!==2) return ''; const A=0x1F1E6; try{return String.fromCodePoint(...[...alpha2.toUpperCase()].map(c=>A+(c.charCodeAt(0)-65)));}catch(e){return'';} }
-
-/* génère URL joueur/match (adapte si ton site a un autre pattern) */
-function playerUrlFrom(matchObj, role){
-  const id = (role==='winner') ? matchObj.player_id_winner : matchObj.player_id_loser;
-  if(id) return `/player/${encodeURIComponent(String(id))}/`;
-  const name = (role==='winner') ? matchObj.winner_player_name : matchObj.loser_player_name;
-  if(name) return `/player/${slugify(name)}/`;
-  return '#';
-}
-function matchUrlFrom(matchObj){
-  const mid = (matchObj.match_id||'').toLowerCase();
-  const slug = slugify((matchObj.winner_player_name||'') + '-' + (matchObj.loser_player_name||''));
-  return `/match/${slug}-${mid}/`;
+/* ===== helpers ===== */
+function surfaceToColor(surface){
+  if(!surface) return 'var(--accent-hard)';
+  const s = surface.toLowerCase();
+  if(s.includes('hard')) return getComputedStyle(document.documentElement).getPropertyValue('--accent-hard');
+  if(s.includes('clay')||s.includes('red')) return getComputedStyle(document.documentElement).getPropertyValue('--accent-clay');
+  if(s.includes('grass')) return getComputedStyle(document.documentElement).getPropertyValue('--accent-grass');
+  return getComputedStyle(document.documentElement).getPropertyValue('--accent-carpet');
 }
 
-/* ---------- charger tourneyData (window or fetch) ---------- */
-async function getTourneyDataOrNull(){
-  if(config.preferGlobalTourneyData && window.tourneyData){
-    return window.tourneyData;
-  }
-  // si ton site n'injecte pas window.tourneyData, tu peux charger via ?source=&t=&year=
-  const params = new URLSearchParams(location.search);
-  const source = params.get('source') || params.get('s') || '';
-  const t = params.get('t') || params.get('id') || '';
-  const year = params.get('year') || params.get('y') || '';
-  if(!t || !year || !source) {
-    console.warn('window.tourneyData absent et paramètres ?source&t&year non fournis ; le template attend window.tourneyData.');
-    return null;
-  }
-  const path = `/data/tournaments/${source}_${t}_${year}.json`;
-  try{
-    const r = await fetch(path);
-    if(!r.ok) throw new Error('fetch ' + r.status);
-    return await r.json();
-  }catch(e){
-    console.error('Impossible de charger JSON', e);
-    return null;
-  }
-}
+/* remplissage du panneau info */
+async function populateInfo(json){
+  const meta = json.meta || {};
+  // set banner
+  const banner = document.getElementById('banner');
+  banner.style.background = surfaceToColor(meta.surface);
 
-/* ---------- rechercher tous les placeholders MS### dans le DOM ----------
-   On capture éléments <a>, <span>, <div> contenant : 
-     - "PlayerMS###" ou "Player MS###" ou "Player MS ###"
-     - "ScoreMS###" / "VainqueurMS###"
-     - ou simplement "MS###"
-   On renvoie : [{el, matchId, type ('Player'|'Score'|'Vainqueur'), top}]
-*/
-function findPlaceholders(){
-  const nodes = Array.from(document.querySelectorAll('a,div,span'));
-  const tokenRegex = /\b(?:(Player|Vainqueur|Score)\s*)?([ML]S\d{3})\b/i;
-  const found = [];
-  nodes.forEach(el => {
-    const txt = (el.textContent||'').trim();
-    if(!txt) return;
-    const m = txt.match(tokenRegex);
-    if(m){
-      const type = (m[1] ? m[1] : 'Player');
-      const matchId = m[2].toUpperCase();
-      const rect = el.getBoundingClientRect();
-      found.push({el, matchId, type, top: Math.round(rect.top||0), raw: txt});
-    }
-  });
-  return found;
-}
+  document.getElementById('tour-type').textContent = (meta.source || 'ATP').toUpperCase();
+  document.getElementById('tourney-name').textContent = meta.tourney_name || ('Tourney ' + (meta.tourney_id||''));
+  document.getElementById('tourney-sub').textContent = `${meta.surface || '-'} • ${meta.level || '-'} • ${meta.start_date || '-'}`;
 
-/* ---------- remplissage ---------- */
-function populatePlaceholders(tourney){
-  if(!tourney || !Array.isArray(tourney.matches)){
-    console.warn('tourneyData invalide ou matches[] absent.');
-    // on affiche quand même la grille (inutile la cacher plus longtemps)
-    document.getElementById('bracketContainer').style.visibility = 'visible';
-    return;
-  }
-  // indexer les matches par match_id (normalisé)
-  const matchMap = {};
-  tourney.matches.forEach(m => {
-    if(m && m.match_id) matchMap[String(m.match_id).trim().toUpperCase()] = m;
-  });
+  document.getElementById('meta-level').textContent = meta.level || '-';
+  document.getElementById('meta-surface').textContent = meta.surface || '-';
+  document.getElementById('meta-prize').textContent = (meta.prize_money_currency||'') + (meta.prize_money ? Number(meta.prize_money).toLocaleString() : '-');
+  document.getElementById('meta-draw').textContent = meta.singles_draw_size || '-';
+  document.getElementById('meta-source').textContent = meta.source || '-';
+  document.getElementById('meta-title').textContent = meta.tourney_title || '-';
 
-  const placeholders = findPlaceholders();
-  if(placeholders.length===0){
-    // rien à remplacer — montre la grille
-    document.getElementById('bracketContainer').style.visibility = 'visible';
-    return;
-  }
-
-  // grouper par matchId
-  const byMatch = {};
-  placeholders.forEach(p => { if(!byMatch[p.matchId]) byMatch[p.matchId] = []; byMatch[p.matchId].push(p); });
-  Object.keys(byMatch).forEach(mid => {
-    const arr = byMatch[mid];
-    // trier verticalement (top->bottom) pour mapping top/bottom
-    arr.sort((a,b)=>a.top - b.top);
-
-    const matchObj = matchMap[mid];
-    if(!matchObj){
-      // pas de match pour cet id — on laisse inchangé
-      console.info('Pas de donnée pour', mid);
-      return;
-    }
-
-    // Préparer champs
-    const winnerName = matchObj.winner_player_name || matchObj.winner_name || '';
-    const loserName = matchObj.loser_player_name || matchObj.loser_name || '';
-    const score = matchObj.score_string || matchObj.score || '';
-    const winnerCountry = (matchObj.winner_country || matchObj.winner_country_code || '').toUpperCase();
-    const loserCountry = (matchObj.loser_country || matchObj.loser_country_code || '').toUpperCase();
-
-    // Pour chaque occurrence on détecte type et on remplace
-    // On gère trois types distincts : Score / Vainqueur / Player
-    const scoreTokens = arr.filter(a => /^score$/i.test(a.type));
-    const vainTokens = arr.filter(a => /^vainqueur$/i.test(a.type));
-    const playerTokens = arr.filter(a => /^player$/i.test(a.type) || (!a.type));
-
-    // Remplir scores
-    scoreTokens.forEach(t => {
-      try {
-        const el = t.el;
-        const html = scoreToHtml(score) || '\u00A0';
-        el.innerHTML = `<span class="mid-score">${html}</span>`;
-        if(el.tagName.toLowerCase()==='a') el.href = matchUrlFrom(matchObj);
-      } catch(e){ console.warn('score replace', e); }
-    });
-
-    // Remplir vainqueur
-    vainTokens.forEach(t=>{
-      try{
-        const el = t.el;
-        const alpha = toAlpha2(winnerCountry);
-        if(el.tagName.toLowerCase()==='a'){
-          el.href = matchUrlFrom(matchObj);
-          el.innerHTML = '';
-          if(alpha) {
-            const f = document.createElement('span'); f.className='flag'; f.textContent = alpha2ToFlagEmoji(alpha); el.appendChild(f);
-          } else {
-            const f = document.createElement('span'); f.className='flag ' + (winnerCountry||''); el.appendChild(f);
-          }
-          const n = document.createElement('span'); n.className='player-link'; n.textContent = winnerName || '\u00A0'; el.appendChild(n);
-        } else {
-          if(alpha) el.innerHTML = `<span class="flag">${alpha2ToFlagEmoji(alpha)}</span><span class="player-link">${escapeHtml(winnerName)}</span>`;
-          else el.innerHTML = `<span class="flag ${winnerCountry||''}"></span><span class="player-link">${escapeHtml(winnerName)}</span>`;
-        }
-      }catch(e){ console.warn('vainqueur replace', e); }
-    });
-
-    // Remplir player placeholders
-    if(playerTokens.length>0){
-      if(playerTokens.length>=2){
-        // map first -> playerTwoOrder[0], second -> playerTwoOrder[1]
-        for(let i=0;i<playerTokens.length;i++){
-          const t = playerTokens[i];
-          const field = config.playerTwoOrder[i] || config.playerTwoOrder[config.playerTwoOrder.length-1];
-          let name='', country='', href='';
-          if(field.indexOf('winner')>=0){ name = winnerName; country = winnerCountry; href = playerUrlFrom(matchObj, 'winner'); }
-          else { name = loserName; country = loserCountry; href = playerUrlFrom(matchObj, 'loser'); }
-          try {
-            const el = t.el;
-            if(el.tagName.toLowerCase() === 'a'){ el.href = href || el.href || '#'; el.innerHTML=''; if(toAlpha2(country)) { const f=document.createElement('span'); f.className='flag'; f.textContent=alpha2ToFlagEmoji(toAlpha2(country)); el.appendChild(f); } else { const f=document.createElement('span'); f.className='flag '+(country||''); el.appendChild(f);} const n=document.createElement('span'); n.className='player-link'; n.textContent = name || '\u00A0'; el.appendChild(n); }
-            else {
-              const alpha = toAlpha2(country);
-              if(alpha) el.innerHTML = `<span class="flag">${alpha2ToFlagEmoji(alpha)}</span><a class="player-link" href="${href||'#'}">${escapeHtml(name||'')}</a>`;
-              else el.innerHTML = `<span class="flag ${country||''}"></span><a class="player-link" href="${href||'#'}">${escapeHtml(name||'')}</a>`;
-            }
-          } catch(e){ console.warn('player replace', e); }
+  // handle city/country lookup for ATP if missing
+  let city = meta.city || '';
+  let country = meta.country || '';
+  if(meta.source && meta.source.toUpperCase()==='ATP' && (!city || !country)){
+    try{
+      const resp = await fetch('ioc_places_atp.json');
+      if(resp.ok){
+        const ioc = await resp.json();
+        const id = String(meta.tourney_id);
+        const year = String(meta.year);
+        if(ioc[id] && ioc[id][year]){
+          const arr = ioc[id][year];
+          // structure: [city, country, official name]
+          city = city || (arr[0] || '');
+          country = country || (arr[1] || '');
+          if(!meta.tourney_title && arr[2]) document.getElementById('meta-title').textContent = arr[2];
         }
       } else {
-        // single player placeholder -> use singlePlayerDefaultField
-        const field = config.singlePlayerDefaultField || 'winner_player_name';
-        const role = (field.indexOf('winner')>=0) ? 'winner' : 'loser';
-        const name = (role==='winner') ? winnerName : loserName;
-        const country = (role==='winner') ? winnerCountry : loserCountry;
-        const href = (role==='winner') ? playerUrlFrom(matchObj,'winner') : playerUrlFrom(matchObj,'loser');
-        const el = playerTokens[0].el;
-        try {
-          if(el.tagName.toLowerCase() === 'a'){ el.href = href || el.href || '#'; el.innerHTML=''; if(toAlpha2(country)){ const f=document.createElement('span'); f.className='flag'; f.textContent=alpha2ToFlagEmoji(toAlpha2(country)); el.appendChild(f);} else { const f=document.createElement('span'); f.className='flag '+(country||''); el.appendChild(f);} const n=document.createElement('span'); n.className='player-link'; n.textContent = name || '\u00A0'; el.appendChild(n); }
-          else {
-            const alpha = toAlpha2(country);
-            if(alpha) el.innerHTML = `<span class="flag">${alpha2ToFlagEmoji(alpha)}</span><a class="player-link" href="${href||'#'}">${escapeHtml(name||'')}</a>`;
-            else el.innerHTML = `<span class="flag ${country||''}"></span><a class="player-link" href="${href||'#'}">${escapeHtml(name||'')}</a>`;
-          }
-        } catch(e){ console.warn('single player replace', e); }
+        console.warn('ioc_places_atp.json non trouvé (status ' + resp.status + ')');
       }
+    }catch(err){
+      console.warn('erreur fetch ioc_places_atp.json', err);
     }
-  }); // end for each matchId
+  }
 
-  // Une fois tout fait, rendre le container visible (évite le flash)
-  document.getElementById('bracketContainer').style.visibility = 'visible';
+  document.getElementById('meta-city').textContent = city || '-';
+  document.getElementById('meta-country').textContent = country || '-';
 }
 
-/* ---------- exécution au chargement ---------- */
-document.addEventListener('DOMContentLoaded', async function(){
-  const tourney = await getTourneyDataOrNull();
-  if(tourney && tourney.meta){
-    const title = tourney.meta.tourney_title || tourney.meta.tourney_name || document.getElementById('tourney-title').textContent;
-    document.getElementById('tourney-title').textContent = title;
-  }
-  populatePlaceholders(tourney || window.tourneyData || null);
+/* onglets */
+const tabInfo = document.getElementById('tab-info');
+const tabDraw = document.getElementById('tab-draw');
+const panelInfo = document.getElementById('panel-info');
+const panelDraw = document.getElementById('panel-draw');
+
+tabInfo.addEventListener('click', ()=>{
+  tabInfo.classList.add('active'); tabDraw.classList.remove('active');
+  panelInfo.style.display='block'; panelDraw.style.display='none';
+});
+tabDraw.addEventListener('click', ()=>{
+  tabDraw.classList.add('active'); tabInfo.classList.remove('active');
+  panelInfo.style.display='none'; panelDraw.style.display='block';
+  loadDrawTemplateAndSendData();
 });
 
-/* helper existant */
-function highlight_player(mode, className, unused){
-  const els=document.querySelectorAll('.' + className);
-  if(mode===1) els.forEach(e=>e.classList.add('highlight'));
-  else els.forEach(e=>e.classList.remove('highlight'));
+/* charge le bon template et envoie les données via postMessage */
+function chooseTemplateForDraw(drawSize){
+  if(drawSize <= 32) return 'template_5.html';
+  if(drawSize <= 64) return 'template_6.html';
+  return 'template_7.html';
 }
+
+let iframeReady = false;
+function loadDrawTemplateAndSendData(){
+  const iframe = document.getElementById('draw-frame');
+  const drawSize = (tournamentJson.meta && tournamentJson.meta.singles_draw_size) ? Number(tournamentJson.meta.singles_draw_size) : 32;
+  const templateName = chooseTemplateForDraw(drawSize);
+  iframeReady = false;
+
+  // set src to template
+  iframe.src = templateName;
+
+  // when iframe loaded, postMessage the whole JSON
+  const onLoad = ()=>{
+    iframeReady = true;
+    try {
+      iframe.contentWindow.postMessage({type:'tourney-data', payload: tournamentJson}, '*');
+    } catch(e){
+      console.warn('postMessage failed', e);
+    }
+    iframe.removeEventListener('load', onLoad);
+  };
+  iframe.addEventListener('load', onLoad);
+
+  // also send again after 500ms in case iframe took longer to init
+  setTimeout(()=>{ if(iframeReady===true) return; try{ iframe.contentWindow.postMessage({type:'tourney-data', payload: tournamentJson}, '*'); }catch(e){} }, 700);
+}
+
+/* initialisation */
+document.addEventListener('DOMContentLoaded', async ()=>{
+  await populateInfo(tournamentJson);
+  // load draw template only when user opens the tab - but we can pre-load optionally
+  // Preload small (optional):
+  // loadDrawTemplateAndSendData();
+});
+
+/* optionally, allow server à appeler applyData en patchant tournamentJson et appelant populateInfo() et loadDraw... */
+window.setTournamentData = function(json){
+  if(!json) return;
+  // shallow merge
+  Object.assign(tournamentJson, json);
+  if(json.meta) Object.assign(tournamentJson.meta, json.meta);
+  populateInfo(tournamentJson);
+  // if draw tab active, reload template
+  if(tabDraw.classList.contains('active')) loadDrawTemplateAndSendData();
+};
 </script>
 </body>
 </html>
