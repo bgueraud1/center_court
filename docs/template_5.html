@@ -593,9 +593,8 @@ function isWTAFromData(data){
   return false;
 }
 
-/* ---------- PLAYER INDEX LOADER (ATPI / WTA) ---------- */
+/* ---------- PLAYER INDEX LOADER (unchanged) ---------- */
 window._playerIndexCache = window._playerIndexCache || { atp: null, wta: null, loading: {} };
-
 async function loadPlayerIndex(useWta){
   const key = useWta ? 'wta' : 'atp';
   if(window._playerIndexCache[key]) return window._playerIndexCache[key];
@@ -618,9 +617,7 @@ async function loadPlayerIndex(useWta){
           if(ent.playerId)   byId.set(String(ent.playerId), ent);
           if(ent.id)         byId.set(String(ent.id), ent);
           if(ent.player_id) byId.set(String(ent.player_id).toUpperCase(), ent);
-          if(ent.slug) {
-            byId.set(String(ent.slug), ent);
-          }
+          if(ent.slug) byId.set(String(ent.slug), ent);
           if(ent.page_href && typeof ent.page_href === 'string'){
             const tail = ent.page_href.split('/').filter(Boolean).pop();
             if(tail) byId.set(String(tail), ent);
@@ -640,26 +637,33 @@ async function loadPlayerIndex(useWta){
   return p;
 }
 
-/* ---------- MATCH INDEX LOADER (le nouvel ajout) ---------- */
-window._matchIndexCache = window._matchIndexCache || {}; // cache par clé 'atp|{tourney}_{year}'
-
+/* ---------- MATCH INDEX LOADER (nouveau, tolérant) ---------- */
+window._matchIndexCache = window._matchIndexCache || {};
 async function loadMatchIndex(meta, useWta){
   if(!meta) return null;
-  const tourney = meta.tourney_id || meta.tourney || meta.event_id || meta.tourneyId || meta.tourney_id;
-  const year = meta.year || meta.event_year || meta.tourney_year || meta.year;
+  // try multiple meta keys (ton parent met meta.tourney_id ou meta.tourney)
+  const tourney = meta.tourney_id || meta.tourney || meta.event_id || meta.tourneyId || meta.tourney;
+  const year = meta.year || meta.event_year || meta.tourney_year || meta.season;
   if(!tourney || !year) return null;
 
   const key = (useWta ? 'wta' : 'atp') + '|' + String(tourney) + '_' + String(year);
   if(window._matchIndexCache[key]) return window._matchIndexCache[key];
 
-  const candidates = [
-    `/docs/matches/${useWta ? 'wta_matches_json' : 'atp_matches_json'}/${tourney}_${year}/index.json`,
-    `/docs/matches/${useWta ? 'wta_matches_json' : 'atp_matches_json'}/${tourney}_${year}.json`,
-    `/matches/${useWta ? 'wta_matches_json' : 'atp_matches_json'}/${tourney}_${year}/index.json`,
-    `/matches/${useWta ? 'wta_matches_json' : 'atp_matches_json'}/${tourney}_${year}.json`,
-    `/data/matches/${useWta ? 'wta_matches_json' : 'atp_matches_json'}/${tourney}_${year}/index.json`,
-    `/data/matches/${useWta ? 'wta_matches_json' : 'atp_matches_json'}/${tourney}_${year}.json`
+  const baseDirs = [
+    '/docs/matches',
+    '/matches',
+    '/data/matches',
+    '/data/tournaments' // fallback
   ];
+  const subdir = useWta ? 'wta_matches_json' : 'atp_matches_json';
+  const candidates = [];
+
+  for(const base of baseDirs){
+    candidates.push(`${base}/${subdir}/${tourney}_${year}/index.json`);
+    candidates.push(`${base}/${subdir}/${tourney}_${year}.json`);
+    candidates.push(`${base}/${subdir}/${tourney}/${year}/index.json`);
+    candidates.push(`${base}/${subdir}/${tourney}/${year}.json`);
+  }
 
   const p = (async () => {
     for(const url of candidates){
@@ -667,7 +671,6 @@ async function loadMatchIndex(meta, useWta){
         const r = await fetch(url, {cache:'no-cache'});
         if(!r.ok) continue;
         const j = await r.json();
-        // normaliser : j.matches attendu
         const arr = Array.isArray(j.matches) ? j.matches : (Array.isArray(j) ? j : (j && j.matches) ? j.matches : []);
         const byId = new Map();
         for(const ent of arr){
@@ -677,12 +680,14 @@ async function loadMatchIndex(meta, useWta){
           byId.set(mid, ent);
         }
         const result = { raw: j, byId: byId, sourceUrl: url };
+        console.debug('[match-index] loaded', url, 'entries=', byId.size);
         window._matchIndexCache[key] = result;
         return result;
       }catch(e){
-        // try next candidate
+        // continue
       }
     }
+    console.debug('[match-index] not found for', tourney, year, 'checked', candidates.length, 'candidates');
     return null;
   })();
 
@@ -690,14 +695,14 @@ async function loadMatchIndex(meta, useWta){
   return p;
 }
 
-/* ---------- RESOLVE PLAYER HREF FROM INDEX ---------- */
+/* ---------- RESOLVE PLAYER HREF FROM INDEX (unchanged) ---------- */
 function resolveHrefFromIndex(idx, playerId){
   if(!idx || !playerId) return null;
   const candidates = [String(playerId), String(playerId).toUpperCase(), String(playerId).toLowerCase()];
   for(const k of candidates){
     const ent = idx.byId.get(k);
     if(ent && ent.page_href && typeof ent.page_href === 'string'){
-      const href = ent.page_href.replace(/^\/+/,''); // remove leading slash
+      const href = ent.page_href.replace(/^\/+/,'');
       return window.location.origin + '/' + href;
     }
   }
@@ -708,8 +713,8 @@ function resolveHrefFromIndex(idx, playerId){
 function buildMatchPageUrlFromMatch(m){
   const useWta = isWTAFromData(window._bracketData);
   const base = useWta ? '/wta_matches/match_wta.html' : '/atp_matches/match_atp.html';
-  const tourney = m.tourney || m.event_id || m.tourney_id || m.tourney || '';
-  const year = m.year || m.event_year || m.tourney_year || '';
+  const tourney = m.tourney || m.event_id || m.tourney_id || (window._bracketData && window._bracketData.meta && (window._bracketData.meta.tourney_id||window._bracketData.meta.tourney)) || '';
+  const year = m.year || m.event_year || m.tourney_year || (window._bracketData && window._bracketData.meta && window._bracketData.meta.year) || '';
   const matchId = m.match_id || m.matchId || m.id || '';
   const params = new URLSearchParams();
   if(tourney) params.set('t', tourney);
@@ -813,37 +818,36 @@ function debounce(fn, wait=120){
   return function(...a){ clearTimeout(t); t = setTimeout(()=>fn.apply(this,a), wait); };
 }
 
-/* ---------- FILL FROM MATCH MAP (maintenant async pour charger index) ---------- */
-let _indexPromise = null; // player index
+/* ---------- FILL FROM MATCH MAP (async: charge index si possible) ---------- */
+let _playerIndexPromise = null;
+
 async function fillFromMap(matchMap) {
   const rawData = window._bracketData || {};
   const useWta = isWTAFromData(rawData);
 
-  // kick off player index load (same behaviour as before)
-  if(!_indexPromise) _indexPromise = loadPlayerIndex(useWta);
+  if(!_playerIndexPromise) _playerIndexPromise = loadPlayerIndex(useWta);
 
-  // try load match index (if available) and merge links into match objects
+  // try to load match index (index.json) and merge link/page_link into matchMap entries
   try{
     const matchIndex = await loadMatchIndex(rawData.meta || {}, useWta);
     if(matchIndex && matchIndex.byId){
-      // merge index info into match objects in matchMap so later code can use m.link / m.page_link
       for(const [mid, m] of matchMap.entries()){
         const ent = matchIndex.byId.get(mid);
         if(ent){
-          // prefer explicit 'page_link' if present, else 'link'
           if(ent.page_link) m.page_link = ent.page_link;
           if(ent.link) m.link = ent.link;
-          // also keep full index entry
           m._index = ent;
         }
       }
+      console.debug('[fillFromMap] merged index for matches', matchIndex.sourceUrl || '(unknown)');
+    } else {
+      console.debug('[fillFromMap] no match index found (ok, using fallbacks)');
     }
   }catch(e){
-    // ignore index load errors (template should still work with fallbacks)
-    // console.warn('match index load failed', e);
+    console.warn('[fillFromMap] error loading match index', e);
   }
 
-  // helper pour extraire un id de joueur depuis l'objet match en fonction du side/name heuristiques
+  // helpers (same as before)
   function extractPlayerId(m, side) {
     const candidates = {};
     candidates.topName = m.top_player_name || m.top_name || m.loser_player_name || m.winner_player_name || '';
@@ -929,8 +933,6 @@ async function fillFromMap(matchMap) {
     const m = matchMap.get(matchId);
     if(!m) return;
 
-    const topName = m.top_player_name || m.top_name || m.loser_player_name || m.winner_player_name || '';
-    const bottomName = m.bottom_player_name || m.bottom_name || '';
     let displayName = '';
     let seed = '';
 
@@ -948,7 +950,6 @@ async function fillFromMap(matchMap) {
     const playerId = extractPlayerId(m, side);
     createPlayerNode(el, displayName, seed, playerId);
 
-    // flag
     const flag = el.parentElement ? el.parentElement.querySelector('.flag') : null;
     if(flag){
       let countryIOC = '';
@@ -1013,7 +1014,6 @@ async function fillFromMap(matchMap) {
       el.appendChild(nameSpan);
     }
 
-    // flag
     const flag = el.parentElement ? el.parentElement.querySelector('.flag') : null;
     if(flag){
       let countryIOC = m.winner_country || m.winner_country_code || '';
@@ -1024,20 +1024,26 @@ async function fillFromMap(matchMap) {
     }
   });
 
-  /* ---- fill scores: create top-level clickable link for the score ---- */
+  /* ---- fill scores: create top-level clickable link for the score (robuste) ---- */
   document.querySelectorAll('[data-field="score"]').forEach(el => {
     const matchId = (el.dataset.match || '').toUpperCase();
     const m = matchMap.get(matchId);
     if(!m) return;
-    const score = m.score_string || m.score || m.scoreString || el.textContent || '';
+
+    // extract score text robustly (many possible keys)
+    const score = (m.score_string || m.score || m.scoreString || m.result || el.textContent || '').toString().trim();
 
     el.innerHTML = '';
     const a = document.createElement('a');
     a.className = 'score-link';
-    a.textContent = score || (m.match_id || matchId || '');
+
+    // guarantee a textContent (never undefined)
+    const text = (score && score !== 'Score' + matchId) ? score : (m.match_id || matchId || 'Voir le match');
+    a.textContent = String(text);
+
     a.setAttribute('title', 'Voir le match ' + (m.match_id || matchId || ''));
 
-    // priority: m.page_link -> m.link -> m._index.link -> fallback constructed
+    // priority: page_link -> link -> index.link -> fallback constructed
     if(m.page_link) {
       a.href = m.page_link;
     } else if(m.link) {
@@ -1045,7 +1051,6 @@ async function fillFromMap(matchMap) {
     } else if(m._index && m._index.link) {
       a.href = m._index.link;
     } else {
-      // fallback candidates constructed locally
       const useWtaLocal = isWTAFromData(window._bracketData);
       const folderTemplate = useWtaLocal ? '/wta_matches/match_wta.html' : '/atp_matches/match_atp.html';
       const rootTemplate   = useWtaLocal ? '/match_wta.html' : '/match_atp.html';
@@ -1071,10 +1076,13 @@ async function fillFromMap(matchMap) {
     a.target = '_top';
     a.rel = 'noopener noreferrer';
     el.appendChild(a);
+
+    // debug log for each created score link (will appear in console)
+    console.debug('[score-link] created:', a.textContent, '->', a.href, a.dataset.candidates || '');
   });
 
-  // after initial render, if player index resolves later, upgrade player nodes
-  _indexPromise.then(idx => {
+  // upgrade player nodes once player index resolves
+  _playerIndexPromise.then(idx => {
     if(!idx) return;
     const allNodes = document.querySelectorAll('[data-player-id]');
     allNodes.forEach(node => {
@@ -1083,12 +1091,7 @@ async function fillFromMap(matchMap) {
       const href = resolveHrefFromIndex(idx, pid);
       if(!href) return;
       if(node.tagName && node.tagName.toLowerCase() === 'a'){
-        try{
-          node.href = href;
-          node.setAttribute('title', node.textContent || href);
-          node.target = '_top';
-          node.rel = 'noopener noreferrer';
-        }catch(e){}
+        try{ node.href = href; node.setAttribute('title', node.textContent || href); node.target = '_top'; node.rel = 'noopener noreferrer'; }catch(e){}
         return;
       }
       const a = document.createElement('a');
@@ -1130,7 +1133,7 @@ window.addEventListener('message', function(ev){
     if(d && d.type === 'tourney-data' && d.payload){
       window._bracketData = d.payload;
       const map = buildMap(d.payload);
-      // fillFromMap is async (will try to load index), but we can call it w/o awaiting here
+      // call async fillFromMap but don't block
       fillFromMap(map).catch(e=>{ console.error('fillFromMap err', e); });
       setTimeout(createConnectors, 20);
     }
