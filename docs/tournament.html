@@ -3,21 +3,18 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Bracket skeleton</title>
+<title>Bracket skeleton — corrigé</title>
 <style>
   :root{
-    /* layout sizes (modifiable) */
-    --winner-h:22px;            /* height of top player row */
-    --loser-h:22px;             /* height of bottom player row */
-    --midblock-h:40px;          /* height of middle winner+score block */
-    --match-gap:48px;           /* vertical gap between matches */
-    --col-gap:36px;             /* horizontal gap between columns */
-    --col-width:220px;          /* width of the leftmost column */
-    --col-width-small:160px;    /* width of other columns */
-    --midblock-width:180px;     /* width of the mid block */
-    --mid-offset: 0px;          /* extra offset applied to mid-block X */
+    --winner-h:22px;
+    --loser-h:22px;
+    --midblock-h:40px;
+    --match-gap:48px;
+    --col-gap:36px;
+    --col-width:220px; /* même largeur pour toutes les colonnes */
+    --midblock-width:180px;
+    --mid-offset: 0px;
     --line-color:#797979;
-    --seed-blue:#0b3d91;
     --container-padding:12px;
   }
 
@@ -26,35 +23,39 @@
   .container{max-width:1400px;margin:12px auto;padding:var(--container-padding);position:relative}
   #bracket{position:relative; min-height:640px; background:transparent; overflow:visible;}
 
-/* debug / placeholders visuals */
-.match-row{box-sizing:border-box;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 8px;background:#fff;position:absolute;display:flex;align-items:center;gap:8px;border-left:1px solid transparent;border-right:1px solid transparent;}
-.row-top{height:var(--winner-h); border-top:1px solid var(--line-color);}
-.row-bottom{height:var(--loser-h); border-bottom:1px solid var(--line-color);}
+/* match wrapper qui contient les deux rangs (top + bottom) */
+.match-wrapper{ position:absolute; width:var(--col-width); box-sizing:border-box; pointer-events:none; }
 
-.mid-block{position:absolute;height:var(--midblock-h);width:var(--midblock-width);z-index:50;background:#fff;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;}
-.mid-winner{height:18px; display:block; width:100%; box-sizing:border-box; padding:0 8px; font-weight:700; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-.mid-bar{height:1px;background:var(--line-color);width:100%;}
-.mid-score{font-size:12px;padding-top:4px;color:#515151;font-style:italic; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+/* lignes (placées RELATIVEMENT à l'intérieur du wrapper) */
+.match-row{ box-sizing:border-box; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0 8px; background:#fff; display:block; width:100%; }
+.row-top{ height:var(--winner-h); border-top:1px solid var(--line-color); }
+.row-bottom{ height:var(--loser-h); border-bottom:1px solid var(--line-color); }
+
+/* mid-block positionné en absolu dans #bracket (entre colonnes) */
+.mid-block{ position:absolute; height:var(--midblock-h); width:var(--midblock-width); z-index:50; background:#fff; box-sizing:border-box; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none; }
+.mid-winner{ height:18px; display:block; width:100%; box-sizing:border-box; padding:0 8px; font-weight:700; font-size:12px; overflow:hidden; text-overflow:ellipsis; }
+.mid-bar{ height:1px; background:var(--line-color); width:100%; }
+.mid-score{ font-size:12px; padding-top:4px; color:#515151; font-style:italic; overflow:hidden; text-overflow:ellipsis; }
 
 /* svg overlay */
-.connectors{position:absolute;left:0;top:0;width:100%;height:100%;z-index:20;pointer-events:none}
+.connectors{ position:absolute; left:0; top:0; width:100%; height:100%; z-index:20; pointer-events:none; }
 
-/* visual hints (placeholders) */
-.placeholder-name{height:14px;width:80%;background:transparent;}
-.placeholder-seed{width:22px;height:16px;background:transparent;display:inline-block}
-.placeholder-score{height:12px;width:60%;background:transparent;display:block;margin-top:4px}
+/* placeholders */
+.placeholder-name{ height:14px; width:80%; background:transparent; display:inline-block; }
+.placeholder-seed{ width:22px; height:16px; background:transparent; display:inline-block; }
+.placeholder-score{ height:12px; width:60%; background:transparent; display:block; margin-top:4px; }
 
-/* responsiveness tweak */
+/* responsive */
 @media (max-width:900px){
-  :root{ --col-width:160px; --col-width-small:120px; --midblock-width:140px; --match-gap:36px; }
+  :root{ --col-width:160px; --midblock-width:140px; --match-gap:36px; }
 }
 </style>
 </head>
 <body>
   <div class="topbar">
     <div style="max-width:1400px;margin:0 auto;display:flex;gap:12px;align-items:center;">
-      <strong>Bracket skeleton</strong>
-      <div style="margin-left:auto;font-size:13px;color:#fff;opacity:0.9">Modifiable via CSS vars in :root</div>
+      <strong>Bracket skeleton — corrigé</strong>
+      <div style="margin-left:auto;font-size:13px;color:#fff;opacity:0.9">Colonnes uniformes + lignes continues</div>
     </div>
   </div>
 
@@ -63,221 +64,175 @@
   </div>
 
 <script>
-/*
-  Bracket skeleton generator
-  - Determines rounds from singles_draw_size (or URL param ?size=)
-  - Renders empty placeholders for player rows (first column only have row-top/row-bottom)
-  - Renders mid-block placeholders per match
-  - Draws connectors as grouped vertical "spines" + horizontals to mid-blocks (no duplicate horizontals)
-  - No player names / scores are injected (placeholders only)
-*/
-
-/* ---------- configuration ---------- */
-// Try URL param ?size= or fallback to this constant
-function getParamSize(){
-  const p = new URLSearchParams(location.search).get('size');
-  if(p) { const n = parseInt(p,10); if(!isNaN(n) && n>0) return n; }
-  return null;
-}
-let singles_draw_size = getParamSize() || 32; // default 32
-// The number of players must be a power of 2; if not, round up to next power of 2.
-function nextPowerOfTwo(n){
-  return Math.pow(2, Math.ceil(Math.log2(n)));
-}
-function prevPowerOfTwo(n){
-  return Math.pow(2, Math.floor(Math.log2(n)));
-}
-singles_draw_size = nextPowerOfTwo(singles_draw_size);
-
-/* ---------- read CSS variables ---------- */
+/* Configuration / lecture CSS vars */
 const rootStyle = getComputedStyle(document.documentElement);
-const winnerH = parseInt(rootStyle.getPropertyValue('--winner-h')) || 22;
-const loserH  = parseInt(rootStyle.getPropertyValue('--loser-h')) || 22;
-const midH     = parseInt(rootStyle.getPropertyValue('--midblock-h')) || 40;
-const matchGap = parseInt(rootStyle.getPropertyValue('--match-gap')) || 48;
-const colGap   = parseInt(rootStyle.getPropertyValue('--col-gap')) || 36;
-const colWidth = parseInt(rootStyle.getPropertyValue('--col-width')) || 220;
-const colWidthSmall = parseInt(rootStyle.getPropertyValue('--col-width-small')) || 160;
-const midWidth = parseInt(rootStyle.getPropertyValue('--midblock-width')) || 180;
+const winnerH = Math.max(1, parseInt(rootStyle.getPropertyValue('--winner-h')) || 22);
+const loserH  = Math.max(1, parseInt(rootStyle.getPropertyValue('--loser-h')) || 22);
+const midH     = Math.max(1, parseInt(rootStyle.getPropertyValue('--midblock-h')) || 40);
+const matchGap = Math.max(0, parseInt(rootStyle.getPropertyValue('--match-gap')) || 48);
+const colGap   = Math.max(0, parseInt(rootStyle.getPropertyValue('--col-gap')) || 36);
+const colWidth = Math.max(40, parseInt(rootStyle.getPropertyValue('--col-width')) || 220); // same for all columns
+const midWidth = Math.max(10, parseInt(rootStyle.getPropertyValue('--midblock-width')) || 180);
 const midOffset = parseInt(rootStyle.getPropertyValue('--mid-offset')) || 0;
 
-/* ---------- layout math ---------- */
-const totalPlayers = singles_draw_size;                 // power of two
-const rounds = Math.log2(totalPlayers);                // number of rounds (e.g. 32 -> 5 rounds)
-const firstRoundMatches = totalPlayers / 2;            // matches in first round
-// matches per round: round 0 (first round) -> firstRoundMatches,
-// round r -> firstRoundMatches / (2^r)
+/* draw params */
+function getParamSize(){
+  const p = new URLSearchParams(location.search).get('size');
+  if(p){ const n = parseInt(p,10); if(!isNaN(n) && n>0) return n; }
+  return null;
+}
+function nextPowerOfTwo(n){ return Math.pow(2, Math.ceil(Math.log2(n))); }
+
+let singles_draw_size = getParamSize() || 32;
+singles_draw_size = nextPowerOfTwo(singles_draw_size);
+
+const totalPlayers = singles_draw_size;
+const rounds = Math.log2(totalPlayers);
+const firstRoundMatches = totalPlayers / 2;
 function matchesInRound(r){ return Math.max(1, firstRoundMatches / Math.pow(2, r)); }
 
-/* container sizing */
 const perMatchBlock = winnerH + midH + loserH + matchGap;
-const maxMatchesInRound = firstRoundMatches; // leftmost column largest
+const maxMatchesInRound = firstRoundMatches;
 const containerHeight = Math.max(640, maxMatchesInRound * perMatchBlock + 80);
 
 const bracket = document.getElementById('bracket');
 bracket.style.height = containerHeight + 'px';
-bracket.innerHTML = ''; // reset
+bracket.innerHTML = '';
 
-/* create SVG overlay */
+/* SVG overlay */
 const svgNS = 'http://www.w3.org/2000/svg';
-const svg = document.createElementNS(svgNS, 'svg');
+const svg = document.createElementNS(svgNS,'svg');
 svg.classList.add('connectors');
 svg.setAttribute('width','100%');
 svg.setAttribute('height','100%');
 bracket.appendChild(svg);
 
-/* helper to create match placeholders and collect positions */
+/* store positions/wrappers */
 const positionsByRound = [];
 
+/* Build wrappers (rows) + mid blocks */
 for(let r=0;r<rounds;r++){
   const matchCount = matchesInRound(r);
-  const columnHeight = (matchCount - 1) * perMatchBlock + (winnerH + midH + loserH) + 20;
+  // compute vertical column height and top offset (centered)
+  const columnHeight = (matchCount - 1) * perMatchBlock + (winnerH + midH + loserH);
   const topOffset = Math.max(8, Math.round((containerHeight - columnHeight) / 2));
+
+  // left coordinate for this column (uniform width)
+  const colLeft = Math.round(r * (colWidth + colGap));
+
   const thisPositions = [];
-  // compute left coordinate for this column
-  const colLeft = (r === 0) ? 0 : r * (colWidthSmall + colGap) + (colWidth - colWidthSmall);
-
   for(let m=0;m<matchCount;m++){
-    // vertical positioning: when r==0 evenly spaced, else align to children average (handled later)
-    const topBlock = topOffset + m * perMatchBlock;
-    const topRowTop = topBlock;
-    const midTop = topRowTop + winnerH;
-    const bottomRowTop = midTop + midH;
-    const bottomRowBottom = bottomRowTop + loserH;
-    const center = Math.round((topRowTop + bottomRowBottom) / 2);
+    // wrapper top
+    const wrapperTop = Math.round(topOffset + m * perMatchBlock);
+    const wrapperHeight = winnerH + midH + loserH;
 
-    // left/width based on column
-    const left = colLeft;
-    const width = (r === 0) ? colWidth : colWidthSmall;
+    // create wrapper
+    const wrapper = document.createElement('div');
+    wrapper.className = 'match-wrapper';
+    wrapper.style.left = colLeft + 'px';
+    wrapper.style.top = wrapperTop + 'px';
+    wrapper.style.width = colWidth + 'px';
+    wrapper.style.height = wrapperHeight + 'px';
 
-    // TOP row placeholder
+    // top row
     const topDiv = document.createElement('div');
-    topDiv.className = 'match-row' + (r===0 ? ' row-top' : '');
-    topDiv.style.top = topRowTop + 'px';
-    topDiv.style.left = left + 'px';
+    topDiv.className = 'match-row row-top';
     topDiv.style.height = winnerH + 'px';
-    topDiv.style.width = width + 'px';
     if(r===0){
-      // first column: show seed/name placeholders (non-interactive)
       const seed = document.createElement('span'); seed.className='placeholder-seed'; seed.style.visibility='hidden';
       const name = document.createElement('span'); name.className='placeholder-name';
       topDiv.appendChild(seed); topDiv.appendChild(name);
-    } else {
-      topDiv.innerHTML = '&nbsp;';
-    }
-    bracket.appendChild(topDiv);
+    } else { topDiv.innerHTML = '&nbsp;'; }
+    wrapper.appendChild(topDiv);
 
-    // BOTTOM row placeholder
+    // spacer for middle (we do not need to create an element, mid-block is separate)
+    const spacer = document.createElement('div');
+    spacer.style.height = midH + 'px';
+    spacer.style.boxSizing = 'border-box';
+    wrapper.appendChild(spacer);
+
+    // bottom row
     const bottomDiv = document.createElement('div');
-    bottomDiv.className = 'match-row' + (r===0 ? ' row-bottom' : '');
-    bottomDiv.style.top = bottomRowTop + 'px';
-    bottomDiv.style.left = left + 'px';
+    bottomDiv.className = 'match-row row-bottom';
     bottomDiv.style.height = loserH + 'px';
-    bottomDiv.style.width = width + 'px';
     if(r===0){
       const seed = document.createElement('span'); seed.className='placeholder-seed'; seed.style.visibility='hidden';
       const name = document.createElement('span'); name.className='placeholder-name';
       bottomDiv.appendChild(seed); bottomDiv.appendChild(name);
-    } else {
-      bottomDiv.innerHTML = '&nbsp;';
-    }
-    bracket.appendChild(bottomDiv);
+    } else { bottomDiv.innerHTML = '&nbsp;'; }
+    wrapper.appendChild(bottomDiv);
 
-    // MID block placeholder
-    const midX_raw = ( (left + width) + ( (r===0) ? left+width : ( (r-1) * (colWidthSmall + colGap) + (colWidth - colWidthSmall) + ((r-1)===0?colWidth:colWidthSmall) ) ) )/2;
-    // simpler: place mid-block at left + width + midOffset
-    const midBlockX = Math.round(left + width + midOffset);
+    bracket.appendChild(wrapper);
+
+    // mid-block positioned between this column and the next (except maybe last round)
+    // For visual consistency we put the mid-block between the current column and the next column,
+    // using midOffset and centering by margin-left:-midWidth/2
+    const midBlockX = Math.round(colLeft + colWidth + midOffset);
+    const centerY = Math.round(wrapperTop + wrapperHeight/2);
+
     const midBlock = document.createElement('div');
     midBlock.className = 'mid-block';
     midBlock.style.left = midBlockX + 'px';
-    midBlock.style.top = (center - Math.round(midH/2)) + 'px';
+    midBlock.style.top = (centerY - Math.round(midH/2)) + 'px';
     midBlock.style.width = midWidth + 'px';
     midBlock.style.marginLeft = (-Math.round(midWidth/2)) + 'px';
-    // inner placeholders (winner + bar + score)
-    const mw = document.createElement('div'); mw.className='mid-winner'; mw.textContent = ''; // empty
+
+    const mw = document.createElement('div'); mw.className='mid-winner';
     const mb = document.createElement('div'); mb.className='mid-bar';
     const ms = document.createElement('div'); ms.className='mid-score';
     midBlock.appendChild(mw); midBlock.appendChild(mb); midBlock.appendChild(ms);
     bracket.appendChild(midBlock);
 
-    // store computed position (center x,y and midTop/midBottom)
-    const computedMidX = midBlockX;
     thisPositions.push({
-      topRowTop, midTop, bottomRowTop, bottomRowBottom, center,
-      left, width,
-      midX: computedMidX,
-      midTop: (center - Math.round(midH/2)), midBottom: (center - Math.round(midH/2) + midH),
-      midBlockElem: midBlock
+      wrapperElem: wrapper,
+      midBlockElem: midBlock,
+      left: colLeft,
+      width: colWidth,
+      center: centerY,
+      midX: midBlockX,
+      midTop: centerY - Math.round(midH/2),
+      midBottom: centerY - Math.round(midH/2) + midH
     });
   }
 
   positionsByRound.push(thisPositions);
 }
 
-/* After building all positions, we need to properly vertically align non-first columns
-   so that parents sit between their children. We'll reposition mid-blocks & top/bottom
-   placeholders based on averaging child centers for columns > 0. */
+/* vertically align parent columns to children (recompute wrapper tops + midBlocks) */
 for(let r=1;r<rounds;r++){
   const parents = positionsByRound[r];
   const children = positionsByRound[r-1];
   if(!parents || !children) continue;
   const parentCount = parents.length;
   const childCount = children.length;
+
   for(let p=0;p<parentCount;p++){
-    // determine which children map to this parent
     const start = Math.floor(p * childCount / parentCount);
     const end   = Math.floor(((p+1) * childCount) / parentCount) - 1;
-    let sum=0,cnt=0;
+    let sum = 0, cnt = 0;
     for(let k=Math.max(0,start); k<=Math.min(end, childCount-1); k++){
-      sum += children[k].center;
-      cnt++;
+      sum += children[k].center; cnt++;
     }
-    const parentCenter = cnt? Math.round(sum/cnt) : parents[p].center;
-    // recalc topRowTop etc such that center = parentCenter
-    const topRowTop = parentCenter - Math.round((winnerH + midH + loserH)/2);
-    const midTop = topRowTop + winnerH;
-    const bottomRowTop = midTop + midH;
-    const bottomRowBottom = bottomRowTop + loserH;
-    // move DOM elements: top, bottom, mid-block
+    const parentCenter = cnt ? Math.round(sum / cnt) : parents[p].center;
+    const wrapperHeight = winnerH + midH + loserH;
+    const newWrapperTop = Math.round(parentCenter - wrapperHeight/2);
+
     const par = parents[p];
-    // find corresponding DOM elements by matching coordinates (we stored elements for mid-block only)
-    const midEl = par.midBlockElem;
-    if(midEl){
-      midEl.style.top = (parentCenter - Math.round(midH/2)) + 'px';
-      // update our stored positions
+    if(par.wrapperElem){
+      par.wrapperElem.style.top = newWrapperTop + 'px';
+      par.center = parentCenter;
       par.midTop = parentCenter - Math.round(midH/2);
       par.midBottom = par.midTop + midH;
-      par.topRowTop = topRowTop;
-      par.bottomRowTop = bottomRowTop;
-      par.center = parentCenter;
-      // also move placeholder row divs at same index in DOM: easier to search by proximity
-      // We'll find the top/bottom divs by scanning .match-row near (left) position
-      const left = par.left;
-      // find .match-row elements at the left coordinate and similar width & move them
-      const allRows = document.querySelectorAll('.match-row');
-      for(const row of allRows){
-        const rleft = parseInt(row.style.left || '0',10);
-        const rwidth = parseInt(row.style.width || '0',10);
-        if(rleft===left && rwidth==par.width){
-          const rtop = parseInt(row.style.top||'0',10);
-          // heuristic: top rows have top border; if current top is close to old topRowTop then move
-          // We'll move both the top and bottom that are closest to the previous stored values
-          // For simplicity, move any row whose vertical distance to new topRowTop/bottomRowTop is less than perMatchBlock
-          if(Math.abs(rtop - par.topRowTop) > Math.abs(rtop - topRowTop)){
-            row.style.top = topRowTop + 'px';
-          }
-          if(Math.abs(rtop - par.bottomRowTop) > Math.abs(rtop - bottomRowTop)){
-            row.style.top = bottomRowTop + 'px';
-          }
-        }
+      // also move midBlock to vertical center
+      if(par.midBlockElem){
+        par.midBlockElem.style.top = (parentCenter - Math.round(midH/2)) + 'px';
       }
     }
   }
 }
 
-/* ---------- draw connectors (grouped spines + horizontals -> connect to mid-bar center) ---------- */
+/* ---------- draw connectors (vertical spines + horizontals) ---------- */
 function drawPolyline(points, strokeWidth){
-  // remove consecutive duplicate points
   const reduced = points.filter((p,i,arr) => { if(i===0) return true; const prev = arr[i-1]; return !(prev[0]===p[0] && prev[1]===p[1]); });
   if(reduced.length < 2) return;
   const poly = document.createElementNS(svgNS,'polyline');
@@ -295,26 +250,23 @@ for(let r=0;r<positionsByRound.length-1;r++){
   const parents = positionsByRound[r+1];
   if(!children || !parents) continue;
 
-  // map parents to their children indices
+  // mapping: which children go to each parent
   const mapping = new Array(parents.length).fill(0).map(()=>[]);
   for(let i=0;i<children.length;i++){
     const parentIndex = Math.floor(i * parents.length / children.length);
     mapping[Math.min(Math.max(parentIndex,0), parents.length-1)].push(i);
   }
 
-  // for each parent create a single spine and horizontals
   for(let p=0;p<parents.length;p++){
     const childIndices = mapping[p];
     if(!childIndices || childIndices.length===0) continue;
     const parent = parents[p];
 
-    // vertical extent from children centers
     let minY = Infinity, maxY = -Infinity, sumX = 0;
     childIndices.forEach(ci => { const c = children[ci]; minY = Math.min(minY, c.center); maxY = Math.max(maxY, c.center); sumX += c.midX; });
 
-    const avgChildX = Math.round(sumX / childIndices.length);
+    const avgChildX = Math.round(sumX / childIndices.length || 0);
 
-    // position spine just to the left of the parent's mid-block (so that mid-bar remains sole horizontal)
     const parentMidLeft = parent.midX - Math.round(midWidth/2);
     let preferred = Math.round((avgChildX + parent.midX) / 2);
     let spineX = preferred;
@@ -323,7 +275,6 @@ for(let r=0;r<positionsByRound.length-1;r++){
     if(spineX > minSpineX) spineX = minSpineX;
     if(spineX < maxSpineX) spineX = maxSpineX;
 
-    // make the spine reach at least the vertical range of the children, and extend to parent's mid-bar Y
     const parentBarY = parent.midTop + Math.round((parent.midBottom - parent.midTop)/2);
     const vTop = Math.min(minY, parentBarY);
     const vBottom = Math.max(maxY, parentBarY);
@@ -332,20 +283,14 @@ for(let r=0;r<positionsByRound.length-1;r++){
       drawPolyline([[spineX, vTop], [spineX, vBottom]], 1);
     }
 
-    // horizontals from each child to spine
     childIndices.forEach(ci => {
       const c = children[ci];
       drawPolyline([[c.midX, c.center], [spineX, c.center]], 1);
     });
-
-    // Note: we do NOT draw a horizontal from parent.midX to spineX.
-    // The mid-block's internal .mid-bar is the visible horizontal at parent.
   }
 }
 
-/* Done. The structure is drawn. */
-/* Optional: print some debug info in console */
-console.log('Bracket skeleton generated: players=', totalPlayers, 'rounds=', rounds, 'firstRoundMatches=', firstRoundMatches);
+console.log('Bracket generated — players=', totalPlayers, 'rounds=', rounds);
 </script>
 </body>
 </html>
