@@ -728,31 +728,26 @@ function fillFromMap(matchMap) {
     seedSpan.textContent = seed ? seed : '';
     el.appendChild(seedSpan);
 
-           const nameSpan = document.createElement('span');
+    const nameSpan = document.createElement('span');
     nameSpan.className = 'name';
-    if(playerSlug || playerId || name){
-      // href immédiat (fallback)
-      const urlSync = buildPlayerPageUrl({slug: playerSlug, id: playerId, name: name, useWta});
+
+    // *** STRICT: use index only, no fallback ***
+    const href = getPlayerHrefFromIndex({ id: playerId, slug: playerSlug, name: name }, useWta);
+
+    if (href) {
       const a = document.createElement('a');
       a.className = 'player-link';
-      a.href = urlSync;
+      a.href = href;
+      a.target = '_top';
       a.textContent = name || (playerId ? playerId : '—');
-      a.setAttribute('title', name || urlSync);
+      a.setAttribute('title', name || href);
       nameSpan.appendChild(a);
-
-      // async : remplacer href si index fournit page_href
-      buildPlayerPageUrlAsync({slug: playerSlug, id: playerId, name: name, useWta})
-        .then(realUrl => {
-          if(realUrl && realUrl !== a.href){
-            try{ a.href = realUrl; a.setAttribute('title', name || realUrl); }catch(e){}
-          }
-        }).catch(()=>{});
     } else {
+      // no link if not present in index
       nameSpan.textContent = name || '';
     }
+
     el.appendChild(nameSpan);
-
-
 
     const flag = el.parentElement ? el.parentElement.querySelector('.flag') : null;
     if (flag) {
@@ -787,14 +782,49 @@ function fillFromMap(matchMap) {
     const playerId = m.winner_player_id || m.winner_id || '';
     const displayName = m.winner_player_name || m.winner || '';
 
-    if(playerSlug || playerId || displayName){
-  const urlSync = buildPlayerPageUrl({slug: playerSlug, id: playerId, name: displayName, useWta});
-  const a = document.createElement('a');
-  a.className = 'player-link';
-  a.href = urlSync;
-  a.textContent = displayName || (playerId ? playerId : '');
-  a.setAttribute('title', displayName || urlSync);
-  nameSpan.appendChild(a);
+    const href = getPlayerHrefFromIndex({ id: playerId, slug: playerSlug, name: displayName }, useWta);
+
+    if (href) {
+      const a = document.createElement('a');
+      a.className = 'player-link';
+      a.href = href;
+      a.target = '_top';
+      a.textContent = displayName || (playerId ? playerId : '');
+      a.setAttribute('title', displayName || href);
+      nameSpan.appendChild(a);
+    } else {
+      nameSpan.textContent = displayName || '';
+    }
+
+    el.appendChild(nameSpan);
+
+    const flag = el.parentElement ? el.parentElement.querySelector('.flag') : null;
+    if (flag) {
+      let countryIOC = m.winner_country || '';
+      let iso2 = iocToIso[(countryIOC || '').toUpperCase()] || '';
+      if (!iso2 && countryIOC && countryIOC.length >= 2) iso2 = countryIOC.slice(0,2).toUpperCase();
+      flag.textContent = iso2 ? iso2ToFlagEmoji(iso2) : '';
+      flag.title = countryIOC || '';
+    }
+  });
+
+  document.querySelectorAll('[data-field="score"]').forEach(el => {
+    const matchId = (el.dataset.match || '').toUpperCase();
+    const m = matchMap.get(matchId);
+    if (!m) return;
+    const score = m.score_string || m.score || m.scoreString || el.textContent || '';
+
+    el.innerHTML = '';
+    const a = document.createElement('a');
+    a.className = 'score-link';
+    a.href = buildMatchPageUrl({ matchId: m.match_id || matchId || m.event_id || m.matchId });
+    a.textContent = score;
+    a.setAttribute('title', 'Voir le match ' + (m.match_id || matchId || ''));
+    el.appendChild(a);
+  });
+
+  setTimeout(createConnectors, 20);
+}
 
   // update with better URL if found in index
   buildPlayerPageUrlAsync({slug: playerSlug, id: playerId, name: displayName, useWta})
