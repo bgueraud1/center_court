@@ -50,7 +50,13 @@
   text-decoration: underline;
   color: #000 !important;
 }
-
+.player-link:visited {
+  color: #111 !important;
+  text-decoration: none !important;
+}
+.player-link:focus {
+  outline: none;
+}
 </style>
 </head>
 <body>
@@ -747,20 +753,33 @@ function fillFromMap(matchMap) {
     seedSpan.textContent = seed ? seed : '';
     el.appendChild(seedSpan);
 
-    const nameSpan = document.createElement('span');
+        const nameSpan = document.createElement('span');
     nameSpan.className = 'name';
     if(playerSlug || playerId || name){
-      const url = buildPlayerPageUrl({slug: playerSlug, id: playerId, name: name, useWta});
+      // sync fallback url (immediate)
+      const urlSync = buildPlayerPageUrl({slug: playerSlug, id: playerId, name: name, useWta});
       const a = document.createElement('a');
       a.className = 'player-link';
-      a.href = url;
+      a.href = urlSync;
       a.textContent = name || (playerId ? playerId : '—');
-      a.setAttribute('title', name || url);
+      a.setAttribute('title', name || urlSync);
       nameSpan.appendChild(a);
+
+      // async: try to fetch index and update href when known
+      buildPlayerPageUrlAsync({slug: playerSlug, id: playerId, name: name, useWta})
+        .then(realUrl => {
+          if(realUrl && realUrl !== a.href){
+            try{
+              a.href = realUrl;
+              a.setAttribute('title', name || realUrl);
+            }catch(e){}
+          }
+        }).catch(()=>{});
     } else {
       nameSpan.textContent = name || '';
     }
     el.appendChild(nameSpan);
+
 
     const flag = el.parentElement ? el.parentElement.querySelector('.flag') : null;
     if (flag) {
