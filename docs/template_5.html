@@ -45,7 +45,6 @@
   text-decoration: none !important;
   cursor: pointer;
 }
-/* optionnel : montrer un survol discret (si tu veux un indice visuel) */
 .player-link:hover {
   text-decoration: underline;
   color: #000 !important;
@@ -57,6 +56,20 @@
 .player-link:focus {
   outline: none;
 }
+
+/* SCORE LINK: noir et NON souligné (même style que player-link mais sans underline au hover) */
+.score-link {
+  color: #111 !important;
+  text-decoration: none !important;
+  cursor: pointer;
+  font-weight: 500;
+}
+.score-link:hover {
+  text-decoration: none !important; /* strictement pas souligné */
+  color: #000 !important;
+}
+.score-link:visited { color: #111 !important; text-decoration: none !important; }
+
 </style>
 </head>
 <body>
@@ -525,7 +538,7 @@
 </div>
 
 <script>
-/* ---------- UTILITAIRES ---------- */
+//* ---------- UTILITAIRES ---------- */
 function qs(k){
   try{ return new URLSearchParams(location.search).get(k); }catch(e){ return null; }
 }
@@ -537,7 +550,7 @@ function slugify(name){
     .replace(/^-+|-+$/g,'');
 }
 
-/* IOC -> ISO + emoji */
+/* IOC -> ISO + emoji (inchangé) */
 const iocToIso = {
   "AUS":"AU","AUT":"AT","ARG":"AR","BEL":"BE","BRA":"BR","CAN":"CA",
   "CHN":"CN","CZE":"CZ","DEN":"DK","ESP":"ES","EST":"EE","FIN":"FI",
@@ -581,6 +594,7 @@ function isWTAFromData(data){
 }
 
 /* ---------- PLAYER INDEX LOADER (ATPI / WTA) ---------- */
+/* (inchangé) */
 window._playerIndexCache = window._playerIndexCache || { atp: null, wta: null, loading: {} };
 
 async function loadPlayerIndex(useWta){
@@ -641,14 +655,22 @@ function resolveHrefFromIndex(idx, playerId){
   return null;
 }
 
-/* ---------- BUILD MATCH URL (unchanged) ---------- */
-function buildMatchPageUrl({matchId, useWta}) {
-  const base = useWta ? '/match_wta.html/' : '/match.html/';
-  if(!matchId) return base;
-  return base + encodeURIComponent(String(matchId));
+/* ---------- BUILD MATCH PAGE URL FROM MATCH OBJECT ---------- */
+function buildMatchPageUrlFromMatch(m){
+  const useWta = isWTAFromData(window._bracketData);
+  const base = useWta ? '/wta_matches/match_wta.html' : '/atp_matches/match_atp.html';
+  const tourney = m.tourney || m.event_id || m.tourney_id || m.tourney || '';
+  const year = m.year || m.event_year || m.tourney_year || '';
+  const matchId = m.match_id || m.matchId || m.id || '';
+  const params = new URLSearchParams();
+  if(tourney) params.set('t', tourney);
+  if(year) params.set('y', year);
+  if(matchId) params.set('m', matchId);
+  const q = params.toString();
+  return q ? (base + '?' + q) : base;
 }
 
-/* ---------- CREATE CONNECTORS (identique au template original) ---------- */
+/* ---------- CREATE CONNECTORS (identique) ---------- */
 function createConnectors() {
   const canvas = document.getElementById('canvas');
   if (!canvas) return;
@@ -749,10 +771,8 @@ async function fillFromMap(matchMap) {
   const rawData = window._bracketData || {};
   const useWta = isWTAFromData(rawData);
 
-  // kick off index load in background (if any)
   if(!_indexPromise) _indexPromise = loadPlayerIndex(useWta);
 
-  // helper pour extraire un id de joueur depuis l'objet match en fonction du side/name heuristiques
   function extractPlayerId(m, side) {
     const candidates = {};
     candidates.topName = m.top_player_name || m.top_name || m.loser_player_name || m.winner_player_name || '';
@@ -792,7 +812,6 @@ async function fillFromMap(matchMap) {
     return null;
   }
 
-  // function to create/update a player name node (no fallback links)
   function createPlayerNode(containerEl, displayName, seed, playerId) {
     containerEl.innerHTML = '';
     const seedSpan = document.createElement('span');
@@ -803,7 +822,6 @@ async function fillFromMap(matchMap) {
     const nameSpan = document.createElement('span');
     nameSpan.className = 'name';
 
-    // if we already have index resolved href for this player (index may have loaded earlier)
     if(playerId && window._playerIndexCache && (window._playerIndexCache.atp || window._playerIndexCache.wta)) {
       const idxKey = isWTAFromData(window._bracketData) ? 'wta' : 'atp';
       const idx = window._playerIndexCache[idxKey];
@@ -813,7 +831,6 @@ async function fillFromMap(matchMap) {
           const a = document.createElement('a');
           a.className = 'player-link';
           a.href = href;
-          // IMPORTANT: force top-level navigation (ouvre la page hors de l'iframe)
           a.target = '_top';
           a.rel = 'noopener noreferrer';
           a.textContent = displayName || playerId || '';
@@ -826,7 +843,6 @@ async function fillFromMap(matchMap) {
       }
     }
 
-    // otherwise render plain text but tag with data-player-id so we can upgrade later
     const span = document.createElement('span');
     span.textContent = displayName || (playerId ? playerId : '');
     span.dataset.playerId = playerId || '';
@@ -842,8 +858,6 @@ async function fillFromMap(matchMap) {
     const m = matchMap.get(matchId);
     if(!m) return;
 
-    const topName = m.top_player_name || m.top_name || m.loser_player_name || m.winner_player_name || '';
-    const bottomName = m.bottom_player_name || m.bottom_name || '';
     let displayName = '';
     let seed = '';
 
@@ -859,10 +873,8 @@ async function fillFromMap(matchMap) {
     }
 
     const playerId = extractPlayerId(m, side);
-
     createPlayerNode(el, displayName, seed, playerId);
 
-    // flag
     const flag = el.parentElement ? el.parentElement.querySelector('.flag') : null;
     if(flag){
       let countryIOC = '';
@@ -904,7 +916,6 @@ async function fillFromMap(matchMap) {
           const a = document.createElement('a');
           a.className = 'player-link';
           a.href = href;
-          // force top-level navigation
           a.target = '_top';
           a.rel = 'noopener noreferrer';
           a.textContent = displayName || playerId || '';
@@ -928,7 +939,6 @@ async function fillFromMap(matchMap) {
       el.appendChild(nameSpan);
     }
 
-    // flag for winner
     const flag = el.parentElement ? el.parentElement.querySelector('.flag') : null;
     if(flag){
       let countryIOC = m.winner_country || m.winner_country_code || '';
@@ -939,7 +949,7 @@ async function fillFromMap(matchMap) {
     }
   });
 
-  /* ---- fill scores (unchanged) ---- */
+  /* ---- fill scores: create top-level clickable link for the score ---- */
   document.querySelectorAll('[data-field="score"]').forEach(el => {
     const matchId = (el.dataset.match || '').toUpperCase();
     const m = matchMap.get(matchId);
@@ -949,27 +959,35 @@ async function fillFromMap(matchMap) {
     el.innerHTML = '';
     const a = document.createElement('a');
     a.className = 'score-link';
-    a.href = buildMatchPageUrl({ matchId: m.match_id || matchId || m.event_id || m.matchId });
-    a.textContent = score;
+    // Build the page URL from the match object (uses tourney/year if available)
+    try{
+      const url = buildMatchPageUrlFromMatch(m);
+      a.href = url;
+    }catch(e){
+      // fallback: minimal match id only
+      a.href = '/atp_matches/match_atp.html?m=' + encodeURIComponent(m.match_id || matchId || '');
+    }
+    // open top-level (escape iframe)
+    a.target = '_top';
+    a.rel = 'noopener noreferrer';
+    a.textContent = score || (m.match_id || matchId || '');
     a.setAttribute('title', 'Voir le match ' + (m.match_id || matchId || ''));
     el.appendChild(a);
   });
 
-  // after initial render, if index promise resolves later, upgrade anchors
+  // after initial render, if index promise resolves later, upgrade anchors for players
   _indexPromise.then(idx => {
     if(!idx) return;
-    // players: upgrade elements that have data-player-id attributes (both anchors and plain spans)
     const allNodes = document.querySelectorAll('[data-player-id]');
     allNodes.forEach(node => {
       const pid = node.dataset.playerId;
       if(!pid) return;
       const href = resolveHrefFromIndex(idx, pid);
-      if(!href) return; // no href provided by index -> do nothing
+      if(!href) return;
       if(node.tagName && node.tagName.toLowerCase() === 'a'){
-        try{ 
-          node.href = href; 
-          node.setAttribute('title', node.textContent || href); 
-          // ensure top-level nav
+        try{
+          node.href = href;
+          node.setAttribute('title', node.textContent || href);
           node.target = '_top';
           node.rel = 'noopener noreferrer';
         }catch(e){}
@@ -986,7 +1004,6 @@ async function fillFromMap(matchMap) {
       node.parentNode.replaceChild(a, node);
     });
 
-    // also upgrade any '.player-text-plain' spans which we used earlier
     document.querySelectorAll('.player-text-plain').forEach(span => {
       const pid = span.dataset.playerId;
       if(!pid) return;
@@ -1028,7 +1045,7 @@ function notifyReady(){
   try{ window.parent.postMessage({type:'template-ready', template:'template_5'}, '*'); }catch(e){}
 }
 
-/* try auto-load fallback ONLY to fetch tournament JSON (keeps original behaviour for standalone) */
+/* try auto-load fallback ONLY to fetch tournament JSON */
 async function fetchFirst(candidates){
   for(const url of candidates){
     try{
@@ -1073,11 +1090,7 @@ document.addEventListener('DOMContentLoaded', function(){
   resetPlaceholders();
   setTimeout(createConnectors, 30);
   notifyReady();
-
-  // try auto-load tournament JSON if embedded standalone (keeps that fallback only for tournament data,
-  // not for player links — player links strictly come from the players index if present)
   setTimeout(tryAutoLoadFallback, 400);
-
   window.addEventListener('resize', debounce(()=> { createConnectors(); }, 100));
 });
 </script>
