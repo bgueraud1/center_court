@@ -1036,12 +1036,13 @@ async function fillFromMap(matchMap) {
     generic1: (m.player_id || m.playerId || m.player_id_1 || '')
   };
 
-  // Ici on ne décide plus de quel côté va quel joueur. On prend les valeurs dans l'ordre du JSON
-  if (side === 'top') return String(ids.top || ids.generic1);
-  if (side === 'bottom') return String(ids.bottom || ids.generic1);
+  // Garder l'ordre du JSON sans réorganisation
+  if (side === 'top') return String(ids.winner || ids.top || ids.generic1);
+  if (side === 'bottom') return String(ids.loser || ids.bottom || ids.generic1);
 
   return null;
 }
+
 
 
 
@@ -1091,42 +1092,38 @@ async function fillFromMap(matchMap) {
 
 
   /* ---- fill players (top/bottom) ---- */
-  document.querySelectorAll('[data-field="player"]').forEach(el => {
-    const matchId = (el.dataset.match || '').toUpperCase();
-    const side = (el.dataset.side || '').toLowerCase();
-    const m = matchMap.get(matchId);
-    if(!m) return;
+  /* ---- fill players (top/bottom) ---- */
+document.querySelectorAll('[data-field="player"]').forEach(el => {
+  const matchId = (el.dataset.match || '').toUpperCase();
+  const side = (el.dataset.side || '').toLowerCase();
+  const m = matchMap.get(matchId);
+  if (!m) return;
 
-    let displayName = '';
-    let seed = '';
+  let displayName = '';
+  let seed = '';
 
-    if(side === 'top'){
-      displayName = m.top_player_name || m.top_name || m.loser_player_name || m.winner_player_name || '';
-      seed = m.top_seed || m.loser_seed || m.seed_top || m.seed || '';
-    } else if(side === 'bottom'){
-      displayName = m.bottom_player_name || m.bottom_name || m.winner_player_name || m.loser_player_name || '';
-      seed = m.bottom_seed || m.winner_seed || m.seed_bottom || m.seed || '';
-    } else {
-      displayName = m.winner_player_name || m.loser_player_name || m.winner || m.loser || '';
-      seed = m.winner_seed || m.loser_seed || '';
-    }
+  // Garder les joueurs dans l'ordre du JSON
+  if (side === 'top') {
+    displayName = m.winner_player_name || m.winner || '';
+    seed = m.winner_seed || '';
+  } else if (side === 'bottom') {
+    displayName = m.loser_player_name || m.loser || '';
+    seed = m.loser_seed || '';
+  }
 
-    const playerId = extractPlayerId(m, side);
-    createPlayerNode(el, displayName, seed, playerId);
+  const playerId = extractPlayerId(m, side);
+  createPlayerNode(el, displayName, seed, playerId);
 
-    // flag
-    const flag = el.parentElement ? el.parentElement.querySelector('.flag') : null;
-    if(flag){
-      let countryIOC = '';
-      if(side === 'top') countryIOC = m.top_country || m.top_country_code || m.loser_country || m.winner_country || '';
-      else if(side === 'bottom') countryIOC = m.bottom_country || m.bottom_country_code || m.winner_country || m.loser_country || '';
-      else countryIOC = m.winner_country || m.loser_country || '';
-      let iso2 = iocToIso[(countryIOC || '').toUpperCase()] || '';
-      if(!iso2 && countryIOC && countryIOC.length >= 2) iso2 = countryIOC.slice(0,2).toUpperCase();
-      renderFlagElement(flag, iso2, countryIOC);
-      flag.title = countryIOC || '';
-    }
-  });
+  // Flag pour chaque joueur
+  const flag = el.parentElement ? el.parentElement.querySelector('.flag') : null;
+  if (flag) {
+    let countryIOC = '';
+    if (side === 'top') countryIOC = m.winner_country || '';
+    else if (side === 'bottom') countryIOC = m.loser_country || '';
+    renderFlagElement(flag, countryIOC, countryIOC);
+    flag.title = countryIOC || '';
+  }
+});
 
   /* ---- fill winners ---- */
   document.querySelectorAll('[data-field="winner"]').forEach(el => {
