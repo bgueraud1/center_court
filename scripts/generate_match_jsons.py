@@ -1,241 +1,152 @@
 #!/usr/bin/env python3
 """
-scripts/generate_match_jsons.py
-
-Génère des JSONs de match à partir des CSV ATP / WTA.
-
+Générateur de JSONs pour les matches ATP et WTA.
 Usage:
-  python3 scripts/generate_match_jsons.py --src matches --out docs/matches
-  python3 scripts/generate_match_jsons.py --src matches --out docs/matches --only 73_1997,609_2021
+    python3 scripts/generate_json.py --input matches --output docs/matches_json
+
+Fonctionnement:
+- Parcourt matches/atp_matches et matches/wta_matches
+- Pour chaque CSV, lit chaque ligne et écrit un JSON unique par match
+  dans <output>/atp/ ou <output>/wta/.
+- Nom de fichier JSON: {gender}_{tourneyid}_{year}_{matchid}.json
+  (ex: atp_73_1997_MS001.json ou wta_0609_2021_LS001.json)
+
+Le script essaie de convertir les colonnes numériques au format number quand c'est possible.
 """
 
 import csv
 import json
-import os
 import argparse
+import os
 import re
 from pathlib import Path
 
-def safe_float(val):
-    if val is None or val == '':
-        return None
-    try:
-        return float(val)
-    except Exception:
-        try:
-            return float(str(val).strip())
-        except Exception:
-            return None
 
-def get_first_exists(row, keys):
-    for k in keys:
-        if k in row and row[k] not in (None, ''):
-            return row[k]
-    return None
-
-def normalize_sets_from_row(row):
-    sets = []
-    for i in range(1, 6):
-        k = f"set{i}_score"
-        if k in row and row[k] not in (None, ''):
-            sets.append(row[k])
-    return sets
-
-def extract_common_stats(row):
-    def pick(*keys):
-        return get_first_exists(row, keys)
-
-    ws = {
-        'aces': safe_float(pick('aces_tot_winner','winner_aces_set1','aces_set1')),
-        'doublefaults': safe_float(pick('doublefaults_tot_winner','winner_dblflt_set1','dblflt_set1')),
-        'firstserve_percent': safe_float(pick('firstserve_percent_tot_winner','firstservepercent_tot_winner')),
-        'totalpointswon_percent': safe_float(pick('totalpointswon_percent_tot_winner','totalpointswon_percent_tot_winner')),
-    }
-    ls = {
-        'aces': safe_float(pick('aces_tot_loser','loser_aces_set1','aces_set1')),
-        'doublefaults': safe_float(pick('doublefaults_tot_loser','loser_dblflt_set1','dblflt_set1')),
-        'firstserve_percent': safe_float(pick('firstserve_percent_tot_loser','firstservepercent_tot_loser')),
-        'totalpointswon_percent': safe_float(pick('totalpointswon_percent_tot_loser','totalpointswon_percent_tot_loser')),
-    }
-
-    # meta ids/names
-    meta_winner = {
-        "name": pick('winner_player_name','winner','player_winner'),
-        "player_id": pick('player_id_winner','player_id_winner'),
-        "country": pick('winner_country','country_winner'),
-        "seed": pick('winner_seed','seed_winner'),
-    }
-    meta_loser = {
-        "name": pick('loser_player_name','loser','player_loser'),
-        "player_id": pick('player_id_loser','player_id_loser'),
-        "country": pick('loser_country','country_loser'),
-        "seed": pick('loser_seed','seed_loser'),
-    }
-
-    return {'winner': ws, 'loser': ls, 'meta_winner': meta_winner, 'meta_loser': meta_loser}
-
-def normalize_pair(t, y):
-    return f"{str(t).strip()}_{str(y).strip()}"
-
-def extract_tourney_year_from_filename(fname):
-    m = re.search(r'(\d+)[_-](\d{4})', fname)
-    if m:
-        return m.group(1), m.group(2)
-    return None, None
-
-def process_csv_file(path_csv, out_base, kind='atp', allowed_pairs=None):
-    path_csv = Path(path_csv)
-    fname = path_csv.name
-    tourney, year = extract_tourney_year_from_filename(fname)
-
-    with open(path_csv, newline='', encoding='utf-8-sig') as fh:
-        reader = csv.DictReader(fh)
-        rows = list(reader)
-    if not rows:
-        print(f"[WARN] {path_csv} empty -> skipped")
-        return
-
-    if not tourney or not year:
-        first = rows[0]
-        tourney = tourney or get_first_exists(first, ('event_id','tourney_id','tourneyid','tourney_id'))
-        year = year or get_first_exists(first, ('event_year','tourney_year','year','tourney_year'))
-
-    if not tourney or not year:
-        print(f"[WARN] Impossible de déterminer tourney/year pour {path_csv} -> skipping")
-        return
-
-    pair_key = normalize_pair(tourney, year)
-    if allowed_pairs is not None and pair_key not in allowed_pairs:
-        print(f"[SKIP] {pair_key} non demandé -> skipped file {path_csv.name}")
-        return
-
-    # output directory (per kind)
-    out_dir = Path(out_base) / (f"{tourney}_{year}")
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    # collect index entries for this tournament
-    index_matches = []
-
-    for i, row in enumerate(rows):
-        match_id = get_first_exists(row, ('match_id','matchid','Match_ID','match_id_winner','match_id_loser'))
-        if not match_id:
-            r = get_first_exists(row, ('round','Round','round_name')) or f"r{i+1}"
-            w = get_first_exists(row, ('winner_player_name','winner','player_winner')) or ""
-            l = get_first_exists(row, ('loser_player_name','loser','player_loser')) or ""
-            match_id = f"{r}_{(w[:10] if w else 'W')}_{(l[:10] if l else 'L')}"
-            match_id = re.sub(r'\s+','', match_id)
-        match_id = str(match_id).strip()
-
-        payload = {}
-        for k in ('tourney_name','event_id','event_year','tourney_id','tourney_year','level','start_date','end_date','surface','match_date','match_time_total','round','match_status'):
-            if k in row and row[k] not in (None, ''):
-                payload[k] = row[k]
-
-        payload['tourney'] = tourney
-        payload['year'] = year
-        payload['match_id'] = match_id
-        payload['score_string'] = get_first_exists(row, ('score_string','score','score')) or ''
-        payload['num_sets'] = get_first_exists(row, ('num_sets','num_sets')) or None
-        payload['sets'] = normalize_sets_from_row(row)
-        payload['players'] = {
-            'winner': {
-                'name': get_first_exists(row,('winner_player_name','winner','player_winner','winner_player')),
-                'country': get_first_exists(row,('winner_country','country_winner')),
-                'seed': get_first_exists(row,('winner_seed','seed_winner')),
-            },
-            'loser': {
-                'name': get_first_exists(row,('loser_player_name','loser','player_loser','loser_player')),
-                'country': get_first_exists(row,('loser_country','country_loser')),
-                'seed': get_first_exists(row,('loser_seed','seed_loser')),
-            }
-        }
-        payload['stats'] = extract_common_stats(row)
-        payload['raw'] = row
-
-        out_file = out_dir / f"{match_id}.json"
-        with open(out_file, 'w', encoding='utf-8') as of:
-            json.dump(payload, of, ensure_ascii=False, indent=2)
-
-        # build the link to the match page (client templates expect these paths)
-        if kind == 'atp':
-            link = f"/atp_matches/match_atp.html?t={tourney}&y={year}&m={match_id}"
-        else:
-            link = f"/wta_matches/match_wta.html?t={tourney}&y={year}&m={match_id}"
-
-        index_matches.append({
-            "match_id": match_id,
-            "score": payload.get('score_string',''),
-            "winner": payload['players']['winner'].get('name'),
-            "loser": payload['players']['loser'].get('name'),
-            "round": payload.get('round'),
-            "link": link
-        })
-
-        print(f"[OK] {kind.upper()} wrote {out_file}")
-
-    # write index.json for this tournament
-    index_payload = {
-        "tourney": tourney,
-        "year": year,
-        "kind": kind,
-        "matches": index_matches
-    }
-    index_file = 'docs' / 'index.json'
-    with open(index_file, 'w', encoding='utf-8') as ii:
-        json.dump(index_payload, ii, ensure_ascii=False, indent=2)
-    print(f"[OK] Wrote index {index_file} (contains {len(index_matches)} matches)")
-
-def parse_only_arg(arg_values):
-    if not arg_values:
-        return None
-    s = set()
-    for v in arg_values:
-        parts = v.split(',')
-        for p in parts:
-            p = p.strip()
-            if not p:
-                continue
-            pp = re.sub(r'[\s\-]+', '_', p)
-            if re.match(r'^\d+_\d{4}$', pp):
-                s.add(pp)
-            else:
-                s.add(pp)
+def make_safe_filename(s: str) -> str:
+    # garde que lettres, chiffres, _, - et remplace espaces par _
+    s = (s or "").strip()
+    s = s.replace(' ', '_')
+    s = re.sub(r"[^A-Za-z0-9_\-\.]+", '', s)
     return s
 
+
+def coerce_value(v: str):
+    if v is None:
+        return None
+    v = v.strip()
+    if v == "":
+        return None
+    # try int
+    try:
+        if re.match(r"^[+-]?\d+$", v):
+            return int(v)
+        # float with decimal or scientific
+        if re.match(r"^[+-]?(?:\d+\.\d*|\d*\.\d+)(?:[eE][+-]?\d+)?$", v):
+            return float(v)
+    except Exception:
+        pass
+    return v
+
+
+def process_csv_file(csv_path: Path, gender: str, out_dir: Path):
+    print(f"Processing {gender} CSV: {csv_path}")
+    with csv_path.open(newline='', encoding='utf-8') as fh:
+        reader = csv.DictReader(fh)
+        total = 0
+        for row in reader:
+            total += 1
+            # detect tournament id + year + match id
+            # ATP: event_id,event_year,match_id
+            # WTA: tourney_id,tourney_year,match_id (or date)
+            tourney_id = row.get('event_id') or row.get('tourney_id') or row.get('eventId')
+            year = row.get('event_year') or row.get('tourney_year') or row.get('year')
+            match_id = row.get('match_id') or row.get('matchId') or row.get('match_id')
+            # fallback: if match_id is missing, try to compose one from row number
+            if not match_id:
+                match_id = f"row{total:04d}"
+
+            # safe filename
+            tid = make_safe_filename(tourney_id or 'unknown')
+            yr = make_safe_filename(year or 'unknown')
+            mid = make_safe_filename(match_id or f"m{total}")
+
+            fname = f"{gender}_{tid}_{yr}_{mid}.json"
+            out_path = out_dir / fname
+            # coerce numeric-like fields
+            clean = {}
+            for k, v in row.items():
+                clean_k = k.strip()
+                clean[clean_k] = coerce_value(v)
+
+            # also add some convenience fields if not present
+            # common: winner_player_name / loser_player_name / score_string
+            if 'winner_player_name' not in clean and 'winner' in clean:
+                clean['winner_player_name'] = clean.get('winner')
+            if 'loser_player_name' not in clean and 'loser' in clean:
+                clean['loser_player_name'] = clean.get('loser')
+
+            # write json
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            with out_path.open('w', encoding='utf-8') as outfh:
+                json.dump(clean, outfh, ensure_ascii=False, indent=2)
+
+        print(f"  -> {total} rows processed, output dir: {out_dir}")
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Génère JSONs de matches ATP/WTA depuis CSVs.")
-    parser.add_argument('--src', default='matches', help='Dossier source contenant atp_matches et wta_matches (default: matches)')
-    parser.add_argument('--out', default='docs/matches', help='Dossier base de sortie (default: docs/matches)')
-    parser.add_argument('--only', '-o', action='append', help='Liste (ou plusieurs options) de couples id_year à générer, ex: --only 73_1997')
-    args = parser.parse_args()
+    p = argparse.ArgumentParser()
+    p.add_argument('--input', '-i', default='matches', help='dossier racine contenant atp_matches et wta_matches')
+    p.add_argument('--output', '-o', default='docs/matches_json', help='dossier de sortie (statique)')
+    args = p.parse_args()
 
-    src = Path(args.src)
-    out_base = Path(args.out)
+    input_dir = Path(args.input)
+    out_root = Path(args.output)
 
-    allowed_pairs = parse_only_arg(args.only)
-    if allowed_pairs:
-        print(f"[INFO] Génération restreinte aux couples: {sorted(allowed_pairs)}")
+    atp_dir = input_dir / 'atp_matches'
+    wta_dir = input_dir / 'wta_matches'
 
-    atp_out_root = out_base / 'atp_matches_json'
-    wta_out_root = out_base / 'wta_matches_json'
-    atp_out_root.mkdir(parents=True, exist_ok=True)
-    wta_out_root.mkdir(parents=True, exist_ok=True)
-
-    atp_dir = src / 'atp_matches'
     if atp_dir.exists():
-        atp_files = list(atp_dir.glob('*.csv')) + list(atp_dir.glob('*.CSV'))
-        for f in atp_files:
-            process_csv_file(f, atp_out_root, kind='atp', allowed_pairs=allowed_pairs)
+        for f in sorted(atp_dir.glob('*.csv')):
+            process_csv_file(f, 'atp', out_root / 'atp')
     else:
-        print("[WARN] dossier", atp_dir, "introuvable")
+        print(f"Warning: {atp_dir} not found")
 
-    wta_dir = src / 'wta_matches'
     if wta_dir.exists():
-        wta_files = list(wta_dir.glob('*.csv')) + list(wta_dir.glob('*.CSV'))
-        for f in wta_files:
-            process_csv_file(f, wta_out_root, kind='wta', allowed_pairs=allowed_pairs)
+        for f in sorted(wta_dir.glob('*.csv')):
+            process_csv_file(f, 'wta', out_root / 'wta')
     else:
-        print("[WARN] dossier", wta_dir, "introuvable")
+        print(f"Warning: {wta_dir} not found")
+
+    # Optionnel : créer un index léger
+    # on parcourt out_root et liste les fichiers
+    index = []
+    for g in ('atp', 'wta'):
+        gd = out_root / g
+        if not gd.exists():
+            continue
+        for jf in sorted(gd.glob('*.json')):
+            # try to open and extract small meta
+            try:
+                with jf.open(encoding='utf-8') as fh:
+                    obj = json.load(fh)
+                index.append({'gender': g, 'file': f"/ {jf.relative_to(out_root.parent)}", 'filename': jf.name,
+                              'meta': {
+                                  'winner': obj.get('winner_player_name') or obj.get('winner'),
+                                  'loser': obj.get('loser_player_name') or obj.get('loser'),
+                                  'score': obj.get('score_string') or obj.get('score'),
+                                  'date': obj.get('match_date') or obj.get('date') or obj.get('match_date')
+                              }})
+            except Exception:
+                index.append({'gender': g, 'file': str(jf), 'filename': jf.name, 'meta': {}})
+
+    try:
+        (out_root / 'matches_index.json').parent.mkdir(parents=True, exist_ok=True)
+        with (out_root / 'matches_index.json').open('w', encoding='utf-8') as fh:
+            json.dump(index, fh, ensure_ascii=False, indent=2)
+        print(f"Index généré: {out_root / 'matches_index.json'} ({len(index)} entrées)")
+    except Exception as e:
+        print("Impossible d'écrire l'index:", e)
+
 
 if __name__ == '__main__':
     main()

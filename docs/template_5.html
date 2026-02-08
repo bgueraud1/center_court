@@ -45,6 +45,7 @@
   text-decoration: none !important;
   cursor: pointer;
 }
+/* optionnel : montrer un survol discret (si tu veux un indice visuel) */
 .player-link:hover {
   text-decoration: underline;
   color: #000 !important;
@@ -57,18 +58,17 @@
   outline: none;
 }
 
-/* SCORE LINK: noir et NON souligné (même style que player-link mais sans underline au hover) */
 .score-link {
   color: #111 !important;
   text-decoration: none !important;
   cursor: pointer;
-  font-weight: 500;
 }
 .score-link:hover {
-  text-decoration: none !important; /* strictement pas souligné */
   color: #000 !important;
+  text-decoration: none !important;
 }
-.score-link:visited { color: #111 !important; text-decoration: none !important; }
+
+
 
 </style>
 </head>
@@ -640,40 +640,68 @@ async function loadPlayerIndex(useWta){
   return p;
 }
 
+/* ---------- RESOLVE PLAYER HREF FROM INDEX ---------- */
 function resolveHrefFromIndex(idx, playerId){
   if(!idx || !playerId) return null;
   const candidates = [String(playerId), String(playerId).toUpperCase(), String(playerId).toLowerCase()];
   for(const k of candidates){
     const ent = idx.byId.get(k);
     if(ent && ent.page_href && typeof ent.page_href === 'string'){
-      const href = ent.page_href.trim();
-      // Si c'est déjà une URL absolue, la renvoyer telle quelle
-      if (/^https?:\/\//i.test(href)) return href;
-      // Si c'est un chemin absolu '/foo/bar', concaténer avec origin proprement
-      if (href.startsWith('/')) return window.location.origin + href;
-      // sinon traiter comme chemin relatif
-      return window.location.origin + '/' + href.replace(/^\/+/, '');
+      const href = ent.page_href.replace(/^\/+/,''); // remove leading slash
+      return window.location.origin + '/' + href;
     }
   }
   return null;
 }
 
-/* ---------- BUILD MATCH PAGE URL FROM MATCH OBJECT ---------- */
-function buildMatchPageUrlFromMatch(m){
-  const useWta = isWTAFromData(window._bracketData);
-  const base = useWta ? '/wta_matches/match_wta.html' : '/atp_matches/match_atp.html';
-  const tourney = m.tourney || m.event_id || m.tourney_id || m.tourney || '';
-  const year = m.year || m.event_year || m.tourney_year || '';
-  const matchId = m.match_id || m.matchId || m.id || '';
-  const params = new URLSearchParams();
-  if(tourney) params.set('t', tourney);
-  if(year) params.set('y', year);
-  if(matchId) params.set('m', matchId);
-  const q = params.toString();
-  return q ? (base + '?' + q) : base;
+/* ---------- BUILD MATCH URL (unchanged) ---------- */
+/* ---------- BUILD MATCH URL -> renvoie vers match_atp.html ou match_wta.html en passant ?data=/matches_json/... ---------- */
+function buildMatchPageUrl({ matchObj, matchId, useWta } = {}) {
+  // meta tournoi si disponible
+  const meta = (window._bracketData && window._bracketData.meta) ? window._bracketData.meta : {};
+  // déterminer gender (wta ou atp)
+  let gender;
+  if (typeof useWta === 'boolean') gender = useWta ? 'wta' : 'atp';
+  else {
+    const s = (meta.source || '').toString().toLowerCase();
+    gender = (s.includes('wta') || s.includes('women') || s.includes('female')) ? 'wta' : 'atp';
+  }
+
+  // Si l'index fournit déjà un lien utilisable (page_link ou link) on favorise cela
+  const candidateLink = (matchObj && (matchObj.page_link || (matchObj._index && matchObj._index.link) || matchObj._index && matchObj._index.file)) || null;
+  if (candidateLink) {
+    const cl = String(candidateLink);
+    // si c'est un .json -> ouvrir match_xxx.html?data=/path/to/json
+    if (cl.trim().toLowerCase().endsWith('.json')) {
+      const jsonPath = cl.startsWith('/') ? cl : ('/' + cl.replace(/^\.\//,''));
+      return (gender === 'wta' ? '/match_wta.html' : '/match_atp.html') + '?data=' + encodeURIComponent(jsonPath);
+    }
+    // si c'est déjà une page (match_atp.html etc) -> retourne tel quel
+    if (cl.indexOf('/match_atp') !== -1 || cl.indexOf('/match_wta') !== -1 || cl.indexOf('/match.html') !== -1 || cl.startsWith('http')) {
+      return cl;
+    }
+    // si c'est un chemin relatif sans .json, préfixe / si nécessaire
+    if (cl.startsWith('/')) {
+      return cl;
+    }
+  }
+
+  // fallback: construire le nom de json standard attendu par le générateur
+  const tid = meta.tourney_id || meta.tourneyId || qs('t') || qs('id') || '';
+  const year = meta.year || meta.tourney_year || qs('year') || qs('y') || (new Date().getFullYear());
+  const mid = matchObj && (matchObj.match_id || matchObj.matchId) ? String(matchObj.match_id || matchObj.matchId) : (matchId || '');
+  // nettoyer mid (éviter espaces/chevrons)
+  const safeMid = encodeURIComponent(String(mid).replace(/\s+/g,''));
+  const safeTid = encodeURIComponent(String(tid).replace(/\s+/g,''));
+  const safeYear = encodeURIComponent(String(year));
+  const filename = `${gender}_${safeTid}_${safeYear}_${safeMid}.json`;
+  const jsonPath = `/matches_json/${gender}/${filename}`;
+
+  return (gender === 'wta' ? '/match_wta.html' : '/match_atp.html') + '?data=' + encodeURIComponent(jsonPath);
 }
 
-/* ---------- CREATE CONNECTORS ---------- */
+
+/* ---------- CREATE CONNECTORS (identique au template original) ---------- */
 function createConnectors() {
   const canvas = document.getElementById('canvas');
   if (!canvas) return;
@@ -767,15 +795,17 @@ function debounce(fn, wait=120){
   return function(...a){ clearTimeout(t); t = setTimeout(()=>fn.apply(this,a), wait); };
 }
 
-/* ---------- FILL FROM MATCH MAP ---------- */
-let _indexPromise = null;
+/* ---------- FILL FROM MATCH MAP (seulement via IDs pour les joueurs) ---------- */
+let _indexPromise = null; // promise de chargement de l'index courant (selon gender)
 
 async function fillFromMap(matchMap) {
   const rawData = window._bracketData || {};
   const useWta = isWTAFromData(rawData);
 
+  // kick off index load in background (if any)
   if(!_indexPromise) _indexPromise = loadPlayerIndex(useWta);
 
+  // helper pour extraire un id de joueur depuis l'objet match en fonction du side/name heuristiques
   function extractPlayerId(m, side) {
     const candidates = {};
     candidates.topName = m.top_player_name || m.top_name || m.loser_player_name || m.winner_player_name || '';
@@ -815,6 +845,7 @@ async function fillFromMap(matchMap) {
     return null;
   }
 
+  // function to create/update a player name node (no fallback links)
   function createPlayerNode(containerEl, displayName, seed, playerId) {
     containerEl.innerHTML = '';
     const seedSpan = document.createElement('span');
@@ -825,6 +856,7 @@ async function fillFromMap(matchMap) {
     const nameSpan = document.createElement('span');
     nameSpan.className = 'name';
 
+    // if we already have index resolved href for this player (index may have loaded earlier)
     if(playerId && window._playerIndexCache && (window._playerIndexCache.atp || window._playerIndexCache.wta)) {
       const idxKey = isWTAFromData(window._bracketData) ? 'wta' : 'atp';
       const idx = window._playerIndexCache[idxKey];
@@ -834,6 +866,7 @@ async function fillFromMap(matchMap) {
           const a = document.createElement('a');
           a.className = 'player-link';
           a.href = href;
+          // IMPORTANT: force top-level navigation (ouvre la page hors de l'iframe)
           a.target = '_top';
           a.rel = 'noopener noreferrer';
           a.textContent = displayName || playerId || '';
@@ -846,6 +879,7 @@ async function fillFromMap(matchMap) {
       }
     }
 
+    // otherwise render plain text but tag with data-player-id so we can upgrade later
     const span = document.createElement('span');
     span.textContent = displayName || (playerId ? playerId : '');
     span.dataset.playerId = playerId || '';
@@ -854,13 +888,15 @@ async function fillFromMap(matchMap) {
     containerEl.appendChild(nameSpan);
   }
 
-  /* ---- fill players ---- */
+  /* ---- fill players (top/bottom) ---- */
   document.querySelectorAll('[data-field="player"]').forEach(el => {
     const matchId = (el.dataset.match || '').toUpperCase();
     const side = (el.dataset.side || '').toLowerCase();
     const m = matchMap.get(matchId);
     if(!m) return;
 
+    const topName = m.top_player_name || m.top_name || m.loser_player_name || m.winner_player_name || '';
+    const bottomName = m.bottom_player_name || m.bottom_name || '';
     let displayName = '';
     let seed = '';
 
@@ -876,8 +912,10 @@ async function fillFromMap(matchMap) {
     }
 
     const playerId = extractPlayerId(m, side);
+
     createPlayerNode(el, displayName, seed, playerId);
 
+    // flag
     const flag = el.parentElement ? el.parentElement.querySelector('.flag') : null;
     if(flag){
       let countryIOC = '';
@@ -891,7 +929,7 @@ async function fillFromMap(matchMap) {
     }
   });
 
-  /* ---- fill winners ---- */
+  /* ---- fill winners (use winner ids) ---- */
   document.querySelectorAll('[data-field="winner"]').forEach(el => {
     const matchId = (el.dataset.match || '').toUpperCase();
     const m = matchMap.get(matchId);
@@ -919,6 +957,7 @@ async function fillFromMap(matchMap) {
           const a = document.createElement('a');
           a.className = 'player-link';
           a.href = href;
+          // force top-level navigation
           a.target = '_top';
           a.rel = 'noopener noreferrer';
           a.textContent = displayName || playerId || '';
@@ -942,6 +981,7 @@ async function fillFromMap(matchMap) {
       el.appendChild(nameSpan);
     }
 
+    // flag for winner
     const flag = el.parentElement ? el.parentElement.querySelector('.flag') : null;
     if(flag){
       let countryIOC = m.winner_country || m.winner_country_code || '';
@@ -952,80 +992,45 @@ async function fillFromMap(matchMap) {
     }
   });
 
-  /* ---- fill scores: deterministic, no fetch (safe) ---- */
-  document.querySelectorAll('[data-field="score"]').forEach(el => {
-    const matchId = (el.dataset.match || '').toUpperCase();
-    const m = matchMap.get(matchId);
-    if(!m) return;
-    const score = m.score_string || m.score || m.scoreString || el.textContent || '';
+  /* ---- fill scores (unchanged) ---- */
+  /* ---- fill scores (modified: build target link for top-level navigation) ---- */
+document.querySelectorAll('[data-field="score"]').forEach(el => {
+  const matchId = (el.dataset.match || '').toUpperCase();
+  const m = matchMap.get(matchId);
+  if(!m) return;
+  const score = m.score_string || m.score || m.scoreString || el.textContent || '';
 
-    el.innerHTML = '';
-    const a = document.createElement('a');
-    a.className = 'score-link';
-    a.textContent = score || (m.match_id || matchId || '');
-    a.setAttribute('title', 'Voir le match ' + (m.match_id || matchId || ''));
+  el.innerHTML = '';
 
-    // prefer explicit page link produced by generator
-    // prefer explicit page link produced by generator (support multiple property names)
-const explicitLink = m.page_link || m.pageLink || m.link || m.page || (m._index && m._index.link) || null;
-if (explicitLink) {
-  const el = String(explicitLink).trim();
-  if (/^https?:\/\//i.test(el)) {
-    a.href = el;                    // absolute URL
-  } else if (el.startsWith('/')) {
-    a.href = el;                    // root-relative path
-  } else {
-    a.href = window.location.origin + '/' + el.replace(/^\/+/, ''); // relative -> resolve to origin
-  }
-} else {
-  a.href = cand1 || cand2 || cand3 || cand4 || '#';
-  a.dataset.candidates = JSON.stringify([cand1, cand2, cand3, cand4].filter(Boolean));
-}
+  const a = document.createElement('a');
+  a.className = 'score-link';
+  // preferer passer l'objet match (matchObj) et laisser buildMatchPageUrl décider
+  a.href = buildMatchPageUrl({ matchObj: m, matchId: m.match_id || matchId, useWta: isWTAFromData(window._bracketData) });
+  a.textContent = score;
+  a.setAttribute('title', 'Voir le match ' + (m.match_id || matchId || ''));
+  // IMPORTANT : ouvrir en dehors de l'iframe
+  a.target = '_top';
+  a.rel = 'noopener noreferrer';
 
-      // --- remplacement recommandé (coller à la place de l'affectation a.href = ... ) ---
-/* normalize chosen link (avoid accidental whitespace, ensure starts with / or http) */
-if(chosen && typeof chosen === 'string'){
-  chosen = chosen.trim();
-  if(!/^https?:\/\//i.test(chosen) && !chosen.startsWith('/')) chosen = '/' + chosen;
-}
+  el.appendChild(a);
+});
 
-// build Netlify-friendly pretty path if we have tourney/year/mid
-const tourneyVal = m.tourney || (m._raw && (m._raw.event_id || m._raw.tourney_id)) || (window._bracketData && window._bracketData.meta && window._bracketData.meta.tourney_id) || '';
-const yearVal   = m.year   || (m._raw && (m._raw.event_year || m._raw.tourney_year)) || (window._bracketData && window._bracketData.meta && window._bracketData.meta.year) || '';
-const midVal    = m.match_id || m.matchId || (m._raw && (m._raw.match_id || m._raw.id)) || matchId || '';
 
-let netlifyPath = '';
-if(tourneyVal && yearVal && midVal){
-  // use encoded segments to be safe
-  netlifyPath = '/atp/' + encodeURIComponent(tourneyVal) + '/' + encodeURIComponent(yearVal) + '/' + encodeURIComponent(midVal);
-}
-
-// prefer netlifyPath when available (rewritten server-side), else fall back to explicit chosen
-a.href = netlifyPath || chosen || '#';
-// keep candidates for debugging (helps to see what we tried)
-a.dataset.candidates = JSON.stringify([chosen, netlifyPath].filter(Boolean));
-
-    }
-
-    a.target = '_top';
-    a.rel = 'noopener noreferrer';
-    el.appendChild(a);
-  });
-
-  // after initial render, upgrade anchors if player index later resolves
+  // after initial render, if index promise resolves later, upgrade anchors
   _indexPromise.then(idx => {
     if(!idx) return;
-    // elements that were rendered with data-player-id
+    // players: upgrade elements that have data-player-id attributes (both anchors and plain spans)
     const allNodes = document.querySelectorAll('[data-player-id]');
     allNodes.forEach(node => {
       const pid = node.dataset.playerId;
       if(!pid) return;
       const href = resolveHrefFromIndex(idx, pid);
-      if(!href) return;
+      if(!href) return; // no href provided by index -> do nothing
       if(node.tagName && node.tagName.toLowerCase() === 'a'){
-        try{
-          node.href = href;
-          node.setAttribute('title', node.textContent || href);
+        try{ 
+          node.href = href; 
+          node.setAttribute('title', node.textContent || href); 
+          // ensure top-level nav
           node.target = '_top';
           node.rel = 'noopener noreferrer';
         }catch(e){}
@@ -1042,6 +1047,7 @@ a.dataset.candidates = JSON.stringify([chosen, netlifyPath].filter(Boolean));
       node.parentNode.replaceChild(a, node);
     });
 
+    // also upgrade any '.player-text-plain' spans which we used earlier
     document.querySelectorAll('.player-text-plain').forEach(span => {
       const pid = span.dataset.playerId;
       if(!pid) return;
@@ -1061,7 +1067,7 @@ a.dataset.candidates = JSON.stringify([chosen, netlifyPath].filter(Boolean));
   }).catch(()=>{ /* ignore index errors */ });
 
   setTimeout(createConnectors, 20);
-} // end fillFromMap
+}
 
 /* ------------------ postMessage handler ------------------ */
 window.addEventListener('message', function(ev){
@@ -1128,7 +1134,14 @@ document.addEventListener('DOMContentLoaded', function(){
   resetPlaceholders();
   setTimeout(createConnectors, 30);
   notifyReady();
+
+  // try auto-load tournament JSON if embedded standalone (keeps that fallback only for tournament data,
+  // not for player links — player links strictly come from the players index if present)
   setTimeout(tryAutoLoadFallback, 400);
+
   window.addEventListener('resize', debounce(()=> { createConnectors(); }, 100));
 });
 </script>
+
+</body>
+</html>

@@ -2,174 +2,196 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <title>Match ATP - Détails</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Match ATP</title>
   <style>
-    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; padding: 20px; color: #111; background: #f6f7f9; }
-    .card { background: white; border-radius: 10px; padding: 18px; box-shadow: 0 6px 20px rgba(0,0,0,0.06); max-width: 900px; margin: 0 auto; }
-    h1 { margin: 0 0 12px 0; font-size: 20px; }
-    .score { font-size: 28px; font-weight: 700; margin: 8px 0 18px; }
-    .players { display:flex; justify-content:space-between; gap:20px; align-items:center; }
-    .player { flex:1; text-align:center; }
-    .player .name { font-weight:600; }
-    .sets { width:100%; border-collapse: collapse; margin-top: 14px; }
-    .sets th, .sets td { border-bottom: 1px solid #eee; padding: 8px 10px; text-align:center; }
-    .stat-compare { display:flex; gap:12px; margin-top: 16px; }
-    .stat { flex:1; background:#fafafa; border-radius:8px; padding:12px; text-align:center; }
-    .muted { color:#666; font-size:13px; }
-    .error { color: #b00020; text-align:center; padding: 20px; }
-    .meta { margin-top:8px; color:#444; font-size:14px; }
+    body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;margin:18px}
+    .match{max-width:900px;margin:0 auto}
+    .players{display:flex;justify-content:space-between;align-items:center}
+    .player{width:45%}
+    .score{font-size:1.25rem;text-align:center}
+    table{width:100%;border-collapse:collapse;margin-top:12px}
+    th,td{padding:6px;border:1px solid #ddd;text-align:center}
+    .stat-row th{ text-align:left; background:#f7f7f7 }
   </style>
 </head>
 <body>
-  <div class="card" id="root">
-    <h1 id="tourneyTitle">Chargement…</h1>
-    <div id="meta" class="meta"></div>
-
-    <div id="mainContent" style="display:none;">
-      <div class="players">
-        <div class="player" id="winnerBox">
-          <div class="name" id="winnerName"></div>
-          <div class="muted" id="winnerMeta"></div>
-        </div>
-        <div style="text-align:center;">
-          <div class="score" id="scoreString"></div>
-          <div class="muted" id="matchTime"></div>
-        </div>
-        <div class="player" id="loserBox">
-          <div class="name" id="loserName"></div>
-          <div class="muted" id="loserMeta"></div>
-        </div>
+  <div class="match">
+    <a href="/">← accueil</a>
+    <h1 id="title">Match ATP</h1>
+    <div class="players">
+      <div class="player">
+        <h2 id="winner">—</h2>
+        <div id="winnerMeta"></div>
       </div>
-
-      <table class="sets" id="setsTable" aria-label="Sets">
-        <thead><tr><th>Set</th><th>Score</th></tr></thead>
-        <tbody></tbody>
-      </table>
-
-      <div class="stat-compare">
-        <div class="stat">
-          <div class="muted">Aces</div>
-          <div id="acesWinner">-</div>
-          <div class="muted">—</div>
-          <div id="acesLoser">-</div>
-        </div>
-        <div class="stat">
-          <div class="muted">Double faults</div>
-          <div id="dblWinner">-</div>
-          <div class="muted">—</div>
-          <div id="dblLoser">-</div>
-        </div>
-        <div class="stat">
-          <div class="muted">1st serve %</div>
-          <div id="fsWinner">-</div>
-          <div class="muted">—</div>
-          <div id="fsLoser">-</div>
-        </div>
-        <div class="stat">
-          <div class="muted">Total points %</div>
-          <div id="tpWinner">-</div>
-          <div class="muted">—</div>
-          <div id="tpLoser">-</div>
-        </div>
+      <div class="score">
+        <div id="score_string">—</div>
+        <div id="match_time">—</div>
+      </div>
+      <div class="player">
+        <h2 id="loser">—</h2>
+        <div id="loserMeta"></div>
       </div>
     </div>
 
-    <div id="error" class="error" style="display:none;"></div>
+    <h3>Sets</h3>
+    <table id="sets_table">
+      <thead>
+        <tr><th>Set</th><th>Vainqueur</th><th>Défait</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <h3>Statistiques clés</h3>
+    <table id="stats_table">
+      <tbody></tbody>
+    </table>
+
+    <pre id="raw_json" style="display:none"></pre>
   </div>
 
 <script>
-(function(){
-  function qs(keys){
-    const params = new URLSearchParams(location.search);
-    for(const k of keys){
-      if(params.has(k)) return params.get(k);
+// Helper: obtenir query param 'data' ou 'file' (url du json) — sanitize
+function getQueryParam(name){
+  const params = new URLSearchParams(window.location.search);
+  return params.get(name);
+}
+
+function sanitizeJsonPath(p){
+  if(!p) return null;
+  // allow only under /matches_json/atp/ or matches_json/atp (relative)
+  try{
+    const url = new URL(p, window.location.href);
+    // absolute path
+    if(url.pathname.startsWith('/matches_json/atp/') || url.pathname.startsWith('/matches_json/atp')){
+      return url.pathname + (url.search||'');
     }
-    return null;
+  }catch(e){
+    // maybe a relative path like matches_json/atp/...
+    if(p.startsWith('matches_json/atp/') || p.startsWith('/matches_json/atp/')){
+      return p.replace(/^\//, '');
+    }
+  }
+  return null;
+}
+
+async function loadAndRender(){
+  // Support: ?data=/matches_json/atp/atp_73_1997_MS001.json
+  // or ?file=matches_json/atp/atp_73_1997_MS001.json
+  let path = getQueryParam('data') || getQueryParam('file');
+  if(!path){
+    // alternative: ?tourney=73&year=1997&match=MS001
+    const params = new URLSearchParams(window.location.search);
+    const tourney = params.get('tourney');
+    const year = params.get('year');
+    const match = params.get('match');
+    if(tourney && year && match){
+      path = `/matches_json/atp/atp_${tourney}_${year}_${match}.json`;
+    }
   }
 
-  const tourney = qs(['t','tourney','tourney_id']);
-  const year = qs(['y','year','tourney_year']);
-  const match = qs(['m','match','match_id']);
-
-  if(!tourney || !year || !match){
-    const err = document.getElementById('error');
-    err.style.display = 'block';
-    err.textContent = "Paramètres manquants dans l'URL. Ex: ?t=73&y=1997&m=MS001";
-    document.getElementById('tourneyTitle').textContent = "Impossible de charger le match";
+  const sanitized = sanitizeJsonPath(path);
+  if(!sanitized){
+    document.getElementById('title').innerText = 'Fichier JSON non fourni ou chemin non autorisé';
     return;
   }
 
-  const jsonPath = `/matches/atp_matches/${tourney}_${year}/${match}.json`;
+  // try both absolute and relative
+  const tryPaths = [sanitized.startsWith('/') ? sanitized : ('/' + sanitized), sanitized];
+  let json = null;
+  for(const p of tryPaths){
+    try{
+      const res = await fetch(p);
+      if(!res.ok) throw new Error('HTTP ' + res.status);
+      json = await res.json();
+      break;
+    }catch(e){
+      // continue
+    }
+  }
 
-  fetch(jsonPath)
-    .then(res => {
-      if(!res.ok) throw new Error("Fichier JSON introuvable: " + jsonPath);
-      return res.json();
-    })
-    .then(data => {
-      document.getElementById('tourneyTitle').textContent = (data.tourney_name || ("Tourney " + tourney)) + " — " + (data.year || year);
-      if(data.start_date || data.end_date){
-        document.getElementById('meta').textContent = (data.start_date || '') + (data.end_date ? ' → ' + data.end_date : '');
+  if(!json){
+    document.getElementById('title').innerText = 'Impossible de charger le JSON: ' + sanitized;
+    return;
+  }
+
+  document.getElementById('raw_json').textContent = JSON.stringify(json, null, 2);
+
+  // Fill header
+  const winner = json.winner_player_name || json.winner || json.player_winner || json.player_a || json.winner_player || '—';
+  const loser = json.loser_player_name || json.loser || json.player_loser || json.player_b || json.loser_player || '—';
+  document.getElementById('winner').innerText = winner;
+  document.getElementById('loser').innerText = loser;
+  document.getElementById('score_string').innerText = json.score_string || json.score || json['score'] || '—';
+  document.getElementById('match_time').innerText = json.match_time_total || json.match_time || '';
+
+  // winner/loser meta
+  document.getElementById('winnerMeta').innerText = (json.winner_country || json.country_winner || '') + (json.winner_seed || json.seed_winner ? ' • seed '+ (json.winner_seed||json.seed_winner) : '');
+  document.getElementById('loserMeta').innerText = (json.loser_country || json.country_loser || '') + (json.loser_seed || json.seed_loser ? ' • seed '+ (json.loser_seed||json.seed_loser) : '');
+
+  // sets: try to read set1_score,... up to 5 or parse score_string
+  const tbody = document.querySelector('#sets_table tbody');
+  tbody.innerHTML = '';
+  for(let i=1;i<=5;i++){
+    const ks = ['set'+i+'_score','set'+i+'_score','set'+i+'_score'];
+    let v = json[`set${i}_score`] || json[`set${i}_score`] || null;
+    if(!v){
+      // wta style: winner_score_set1 / loser_score_set1
+      const w = json[`winner_score_set${i}`];
+      const l = json[`loser_score_set${i}`];
+      if(w!==undefined || l!==undefined){
+        if(w===null || w===undefined) break;
+        v = `${w || ''}-${l || ''}`;
       }
-      document.getElementById('mainContent').style.display = 'block';
-      document.getElementById('scoreString').textContent = data.score_string || data.raw && data.raw.score_string || '—';
-      document.getElementById('matchTime').textContent = data.match_time_total || data.raw && data.raw.match_time_total || '';
+    }
+    if(!v) continue;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>Set ${i}</td><td>${v}</td><td></td>`;
+    tbody.appendChild(tr);
+  }
 
-      // players
-      const win = data.players && data.players.winner || {};
-      const los = data.players && data.players.loser || {};
-      document.getElementById('winnerName').textContent = win.name || (data.raw && data.raw.winner_player_name) || 'Winner';
-      document.getElementById('winnerMeta').textContent = (win.country ? win.country + (win.seed ? ' • #' + win.seed : '') : '');
-      document.getElementById('loserName').textContent = los.name || (data.raw && data.raw.loser_player_name) || 'Loser';
-      document.getElementById('loserMeta').textContent = (los.country ? los.country + (los.seed ? ' • #' + los.seed : '') : '');
-
-      // sets
-      const tbody = document.querySelector('#setsTable tbody');
-      tbody.innerHTML = '';
-      const sets = data.sets || [];
-      if(sets.length === 0 && data.raw){
-        // try to build from set1_score..set5_score
-        for(let i=1;i<=5;i++){
-          const k = 'set' + i + '_score';
-          if(data.raw[k]) sets.push(data.raw[k]);
-        }
-      }
-      if(sets.length === 0){
-        const tr = document.createElement('tr');
-        tr.innerHTML = '<td colspan="2" class="muted">Pas de détail de sets</td>';
-        tbody.appendChild(tr);
-      } else {
-        sets.forEach((s, idx) => {
-          const tr = document.createElement('tr');
-          tr.innerHTML = '<td>Set ' + (idx+1) + '</td><td>' + s + '</td>';
-          tbody.appendChild(tr);
-        });
-      }
-
-      // stats
-      const stats = data.stats || {};
-      const sw = stats.winner || {};
-      const sl = stats.loser || {};
-
-      function showOrDash(v){ return (v===null || v===undefined || v==='') ? '—' : v; }
-      document.getElementById('acesWinner').textContent = showOrDash(sw.aces);
-      document.getElementById('acesLoser').textContent = showOrDash(sl.aces);
-      document.getElementById('dblWinner').textContent = showOrDash(sw.doublefaults);
-      document.getElementById('dblLoser').textContent = showOrDash(sl.doublefaults);
-      document.getElementById('fsWinner').textContent = showOrDash(sw.firstserve_percent) ? showOrDash(sw.firstserve_percent) + '%' : '—';
-      document.getElementById('fsLoser').textContent = showOrDash(sl.firstserve_percent) ? showOrDash(sl.firstserve_percent) + '%' : '—';
-      document.getElementById('tpWinner').textContent = showOrDash(sw.totalpointswon_percent) ? showOrDash(sw.totalpointswon_percent) + '%' : '—';
-      document.getElementById('tpLoser').textContent = showOrDash(sl.totalpointswon_percent) ? showOrDash(sl.totalpointswon_percent) + '%' : '—';
-    })
-    .catch(err => {
-      document.getElementById('tourneyTitle').textContent = "Erreur de chargement";
-      const e = document.getElementById('error');
-      e.style.display = 'block';
-      e.textContent = err.message;
+  // fallback: parse score_string into sets
+  if(tbody.children.length===0 && json.score_string){
+    const parts = String(json.score_string).split(',').map(s=>s.trim());
+    parts.forEach((p,i)=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>Set ${i+1}</td><td>${p}</td><td></td>`;
+      tbody.appendChild(tr);
     });
+  }
 
-})();
+  // Key stats: pick common keys
+  const statsWanted = [
+    ['Aces (vainqueur)', 'aces_tot_winner','aces_tot_winner','winner_aces_set1','aces_set1'],
+    ['Aces (défait)', 'aces_tot_loser','aces_tot_loser','loser_aces_set1','aces_set1'],
+    ['Double-fautes (vainqueur)','doublefaults_tot_winner','doublefaults_tot_winner'],
+    ['Double-fautes (défait)','doublefaults_tot_loser','doublefaults_tot_loser'],
+    ['%1ère (vainqueur)','firstserve_percent_tot_winner','firstserve_percent_tot_winner'],
+    ['%1ère (défait)','firstserve_percent_tot_loser','firstserve_percent_tot_loser'],
+    ['Points gagnés (%) (vainqueur)','totalpointswon_percent_tot_winner','totalpointswon_percent_tot_winner'],
+    ['Points gagnés (%) (défait)','totalpointswon_percent_tot_loser','totalpointswon_percent_tot_loser']
+  ];
+
+  const statsTbody = document.querySelector('#stats_table tbody');
+  statsTbody.innerHTML = '';
+  statsWanted.forEach(([label, ...keys])=>{
+    let found = null;
+    for(const k of keys){
+      if(k in json && json[k]!==null && json[k]!==undefined && json[k]!==''){
+        found = json[k]; break;
+      }
+    }
+    if(found!==null){
+      const tr = document.createElement('tr');
+      tr.className = 'stat-row';
+      tr.innerHTML = `<th>${label}</th><td>${found}</td>`;
+      statsTbody.appendChild(tr);
+    }
+  });
+
+}
+
+loadAndRender();
 </script>
 </body>
 </html>
