@@ -68,6 +68,16 @@
   text-decoration: none !important;
 }
 
+/* score links: noir, pas de soulignement (même au hover) */
+.score-link {
+  color: #111 !important;
+  text-decoration: none !important;
+  cursor: pointer;
+}
+.score-link:hover {
+  color: #000 !important;
+  text-decoration: none !important;
+}
 
 
 </style>
@@ -655,11 +665,47 @@ function resolveHrefFromIndex(idx, playerId){
 }
 
 /* ---------- BUILD MATCH URL (unchanged) ---------- */
-function buildMatchPageUrl({matchId, useWta}) {
-  const base = useWta ? '/match_wta.html/' : '/match.html/';
-  if(!matchId) return base;
-  return base + encodeURIComponent(String(matchId));
+/* ---------- BUILD MATCH URL -> renvoie URL ABSOLUE vers match_atp.html ou match_wta.html ---------- */
+function buildMatchPageUrl({ matchObj, matchId, useWta } = {}) {
+  // meta tournoi si disponible
+  const meta = (window._bracketData && window._bracketData.meta) ? window._bracketData.meta : {};
+  // déterminer gender (wta ou atp)
+  let gender;
+  if (typeof useWta === 'boolean') gender = useWta ? 'wta' : 'atp';
+  else {
+    const s = (meta.source || '').toString().toLowerCase();
+    gender = (s.includes('wta') || s.includes('women') || s.includes('female')) ? 'wta' : 'atp';
+  }
+
+  // 1) si matchObj contient déjà un lien utilisable (index.merge peut fournir filename/link)
+  const candidateLink = (matchObj && (matchObj.page_link || matchObj.link || matchObj._index && matchObj._index.file || matchObj._index && matchObj._index.link)) || null;
+  if (candidateLink) {
+    const cl = String(candidateLink);
+    if (cl.trim().toLowerCase().endsWith('.json')) {
+      const jsonPath = cl.startsWith('/') ? cl : ('/' + cl.replace(/^\.\//,''));
+      return window.location.origin + (gender === 'wta' ? '/match_wta.html' : '/match_atp.html') + '?data=' + encodeURIComponent(jsonPath);
+    }
+    // si candidateLink est déjà une page complète ou commence par /match_..., retourne version absolue
+    if (cl.indexOf('/match_atp') !== -1 || cl.indexOf('/match_wta') !== -1 || cl.startsWith('http') || cl.startsWith('/')) {
+      return cl.startsWith('http') ? cl : (window.location.origin + cl);
+    }
+  }
+
+  // 2) fallback : construire le nom de json standard attendu
+  const tid = meta.tourney_id || meta.tourneyId || qs('t') || qs('id') || '';
+  const year = meta.year || meta.tourney_year || qs('year') || qs('y') || (new Date().getFullYear());
+  const mid = matchObj && (matchObj.match_id || matchObj.matchId) ? String(matchObj.match_id || matchObj.matchId) : (matchId || '');
+
+  // sanitarisation minimale
+  const safeMid = encodeURIComponent(String(mid).replace(/\s+/g,''));
+  const safeTid = encodeURIComponent(String(tid).replace(/\s+/g,''));
+  const safeYear = encodeURIComponent(String(year));
+  const filename = `${gender}_${safeTid}_${safeYear}_${safeMid}.json`;
+  const jsonPath = `/matches_json/${gender}/${filename}`;
+
+  return window.location.origin + (gender === 'wta' ? '/match_wta.html' : '/match_atp.html') + '?data=' + encodeURIComponent(jsonPath);
 }
+
 
 /* ---------- CREATE CONNECTORS (identique au template original) ---------- */
 function createConnectors() {
@@ -954,19 +1000,39 @@ async function fillFromMap(matchMap) {
 
   /* ---- fill scores (unchanged) ---- */
   document.querySelectorAll('[data-field="score"]').forEach(el => {
-    const matchId = (el.dataset.match || '').toUpperCase();
-    const m = matchMap.get(matchId);
-    if(!m) return;
-    const score = m.score_string || m.score || m.scoreString || el.textContent || '';
+  const matchId = (el.dataset.match || '').toUpperCase();
+  const m = matchMap.get(matchId);
+  if(!m) return;
+  const score = m.score_string || m.score || m.scoreString || el.textContent || '';
 
-    el.innerHTML = '';
-    const a = document.createElement('a');
-    a.className = 'score-link';
-    a.href = buildMatchPageUrl({ matchId: m.match_id || matchId || m.event_id || m.matchId });
-    a.textContent = score;
-    a.setAttribute('title', 'Voir le match ' + (m.match_id || matchId || ''));
-    el.appendChild(a);
-  });
+  el.innerHTML = '';
+
+  const url = buildMatchPageUrl({ matchObj: m, matchId: m.match_id || matchId, useWta: isWTAFromData(window._bracketData) });
+  const a = document.createElement('a');
+  a.className = 'score-link';
+  a.href = url;
+  a.textContent = score || '—';
+  a.setAttribute('title', 'Voir le match ' + (m.match_id || matchId || ''));
+  // Ouvre hors iframe : target + fallback onclick (pour sandboxed iframes sans allow-top-navigation)
+  a.target = '_top';
+  a.rel = 'noopener noreferrer';
+  a.onclick = function(ev){
+    try {
+      // si possible, forcer la navigation du top (contours sandbox)
+      if (window.top && window.top !== window) {
+        window.top.location.href = url;
+        ev.preventDefault();
+        return false;
+      }
+    } catch(e) {
+      // cross-origin top, la navigation via target sera utilisée et échouera si bloquée
+    }
+    // sinon laisser le comportement normal du lien
+  };
+
+  el.appendChild(a);
+});
+
 
   // after initial render, if index promise resolves later, upgrade anchors
   _indexPromise.then(idx => {
