@@ -426,10 +426,100 @@ for kind in ('atp_matches','wta_matches'):
         # insert BYE synthetic matches following EXACT algorithm requested (global)
         insert_byes_global(matches, singles_draw_size=meta.get('singles_draw_size'))
 
-        # sort matches for deterministic output
+        # ---- NEW: For the lowest round (first column), reorder JSON keys for every 1st,3rd,5th... MS/LS match ----
+        # Steps:
+        #  1) Find counts of rounds among MS/LS matches and pick the round with the highest count (assumed first round).
+        #  2) Build a list of MS/LS matches in that round and sort by numeric suffix ascending.
+        #  3) For the 1st,3rd,5th... (indices 0,2,4...) in that ordered list, when serializing a match,
+        #     output the dict keys in "loser-first" order (loser_player_name, then winner_player_name, player_id_loser then player_id_winner, etc.)
+        # Note: We do not change values — only the order of keys in the output dict — and this applies to both original and synthetic BYE matches.
+        round_counts = defaultdict(int)
+        ms_ls_matches = []
+        for m in matches:
+            mid = m.get('match_id') or ''
+            mm = id_suffix_re.search(mid)
+            if mm:
+                pref = mm.group(1)
+                if pref in ('MS', 'LS'):
+                    rname = m.get('round') or ''
+                    round_counts[rname] += 1
+                    ms_ls_matches.append(m)
+
+        lowest_round_name = None
+        if round_counts:
+            # pick the round with the largest number of MS/LS matches (assumed to be the earliest round)
+            lowest_round_name = max(round_counts.items(), key=lambda x: x[1])[0]
+            if VERBOSE:
+                print(f"[LOWEST ROUND] detected lowest_round_name='{lowest_round_name}' with count={round_counts[lowest_round_name]}")
+        else:
+            if VERBOSE:
+                print("[LOWEST ROUND] no MS/LS matches detected; skipping loser-first reordering step")
+
+        # determine which match_ids should be serialized loser-first
+        reorder_match_ids = set()
+        if lowest_round_name:
+            # collect MS/LS matches in that round
+            matches_in_lowest = []
+            for m in matches:
+                mid = m.get('match_id') or ''
+                mm = id_suffix_re.search(mid)
+                if mm:
+                    pref = mm.group(1)
+                    if pref in ('MS', 'LS') and (m.get('round') or '') == lowest_round_name:
+                        num = int(mm.group(2))
+                        matches_in_lowest.append((num, mid))
+
+            # order by numeric suffix ascending
+            matches_in_lowest.sort(key=lambda x: x[0])
+            if VERBOSE:
+                print(f"[LOWEST ROUND] MS/LS matches in lowest round (ordered): {[mid for _, mid in matches_in_lowest]}")
+
+            # mark every odd (1st,3rd,5th...) -> indices 0,2,4... for reordering
+            for idx, (_, mid) in enumerate(matches_in_lowest):
+                if idx % 2 == 0:
+                    reorder_match_ids.add(mid)
+            if VERBOSE:
+                print(f"[LOWEST ROUND] match_ids to output loser-first: {sorted(reorder_match_ids)}")
+
+        # sort matches for deterministic output (we will transform ordering of keys when serializing)
         final_sorted = sorted(matches, key=match_sort_key)
 
-        out = {'meta': meta, 'matches': final_sorted}
+        # build final matches list with possibly reordered key order for selected matches
+        final_output_matches = []
+        # desired key order when "loser-first" is requested
+        loser_first_keys = [
+            'match_id', 'round',
+            'loser_player_name', 'winner_player_name',
+            'score_string',
+            'player_id_loser', 'player_id_winner',
+            'loser_country', 'winner_country',
+            'loser_seed', 'winner_seed'
+        ]
+
+        for m in final_sorted:
+            mid = m.get('match_id') or ''
+            if mid in reorder_match_ids:
+                # construct a new dict with keys in loser-first order, but keep values unchanged.
+                newm = {}
+                # first add the defined loser-first keys in that order, pulling values from original match (or empty string)
+                for k in loser_first_keys:
+                    newm[k] = m.get(k, '')
+                # then append any other keys that were in the original match but not in loser_first_keys,
+                # preserving their original relative order to avoid data loss.
+                for k in m.keys():
+                    if k not in newm:
+                        newm[k] = m.get(k, '')
+                final_output_matches.append(newm)
+            else:
+                # keep original field order as in m (python dict preserves insertion order already)
+                # However to be deterministic, ensure all expected fields exist
+                # We'll produce a shallow copy so further modifications won't affect original.
+                copy_m = {}
+                for k, v in m.items():
+                    copy_m[k] = v
+                final_output_matches.append(copy_m)
+
+        out = {'meta': meta, 'matches': final_output_matches}
         out_name = f"{meta['source'].lower()}_{tourney_id}_{year}.json"
         out_path = OUTPUT_DIR / out_name
         with open(out_path, 'w', encoding='utf-8') as f:
