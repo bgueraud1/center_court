@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="fr">
 <head>
@@ -83,42 +84,36 @@
   </div>
 
 <script>
-/* ---------- HELPERS généraux (déjà présents dans ton fichier) ---------- */
+/* tournament.html
+   - attendu URL: /tournament.html?source=atp&t=580&year=2025
+   - cherche JSON à: /data/tournaments/{source}_{t}_{year}.json (et quelques fallback)
+   - normalise et envoie au template choisi (template_5/6/7)
+*/
+
+/* ---------- helpers ---------- */
 function qs(k){ return new URLSearchParams(location.search).get(k); }
-function debug(msg){ const el = document.getElementById('debug'); if(!el) return; el.style.display='block'; el.textContent += msg + "\n"; }
+function debug(msg){ const el = document.getElementById('debug'); if(!el) return; el.style.display='block'; el.textContent += msg + "\\n"; }
 function formatDate(d){ if(!d) return '—'; try{ return new Date(d).toLocaleDateString('fr-FR',{year:'numeric',month:'short',day:'numeric'});}catch(e){return d;} }
 
 /* ---------- build candidate URLs (strict pattern requested) ---------- */
 function buildJsonCandidates(source, id, year){
   const s = (source||'').toLowerCase();
   const candidates = [];
+  // primary pattern exactly as you said: data/tournaments/atp_580_2025.json
   if(s && id && year) candidates.push(`/data/tournaments/${s}_${id}_${year}.json`);
+  // common fallbacks:
   if(s && id) candidates.push(`/data/tournaments/${s}_${id}.json`);
   if(id && year) candidates.push(`/data/tournaments/${id}_${year}.json`);
   if(id) candidates.push(`/data/tournaments/${id}.json`);
+  // a generic location
   candidates.push(`/data/tournament.json`);
+  // allow direct json param (handy for dev): ?json=/some/file.json
   const maybe = qs('json'); if(maybe) candidates.unshift(maybe);
+  // unique
   return Array.from(new Set(candidates));
 }
 
-/* ---------- NEW: build index candidates (where generate_match_jsons writes the index.json) ---------- */
-function buildIndexCandidates(source, id, year){
-  const s = (source||'').toLowerCase();
-  const candidates = [];
-  // primary locations where generator writes index.json:
-  // /matches/atp_matches_json/{id}_{year}/index.json
-  if(s === 'atp' && id && year) candidates.push(`/matches/atp_matches_json/${id}_${year}/index.json`);
-  if(s === 'wta' && id && year) candidates.push(`/matches/wta_matches_json/${id}_${year}/index.json`);
-  // fallbacks (in case generator was run with different out or you want looser matching)
-  if(s === 'atp' && id) candidates.push(`/matches/atp_matches_json/${id}/index.json`);
-  if(s === 'wta' && id) candidates.push(`/matches/wta_matches_json/${id}/index.json`);
-  if(id && year) candidates.push(`/matches/atp_matches_json/${id}_${year}/index.json`, `/matches/wta_matches_json/${id}_${year}/index.json`);
-  // safe generic fallback
-  candidates.push(`/matches/index.json`, `/matches/tournaments_index.json`);
-  return Array.from(new Set(candidates));
-}
-
-/* ---------- fetch first existing JSON (already present in original file, but keep here) ---------- */
+/* fetch first existing JSON */
 async function fetchFirst(candidates){
   for(const url of candidates){
     try{
@@ -126,15 +121,15 @@ async function fetchFirst(candidates){
       if(!r.ok){ debug(`fetch ${url} -> ${r.status}`); continue; }
       const j = await r.json();
       debug(`fetch ${url} -> OK`);
-      return { url, json: j };
+      return j;
     }catch(e){
-      debug(`fetch ${url} -> error ${e && e.message}`);
+      debug(`fetch ${url} -> error ${e.message}`);
     }
   }
-  return null;
+  throw new Error('Aucun JSON trouvé pour les chemins testés.');
 }
 
-/* ---------- normalize tournament (copié depuis ton fichier) ---------- */
+/* ---------- normalize tournament JSON (simple, robust) ---------- */
 function tryGet(obj, keys){
   for(const k of keys) if(obj && k in obj) return obj[k];
   return undefined;
@@ -144,6 +139,7 @@ function locateMatches(obj){
   const candidateKeys = ['matches','matchs','data','results','items','matches_list','matchList'];
   for(const k of candidateKeys) if(Array.isArray(obj[k])) return obj[k];
   if(Array.isArray(obj)) return obj;
+  // find largest array property
   let largest=null;
   for(const k in obj) if(Array.isArray(obj[k]) && (!largest || obj[k].length > largest.length)) largest = obj[k];
   return largest || [];
@@ -161,14 +157,14 @@ function mapMatch(m){
   out.loser_country = tryGet(m, ['loser_country','l_country']) || '';
   out.winner_seed = tryGet(m, ['winner_seed','w_seed','seed_w']) || '';
   out.loser_seed = tryGet(m, ['loser_seed','l_seed','seed_l']) || '';
-  // keep original raw too
-  out._raw = m;
   return out;
 }
 function normalizeTournament(raw){
   const meta = {};
+  // possible meta locations
   const metaKeys = ['meta','tourney','tournament','info'];
   for(const k of metaKeys) if(raw && raw[k] && typeof raw[k] === 'object'){ Object.assign(meta, raw[k]); break; }
+  // try root-level fallbacks
   meta.tourney_id = meta.tourney_id || tryGet(raw, ['tourney_id','tourneyId','id']);
   meta.tourney_name = meta.tourney_name || tryGet(raw, ['tourney_name','name','title']);
   meta.year = meta.year || tryGet(raw, ['year','season']);
@@ -186,6 +182,7 @@ function normalizeTournament(raw){
   const rawMatches = locateMatches(raw) || [];
   const matches = rawMatches.map(mapMatch);
 
+  // infer draw size if missing
   let draw = Number(meta.singles_draw_size) || NaN;
   if(!draw || isNaN(draw) || draw <= 0){
     const players = new Set();
@@ -207,12 +204,13 @@ function normalizeTournament(raw){
   return { meta, matches };
 }
 
-/* ---------- UI helpers (inchangés) ---------- */
+/* ---------- UI helpers ---------- */
 function populateInfo(meta){
   document.getElementById('tour-type').textContent = meta.source ? meta.source.toUpperCase() : 'TOUR';
   document.getElementById('tourney-name').textContent = meta.tourney_name || (meta.tourney_title || ('Tourney ' + (meta.tourney_id || '')));
   const sub = `${meta.surface || '—'} • ${meta.level || '—'} • ${meta.start_date ? formatDate(meta.start_date) : '—'}`;
   document.getElementById('tourney-sub').textContent = sub;
+
   document.getElementById('meta-level').textContent = meta.level || '—';
   document.getElementById('meta-surface').textContent = meta.surface || '—';
   document.getElementById('meta-prize').textContent = (meta.prize_money_currency||'') + (meta.prize_money ? Number(meta.prize_money).toLocaleString() : '—');
@@ -221,6 +219,7 @@ function populateInfo(meta){
   document.getElementById('meta-country').textContent = meta.country || '—';
   document.getElementById('meta-title').textContent = meta.tourney_title || '—';
   document.getElementById('meta-source').textContent = meta.source || '—';
+
   const banner = document.getElementById('banner');
   const s = (meta.surface || '').toLowerCase();
   if(s.includes('hard')) banner.style.background = getComputedStyle(document.documentElement).getPropertyValue('--accent-hard');
@@ -229,7 +228,7 @@ function populateInfo(meta){
   else banner.style.background = getComputedStyle(document.documentElement).getPropertyValue('--accent-carpet');
 }
 
-/* ---------- iframe / draw template (inchangé sauf qu'on enrichit payload avec 'index' ) ---------- */
+/* ---------- iframe / draw template ---------- */
 const iframe = document.getElementById('draw-frame');
 const tabInfo = document.getElementById('tab-info');
 const tabDraw = document.getElementById('tab-draw');
@@ -253,72 +252,21 @@ function chooseTemplate(drawSize){
 }
 
 let lastPayload = null;
-
-/* ----- NEW: merge index entries into normalized matches ----- */
-function mergeIndexIntoMatches(matchesArray, indexObj){
-  if(!indexObj || !Array.isArray(indexObj.matches)) return;
-  // ---------- inside mergeIndexIntoMatches, when iterating indexObj.matches ----------
-for(const e of indexObj.matches){
-  if(!e.match_id) continue;
-
-  // normalize: si index contient 'filename' et 'gender' (ou sinon utiliser meta.source),
-  // construisons un link utilisable automatiquement
-  if(!e.link && e.filename){
-    const gg = (e.gender || indexObj.gender || '').toString().toLowerCase();
-    const gender = (gg === 'wta' || gg === 'women' || gg === 'f') ? 'wta' : 'atp';
-    // ensure we don't double slash
-    const candidate = `/matches_json/${gender}/${e.filename}`;
-    e.link = candidate;
-  }
-
-  map.set(String(e.match_id).toUpperCase(), e);
-}
-
-  const map = new Map();
-  for(const e of indexObj.matches){
-    if(!e.match_id) continue;
-    map.set(String(e.match_id).toUpperCase(), e);
-  }
-  // also index by other plausible keys (score)
-  for(const e of indexObj.matches){
-    if(e.score && e.score.length && !map.has(String(e.match_id).toUpperCase())){
-      map.set(String(e.match_id).toUpperCase(), e);
-    }
-  }
-  for(const m of matchesArray){
-    const key = String(m.match_id || '').toUpperCase();
-    if(key && map.has(key)){
-      const e = map.get(key);
-      m._index = e;
-      if(e.link) m.page_link = e.link;
-    } else {
-      // try to match by score + winner (best effort)
-      const found = indexObj.matches.find(e => 
-        e.score && m.score_string && e.score.replace(/\s+/g,'') === String(m.score_string).replace(/\s+/g,'') &&
-        ((e.winner && m.winner_player_name && e.winner.toLowerCase() === m.winner_player_name.toLowerCase()) ||
-         (e.winner && m.winner_player_name && m.winner_player_name.toLowerCase().includes(e.winner.toLowerCase()))
-        )
-      );
-      if(found){
-        m._index = found;
-        if(found.link) m.page_link = found.link;
-      }
-    }
-  }
-}
-
-/* ---------- load template and send (slightly changed to include index data in payload) ---------- */
 function loadTemplateAndSend(payload){
   if(!payload) return;
   const drawSize = Number(payload.meta && payload.meta.singles_draw_size) || 32;
   const template = chooseTemplate(drawSize);
+
+  // add query params as a helpful fallback (template can optionally use them)
   const s = encodeURIComponent((payload.meta && payload.meta.source) || qs('source') || 'atp');
   const tid = encodeURIComponent((payload.meta && payload.meta.tourney_id) || qs('t') || qs('id') || '');
   const yr = encodeURIComponent((payload.meta && payload.meta.year) || qs('year') || qs('y') || '');
   const templateUrl = `${template}?source=${s}&t=${tid}&year=${yr}`;
 
+  // set src (this triggers a load)
   iframe.src = templateUrl;
 
+  // helper to try to postMessage (safe with try/catch)
   function tryPost(){
     try{
       if(iframe && iframe.contentWindow){
@@ -330,16 +278,21 @@ function loadTemplateAndSend(payload){
     }
   }
 
+  // on load try immediately
   const onLoad = ()=>{
     tryPost();
+    // also retry a couple times with small delays (robustness)
     setTimeout(tryPost, 250);
     setTimeout(tryPost, 700);
     iframe.removeEventListener('load', onLoad);
   };
   iframe.addEventListener('load', onLoad);
+
+  // also: if template already signalled ready later, parent will send again
 }
 
-/* ---------- main entry: now loads tournament JSON + tries to load index.json and merges them ---------- */
+
+/* ---------- main entry ---------- */
 async function main(){
   const source = qs('source') || qs('s') || 'atp';
   const id = qs('t') || qs('id') || '';
@@ -354,36 +307,24 @@ async function main(){
   debug('candidates: ' + JSON.stringify(candidates,null,2));
 
   try{
-    const rawResult = await fetchFirst(candidates);
-    if(!rawResult) throw new Error('Aucun JSON tournoi trouvé (candidates checked).');
-    const raw = rawResult.json;
+    const raw = await fetchFirst(candidates);
     const norm = normalizeTournament(raw);
+    // fill missing meta from query
     if(!norm.meta.source) norm.meta.source = (source||'').toUpperCase();
     if(!norm.meta.tourney_id) norm.meta.tourney_id = id;
     if(!norm.meta.year) norm.meta.year = year;
     populateInfo(norm.meta);
-
-    // TRY TO LOAD INDEX.JSON (merge results into norm.matches)
-    const indexCandidates = buildIndexCandidates(norm.meta.source || source, id, year);
-    debug('index candidates: ' + JSON.stringify(indexCandidates,null,2));
-    const idxResult = await fetchFirst(indexCandidates);
-    if(idxResult && idxResult.json){
-      // attach index raw object
-      norm.index = idxResult.json;
-      debug('index loaded from ' + idxResult.url);
-      // merge index entries into matches
-      mergeIndexIntoMatches(norm.matches, norm.index);
-    } else {
-      debug('no index.json found for this tournament (checked candidates).');
-    }
-
     lastPayload = norm;
+    lastPayload = norm;
+    // nouvelle ligne : charge automatiquement le template et envoie les données
     loadTemplateAndSend(norm);
 
+    // si draw tab déjà actif, on l'avait déjà prévu ; conserver l'ancien comportement reste ok
     if(tabDraw.classList.contains('active')) loadTemplateAndSend(norm);
+    // if draw tab already active (unlikely), load it
   }catch(e){
-    debug('load error: '+ (e && e.message));
-    document.getElementById('panel-info').appendChild(Object.assign(document.createElement('div'), {textContent:'Erreur chargement JSON: '+(e && e.message), className:'text-danger mt-2'}));
+    debug('load error: '+ e.message);
+    document.getElementById('panel-info').appendChild(Object.assign(document.createElement('div'), {textContent:'Erreur chargement JSON: '+e.message, className:'text-danger mt-2'}));
   }
 }
 
@@ -397,6 +338,6 @@ window.addEventListener('message',(ev)=>{
 document.addEventListener('DOMContentLoaded', main);
 </script>
 
-
 </body>
 </html>
+
