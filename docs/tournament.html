@@ -260,24 +260,25 @@ function chooseTemplate(drawSize, source){
 
 let lastPayload = null;
 function loadTemplateAndSend(payload){
-  if(!payload) return;
+  if (!payload) return;
   const drawSize = Number(payload.meta && payload.meta.singles_draw_size) || 32;
-  const template = chooseTemplate(drawSize);
+  const source = payload.meta.source || 'ATP'; // Source par défaut à ATP si non définie
+  const template = chooseTemplate(drawSize, source); // Passez la source ici
 
-  // add query params as a helpful fallback (template can optionally use them)
-  const s = encodeURIComponent((payload.meta && payload.meta.source) || qs('source') || 'atp');
-  const tid = encodeURIComponent((payload.meta && payload.meta.tourney_id) || qs('t') || qs('id') || '');
-  const yr = encodeURIComponent((payload.meta && payload.meta.year) || qs('year') || qs('y') || '');
+  // Ajoutez les paramètres de la requête comme fallback utile
+  const s = encodeURIComponent(source || qs('source') || 'atp');
+  const tid = encodeURIComponent(payload.meta.tourney_id || qs('t') || qs('id') || '');
+  const yr = encodeURIComponent(payload.meta.year || qs('year') || qs('y') || '');
   const templateUrl = `${template}?source=${s}&t=${tid}&year=${yr}`;
 
-  // set src (this triggers a load)
+  // Définir le src (cela déclenche le chargement)
   iframe.src = templateUrl;
 
-  // helper to try to postMessage (safe with try/catch)
+  // Tentatives pour envoyer un postMessage (sécurisé avec try/catch)
   function tryPost(){
     try{
-      if(iframe && iframe.contentWindow){
-        iframe.contentWindow.postMessage({type:'tourney-data', payload}, '*');
+      if (iframe && iframe.contentWindow){
+        iframe.contentWindow.postMessage({type: 'tourney-data', payload}, '*');
         debug('postMessage envoyé (attempt)');
       }
     }catch(e){
@@ -285,18 +286,17 @@ function loadTemplateAndSend(payload){
     }
   }
 
-  // on load try immediately
-  const onLoad = ()=>{
+  // Sur le chargement, tenter immédiatement
+  const onLoad = () => {
     tryPost();
-    // also retry a couple times with small delays (robustness)
+    // Réessayez quelques fois avec de petites délais (robustesse)
     setTimeout(tryPost, 250);
     setTimeout(tryPost, 700);
     iframe.removeEventListener('load', onLoad);
   };
   iframe.addEventListener('load', onLoad);
-
-  // also: if template already signalled ready later, parent will send again
 }
+
 
 
 /* ---------- main entry ---------- */
