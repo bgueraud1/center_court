@@ -1040,6 +1040,11 @@
 
 
 <script>
+
+
+
+/* --- Helpers généraux --- */
+
 /* ---------- UTILITAIRES ---------- */
 function qs(k){
   try{ return new URLSearchParams(location.search).get(k); }catch(e){ return null; }
@@ -1225,10 +1230,8 @@ function buildMap(data){
   if(!data || !Array.isArray(data.matches)) return map;
   for(const m of data.matches){
     if(!m.match_id && !m.matchId && !m.id) continue;
-    const id = (m.match_id || m.matchId || m.id || "").toString().toUpperCase();
-if (id.startsWith('LS') || id.startsWith('LS')) {
+    const id = (m.match_id || m.matchId || m.id).toString().toUpperCase();
     map.set(id, m);
-}
   }
   return map;
 }
@@ -1305,48 +1308,11 @@ function resolveHrefFromIndex(idx, playerId){
 }
 
 /* ---------- BUILD MATCH URL (simple fallback) ---------- */
-function buildMatchPageUrl({ matchObj, matchId, useWta } = {}) {
-  // méta tournoi si disponible
-  const meta = (window._bracketData && window._bracketData.meta) ? window._bracketData.meta : {};
-
-  // déterminer gender (wta ou atp)
-  let gender;
-  if (typeof useWta === 'boolean') gender = useWta ? 'wta' : 'atp';
-  else {
-    const s = (meta.source || '').toString().toLowerCase();
-    gender = (s.includes('wta') || s.includes('women') || s.includes('female')) ? 'wta' : 'atp';
-  }
-
-  // 1) si matchObj contient déjà un lien utilisable (index.merge peut fournir filename/link)
-  const candidateLink = (matchObj && (matchObj.page_link || matchObj.link || (matchObj._index && (matchObj._index.file || matchObj._index.link)))) || null;
-  if (candidateLink) {
-    const cl = String(candidateLink);
-    // si c'est un JSON, construire ?data=/...json
-    if (cl.trim().toLowerCase().endsWith('.json')) {
-      const jsonPath = cl.startsWith('/') ? cl : ('/' + cl.replace(/^\.\//, ''));
-      return window.location.origin + (gender === 'wta' ? '/match_wta.html' : '/match_atp.html') + '?data=' + encodeURIComponent(jsonPath);
-    }
-    // si c'est déjà une page ou une route absolue/relative vers match_atp/match_wta -> renvoyer tel quel
-    if (cl.indexOf('/match_atp') !== -1 || cl.indexOf('/match_wta') !== -1 || cl.startsWith('http') || cl.startsWith('/')) {
-      return cl.startsWith('http') ? cl : (window.location.origin + cl);
-    }
-  }
-
-  // 2) fallback : construire le nom de json standard attendu
-  const tid = meta.tourney_id || meta.tourneyId || qs('t') || qs('id') || '';
-  const year = meta.year || meta.tourney_year || qs('year') || qs('y') || (new Date().getFullYear());
-  const mid = matchObj && (matchObj.match_id || matchObj.matchId) ? String(matchObj.match_id || matchObj.matchId) : (matchId || '');
-
-  // sanitarisation minimale
-  const safeMid = encodeURIComponent(String(mid).replace(/\s+/g,''));
-  const safeTid = encodeURIComponent(String(tid).replace(/\s+/g,''));
-  const safeYear = encodeURIComponent(String(year));
-  const filename = `${gender}_${safeTid}_${safeYear}_${safeMid}.json`;
-  const jsonPath = `/matches_json/${gender}/${filename}`;
-
-  return window.location.origin + (gender === 'wta' ? '/match_wta.html' : '/match_atp.html') + '?data=' + encodeURIComponent(jsonPath);
+function buildMatchPageUrl({matchId, useWta}) {
+  const base = useWta ? '/match_wta.html/' : '/match.html/';
+  if(!matchId) return base;
+  return base + encodeURIComponent(String(matchId));
 }
-
 
 /* ---------- CREATE CONNECTORS (identique au template original) ---------- */
 function createConnectors() {
