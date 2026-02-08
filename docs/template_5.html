@@ -1052,10 +1052,22 @@ async function fillFromMap(matchMap) {
     return '';
   }
 
-  // swap display-only fields (idempotent via _seedReordered)
+    // swap display-only fields between top/bottom or winner/loser (idempotent via _seedReordered)
   function swapDisplayFieldsForMatch(m) {
-    if(!m || m._seedReordered) return;
-    const pairs = [
+    if (!m || m._seedReordered) return;
+
+    // helper to swap two keys if any present
+    function swapKeys(a, b) {
+      const va = (a in m) ? m[a] : undefined;
+      const vb = (b in m) ? m[b] : undefined;
+      if (va !== undefined || vb !== undefined) {
+        m[a] = vb;
+        m[b] = va;
+      }
+    }
+
+    // top/bottom style fields
+    [
       ['top_player_name','bottom_player_name'],
       ['top_name','bottom_name'],
       ['player_a','player_b'],
@@ -1070,66 +1082,162 @@ async function fillFromMap(matchMap) {
       ['seed_top','seed_bottom'],
       ['seed_a','seed_b'],
       ['seed1','seed2']
-    ];
-    for (const [a,b] of pairs) {
-      const va = (a in m) ? m[a] : undefined;
-      const vb = (b in m) ? m[b] : undefined;
-      if(va !== undefined || vb !== undefined) {
-        m[a] = vb;
-        m[b] = va;
-      }
-    }
+    ].forEach(([a,b]) => swapKeys(a,b));
+
+    // winner/loser style fields (IMPORTANT: many JSON fournissent winner_* / loser_*)
+    [
+      ['winner_player_name','loser_player_name'],
+      ['winner_name','loser_name'],
+      ['winner_player_id','loser_player_id'],
+      ['player_id_winner','player_id_loser'],
+      ['winner_country','loser_country'],
+      ['winner_country_code','loser_country_code'],
+      ['winner_seed','loser_seed'],
+      ['seed_winner','seed_loser']
+    ].forEach(([a,b]) => swapKeys(a,b));
+
+    // mark to avoid double-swap
     m._seedReordered = true;
   }
 
+  // reorder first-column matches so seeded players alternate top/bottom
   function reorderFirstColumnSeeds_alternate() {
     try {
       const canvas = document.getElementById('canvas');
-      if(!canvas) return;
+      if (!canvas) return;
+
       // collect distinct matchIds in first (leftmost) column (parent style.left <= 2)
       const leftPlayers = Array.from(canvas.querySelectorAll('[data-field="player"]')).filter(el=>{
         const parent = el.parentElement;
         if(!parent) return false;
+        // style.left may be '0px' or '0' — parseFloat covers both
         const leftRaw = parent.style.left || '';
         const left = leftRaw ? parseFloat(leftRaw) : 0;
         return !isNaN(left) && left <= 2;
       });
+
       const matchIdsSet = new Set();
       leftPlayers.forEach(el=>{
         const mid = (el.dataset.match || '').toString().toUpperCase();
         if(mid) matchIdsSet.add(mid);
       });
-      // create ordered array by numeric MS number (MS001 -> 1)
-      function msNumber(mid){
+
+      // helper to extract numeric part from MSxxx
+      function msNumber(mid) {
         const m = String(mid).match(/(\d+)/);
         return m ? parseInt(m[1],10) : 1e9;
       }
+
+      // ordered by MS number ascending
       const ordered = Array.from(matchIdsSet).sort((a,b)=> msNumber(a) - msNumber(b));
 
-      // gather matches that have exactly one seeded side (top xor bottom) in that ordered sequence
+      // helper: determine seeded side for a match robustly (checks many keys incl. winner/loser)
+      function seededSideForMatch(m) {
+        if(!m) return null;
+        // common keys for top/bottom
+        const topKeys = ['top_seed','seed_top','seed_a','seed1','seedA','seed1a'];
+        const bottomKeys = ['bottom_seed','seed_bottom','seed_b','seed2','seedB','seed2b'];
+        for(const k of topKeys) if(k in m && String(m[k]).trim() !== '') return 'top';
+        for(const k of bottomKeys) if(k in m && String(m[k]).trim() !== '') return 'bottom';
+
+        // winner/loser keys (explicit)
+        if(('winner_seed' in m && String(m.winner_seed).trim() !== '') && (!('loser_seed' in m) || String(m.loser_seed).trim() === '')) {
+          // we need to decide whether winner currently mapped to top or bottom in display.
+          // For simple handling we treat 'winner' as a "seed present" but we'll swap winner/loser if needed.
+          // To know current display side we check if top_player_name equals winner_player_name (if available)
+          const topName = String(m.top_player_name || m.top_name || '').trim();
+          const bottomName = String(m.bottom_player_name || m.bottom_name || '').trim();
+          const winnerName = String(m.winner_player_name || m.winner || '').trim();
+          if(topName && winnerName && topName === winnerName) return 'top';
+          if(bottomName && winnerName && bottomName === winnerName) return 'bottom';
+          // unknown mapping -> return 'winner' to indicate winner side seeded (swap will handle both cases)
+          return 'winner';
+        }
+        if(('loser_seed' in m && String(m.loser_seed).trim() !== '') && (!('winner_seed' in m) || String(m.winner_seed).trim() === '')) {
+          const topName = String(m.top_player_name || m.top_name || '').trim();
+          const bottomName = String(m.bottom_player_name || m.bottom_name || '').trim();
+          const loserName = String(m.loser_player_name || m.loser || '').trim();
+          if(topName && loserName && topName === loserName) return 'top';
+          if(bottomName && loserName && bottomName === loserName) return 'bottom';
+          return 'loser';
+        }
+
+        // fallback generic seed key
+        if(('seed' in m && String(m.seed).trim() !== '')) {
+          // we don't know which side, return null
+          return null;
+        }
+
+        return null;
+      }
+
+      // build list of matches with exactly one seeded side (in order)
       const singleSeedMatches = [];
-      for (const mid of ordered) {
+      for(const mid of ordered) {
         const m = matchMap.get(mid);
         if(!m) continue;
-        const st = getSeedForSide_v2(m, 'top');
-        const sb = getSeedForSide_v2(m, 'bottom');
-        const hasTop = !!(st && String(st).trim() !== '');
-        const hasBottom = !!(sb && String(sb).trim() !== '');
-        if( (hasTop && !hasBottom) || (!hasTop && hasBottom) ) {
-          singleSeedMatches.push({ mid, seededSide: hasTop ? 'top' : 'bottom' });
+        // detect using winner_seed/loser_seed or top/bottom
+        const st = (('top_seed' in m) ? String(m.top_seed).trim() : '') || (('winner_seed' in m && String(m.top_player_name || '').trim() && String(m.winner_player_name || '').trim() && String(m.top_player_name).trim() === String(m.winner_player_name).trim()) ? String(m.winner_seed || '') : '');
+        // simpler: check presence of winner_seed/loser_seed too
+        const hasWinnerSeed = ('winner_seed' in m) && String(m.winner_seed || '').trim() !== '';
+        const hasLoserSeed  = ('loser_seed' in m)  && String(m.loser_seed  || '').trim() !== '';
+        // compute whether exactly one seed present
+        const hasTopSeed = (('top_seed' in m) && String(m.top_seed || '').trim() !== '');
+        const hasBottomSeed = (('bottom_seed' in m) && String(m.bottom_seed || '').trim() !== '');
+        const exactlyOne = ((hasTopSeed && !hasBottomSeed) || (!hasTopSeed && hasBottomSeed)) ||
+                           ((hasWinnerSeed && !hasLoserSeed) || (!hasWinnerSeed && hasLoserSeed));
+        if(exactlyOne) {
+          // determine logical seededSide: prefer explicit top/bottom detection; else winner/loser
+          let seededSide = null;
+          if(hasTopSeed && !hasBottomSeed) seededSide = 'top';
+          else if(!hasTopSeed && hasBottomSeed) seededSide = 'bottom';
+          else if(hasWinnerSeed && !hasLoserSeed) {
+            // try to map winner -> top/bottom by comparing names; if cannot decide, use 'winner' marker
+            const topName = String(m.top_player_name || m.top_name || '').trim();
+            const bottomName = String(m.bottom_player_name || m.bottom_name || '').trim();
+            const winnerName = String(m.winner_player_name || m.winner || '').trim();
+            if(topName && winnerName && topName === winnerName) seededSide = 'top';
+            else if(bottomName && winnerName && bottomName === winnerName) seededSide = 'bottom';
+            else seededSide = 'winner';
+          } else if(hasLoserSeed && !hasWinnerSeed) {
+            const topName = String(m.top_player_name || m.top_name || '').trim();
+            const bottomName = String(m.bottom_player_name || m.bottom_name || '').trim();
+            const loserName = String(m.loser_player_name || m.loser || '').trim();
+            if(topName && loserName && topName === loserName) seededSide = 'top';
+            else if(bottomName && loserName && bottomName === loserName) seededSide = 'bottom';
+            else seededSide = 'loser';
+          }
+          singleSeedMatches.push({ mid, seededSide });
         }
       }
 
-      // alternate: first seeded -> top, next -> bottom, etc.
+      // now alternate: first seeded -> top, next -> bottom, etc.
       let placeTop = true;
-      for (const item of singleSeedMatches) {
+      for(const item of singleSeedMatches) {
         const m = matchMap.get(item.mid);
         if(!m) continue;
         const seededSide = item.seededSide;
         const desired = placeTop ? 'top' : 'bottom';
-        if(seededSide !== desired) {
-          swapDisplayFieldsForMatch(m);
+
+        let needsSwap = false;
+        if(seededSide === 'top' && desired === 'bottom') needsSwap = true;
+        if(seededSide === 'bottom' && desired === 'top') needsSwap = true;
+        // if seededSide is 'winner' or 'loser', we must check current mapping: if winner currently sits at bottom but desired is top => swap
+        if((seededSide === 'winner' || seededSide === 'loser') && desired) {
+          // find which display slot currently holds the seeded person
+          const topName = String(m.top_player_name || m.top_name || '').trim();
+          const bottomName = String(m.bottom_player_name || m.bottom_name || '').trim();
+          const seededName = seededSide === 'winner' ? String(m.winner_player_name || m.winner || '').trim() : String(m.loser_player_name || m.loser || '').trim();
+          if(seededName) {
+            if(topName && seededName === topName && desired === 'bottom') needsSwap = true;
+            if(bottomName && seededName === bottomName && desired === 'top') needsSwap = true;
+          } else {
+            // fallback: assume winner corresponds to top if not obviously mapped; if not, do a swap if desired contradicts current default
+            // but to be safe, perform a swap only when we detect the seeded player's name in bottom/top explicitly
+          }
         }
+
+        if(needsSwap) swapDisplayFieldsForMatch(m);
         placeTop = !placeTop;
       }
 
@@ -1137,6 +1245,7 @@ async function fillFromMap(matchMap) {
       console.warn('reorderFirstColumnSeeds_alternate error', e);
     }
   }
+
 
   // perform reorder BEFORE rendering players
   reorderFirstColumnSeeds_alternate();
