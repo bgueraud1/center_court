@@ -577,18 +577,26 @@ function slugify(name){
 }
 
 /* IOC -> ISO + emoji */
+/* IOC -> ISO + emoji (table étendue) */
 const iocToIso = {
   "AUS":"AU","AUT":"AT","ARG":"AR","BEL":"BE","BRA":"BR","CAN":"CA",
   "CHN":"CN","CZE":"CZ","DEN":"DK","ESP":"ES","EST":"EE","FIN":"FI",
   "FRA":"FR","GBR":"GB","GER":"DE","GRE":"GR","HUN":"HU","ITA":"IT",
-  "JPN":"JP","KOR":"KR","NED":"NL","NZL":"NZ","POL":"PL","POR":"PT",
-  "RSA":"ZA","RUS":"RU","SUI":"CH","SWE":"SE","USA":"US"
+  "JPN":"JP","KOR":"KR","NED":"NL","NLD":"NL","NZL":"NZ","POL":"PL","POR":"PT",
+  "RSA":"ZA","RUS":"RU","SUI":"CH","SWE":"SE","USA":"US","UKR":"UA",
+  "KAZ":"KZ","BLR":"BY","SRB":"RS","CRO":"HR","SLO":"SI","CYP":"CY",
+  "MEX":"MX","TPE":"TW","TUR":"TR","ROU":"RO","BUL":"BG","ISL":"IS",
+  "PHI":"PH","VEN":"VE","COL":"CO","CHI":"CL","ARG":"AR","URY":"UY",
+  "IND":"IN","PAK":"PK","IRL":"IE","LUX":"LU","MON":"MC","LIE":"LI",
+  "MAS":"MY","THA":"TH","VIE":"VN","EGY":"EG","ALG":"DZ","MAR":"MA",
+  "TUN":"TN","ISR":"IL","SAU":"SA","QAT":"QA","UAE":"AE"
 };
+/* iso2 -> regional indicator emoji */
 function iso2ToFlagEmoji(iso2) {
-  if (!iso2 || iso2.length !== 2) return '';
+  if (!iso2 || String(iso2).length !== 2) return '';
   const A = 'A'.charCodeAt(0);
   let s = '';
-  iso2 = iso2.toUpperCase();
+  iso2 = String(iso2).toUpperCase();
   for (let i = 0; i < 2; i++) {
     const code = iso2.charCodeAt(i);
     if (code < A || code > A+25) return '';
@@ -597,25 +605,22 @@ function iso2ToFlagEmoji(iso2) {
   return s;
 }
 
-/* ---------- FLAG: emoji detection + render fallback ---------- */
+/* ---------- FLAG: emoji detection + robust fallback via FlagCDN (fetch & objectURL) ---------- */
 
-// cache du support emoji
 window._flagEmojiSupport = window._flagEmojiSupport || { checked: false, ok: false };
 
 function detectFlagEmojiSupport() {
   if (window._flagEmojiSupport.checked) return window._flagEmojiSupport.ok;
   try {
-    // crée un span hors flux pour mesurer
     const s = document.createElement('span');
     s.style.position = 'absolute';
     s.style.left = '-9999px';
     s.style.fontSize = '18px';
-    s.style.fontFamily = '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Android Emoji", sans-serif';
-    s.textContent = '\u{1F1FA}\u{1F1F8}'; // 🇺🇸 (US) - paire de regional indicators
+    s.style.fontFamily = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Twitter Color Emoji",sans-serif';
+    s.textContent = '\u{1F1E8}\u{1F1F3}'; // 🇨🇳 sample
     document.body.appendChild(s);
     const w = s.getBoundingClientRect().width;
     document.body.removeChild(s);
-    // si le span a une largeur raisonnable (>6), on considère que l'emoji est rendu
     const ok = !!(w && w > 6);
     window._flagEmojiSupport.checked = true;
     window._flagEmojiSupport.ok = ok;
@@ -627,33 +632,116 @@ function detectFlagEmojiSupport() {
   }
 }
 
-function renderFlagElement(flagEl, iso2, countryIOC) {
-  // iso2 attendu en 2 lettres, ex: 'US', 'FR'
-  if(!flagEl) return;
-  flagEl.classList.remove('flag-fallback');
-  flagEl.textContent = '';
-  flagEl.title = countryIOC || '';
+/**
+ * renderFlagElement(flagEl, iso2, countryIOC)
+ * - iso2 : 'FR', 'US' (2-letter) preferred (case-insensitive)
+ * - countryIOC : IOC 3-letters, used for title/fallback
+ *
+ * Strategy:
+ * 1) If platform renders emoji -> render regional-indicator emoji
+ * 2) Else try to fetch a small PNG from FlagCDN via fetch(); if success -> use blob URL
+ * 3) Otherwise display a neat textual fallback (ISO2 or IOC)
+ */
+async function _tryFetchFlagImageIso(isoLower) {
+  // try w20 then w40 sizes
+  const candidates = [
+    `https://flagcdn.com/w20/${isoLower}.png`,
+    `https://flagcdn.com/w40/${isoLower}.png`,
+    `https://flagcdn.com/24x18/${isoLower}.png`,
+    `https://flagcdn.com/32x24/${isoLower}.png`
+  ];
+  for (const url of candidates) {
+    try {
+      const r = await fetch(url, {mode:'cors', cache:'force-cache'});
+      if (!r.ok) continue;
+      const blob = await r.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      return objectUrl;
+    } catch (e) {
+      // ignore and try next
+    }
+  }
+  return null;
+}
 
-  if(!iso2) {
-    // si on a uniquement IOC (3 lettres), on affiche IOC (ex: FRA) en fallback
-    if(countryIOC) { flagEl.textContent = countryIOC; flagEl.classList.add('flag-fallback'); }
+function renderFlagElement(flagEl, iso2, countryIOC) {
+  if (!flagEl) return;
+  // cleanup
+  flagEl.classList.remove('flag-fallback');
+  flagEl.title = countryIOC || (iso2 || '') ;
+  while (flagEl.firstChild) flagEl.removeChild(flagEl.firstChild);
+  flagEl.textContent = '';
+
+  // normalize iso2
+  let iso = (iso2 || '').toString().trim();
+  if (!iso && countryIOC) {
+    // try mapping IOC->ISO
+    const map = String(countryIOC || '').toUpperCase();
+    if (map && iocToIso[map]) iso = iocToIso[map];
+  }
+  if (iso.length === 3) iso = iso.slice(0,2);
+  iso = iso ? iso.toLowerCase() : '';
+
+  // 1) emoji if supported
+  try {
+    if (iso && detectFlagEmojiSupport()) {
+      const em = iso2ToFlagEmoji(iso.toUpperCase());
+      if (em) {
+        flagEl.textContent = em;
+        flagEl.title = countryIOC || iso.toUpperCase();
+        return;
+      }
+    }
+  } catch(e){ /* ignore */ }
+
+  // 2) image fallback via fetch -> objectURL (more robust than setting img.src directly)
+  if (iso) {
+    // show a tiny placeholder to avoid layout shift
+    const placeholder = document.createElement('span');
+    placeholder.className = 'flag-fallback';
+    placeholder.textContent = '';
+    placeholder.style.minWidth = '22px';
+    flagEl.appendChild(placeholder);
+
+    _tryFetchFlagImageIso(iso).then(objUrl => {
+      // clear placeholder
+      while (flagEl.firstChild) flagEl.removeChild(flagEl.firstChild);
+      if (objUrl) {
+        const img = document.createElement('img');
+        img.src = objUrl;
+        img.alt = countryIOC || iso.toUpperCase();
+        img.style.width = '22px';
+        img.style.height = '14px';
+        img.style.verticalAlign = 'middle';
+        img.style.display = 'inline-block';
+        img.style.objectFit = 'cover';
+        img.onload = function(){ flagEl.title = countryIOC || iso.toUpperCase(); };
+        img.onerror = function(){ URL.revokeObjectURL(objUrl); flagEl.textContent = iso.toUpperCase(); flagEl.classList.add('flag-fallback'); };
+        flagEl.appendChild(img);
+        return;
+      } else {
+        // fallback textual
+        flagEl.textContent = (iso.toUpperCase() || countryIOC || '');
+        flagEl.classList.add('flag-fallback');
+        flagEl.title = countryIOC || iso.toUpperCase();
+      }
+    }).catch(()=> {
+      while (flagEl.firstChild) flagEl.removeChild(flagEl.firstChild);
+      flagEl.textContent = countryIOC || (iso.toUpperCase() || '');
+      flagEl.classList.add('flag-fallback');
+      flagEl.title = countryIOC || iso.toUpperCase();
+    });
+
     return;
   }
 
-  const emojiOk = detectFlagEmojiSupport();
-  if(emojiOk) {
-    const em = iso2ToFlagEmoji(iso2);
-    if(em) {
-      flagEl.textContent = em;
-      flagEl.title = countryIOC || iso2;
-      return;
-    }
-  }
-  // fallback : afficher iso2 en petit bloc
-  flagEl.textContent = iso2;
+  // 3) final fallback
+  flagEl.textContent = countryIOC || (iso2 ? iso2 : '');
   flagEl.classList.add('flag-fallback');
-  flagEl.title = countryIOC || iso2;
+  flagEl.title = countryIOC || iso2 || '';
 }
+
+
 
 
 /* ---------- BUILD MAP FROM TOURNAMENT JSON ---------- */
@@ -887,37 +975,51 @@ async function fillFromMap(matchMap) {
   if(!_indexPromise) _indexPromise = loadPlayerIndex(useWta);
 
     /* ---------- REORDER FIRST-ROUND SEEDS ---------- */
-  // helper pour récupérer seed côté 'top' / 'bottom' en essayant plusieurs clés possibles
-  function getSeedForSide(m, side) {
+    /* ---------- REORDER FIRST-ROUND SEEDS (robuste : alternance top/bottom) ---------- */
+
+  // util: récupérer seed top/bottom à partir du match
+  function getSeedForSide_v2(m, side) {
     if(!m) return '';
-    const tries = [];
-    if(side === 'top') {
-      tries.push('top_seed','seed_top','seed_a','seed1','seed1a','seedA','player_seed_top');
-      tries.push('topPlayerSeed','seed_top','winner_seed','loser_seed'); // fallback
-    } else {
-      tries.push('bottom_seed','seed_bottom','seed_b','seed2','seed2b','seedB','player_seed_bottom');
-      tries.push('bottomPlayerSeed','seed_bottom','loser_seed','winner_seed'); // fallback
-    }
-    // also check common keys with side prefix
-    for(const k of tries){
+    // first, try explicit keys
+    const topKeys = ['top_seed','seed_top','seed_a','seed1','seedA','seed1a'];
+    const bottomKeys = ['bottom_seed','seed_bottom','seed_b','seed2','seedB','seed2b'];
+    for (const k of (side === 'top' ? topKeys : bottomKeys)) {
       if(k in m && m[k] !== null && m[k] !== undefined && String(m[k]).trim() !== '') return String(m[k]);
     }
-    // some files use seed_a/seed_b or seed_winner/seed_loser naming
-    if(side === 'top' && (m.seed_a || m.seedA)) return String(m.seed_a || m.seedA);
-    if(side === 'bottom' && (m.seed_b || m.seedB)) return String(m.seed_b || m.seedB);
+    // try typical winner/loser mapping by name
+    const topName = (m.top_player_name || m.top_name || m.player_a || '').toString().trim();
+    const bottomName = (m.bottom_player_name || m.bottom_name || m.player_b || '').toString().trim();
+    if(m.winner_player_name && (m.winner_seed || m.seed_winner || m.winner_seed)) {
+      const ws = String(m.winner_seed || m.seed_winner || '').trim();
+      if(ws) {
+        if(topName && topName === String(m.winner_player_name)) return ws;
+        if(bottomName && bottomName === String(m.winner_player_name)) return ws;
+      }
+    }
+    if(m.loser_player_name && (m.loser_seed || m.seed_loser || m.loser_seed)) {
+      const ls = String(m.loser_seed || m.seed_loser || '').trim();
+      if(ls) {
+        if(topName && topName === String(m.loser_player_name)) return ls;
+        if(bottomName && bottomName === String(m.loser_player_name)) return ls;
+      }
+    }
+    // generic keys
+    for (const k of ['seed','player_seed','seed_value']) {
+      if(k in m && m[k] !== null && String(m[k]).trim() !== '') return String(m[k]);
+    }
     return '';
   }
 
-  // swap utility for a controlled set of fields we care about for display
-  function swapMatchDisplayFields(m) {
-    if(!m) return;
+  // swap display-only fields between top/bottom (idempotent with _seedReordered flag)
+  function swapDisplayFieldsForMatch(m) {
+    if(!m || m._seedReordered) return;
     const pairs = [
       ['top_player_name','bottom_player_name'],
       ['top_name','bottom_name'],
       ['player_a','player_b'],
       ['player1','player2'],
-      ['player_id_top','player_id_bottom'],
       ['top_player_id','bottom_player_id'],
+      ['player_id_top','player_id_bottom'],
       ['player_id_a','player_id_b'],
       ['top_country','bottom_country'],
       ['top_country_code','bottom_country_code'],
@@ -927,63 +1029,81 @@ async function fillFromMap(matchMap) {
       ['seed_a','seed_b'],
       ['seed1','seed2']
     ];
-    for(const [a,b] of pairs){
-      if(a in m || b in m){
-        const ta = m[a]; m[a] = m[b]; m[b] = ta;
+    for (const [a,b] of pairs) {
+      const va = (a in m) ? m[a] : undefined;
+      const vb = (b in m) ? m[b] : undefined;
+      if(va !== undefined || vb !== undefined) {
+        m[a] = vb;
+        m[b] = va;
       }
     }
+    // mark to avoid double-swap
+    m._seedReordered = true;
   }
 
-  // identify first-column matches in vertical order
-  function reorderFirstRoundSeeds() {
+  function reorderFirstColumnSeeds_alternate() {
     try {
       const canvas = document.getElementById('canvas');
       if(!canvas) return;
-      // find all player nodes that are in the leftmost column (style.left ~ 0)
-      const playerEls = Array.from(canvas.querySelectorAll('[data-field="player"]')).filter(el=>{
-        const left = parseFloat((el.parentElement && el.parentElement.style.left) ? el.parentElement.style.left : el.style.left || '0');
-        return !isNaN(left) && left <= 2; // tolerance
-      });
-      // group by matchId and get top y
-      const mapMatches = new Map();
-      playerEls.forEach(el=>{
-        const mid = (el.dataset.match || '').toUpperCase();
-        if(!mid) return;
-        const side = (el.dataset.side || '').toLowerCase();
+      // collect leftmost-column matches (left <= 2)
+      const leftPlayers = Array.from(canvas.querySelectorAll('[data-field="player"]')).filter(el=>{
         const parent = el.parentElement;
-        const top = Math.round(parseFloat(parent.style.top || 0));
-        const entry = mapMatches.get(mid) || { matchId: mid, topElTop: 1e9, sides: {} };
-        entry.topElTop = Math.min(entry.topElTop, top);
-        entry.sides[side || 'unknown'] = { el, top };
-        mapMatches.set(mid, entry);
+        if(!parent) return false;
+        const leftRaw = parent.style.left || '';
+        const left = leftRaw ? parseFloat(leftRaw) : 0;
+        return !isNaN(left) && left <= 2;
       });
-      const arr = Array.from(mapMatches.values()).sort((a,b)=>a.topElTop - b.topElTop);
-      // alternation: next seeded player should be placed top initially
-      let nextPlaceTop = true;
-      for(const entry of arr){
-        const m = matchMap.get(entry.matchId);
+
+      // map matchId -> top position
+      const mm = new Map();
+      leftPlayers.forEach(el=>{
+        const mid = (el.dataset.match || '').toString().toUpperCase();
+        if(!mid) return;
+        const parent = el.parentElement;
+        const topRaw = parent.style.top || '0';
+        const top = isNaN(parseFloat(topRaw)) ? 0 : parseFloat(topRaw);
+        if(!mm.has(mid)) mm.set(mid, { matchId: mid, top: top });
+        else mm.get(mid).top = Math.min(mm.get(mid).top, top);
+      });
+
+      // ordered list of match ids by vertical position
+      const ordered = Array.from(mm.values()).sort((a,b)=>a.top - b.top).map(o => o.matchId);
+
+      // build list of matches that have exactly one seed
+      const singleSeedMatches = [];
+      for (const mid of ordered) {
+        const m = matchMap.get(mid);
         if(!m) continue;
-        // determine seeds for top/bottom
-        const seedTop = getSeedForSide(m, 'top');
-        const seedBottom = getSeedForSide(m, 'bottom');
-        const hasTop = !!(seedTop && String(seedTop).trim() !== '');
-        const hasBottom = !!(seedBottom && String(seedBottom).trim() !== '');
-        // if exactly one seeded in this match, we may want to ensure seeded side equals nextPlaceTop
-        if((hasTop && !hasBottom) || (!hasTop && hasBottom)) {
-          const seededSide = hasTop ? 'top' : 'bottom';
-          const desiredSide = nextPlaceTop ? 'top' : 'bottom';
-          if(seededSide !== desiredSide) {
-            // swap display fields in match object so rendering will place seeded player accordingly
-            swapMatchDisplayFields(m);
-          }
-          // we encountered one seeded player => flip alternation
-          nextPlaceTop = !nextPlaceTop;
-        } else {
-          // do nothing when both or none are seeded; do NOT toggle alternation in this simple policy
+        const st = getSeedForSide_v2(m, 'top');
+        const sb = getSeedForSide_v2(m, 'bottom');
+        const hasTop = !!(st && String(st).trim() !== '');
+        const hasBottom = !!(sb && String(sb).trim() !== '');
+        if( (hasTop && !hasBottom) || (!hasTop && hasBottom) ) {
+          singleSeedMatches.push({ mid, seededSide: hasTop ? 'top' : 'bottom' });
         }
       }
-    } catch(e){ /* ignore reorder errors */ }
+
+      // now alternate: first seeded should be placed TOP, next BOTTOM, next TOP, ...
+      let placeTop = true;
+      for (const item of singleSeedMatches) {
+        const m = matchMap.get(item.mid);
+        if(!m) continue;
+        const seededSide = item.seededSide;
+        const desired = placeTop ? 'top' : 'bottom';
+        if(seededSide !== desired) {
+          swapDisplayFieldsForMatch(m);
+        }
+        placeTop = !placeTop;
+      }
+
+    } catch(e) {
+      console.warn('reorderFirstColumnSeeds_alternate error', e);
+    }
   }
+
+  // execute reorder before rendering players
+  reorderFirstColumnSeeds_alternate();
+
 
   // run reorder before we start writing player DOM
   reorderFirstRoundSeeds();
