@@ -1010,96 +1010,209 @@ async function fillFromMap(matchMap) {
     return '';
   }
 
-  // swap display-only fields between top/bottom (idempotent with _seedReordered flag)
+    // swap display-only fields between top/bottom (idempotent with _seedReordered flag)
   function swapDisplayFieldsForMatch(m) {
-    if(!m || m._seedReordered) return;
-    const pairs = [
-      ['top_player_name','bottom_player_name'],
-      ['top_name','bottom_name'],
-      ['player_a','player_b'],
-      ['player1','player2'],
-      ['top_player_id','bottom_player_id'],
-      ['player_id_top','player_id_bottom'],
-      ['player_id_a','player_id_b'],
-      ['top_country','bottom_country'],
-      ['top_country_code','bottom_country_code'],
-      ['country_top','country_bottom'],
-      ['top_seed','bottom_seed'],
-      ['seed_top','seed_bottom'],
-      ['seed_a','seed_b'],
-      ['seed1','seed2']
-    ];
-    for (const [a,b] of pairs) {
-      const va = (a in m) ? m[a] : undefined;
-      const vb = (b in m) ? m[b] : undefined;
-      if(va !== undefined || vb !== undefined) {
-        m[a] = vb;
-        m[b] = va;
+    if (!m || m._seedReordered) return;
+
+    try {
+      // Helper to swap two keys on object (works even if one is undefined)
+      function swapKeys(obj, a, b) {
+        const va = Object.prototype.hasOwnProperty.call(obj, a) ? obj[a] : undefined;
+        const vb = Object.prototype.hasOwnProperty.call(obj, b) ? obj[b] : undefined;
+        // Only write if at least one exists to avoid creating many undefined props
+        if (va !== undefined || vb !== undefined) {
+          obj[a] = vb;
+          obj[b] = va;
+        }
       }
+
+      // First: explicit well-known pairs (keeps backwards compatibility)
+      const explicitPairs = [
+        ['top_player_name','bottom_player_name'],
+        ['top_name','bottom_name'],
+        ['player_a','player_b'],
+        ['player1','player2'],
+        ['top_player_id','bottom_player_id'],
+        ['player_id_top','player_id_bottom'],
+        ['player_id_a','player_id_b'],
+        ['top_country','bottom_country'],
+        ['top_country_code','bottom_country_code'],
+        ['country_top','country_bottom'],
+        ['top_seed','bottom_seed'],
+        ['seed_top','seed_bottom'],
+        ['seed_a','seed_b'],
+        ['seed1','seed2'],
+        ['player1_seed','player2_seed'],
+        ['name_top','name_bottom'],
+        ['top_player','bottom_player'],
+        ['top','bottom']
+      ];
+      for (const [a,b] of explicitPairs) swapKeys(m, a, b);
+
+      // Second: generic automatic swap for keys containing 'top'/'bottom', '_a'/'_b', trailing '1'/'2'
+      const seen = new Set();
+      const keys = Object.keys(m);
+      for (const k of keys) {
+        if (seen.has(k)) continue;
+
+        // try top/bottom replacement
+        if (/\btop\b/i.test(k)) {
+          const counterpart = k.replace(/top/ig, 'bottom');
+          if (counterpart !== k) {
+            swapKeys(m, k, counterpart);
+            seen.add(k); seen.add(counterpart);
+            continue;
+          }
+        }
+        if (/\bbottom\b/i.test(k)) {
+          const counterpart = k.replace(/bottom/ig, 'top');
+          if (counterpart !== k) {
+            swapKeys(m, k, counterpart);
+            seen.add(k); seen.add(counterpart);
+            continue;
+          }
+        }
+
+        // try _a / _b or a_ / b_ patterns (common in some feeds)
+        let match;
+        match = k.match(/(^|_)(a)(_.*|$)/i);
+        if (match) {
+          const counterpart = k.replace(/(^|_)a(_.*|$)/i, '$1b$2');
+          swapKeys(m, k, counterpart);
+          seen.add(k); seen.add(counterpart);
+          continue;
+        }
+        match = k.match(/(^|_)(b)(_.*|$)/i);
+        if (match) {
+          const counterpart = k.replace(/(^|_)b(_.*|$)/i, '$1a$2');
+          swapKeys(m, k, counterpart);
+          seen.add(k); seen.add(counterpart);
+          continue;
+        }
+
+        // try trailing 1/2 (player1/player2, seed1/seed2)
+        match = k.match(/(.*?)(1)$/);
+        if (match) {
+          const counterpart = match[1] + '2';
+          swapKeys(m, k, counterpart);
+          seen.add(k); seen.add(counterpart);
+          continue;
+        }
+        match = k.match(/(.*?)(2)$/);
+        if (match) {
+          const counterpart = match[1] + '1';
+          swapKeys(m, k, counterpart);
+          seen.add(k); seen.add(counterpart);
+          continue;
+        }
+      }
+
+      // mark to avoid double-swap
+      m._seedReordered = true;
+    } catch (e) {
+      // fallback to original minimal swap if something goes wrong
+      console.warn('swapDisplayFieldsForMatch fallback', e);
+      const pairs = [
+        ['top_player_name','bottom_player_name'],
+        ['top_name','bottom_name'],
+        ['player_a','player_b'],
+        ['player1','player2'],
+        ['top_player_id','bottom_player_id'],
+        ['player_id_top','player_id_bottom'],
+        ['top_country','bottom_country'],
+        ['top_seed','bottom_seed'],
+        ['seed_top','seed_bottom'],
+        ['seed1','seed2']
+      ];
+      for (const [a,b] of pairs) {
+        const va = (a in m) ? m[a] : undefined;
+        const vb = (b in m) ? m[b] : undefined;
+        if (va !== undefined || vb !== undefined) {
+          m[a] = vb;
+          m[b] = va;
+        }
+      }
+      m._seedReordered = true;
     }
-    // mark to avoid double-swap
-    m._seedReordered = true;
   }
+
 
   function reorderFirstColumnSeeds_alternate() {
     try {
       const canvas = document.getElementById('canvas');
-      if(!canvas) return;
-      // collect leftmost-column matches (left <= 2)
-      const leftPlayers = Array.from(canvas.querySelectorAll('[data-field="player"]')).filter(el=>{
-        const parent = el.parentElement;
-        if(!parent) return false;
-        const leftRaw = parent.style.left || '';
-        const left = leftRaw ? parseFloat(leftRaw) : 0;
-        return !isNaN(left) && left <= 2;
-      });
+      if (!canvas) return;
 
-      // map matchId -> top position
+      // collect all parent nodes that contain data-field="player" children
+      const playerEls = Array.from(canvas.querySelectorAll('[data-field="player"]')).map(el => el.parentElement).filter(Boolean);
+
+      if (playerEls.length === 0) return;
+
+      // compute left positions relative to canvas (use getBoundingClientRect for robust measurement)
+      const canvasRect = canvas.getBoundingClientRect();
+      const positions = playerEls.map(parent => {
+        const rect = parent.getBoundingClientRect();
+        // relative left inside canvas
+        const left = rect.left - canvasRect.left;
+        const top = rect.top - canvasRect.top;
+        // match id from child
+        const child = parent.querySelector('[data-match]');
+        const matchId = child ? (child.dataset.match || '').toString().toUpperCase() : '';
+        return { parent, left: left, top: top, matchId };
+      }).filter(p => p.matchId);
+
+      if (positions.length === 0) return;
+
+      // find minimal left -> first column
+      const minLeft = positions.reduce((acc, p) => Math.min(acc, p.left), Infinity);
+
+      // threshold to include items in the first column (allow small rounding)
+      const threshold = 6; // px tolerance
+
+      // select positions that are in first column
+      const firstColumn = positions.filter(p => Math.abs(p.left - minLeft) <= threshold);
+
+      // build map matchId -> top
       const mm = new Map();
-      leftPlayers.forEach(el=>{
-        const mid = (el.dataset.match || '').toString().toUpperCase();
-        if(!mid) return;
-        const parent = el.parentElement;
-        const topRaw = parent.style.top || '0';
-        const top = isNaN(parseFloat(topRaw)) ? 0 : parseFloat(topRaw);
-        if(!mm.has(mid)) mm.set(mid, { matchId: mid, top: top });
-        else mm.get(mid).top = Math.min(mm.get(mid).top, top);
+      firstColumn.forEach(p => {
+        if (!mm.has(p.matchId)) mm.set(p.matchId, { matchId: p.matchId, top: p.top });
+        else mm.get(p.matchId).top = Math.min(mm.get(p.matchId).top, p.top);
       });
 
-      // ordered list of match ids by vertical position
-      const ordered = Array.from(mm.values()).sort((a,b)=>a.top - b.top).map(o => o.matchId);
+      // order match ids by vertical position
+      const ordered = Array.from(mm.values()).sort((a, b) => a.top - b.top).map(o => o.matchId);
 
-      // build list of matches that have exactly one seed
+      // build list of matches that have exactly one seed (top xor bottom)
       const singleSeedMatches = [];
       for (const mid of ordered) {
         const m = matchMap.get(mid);
-        if(!m) continue;
+        if (!m) continue;
         const st = getSeedForSide_v2(m, 'top');
         const sb = getSeedForSide_v2(m, 'bottom');
         const hasTop = !!(st && String(st).trim() !== '');
         const hasBottom = !!(sb && String(sb).trim() !== '');
-        if( (hasTop && !hasBottom) || (!hasTop && hasBottom) ) {
+        if ((hasTop && !hasBottom) || (!hasTop && hasBottom)) {
           singleSeedMatches.push({ mid, seededSide: hasTop ? 'top' : 'bottom' });
         }
       }
 
-      // now alternate: first seeded should be placed TOP, next BOTTOM, next TOP, ...
+      // alternate placing: start with TOP (can be changed to start bottom if desired)
       let placeTop = true;
       for (const item of singleSeedMatches) {
         const m = matchMap.get(item.mid);
-        if(!m) continue;
+        if (!m) continue;
         const seededSide = item.seededSide;
         const desired = placeTop ? 'top' : 'bottom';
-        if(seededSide !== desired) {
+        if (seededSide !== desired) {
           swapDisplayFieldsForMatch(m);
         }
         placeTop = !placeTop;
       }
 
-    } catch(e) {
+    } catch (e) {
       console.warn('reorderFirstColumnSeeds_alternate error', e);
     }
   }
+
 
   // execute reorder before rendering players
   reorderFirstColumnSeeds_alternate();
