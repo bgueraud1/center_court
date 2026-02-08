@@ -1020,112 +1020,108 @@ async function fillFromMap(matchMap) {
 
   if(!_indexPromise) _indexPromise = loadPlayerIndex(useWta);
 
-
+  // Helper pour obtenir l'ID du joueur
   function extractPlayerId(m, side) {
-  const candidates = {};
-  candidates.topName = m.top_player_name || m.top_name || m.loser_player_name || m.winner_player_name || '';
-  candidates.bottomName = m.bottom_player_name || m.bottom_name || m.bottom || '';
-  candidates.winnerName = m.winner_player_name || m.winner_name || '';
-  candidates.loserName = m.loser_player_name || m.loser_name || '';
+    const candidates = {};
+    candidates.topName = m.top_player_name || m.top_name || m.loser_player_name || m.winner_player_name || '';
+    candidates.bottomName = m.bottom_player_name || m.bottom_name || m.bottom || '';
+    candidates.winnerName = m.winner_player_name || m.winner_name || '';
+    candidates.loserName = m.loser_player_name || m.loser_name || '';
 
-  const ids = {
-    top: (m.top_player_id || m.top_id || m.player_id_top || m.player_top_id || m.top_player || ''),
-    bottom: (m.bottom_player_id || m.bottom_id || m.player_id_bottom || m.player_bottom_id || m.bottom_player || ''),
-    winner: (m.winner_player_id || m.player_id_winner || m.winner_id || m.winner || ''),
-    loser: (m.loser_player_id || m.player_id_loser || m.loser_id || m.loser || ''),
-    generic1: (m.player_id || m.playerId || m.player_id_1 || '')
-  };
+    const ids = {
+      top: (m.top_player_id || m.top_id || m.player_id_top || m.player_top_id || m.top_player || ''),
+      bottom: (m.bottom_player_id || m.bottom_id || m.player_id_bottom || m.player_bottom_id || m.bottom_player || ''),
+      winner: (m.winner_player_id || m.player_id_winner || m.winner_id || m.winner || ''),
+      loser: (m.loser_player_id || m.player_id_loser || m.loser_id || m.loser || ''),
+      generic1: (m.player_id || m.playerId || m.player_id_1 || '')
+    };
 
-  // Garder l'ordre du JSON sans réorganisation
-  if (side === 'top') return String(ids.winner || ids.top || ids.generic1);
-  if (side === 'bottom') return String(ids.loser || ids.bottom || ids.generic1);
+    // Maintenant, on va inverser l'ordre des joueurs
+    if (side === 'top') return String(ids.bottom || ids.generic1);
+    if (side === 'bottom') return String(ids.top || ids.generic1);
 
-  return null;
-}
+    return null;
+  }
 
-
-
-
+  // Création du noeud joueur
   function createPlayerNode(containerEl, displayName, seed, playerId) {
-  containerEl.innerHTML = ''; // Réinitialiser le contenu de l'élément
+    containerEl.innerHTML = '';  // Réinitialiser l'élément
 
-  // Ajouter l'information de seed (rang) si disponible
-  const seedSpan = document.createElement('span');
-  seedSpan.className = 'seed';
-  seedSpan.textContent = seed ? seed : '';  // Ajouter le seed si présent
-  containerEl.appendChild(seedSpan);
+    // Ajouter les informations du seed (si disponibles)
+    const seedSpan = document.createElement('span');
+    seedSpan.className = 'seed';
+    seedSpan.textContent = seed ? seed : '';
+    containerEl.appendChild(seedSpan);
 
-  // Créer l'élément contenant le nom du joueur
-  const nameSpan = document.createElement('span');
-  nameSpan.className = 'name';
+    // Créer un élément pour le nom du joueur
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'name';
 
-  // Créer un lien vers la page du joueur si on trouve son ID dans le cache
-  if (playerId && window._playerIndexCache && (window._playerIndexCache.atp || window._playerIndexCache.wta)) {
-    const idxKey = isWTAFromData(window._bracketData) ? 'wta' : 'atp';
-    const idx = window._playerIndexCache[idxKey];
-    if (idx) {
-      const href = resolveHrefFromIndex(idx, playerId);
-      if (href) {
-        const a = document.createElement('a');
-        a.className = 'player-link';
-        a.href = href;
-        a.target = '_top';
-        a.rel = 'noopener noreferrer';
-        a.textContent = displayName || playerId || ''; // Nom du joueur
-        a.setAttribute('title', displayName || href);
-        a.dataset.playerId = playerId;
-        nameSpan.appendChild(a);
-        containerEl.appendChild(nameSpan);
-        return;
+    // Lien vers la page du joueur (si trouvé dans l'index)
+    if (playerId && window._playerIndexCache && (window._playerIndexCache.atp || window._playerIndexCache.wta)) {
+      const idxKey = isWTAFromData(window._bracketData) ? 'wta' : 'atp';
+      const idx = window._playerIndexCache[idxKey];
+      if (idx) {
+        const href = resolveHrefFromIndex(idx, playerId);
+        if (href) {
+          const a = document.createElement('a');
+          a.className = 'player-link';
+          a.href = href;
+          a.target = '_top';
+          a.rel = 'noopener noreferrer';
+          a.textContent = displayName || playerId || '';
+          a.setAttribute('title', displayName || href);
+          a.dataset.playerId = playerId;
+          nameSpan.appendChild(a);
+          containerEl.appendChild(nameSpan);
+          return;
+        }
       }
     }
+
+    // Si aucun lien trouvé, juste afficher le nom
+    const span = document.createElement('span');
+    span.textContent = displayName || (playerId ? playerId : '');
+    span.dataset.playerId = playerId || '';
+    span.className = 'player-text-plain';
+    nameSpan.appendChild(span);
+    containerEl.appendChild(nameSpan);
   }
 
-  // Si pas de lien, afficher le nom sans lien
-  const span = document.createElement('span');
-  span.textContent = displayName || (playerId ? playerId : '');
-  span.dataset.playerId = playerId || '';  // Ajouter l'ID du joueur pour des actions ultérieures
-  span.className = 'player-text-plain';
-  nameSpan.appendChild(span);
-  containerEl.appendChild(nameSpan);
-}
+  /* ---- Remplir les joueurs (top/bottom) ---- */
+  document.querySelectorAll('[data-field="player"]').forEach(el => {
+    const matchId = (el.dataset.match || '').toUpperCase();
+    const side = (el.dataset.side || '').toLowerCase();
+    const m = matchMap.get(matchId);
+    if (!m) return;
 
+    let displayName = '';
+    let seed = '';
 
-  /* ---- fill players (top/bottom) ---- */
-  /* ---- fill players (top/bottom) ---- */
-document.querySelectorAll('[data-field="player"]').forEach(el => {
-  const matchId = (el.dataset.match || '').toUpperCase();
-  const side = (el.dataset.side || '').toLowerCase();
-  const m = matchMap.get(matchId);
-  if (!m) return;
+    // Garder l'ordre des joueurs tel qu'il apparaît dans le JSON mais les inverser pour l'affichage
+    if (side === 'top') {
+      displayName = m.bottom_player_name || m.bottom_name || m.loser_player_name || m.winner_player_name || '';
+      seed = m.bottom_seed || m.loser_seed || m.seed_bottom || m.seed || '';
+    } else if (side === 'bottom') {
+      displayName = m.top_player_name || m.top_name || m.winner_player_name || m.loser_player_name || '';
+      seed = m.top_seed || m.winner_seed || m.seed_top || m.seed || '';
+    }
 
-  let displayName = '';
-  let seed = '';
+    const playerId = extractPlayerId(m, side);
+    createPlayerNode(el, displayName, seed, playerId);
 
-  // Garder les joueurs dans l'ordre du JSON
-  if (side === 'top') {
-    displayName = m.winner_player_name || m.winner || '';
-    seed = m.winner_seed || '';
-  } else if (side === 'bottom') {
-    displayName = m.loser_player_name || m.loser || '';
-    seed = m.loser_seed || '';
-  }
+    // Affichage du drapeau pour chaque joueur
+    const flag = el.parentElement ? el.parentElement.querySelector('.flag') : null;
+    if (flag) {
+      let countryIOC = '';
+      if (side === 'top') countryIOC = m.bottom_country || m.loser_country || '';
+      else if (side === 'bottom') countryIOC = m.top_country || m.winner_country || '';
+      renderFlagElement(flag, countryIOC, countryIOC);
+      flag.title = countryIOC || '';
+    }
+  });
 
-  const playerId = extractPlayerId(m, side);
-  createPlayerNode(el, displayName, seed, playerId);
-
-  // Flag pour chaque joueur
-  const flag = el.parentElement ? el.parentElement.querySelector('.flag') : null;
-  if (flag) {
-    let countryIOC = '';
-    if (side === 'top') countryIOC = m.winner_country || '';
-    else if (side === 'bottom') countryIOC = m.loser_country || '';
-    renderFlagElement(flag, countryIOC, countryIOC);
-    flag.title = countryIOC || '';
-  }
-});
-
-  /* ---- fill winners ---- */
+  /* ---- Remplir les gagnants ---- */
   document.querySelectorAll('[data-field="winner"]').forEach(el => {
     const matchId = (el.dataset.match || '').toUpperCase();
     const m = matchMap.get(matchId);
@@ -1176,7 +1172,7 @@ document.querySelectorAll('[data-field="player"]').forEach(el => {
       el.appendChild(nameSpan);
     }
 
-    // flag for winner
+    // Affichage du drapeau du gagnant
     const flag = el.parentElement ? el.parentElement.querySelector('.flag') : null;
     if(flag){
       let countryIOC = m.winner_country || m.winner_country_code || '';
@@ -1187,7 +1183,7 @@ document.querySelectorAll('[data-field="player"]').forEach(el => {
     }
   });
 
-  /* ---- fill scores (unchanged) ---- */
+  /* ---- Remplir les scores (inchangés) ---- */
   document.querySelectorAll('[data-field="score"]').forEach(el => {
     const matchId = (el.dataset.match || '').toUpperCase();
     const m = matchMap.get(matchId);
@@ -1266,6 +1262,7 @@ document.querySelectorAll('[data-field="player"]').forEach(el => {
 
   setTimeout(createConnectors, 20);
 }
+
 
 /* ------------------ postMessage handler ------------------ */
 window.addEventListener('message', function(ev){
