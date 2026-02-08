@@ -966,6 +966,8 @@ function debounce(fn, wait=120){
 
 /* ---------- FILL FROM MATCH MAP (seulement via IDs pour les joueurs) ---------- */
 let _indexPromise = null; // promise de chargement de l'index courant (selon gender)
+/* ------------------ postMessage handler ------------------ */
+
 
 async function fillFromMap(matchMap) {
   const rawData = window._bracketData || {};
@@ -974,214 +976,77 @@ async function fillFromMap(matchMap) {
   // kick off index load in background (if any)
   if(!_indexPromise) _indexPromise = loadPlayerIndex(useWta);
 
-    /* ---------- REORDER FIRST-ROUND SEEDS ---------- */
-    /* ---------- REORDER FIRST-ROUND SEEDS (robuste : alternance top/bottom) ---------- */
-
-  // util: récupérer seed top/bottom à partir du match
+  /* ---------- helper: get seed value (unchanged, robust) ---------- */
   function getSeedForSide_v2(m, side) {
-    if(!m) return '';
-    // first, try explicit keys
+    if (!m) return '';
     const topKeys = ['top_seed','seed_top','seed_a','seed1','seedA','seed1a'];
     const bottomKeys = ['bottom_seed','seed_bottom','seed_b','seed2','seedB','seed2b'];
     for (const k of (side === 'top' ? topKeys : bottomKeys)) {
-      if(k in m && m[k] !== null && m[k] !== undefined && String(m[k]).trim() !== '') return String(m[k]);
+      if (k in m && m[k] !== null && m[k] !== undefined && String(m[k]).trim() !== '') return String(m[k]);
     }
     // try typical winner/loser mapping by name
     const topName = (m.top_player_name || m.top_name || m.player_a || '').toString().trim();
     const bottomName = (m.bottom_player_name || m.bottom_name || m.player_b || '').toString().trim();
-    if(m.winner_player_name && (m.winner_seed || m.seed_winner || m.winner_seed)) {
+    if (m.winner_player_name && (m.winner_seed || m.seed_winner || m.winner_seed)) {
       const ws = String(m.winner_seed || m.seed_winner || '').trim();
-      if(ws) {
-        if(topName && topName === String(m.winner_player_name)) return ws;
-        if(bottomName && bottomName === String(m.winner_player_name)) return ws;
+      if (ws) {
+        if (topName && topName === String(m.winner_player_name)) return ws;
+        if (bottomName && bottomName === String(m.winner_player_name)) return ws;
       }
     }
-    if(m.loser_player_name && (m.loser_seed || m.seed_loser || m.loser_seed)) {
+    if (m.loser_player_name && (m.loser_seed || m.seed_loser || m.loser_seed)) {
       const ls = String(m.loser_seed || m.seed_loser || '').trim();
-      if(ls) {
-        if(topName && topName === String(m.loser_player_name)) return ls;
-        if(bottomName && bottomName === String(m.loser_player_name)) return ls;
+      if (ls) {
+        if (topName && topName === String(m.loser_player_name)) return ls;
+        if (bottomName && bottomName === String(m.loser_player_name)) return ls;
       }
     }
     // generic keys
-    for (const k of ['seed','player_seed','seed_value']) {
-      if(k in m && m[k] !== null && String(m[k]).trim() !== '') return String(m[k]);
+    for (const k of ['seed','player_seed','seed_value','seed1','seed2']) {
+      if (k in m && m[k] !== null && String(m[k]).trim() !== '') return String(m[k]);
     }
     return '';
   }
 
-    // swap display-only fields between top/bottom (idempotent with _seedReordered flag)
-  function swapDisplayFieldsForMatch(m) {
-    if (!m || m._seedReordered) return;
-
-    try {
-      // Helper to swap two keys on object (works even if one is undefined)
-      function swapKeys(obj, a, b) {
-        const va = Object.prototype.hasOwnProperty.call(obj, a) ? obj[a] : undefined;
-        const vb = Object.prototype.hasOwnProperty.call(obj, b) ? obj[b] : undefined;
-        // Only write if at least one exists to avoid creating many undefined props
-        if (va !== undefined || vb !== undefined) {
-          obj[a] = vb;
-          obj[b] = va;
-        }
-      }
-
-      // First: explicit well-known pairs (keeps backwards compatibility)
-      const explicitPairs = [
-        ['top_player_name','bottom_player_name'],
-        ['top_name','bottom_name'],
-        ['player_a','player_b'],
-        ['player1','player2'],
-        ['top_player_id','bottom_player_id'],
-        ['player_id_top','player_id_bottom'],
-        ['player_id_a','player_id_b'],
-        ['top_country','bottom_country'],
-        ['top_country_code','bottom_country_code'],
-        ['country_top','country_bottom'],
-        ['top_seed','bottom_seed'],
-        ['seed_top','seed_bottom'],
-        ['seed_a','seed_b'],
-        ['seed1','seed2'],
-        ['player1_seed','player2_seed'],
-        ['name_top','name_bottom'],
-        ['top_player','bottom_player'],
-        ['top','bottom']
-      ];
-      for (const [a,b] of explicitPairs) swapKeys(m, a, b);
-
-      // Second: generic automatic swap for keys containing 'top'/'bottom', '_a'/'_b', trailing '1'/'2'
-      const seen = new Set();
-      const keys = Object.keys(m);
-      for (const k of keys) {
-        if (seen.has(k)) continue;
-
-        // try top/bottom replacement
-        if (/\btop\b/i.test(k)) {
-          const counterpart = k.replace(/top/ig, 'bottom');
-          if (counterpart !== k) {
-            swapKeys(m, k, counterpart);
-            seen.add(k); seen.add(counterpart);
-            continue;
-          }
-        }
-        if (/\bbottom\b/i.test(k)) {
-          const counterpart = k.replace(/bottom/ig, 'top');
-          if (counterpart !== k) {
-            swapKeys(m, k, counterpart);
-            seen.add(k); seen.add(counterpart);
-            continue;
-          }
-        }
-
-        // try _a / _b or a_ / b_ patterns (common in some feeds)
-        let match;
-        match = k.match(/(^|_)(a)(_.*|$)/i);
-        if (match) {
-          const counterpart = k.replace(/(^|_)a(_.*|$)/i, '$1b$2');
-          swapKeys(m, k, counterpart);
-          seen.add(k); seen.add(counterpart);
-          continue;
-        }
-        match = k.match(/(^|_)(b)(_.*|$)/i);
-        if (match) {
-          const counterpart = k.replace(/(^|_)b(_.*|$)/i, '$1a$2');
-          swapKeys(m, k, counterpart);
-          seen.add(k); seen.add(counterpart);
-          continue;
-        }
-
-        // try trailing 1/2 (player1/player2, seed1/seed2)
-        match = k.match(/(.*?)(1)$/);
-        if (match) {
-          const counterpart = match[1] + '2';
-          swapKeys(m, k, counterpart);
-          seen.add(k); seen.add(counterpart);
-          continue;
-        }
-        match = k.match(/(.*?)(2)$/);
-        if (match) {
-          const counterpart = match[1] + '1';
-          swapKeys(m, k, counterpart);
-          seen.add(k); seen.add(counterpart);
-          continue;
-        }
-      }
-
-      // mark to avoid double-swap
-      m._seedReordered = true;
-    } catch (e) {
-      // fallback to original minimal swap if something goes wrong
-      console.warn('swapDisplayFieldsForMatch fallback', e);
-      const pairs = [
-        ['top_player_name','bottom_player_name'],
-        ['top_name','bottom_name'],
-        ['player_a','player_b'],
-        ['player1','player2'],
-        ['top_player_id','bottom_player_id'],
-        ['player_id_top','player_id_bottom'],
-        ['top_country','bottom_country'],
-        ['top_seed','bottom_seed'],
-        ['seed_top','seed_bottom'],
-        ['seed1','seed2']
-      ];
-      for (const [a,b] of pairs) {
-        const va = (a in m) ? m[a] : undefined;
-        const vb = (b in m) ? m[b] : undefined;
-        if (va !== undefined || vb !== undefined) {
-          m[a] = vb;
-          m[b] = va;
-        }
-      }
-      m._seedReordered = true;
-    }
-  }
-
+  /* ---------- compute which first-column matches need display-swap (NO mutation) ---------- */
+  const firstColSwap = new Set();
 
   function reorderFirstColumnSeeds_alternate() {
     try {
       const canvas = document.getElementById('canvas');
       if (!canvas) return;
 
-      // collect all parent nodes that contain data-field="player" children
-      const playerEls = Array.from(canvas.querySelectorAll('[data-field="player"]')).map(el => el.parentElement).filter(Boolean);
+      // collect parent nodes of player fields with their rects
+      const playerParents = Array.from(canvas.querySelectorAll('[data-field="player"]')).map(el => {
+        return { parent: el.parentElement, match: (el.dataset.match || '').toString().toUpperCase(), side: (el.dataset.side || '').toLowerCase() };
+      }).filter(p => p.parent && p.match);
 
-      if (playerEls.length === 0) return;
+      if (playerParents.length === 0) return;
 
-      // compute left positions relative to canvas (use getBoundingClientRect for robust measurement)
+      // measure positions relative to canvas
       const canvasRect = canvas.getBoundingClientRect();
-      const positions = playerEls.map(parent => {
-        const rect = parent.getBoundingClientRect();
-        // relative left inside canvas
-        const left = rect.left - canvasRect.left;
-        const top = rect.top - canvasRect.top;
-        // match id from child
-        const child = parent.querySelector('[data-match]');
-        const matchId = child ? (child.dataset.match || '').toString().toUpperCase() : '';
-        return { parent, left: left, top: top, matchId };
-      }).filter(p => p.matchId);
-
-      if (positions.length === 0) return;
-
-      // find minimal left -> first column
-      const minLeft = positions.reduce((acc, p) => Math.min(acc, p.left), Infinity);
-
-      // threshold to include items in the first column (allow small rounding)
-      const threshold = 6; // px tolerance
-
-      // select positions that are in first column
-      const firstColumn = positions.filter(p => Math.abs(p.left - minLeft) <= threshold);
-
-      // build map matchId -> top
-      const mm = new Map();
-      firstColumn.forEach(p => {
-        if (!mm.has(p.matchId)) mm.set(p.matchId, { matchId: p.matchId, top: p.top });
-        else mm.get(p.matchId).top = Math.min(mm.get(p.matchId).top, p.top);
+      const positions = playerParents.map(p => {
+        const rect = p.parent.getBoundingClientRect();
+        return { matchId: p.match, left: rect.left - canvasRect.left, top: rect.top - canvasRect.top };
       });
 
-      // order match ids by vertical position
-      const ordered = Array.from(mm.values()).sort((a, b) => a.top - b.top).map(o => o.matchId);
+      // find leftmost column position
+      let minLeft = Infinity;
+      for (const pos of positions) minLeft = Math.min(minLeft, pos.left);
+      const tolerance = 6; // px
 
-      // build list of matches that have exactly one seed (top xor bottom)
+      // select matches in first column and keep minimal top for duplicates
+      const mapTop = new Map();
+      for (const pos of positions) {
+        if (Math.abs(pos.left - minLeft) <= tolerance) {
+          if (!mapTop.has(pos.matchId)) mapTop.set(pos.matchId, pos.top);
+          else mapTop.set(pos.matchId, Math.min(mapTop.get(pos.matchId), pos.top));
+        }
+      }
+
+      const ordered = Array.from(mapTop.entries()).map(([matchId, top]) => ({ matchId, top })).sort((a,b)=>a.top - b.top).map(o => o.matchId);
+
+      // build list of matches that have exactly one seed in the source data
       const singleSeedMatches = [];
       for (const mid of ordered) {
         const m = matchMap.get(mid);
@@ -1195,15 +1060,13 @@ async function fillFromMap(matchMap) {
         }
       }
 
-      // alternate placing: start with TOP (can be changed to start bottom if desired)
+      // decide alternation: start with top = true
       let placeTop = true;
       for (const item of singleSeedMatches) {
-        const m = matchMap.get(item.mid);
-        if (!m) continue;
-        const seededSide = item.seededSide;
         const desired = placeTop ? 'top' : 'bottom';
-        if (seededSide !== desired) {
-          swapDisplayFieldsForMatch(m);
+        if (item.seededSide !== desired) {
+          // mark this match to invert display when rendering
+          firstColSwap.add(item.mid);
         }
         placeTop = !placeTop;
       }
@@ -1213,52 +1076,66 @@ async function fillFromMap(matchMap) {
     }
   }
 
-
-  // execute reorder before rendering players
+  // run reorder to populate firstColSwap
   reorderFirstColumnSeeds_alternate();
 
+  /* ---------- helper: compute display fields for a given match and side (applies swap only for presentation) ---------- */
+  function computeDisplayForSide(m, matchId, side) {
+    // raw extraction (many fallbacks)
+    const rawTopName = m.top_player_name || m.top_name || m.player_a || m.player1 || m.loser_player_name || m.winner_player_name || '';
+    const rawBottomName = m.bottom_player_name || m.bottom_name || m.player_b || m.player2 || m.winner_player_name || m.loser_player_name || '';
+    const rawTopId = m.top_player_id || m.top_id || m.player_id_top || m.player_top_id || m.player1_id || m.player_id_1 || '';
+    const rawBottomId = m.bottom_player_id || m.bottom_id || m.player_id_bottom || m.player_bottom_id || m.player2_id || m.player_id_2 || '';
+    const rawTopCountry = m.top_country || m.top_country_code || m.country_top || m.country_a || '';
+    const rawBottomCountry = m.bottom_country || m.bottom_country_code || m.country_bottom || m.country_b || '';
 
-  // helper pour extraire un id de joueur depuis l'objet match en fonction du side/name heuristiques
-  function extractPlayerId(m, side) {
-    const candidates = {};
-    candidates.topName = m.top_player_name || m.top_name || m.loser_player_name || m.winner_player_name || '';
-    candidates.bottomName = m.bottom_player_name || m.bottom_name || m.bottom || '';
-    candidates.winnerName = m.winner_player_name || m.winner_name || '';
-    candidates.loserName = m.loser_player_name || m.loser_name || '';
+    let topName = String(rawTopName || '').trim();
+    let bottomName = String(rawBottomName || '').trim();
+    let topId = rawTopId || '';
+    let bottomId = rawBottomId || '';
+    let topCountry = rawTopCountry || '';
+    let bottomCountry = rawBottomCountry || '';
 
-    const ids = {
-      top: (m.top_player_id || m.top_id || m.player_id_top || m.player_top_id || m.top_player || ''),
-      bottom: (m.bottom_player_id || m.bottom_id || m.player_id_bottom || m.player_bottom_id || m.bottom_player || ''),
-      winner: (m.winner_player_id || m.player_id_winner || m.winner_id || m.winner || ''),
-      loser: (m.loser_player_id || m.player_id_loser || m.loser_id || m.loser || ''),
-      generic1: (m.player_id || m.playerId || m.player_id_1 || '')
-    };
+    // seeds via helper
+    let topSeed = getSeedForSide_v2(m, 'top') || '';
+    let bottomSeed = getSeedForSide_v2(m, 'bottom') || '';
 
-    if(side === 'top' && ids.top) return String(ids.top);
-    if(side === 'bottom' && ids.bottom) return String(ids.bottom);
-
-    const sideName = side === 'top' ? candidates.topName : candidates.bottomName;
-    if(sideName){
-      if(sideName === String(ids.winner) || sideName === String(candidates.winnerName) || sideName === String(m.winner_player_name)) {
-        if(ids.winner) return String(ids.winner);
-      }
-      if(sideName === String(ids.loser) || sideName === String(candidates.loserName) || sideName === String(m.loser_player_name)) {
-        if(ids.loser) return String(ids.loser);
+    // edge-case: some feeds put single 'seed' or winner_seed -> try to place it sensibly
+    if ((!topSeed && !bottomSeed) && (m.seed || m.player_seed || m.seed_value)) {
+      // attempt to attribute generic seed to the side matching winner/loser
+      const gen = String(m.seed || m.player_seed || m.seed_value || '').trim();
+      if (gen) {
+        const winnerName = m.winner_player_name || m.winner_name || m.winner || '';
+        const loserName = m.loser_player_name || m.loser_name || m.loser || '';
+        if (winnerName && String(winnerName) === String(topName)) topSeed = gen;
+        else if (winnerName && String(winnerName) === String(bottomName)) bottomSeed = gen;
+        else if (loserName && String(loserName) === String(topName)) topSeed = gen;
+        else if (loserName && String(loserName) === String(bottomName)) bottomSeed = gen;
+        else {
+          // fallback: set to top
+          topSeed = gen;
+        }
       }
     }
 
-    if(side === 'top' && ids.winner && String(candidates.winnerName) === String(candidates.topName)) return String(ids.winner);
-    if(side === 'top' && ids.loser && String(candidates.loserName) === String(candidates.topName)) return String(ids.loser);
-    if(side === 'bottom' && ids.winner && String(candidates.winnerName) === String(candidates.bottomName)) return String(ids.winner);
-    if(side === 'bottom' && ids.loser && String(candidates.loserName) === String(candidates.bottomName)) return String(ids.loser);
+    // Now if this match was marked for display-swap, flip the display-only values
+    const doSwap = firstColSwap.has((matchId || '').toString().toUpperCase());
+    if (doSwap) {
+      const tmpName = topName; topName = bottomName; bottomName = tmpName;
+      const tmpId = topId; topId = bottomId; bottomId = tmpId;
+      const tmpSeed = topSeed; topSeed = bottomSeed; bottomSeed = tmpSeed;
+      const tmpCountry = topCountry; topCountry = bottomCountry; bottomCountry = tmpCountry;
+    }
 
-    if(side === 'top' && ids.generic1) return String(ids.generic1);
-    if(side === 'bottom' && ids.generic1) return String(ids.generic1);
-
-    return null;
+    // deliver requested side
+    if (side === 'top') {
+      return { name: topName, seed: topSeed, country: topCountry, playerId: topId };
+    } else {
+      return { name: bottomName, seed: bottomSeed, country: bottomCountry, playerId: bottomId };
+    }
   }
 
-  // function to create/update a player name node (no fallback links)
+  /* ---------- create/update a player name node (no mutation) ---------- */
   function createPlayerNode(containerEl, displayName, seed, playerId) {
     containerEl.innerHTML = '';
     const seedSpan = document.createElement('span');
@@ -1269,17 +1146,27 @@ async function fillFromMap(matchMap) {
     const nameSpan = document.createElement('span');
     nameSpan.className = 'name';
 
+    // BYE handling: if displayName is BYE (case-insensitive), render plainly and no link
+    if (displayName && typeof displayName === 'string' && displayName.trim().toUpperCase() === 'BYE') {
+      const span = document.createElement('span');
+      span.textContent = displayName;
+      span.className = 'player-text-plain';
+      span.dataset.playerId = playerId || '';
+      nameSpan.appendChild(span);
+      containerEl.appendChild(nameSpan);
+      return;
+    }
+
     // if we already have index resolved href for this player (index may have loaded earlier)
-    if(playerId && window._playerIndexCache && (window._playerIndexCache.atp || window._playerIndexCache.wta)) {
+    if (playerId && window._playerIndexCache && (window._playerIndexCache.atp || window._playerIndexCache.wta)) {
       const idxKey = isWTAFromData(window._bracketData) ? 'wta' : 'atp';
       const idx = window._playerIndexCache[idxKey];
-      if(idx){
+      if (idx) {
         const href = resolveHrefFromIndex(idx, playerId);
-        if(href){
+        if (href) {
           const a = document.createElement('a');
           a.className = 'player-link';
           a.href = href;
-          // IMPORTANT: force top-level navigation (ouvre la page hors de l'iframe)
           a.target = '_top';
           a.rel = 'noopener noreferrer';
           a.textContent = displayName || playerId || '';
@@ -1306,47 +1193,44 @@ async function fillFromMap(matchMap) {
     const matchId = (el.dataset.match || '').toUpperCase();
     const side = (el.dataset.side || '').toLowerCase();
     const m = matchMap.get(matchId);
-    if(!m) return;
+    if (!m) return;
 
-    const topName = m.top_player_name || m.top_name || m.loser_player_name || m.winner_player_name || '';
-    const bottomName = m.bottom_player_name || m.bottom_name || '';
-    let displayName = '';
-    let seed = '';
+    // compute display values (this applies alternation via firstColSwap internally)
+    const display = computeDisplayForSide(m, matchId, side);
+    const displayName = display.name || '';
+    const seed = display.seed || '';
 
-    if(side === 'top'){
-      displayName = m.top_player_name || m.top_name || m.loser_player_name || m.winner_player_name || '';
-      seed = m.top_seed || m.loser_seed || m.seed_top || m.seed || '';
-    } else if(side === 'bottom'){
-      displayName = m.bottom_player_name || m.bottom_name || m.winner_player_name || m.loser_player_name || '';
-      seed = m.bottom_seed || m.winner_seed || m.seed_bottom || m.seed || '';
-    } else {
-      displayName = m.winner_player_name || m.loser_player_name || m.winner || m.loser || '';
-      seed = m.winner_seed || m.loser_seed || '';
-    }
-
-    const playerId = extractPlayerId(m, side);
+    // player id for link-upgrade
+    const playerId = display.playerId || computeDisplayForSide(m, matchId, side).playerId || '';
 
     createPlayerNode(el, displayName, seed, playerId);
 
     // flag
     const flag = el.parentElement ? el.parentElement.querySelector('.flag') : null;
-    if(flag){
-      let countryIOC = '';
-      if(side === 'top') countryIOC = m.top_country || m.top_country_code || m.loser_country || m.winner_country || '';
-      else if(side === 'bottom') countryIOC = m.bottom_country || m.bottom_country_code || m.winner_country || m.loser_country || '';
-      else countryIOC = m.winner_country || m.loser_country || '';
-      let iso2 = iocToIso[(countryIOC || '').toUpperCase()] || '';
-      if(!iso2 && countryIOC && countryIOC.length >= 2) iso2 = countryIOC.slice(0,2).toUpperCase();
-      renderFlagElement(flag, iso2, countryIOC);
-      flag.title = countryIOC || '';
+    if (flag) {
+      // compute country from the same computeDisplayForSide (so swapped too)
+      const c = (computeDisplayForSide(m, matchId, side).country || '').toString().trim();
+      let iso2 = iocToIso[(c || '').toUpperCase()] || '';
+      if (!iso2 && c && c.length >= 2) iso2 = c.slice(0,2).toUpperCase();
+      // BYE: don't try to render a flag for BYE
+      if (displayName && displayName.toString().trim().toUpperCase() === 'BYE') {
+        // clear flag
+        while (flag.firstChild) flag.removeChild(flag.firstChild);
+        flag.textContent = '';
+        flag.title = '';
+        flag.classList.remove('flag-fallback');
+      } else {
+        renderFlagElement(flag, iso2, c);
+        flag.title = c || '';
+      }
     }
   });
 
-  /* ---- fill winners (use winner ids) ---- */
+  /* ---- fill winners (unchanged) ---- */
   document.querySelectorAll('[data-field="winner"]').forEach(el => {
     const matchId = (el.dataset.match || '').toUpperCase();
     const m = matchMap.get(matchId);
-    if(!m) return;
+    if (!m) return;
 
     el.innerHTML = '';
 
@@ -1361,16 +1245,15 @@ async function fillFromMap(matchMap) {
     const displayName = m.winner_player_name || m.winner || m.winner_name || '';
     const playerId = m.winner_player_id || m.player_id_winner || m.winner_id || m.winnerPlayerId || '';
 
-    if(playerId && window._playerIndexCache && (window._playerIndexCache.atp || window._playerIndexCache.wta)){
+    if (playerId && window._playerIndexCache && (window._playerIndexCache.atp || window._playerIndexCache.wta)) {
       const idxKey = isWTAFromData(window._bracketData) ? 'wta' : 'atp';
       const idx = window._playerIndexCache[idxKey];
-      if(idx){
+      if (idx) {
         const href = resolveHrefFromIndex(idx, playerId);
-        if(href){
+        if (href) {
           const a = document.createElement('a');
           a.className = 'player-link';
           a.href = href;
-          // force top-level navigation
           a.target = '_top';
           a.rel = 'noopener noreferrer';
           a.textContent = displayName || playerId || '';
@@ -1396,10 +1279,10 @@ async function fillFromMap(matchMap) {
 
     // flag for winner
     const flag = el.parentElement ? el.parentElement.querySelector('.flag') : null;
-    if(flag){
+    if (flag) {
       let countryIOC = m.winner_country || m.winner_country_code || '';
       let iso2 = iocToIso[(countryIOC || '').toUpperCase()] || '';
-      if(!iso2 && countryIOC && countryIOC.length >= 2) iso2 = countryIOC.slice(0,2).toUpperCase();
+      if (!iso2 && countryIOC && countryIOC.length >= 2) iso2 = countryIOC.slice(0,2).toUpperCase();
       renderFlagElement(flag, iso2, countryIOC);
       flag.title = countryIOC || '';
     }
@@ -1407,58 +1290,50 @@ async function fillFromMap(matchMap) {
 
   /* ---- fill scores (unchanged) ---- */
   document.querySelectorAll('[data-field="score"]').forEach(el => {
-  const matchId = (el.dataset.match || '').toUpperCase();
-  const m = matchMap.get(matchId);
-  if(!m) return;
-  const score = m.score_string || m.score || m.scoreString || el.textContent || '';
+    const matchId = (el.dataset.match || '').toUpperCase();
+    const m = matchMap.get(matchId);
+    if (!m) return;
+    const score = m.score_string || m.score || m.scoreString || el.textContent || '';
 
-  el.innerHTML = '';
+    el.innerHTML = '';
 
-  const url = buildMatchPageUrl({ matchObj: m, matchId: m.match_id || matchId, useWta: isWTAFromData(window._bracketData) });
-  const a = document.createElement('a');
-  a.className = 'score-link';
-  a.href = url;
-  a.textContent = score || '—';
-  a.setAttribute('title', 'Voir le match ' + (m.match_id || matchId || ''));
-  // Ouvre hors iframe : target + fallback onclick (pour sandboxed iframes sans allow-top-navigation)
-  a.target = '_top';
-  a.rel = 'noopener noreferrer';
-  a.onclick = function(ev){
-    try {
-      // si possible, forcer la navigation du top (contours sandbox)
-      if (window.top && window.top !== window) {
-        window.top.location.href = url;
-        ev.preventDefault();
-        return false;
-      }
-    } catch(e) {
-      // cross-origin top, la navigation via target sera utilisée et échouera si bloquée
-    }
-    // sinon laisser le comportement normal du lien
-  };
+    const url = buildMatchPageUrl({ matchObj: m, matchId: m.match_id || matchId, useWta: isWTAFromData(window._bracketData) });
+    const a = document.createElement('a');
+    a.className = 'score-link';
+    a.href = url;
+    a.textContent = score || '—';
+    a.setAttribute('title', 'Voir le match ' + (m.match_id || matchId || ''));
+    a.target = '_top';
+    a.rel = 'noopener noreferrer';
+    a.onclick = function(ev){
+      try {
+        if (window.top && window.top !== window) {
+          window.top.location.href = url;
+          ev.preventDefault();
+          return false;
+        }
+      } catch(e) {}
+    };
 
-  el.appendChild(a);
-});
-
+    el.appendChild(a);
+  });
 
   // after initial render, if index promise resolves later, upgrade anchors
   _indexPromise.then(idx => {
-    if(!idx) return;
-    // players: upgrade elements that have data-player-id attributes (both anchors and plain spans)
+    if (!idx) return;
     const allNodes = document.querySelectorAll('[data-player-id]');
     allNodes.forEach(node => {
       const pid = node.dataset.playerId;
-      if(!pid) return;
+      if (!pid) return;
       const href = resolveHrefFromIndex(idx, pid);
-      if(!href) return; // no href provided by index -> do nothing
-      if(node.tagName && node.tagName.toLowerCase() === 'a'){
-        try{ 
-          node.href = href; 
-          node.setAttribute('title', node.textContent || href); 
-          // ensure top-level nav
+      if (!href) return;
+      if (node.tagName && node.tagName.toLowerCase() === 'a') {
+        try {
+          node.href = href;
+          node.setAttribute('title', node.textContent || href);
           node.target = '_top';
           node.rel = 'noopener noreferrer';
-        }catch(e){}
+        } catch (e) {}
         return;
       }
       const a = document.createElement('a');
@@ -1472,12 +1347,11 @@ async function fillFromMap(matchMap) {
       node.parentNode.replaceChild(a, node);
     });
 
-    // also upgrade any '.player-text-plain' spans which we used earlier
     document.querySelectorAll('.player-text-plain').forEach(span => {
       const pid = span.dataset.playerId;
-      if(!pid) return;
+      if (!pid) return;
       const href = resolveHrefFromIndex(idx, pid);
-      if(!href) return;
+      if (!href) return;
       const a = document.createElement('a');
       a.className = 'player-link';
       a.href = href;
@@ -1494,7 +1368,7 @@ async function fillFromMap(matchMap) {
   setTimeout(createConnectors, 20);
 }
 
-/* ------------------ postMessage handler ------------------ */
+
 window.addEventListener('message', function(ev){
   try{
     const d = ev.data || {};
