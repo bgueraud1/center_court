@@ -576,7 +576,6 @@ function slugify(name){
     .replace(/^-+|-+$/g,'');
 }
 
-/* IOC -> ISO + emoji */
 /* IOC -> ISO + emoji (table étendue) */
 const iocToIso = {
   "AUS":"AU","AUT":"AT","ARG":"AR","BEL":"BE","BRA":"BR","CAN":"CA",
@@ -586,7 +585,7 @@ const iocToIso = {
   "RSA":"ZA","RUS":"RU","SUI":"CH","SWE":"SE","USA":"US","UKR":"UA",
   "KAZ":"KZ","BLR":"BY","SRB":"RS","CRO":"HR","SLO":"SI","CYP":"CY",
   "MEX":"MX","TPE":"TW","TUR":"TR","ROU":"RO","BUL":"BG","ISL":"IS",
-  "PHI":"PH","VEN":"VE","COL":"CO","CHI":"CL","ARG":"AR","URY":"UY",
+  "PHI":"PH","VEN":"VE","COL":"CO","CHI":"CL","URY":"UY",
   "IND":"IN","PAK":"PK","IRL":"IE","LUX":"LU","MON":"MC","LIE":"LI",
   "MAS":"MY","THA":"TH","VIE":"VN","EGY":"EG","ALG":"DZ","MAR":"MA",
   "TUN":"TN","ISR":"IL","SAU":"SA","QAT":"QA","UAE":"AE"
@@ -605,45 +604,46 @@ function iso2ToFlagEmoji(iso2) {
   return s;
 }
 
-/* ---------- FLAG: emoji detection + robust fallback via FlagCDN (fetch & objectURL) ---------- */
+/* ---------- FLAG: emoji detection + robust fallback via FlagCDN ---------- */
 
-window._flagEmojiSupport = window._flagEmojiSupport || { checked: false, ok: false };
+// état global (détection + queue)
+window._flagEmojiSupport = window._flagEmojiSupport || { checked: false, ok: false, checking: false };
+window._flagRenderQueue = window._flagRenderQueue || [];
 
+// détection (basique mais fiable) - on exécute seulement une fois
 function detectFlagEmojiSupport() {
   if (window._flagEmojiSupport.checked) return window._flagEmojiSupport.ok;
+  if (window._flagEmojiSupport.checking) return false;
+  window._flagEmojiSupport.checking = true;
   try {
+    // create offscreen span
     const s = document.createElement('span');
     s.style.position = 'absolute';
     s.style.left = '-9999px';
     s.style.fontSize = '18px';
+    s.style.lineHeight = '18px';
     s.style.fontFamily = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Twitter Color Emoji",sans-serif';
     s.textContent = '\u{1F1E8}\u{1F1F3}'; // 🇨🇳 sample
-    document.body.appendChild(s);
+    document.documentElement.appendChild(s);
+    // measure width: if browser renders color emoji, width should be >0 and not equal to ASCII fallback size
     const w = s.getBoundingClientRect().width;
-    document.body.removeChild(s);
-    const ok = !!(w && w > 6);
+    document.documentElement.removeChild(s);
+    const ok = !!(w && w > 6); // threshold
     window._flagEmojiSupport.checked = true;
     window._flagEmojiSupport.ok = ok;
+    window._flagEmojiSupport.checking = false;
     return ok;
   } catch (e) {
     window._flagEmojiSupport.checked = true;
     window._flagEmojiSupport.ok = false;
+    window._flagEmojiSupport.checking = false;
     return false;
   }
 }
 
-/**
- * renderFlagElement(flagEl, iso2, countryIOC)
- * - iso2 : 'FR', 'US' (2-letter) preferred (case-insensitive)
- * - countryIOC : IOC 3-letters, used for title/fallback
- *
- * Strategy:
- * 1) If platform renders emoji -> render regional-indicator emoji
- * 2) Else try to fetch a small PNG from FlagCDN via fetch(); if success -> use blob URL
- * 3) Otherwise display a neat textual fallback (ISO2 or IOC)
- */
+// tries to fetch small flag image and return objectURL or null
 async function _tryFetchFlagImageIso(isoLower) {
-  // try w20 then w40 sizes
+  if(!isoLower) return null;
   const candidates = [
     `https://flagcdn.com/w20/${isoLower}.png`,
     `https://flagcdn.com/w40/${isoLower}.png`,
@@ -658,12 +658,16 @@ async function _tryFetchFlagImageIso(isoLower) {
       const objectUrl = URL.createObjectURL(blob);
       return objectUrl;
     } catch (e) {
-      // ignore and try next
+      // next
     }
   }
   return null;
 }
 
+/**
+ * renderFlagElement(flagEl, iso2, countryIOC)
+ * robust: race emoji vs image; always leave neat textual fallback
+ */
 function renderFlagElement(flagEl, iso2, countryIOC) {
   if (!flagEl) return;
   // cleanup
@@ -675,74 +679,125 @@ function renderFlagElement(flagEl, iso2, countryIOC) {
   // normalize iso2
   let iso = (iso2 || '').toString().trim();
   if (!iso && countryIOC) {
-    // try mapping IOC->ISO
     const map = String(countryIOC || '').toUpperCase();
     if (map && iocToIso[map]) iso = iocToIso[map];
   }
   if (iso.length === 3) iso = iso.slice(0,2);
   iso = iso ? iso.toLowerCase() : '';
 
-  // 1) emoji if supported
-  try {
-    if (iso && detectFlagEmojiSupport()) {
-      const em = iso2ToFlagEmoji(iso.toUpperCase());
-      if (em) {
-        flagEl.textContent = em;
-        flagEl.title = countryIOC || iso.toUpperCase();
-        return;
-      }
+  const isoUpper = iso ? iso.toUpperCase() : (iso2 ? iso2.toUpperCase() : '');
+
+  // quick textual fallback helper
+  function setTextFallback() {
+    while (flagEl.firstChild) flagEl.removeChild(flagEl.firstChild);
+    flagEl.textContent = countryIOC || (isoUpper || '');
+    flagEl.classList.add('flag-fallback');
+    flagEl.title = countryIOC || isoUpper || '';
+  }
+
+  // If emoji detection not done yet, schedule detection (non-blocking) and run both paths in parallel:
+  // - attempt to fetch image immediately (fast cache) and show when available
+  // - if emoji becomes available, prefer it (replace image)
+  // Implementation: run detectFlagEmojiSupport synchronously if possible; else schedule microtask
+  const emojiSupported = window._flagEmojiSupport.checked ? window._flagEmojiSupport.ok : false;
+
+  // if emoji already supported -> show emoji immediately
+  if (iso && emojiSupported) {
+    const em = iso2ToFlagEmoji(isoUpper);
+    if (em) {
+      flagEl.textContent = em;
+      flagEl.title = countryIOC || isoUpper;
+      return;
     }
-  } catch(e){ /* ignore */ }
+  }
 
-  // 2) image fallback via fetch -> objectURL (more robust than setting img.src directly)
-  if (iso) {
-    // show a tiny placeholder to avoid layout shift
-    const placeholder = document.createElement('span');
-    placeholder.className = 'flag-fallback';
-    placeholder.textContent = '';
-    placeholder.style.minWidth = '22px';
-    flagEl.appendChild(placeholder);
+  // create placeholder to avoid layout jump
+  const placeholder = document.createElement('span');
+  placeholder.className = 'flag-fallback';
+  placeholder.style.minWidth = '22px';
+  placeholder.style.display = 'inline-block';
+  placeholder.textContent = '';
+  flagEl.appendChild(placeholder);
 
-    _tryFetchFlagImageIso(iso).then(objUrl => {
-      // clear placeholder
-      while (flagEl.firstChild) flagEl.removeChild(flagEl.firstChild);
-      if (objUrl) {
+  // start image fetch (doesn't block)
+  let imgObjUrl = null;
+  let imgAppended = false;
+  let emojiAppended = false;
+
+  const fetchPromise = (async () => {
+    if (!iso) return null;
+    try {
+      const objUrl = await _tryFetchFlagImageIso(iso);
+      if (!objUrl) return null;
+      // if emoji already appended (race lost), we still revoke when replacing
+      if (!emojiAppended) {
+        // clear placeholder and append image
+        while (flagEl.firstChild) flagEl.removeChild(flagEl.firstChild);
         const img = document.createElement('img');
         img.src = objUrl;
-        img.alt = countryIOC || iso.toUpperCase();
+        img.alt = countryIOC || isoUpper;
         img.style.width = '22px';
         img.style.height = '14px';
         img.style.verticalAlign = 'middle';
         img.style.display = 'inline-block';
         img.style.objectFit = 'cover';
-        img.onload = function(){ flagEl.title = countryIOC || iso.toUpperCase(); };
-        img.onerror = function(){ URL.revokeObjectURL(objUrl); flagEl.textContent = iso.toUpperCase(); flagEl.classList.add('flag-fallback'); };
+        img.onload = function(){ flagEl.title = countryIOC || isoUpper; };
+        img.onerror = function(){ URL.revokeObjectURL(objUrl); setTextFallback(); };
         flagEl.appendChild(img);
-        return;
+        imgObjUrl = objUrl;
+        imgAppended = true;
       } else {
-        // fallback textual
-        flagEl.textContent = (iso.toUpperCase() || countryIOC || '');
-        flagEl.classList.add('flag-fallback');
-        flagEl.title = countryIOC || iso.toUpperCase();
+        // emoji already appended — revoke blob and leave emoji
+        URL.revokeObjectURL(objUrl);
       }
-    }).catch(()=> {
-      while (flagEl.firstChild) flagEl.removeChild(flagEl.firstChild);
-      flagEl.textContent = countryIOC || (iso.toUpperCase() || '');
-      flagEl.classList.add('flag-fallback');
-      flagEl.title = countryIOC || iso.toUpperCase();
-    });
+      return objUrl;
+    } catch (e) {
+      // failed -> fallback text
+      if(!emojiAppended) setTextFallback();
+      return null;
+    }
+  })();
 
-    return;
+  // start detection async if not checked
+  if (!window._flagEmojiSupport.checked && !window._flagEmojiSupport.checking) {
+    // run detection in a microtask so DOM is available
+    Promise.resolve().then(()=> {
+      const ok = detectFlagEmojiSupport();
+      if (ok) {
+        // prefer emoji: compute emoji and replace current content (and revoke any image when it arrives)
+        const em = iso ? iso2ToFlagEmoji(iso.toUpperCase()) : '';
+        if (em) {
+          emojiAppended = true;
+          while (flagEl.firstChild) flagEl.removeChild(flagEl.firstChild);
+          flagEl.textContent = em;
+          flagEl.title = countryIOC || isoUpper;
+        }
+      } else {
+        // nothing: image fetch will eventually display or fallback text will display
+        // if detection false and fetch fails, fetchPromise handler already sets text fallback
+      }
+    }).catch(()=>{ /* ignore */ });
+  } else if (!emojiSupported) {
+    // detection already done and emoji not supported -> let image fetch display or fallback
+    // no action
+  } else if (emojiSupported && !emojiAppended) {
+    // detection done & emoji supported -> immediate emoji
+    const em = iso ? iso2ToFlagEmoji(iso.toUpperCase()) : '';
+    if (em) {
+      emojiAppended = true;
+      while (flagEl.firstChild) flagEl.removeChild(flagEl.firstChild);
+      flagEl.textContent = em;
+      flagEl.title = countryIOC || isoUpper;
+    }
   }
 
-  // 3) final fallback
-  flagEl.textContent = countryIOC || (iso2 ? iso2 : '');
-  flagEl.classList.add('flag-fallback');
-  flagEl.title = countryIOC || iso2 || '';
+  // If neither iso nor country provided, just show nothing
+  if (!iso && !countryIOC) {
+    while (flagEl.firstChild) flagEl.removeChild(flagEl.firstChild);
+    flagEl.textContent = '';
+    flagEl.classList.add('flag-fallback');
+  }
 }
-
-
-
 
 /* ---------- BUILD MAP FROM TOURNAMENT JSON ---------- */
 function buildMap(data){
@@ -828,11 +883,8 @@ function resolveHrefFromIndex(idx, playerId){
 }
 
 /* ---------- BUILD MATCH URL (unchanged) ---------- */
-/* ---------- BUILD MATCH URL -> renvoie URL ABSOLUE vers match_atp.html ou match_wta.html ---------- */
 function buildMatchPageUrl({ matchObj, matchId, useWta } = {}) {
-  // meta tournoi si disponible
   const meta = (window._bracketData && window._bracketData.meta) ? window._bracketData.meta : {};
-  // déterminer gender (wta ou atp)
   let gender;
   if (typeof useWta === 'boolean') gender = useWta ? 'wta' : 'atp';
   else {
@@ -840,7 +892,6 @@ function buildMatchPageUrl({ matchObj, matchId, useWta } = {}) {
     gender = (s.includes('wta') || s.includes('women') || s.includes('female')) ? 'wta' : 'atp';
   }
 
-  // 1) si matchObj contient déjà un lien utilisable (index.merge peut fournir filename/link)
   const candidateLink = (matchObj && (matchObj.page_link || matchObj.link || matchObj._index && matchObj._index.file || matchObj._index && matchObj._index.link)) || null;
   if (candidateLink) {
     const cl = String(candidateLink);
@@ -848,18 +899,15 @@ function buildMatchPageUrl({ matchObj, matchId, useWta } = {}) {
       const jsonPath = cl.startsWith('/') ? cl : ('/' + cl.replace(/^\.\//,''));
       return window.location.origin + (gender === 'wta' ? '/match_wta.html' : '/match_atp.html') + '?data=' + encodeURIComponent(jsonPath);
     }
-    // si candidateLink est déjà une page complète ou commence par /match_..., retourne version absolue
     if (cl.indexOf('/match_atp') !== -1 || cl.indexOf('/match_wta') !== -1 || cl.startsWith('http') || cl.startsWith('/')) {
       return cl.startsWith('http') ? cl : (window.location.origin + cl);
     }
   }
 
-  // 2) fallback : construire le nom de json standard attendu
   const tid = meta.tourney_id || meta.tourneyId || qs('t') || qs('id') || '';
   const year = meta.year || meta.tourney_year || qs('year') || qs('y') || (new Date().getFullYear());
   const mid = matchObj && (matchObj.match_id || matchObj.matchId) ? String(matchObj.match_id || matchObj.matchId) : (matchId || '');
 
-  // sanitarisation minimale
   const safeMid = encodeURIComponent(String(mid).replace(/\s+/g,''));
   const safeTid = encodeURIComponent(String(tid).replace(/\s+/g,''));
   const safeYear = encodeURIComponent(String(year));
@@ -868,7 +916,6 @@ function buildMatchPageUrl({ matchObj, matchId, useWta } = {}) {
 
   return window.location.origin + (gender === 'wta' ? '/match_wta.html' : '/match_atp.html') + '?data=' + encodeURIComponent(jsonPath);
 }
-
 
 /* ---------- CREATE CONNECTORS (identique au template original) ---------- */
 function createConnectors() {
@@ -964,53 +1011,48 @@ function debounce(fn, wait=120){
   return function(...a){ clearTimeout(t); t = setTimeout(()=>fn.apply(this,a), wait); };
 }
 
-/* ---------- FILL FROM MATCH MAP (seulement via IDs pour les joueurs) ---------- */
-let _indexPromise = null; // promise de chargement de l'index courant (selon gender)
+/* ---------- FILL FROM MATCH MAP ---------- */
+let _indexPromise = null;
 
 async function fillFromMap(matchMap) {
   const rawData = window._bracketData || {};
   const useWta = isWTAFromData(rawData);
 
-  // kick off index load in background (if any)
   if(!_indexPromise) _indexPromise = loadPlayerIndex(useWta);
 
-    /* ---------- REORDER FIRST-ROUND SEEDS ---------- */
-    /* ---------- REORDER FIRST-ROUND SEEDS (robuste : alternance top/bottom) ---------- */
+  /* ---------- REORDER FIRST-ROUND SEEDS: alternate by MS number ---------- */
 
-  // util: récupérer seed top/bottom à partir du match
+  // helper: extract seed from multiple possible fields (robuste)
   function getSeedForSide_v2(m, side) {
     if(!m) return '';
-    // first, try explicit keys
     const topKeys = ['top_seed','seed_top','seed_a','seed1','seedA','seed1a'];
     const bottomKeys = ['bottom_seed','seed_bottom','seed_b','seed2','seedB','seed2b'];
     for (const k of (side === 'top' ? topKeys : bottomKeys)) {
       if(k in m && m[k] !== null && m[k] !== undefined && String(m[k]).trim() !== '') return String(m[k]);
     }
-    // try typical winner/loser mapping by name
     const topName = (m.top_player_name || m.top_name || m.player_a || '').toString().trim();
     const bottomName = (m.bottom_player_name || m.bottom_name || m.player_b || '').toString().trim();
-    if(m.winner_player_name && (m.winner_seed || m.seed_winner || m.winner_seed)) {
+    if(m.winner_player_name && (m.winner_seed || m.seed_winner)){
       const ws = String(m.winner_seed || m.seed_winner || '').trim();
-      if(ws) {
+      if(ws){
         if(topName && topName === String(m.winner_player_name)) return ws;
         if(bottomName && bottomName === String(m.winner_player_name)) return ws;
       }
     }
-    if(m.loser_player_name && (m.loser_seed || m.seed_loser || m.loser_seed)) {
+    if(m.loser_player_name && (m.loser_seed || m.seed_loser)){
       const ls = String(m.loser_seed || m.seed_loser || '').trim();
-      if(ls) {
+      if(ls){
         if(topName && topName === String(m.loser_player_name)) return ls;
         if(bottomName && bottomName === String(m.loser_player_name)) return ls;
       }
     }
-    // generic keys
     for (const k of ['seed','player_seed','seed_value']) {
       if(k in m && m[k] !== null && String(m[k]).trim() !== '') return String(m[k]);
     }
     return '';
   }
 
-  // swap display-only fields between top/bottom (idempotent with _seedReordered flag)
+  // swap display-only fields (idempotent via _seedReordered)
   function swapDisplayFieldsForMatch(m) {
     if(!m || m._seedReordered) return;
     const pairs = [
@@ -1037,7 +1079,6 @@ async function fillFromMap(matchMap) {
         m[b] = va;
       }
     }
-    // mark to avoid double-swap
     m._seedReordered = true;
   }
 
@@ -1045,7 +1086,7 @@ async function fillFromMap(matchMap) {
     try {
       const canvas = document.getElementById('canvas');
       if(!canvas) return;
-      // collect leftmost-column matches (left <= 2)
+      // collect distinct matchIds in first (leftmost) column (parent style.left <= 2)
       const leftPlayers = Array.from(canvas.querySelectorAll('[data-field="player"]')).filter(el=>{
         const parent = el.parentElement;
         if(!parent) return false;
@@ -1053,23 +1094,19 @@ async function fillFromMap(matchMap) {
         const left = leftRaw ? parseFloat(leftRaw) : 0;
         return !isNaN(left) && left <= 2;
       });
-
-      // map matchId -> top position
-      const mm = new Map();
+      const matchIdsSet = new Set();
       leftPlayers.forEach(el=>{
         const mid = (el.dataset.match || '').toString().toUpperCase();
-        if(!mid) return;
-        const parent = el.parentElement;
-        const topRaw = parent.style.top || '0';
-        const top = isNaN(parseFloat(topRaw)) ? 0 : parseFloat(topRaw);
-        if(!mm.has(mid)) mm.set(mid, { matchId: mid, top: top });
-        else mm.get(mid).top = Math.min(mm.get(mid).top, top);
+        if(mid) matchIdsSet.add(mid);
       });
+      // create ordered array by numeric MS number (MS001 -> 1)
+      function msNumber(mid){
+        const m = String(mid).match(/(\d+)/);
+        return m ? parseInt(m[1],10) : 1e9;
+      }
+      const ordered = Array.from(matchIdsSet).sort((a,b)=> msNumber(a) - msNumber(b));
 
-      // ordered list of match ids by vertical position
-      const ordered = Array.from(mm.values()).sort((a,b)=>a.top - b.top).map(o => o.matchId);
-
-      // build list of matches that have exactly one seed
+      // gather matches that have exactly one seeded side (top xor bottom) in that ordered sequence
       const singleSeedMatches = [];
       for (const mid of ordered) {
         const m = matchMap.get(mid);
@@ -1083,7 +1120,7 @@ async function fillFromMap(matchMap) {
         }
       }
 
-      // now alternate: first seeded should be placed TOP, next BOTTOM, next TOP, ...
+      // alternate: first seeded -> top, next -> bottom, etc.
       let placeTop = true;
       for (const item of singleSeedMatches) {
         const m = matchMap.get(item.mid);
@@ -1101,11 +1138,11 @@ async function fillFromMap(matchMap) {
     }
   }
 
-  // execute reorder before rendering players
+  // perform reorder BEFORE rendering players
   reorderFirstColumnSeeds_alternate();
 
 
-  // helper pour extraire un id de joueur depuis l'objet match en fonction du side/name heuristiques
+  // helper to extract player id
   function extractPlayerId(m, side) {
     const candidates = {};
     candidates.topName = m.top_player_name || m.top_name || m.loser_player_name || m.winner_player_name || '';
@@ -1145,7 +1182,7 @@ async function fillFromMap(matchMap) {
     return null;
   }
 
-  // function to create/update a player name node (no fallback links)
+  // create player node
   function createPlayerNode(containerEl, displayName, seed, playerId) {
     containerEl.innerHTML = '';
     const seedSpan = document.createElement('span');
@@ -1156,7 +1193,6 @@ async function fillFromMap(matchMap) {
     const nameSpan = document.createElement('span');
     nameSpan.className = 'name';
 
-    // if we already have index resolved href for this player (index may have loaded earlier)
     if(playerId && window._playerIndexCache && (window._playerIndexCache.atp || window._playerIndexCache.wta)) {
       const idxKey = isWTAFromData(window._bracketData) ? 'wta' : 'atp';
       const idx = window._playerIndexCache[idxKey];
@@ -1166,7 +1202,6 @@ async function fillFromMap(matchMap) {
           const a = document.createElement('a');
           a.className = 'player-link';
           a.href = href;
-          // IMPORTANT: force top-level navigation (ouvre la page hors de l'iframe)
           a.target = '_top';
           a.rel = 'noopener noreferrer';
           a.textContent = displayName || playerId || '';
@@ -1179,7 +1214,6 @@ async function fillFromMap(matchMap) {
       }
     }
 
-    // otherwise render plain text but tag with data-player-id so we can upgrade later
     const span = document.createElement('span');
     span.textContent = displayName || (playerId ? playerId : '');
     span.dataset.playerId = playerId || '';
@@ -1195,8 +1229,6 @@ async function fillFromMap(matchMap) {
     const m = matchMap.get(matchId);
     if(!m) return;
 
-    const topName = m.top_player_name || m.top_name || m.loser_player_name || m.winner_player_name || '';
-    const bottomName = m.bottom_player_name || m.bottom_name || '';
     let displayName = '';
     let seed = '';
 
@@ -1212,7 +1244,6 @@ async function fillFromMap(matchMap) {
     }
 
     const playerId = extractPlayerId(m, side);
-
     createPlayerNode(el, displayName, seed, playerId);
 
     // flag
@@ -1229,7 +1260,7 @@ async function fillFromMap(matchMap) {
     }
   });
 
-  /* ---- fill winners (use winner ids) ---- */
+  /* ---- fill winners ---- */
   document.querySelectorAll('[data-field="winner"]').forEach(el => {
     const matchId = (el.dataset.match || '').toUpperCase();
     const m = matchMap.get(matchId);
@@ -1257,7 +1288,6 @@ async function fillFromMap(matchMap) {
           const a = document.createElement('a');
           a.className = 'player-link';
           a.href = href;
-          // force top-level navigation
           a.target = '_top';
           a.rel = 'noopener noreferrer';
           a.textContent = displayName || playerId || '';
@@ -1294,55 +1324,47 @@ async function fillFromMap(matchMap) {
 
   /* ---- fill scores (unchanged) ---- */
   document.querySelectorAll('[data-field="score"]').forEach(el => {
-  const matchId = (el.dataset.match || '').toUpperCase();
-  const m = matchMap.get(matchId);
-  if(!m) return;
-  const score = m.score_string || m.score || m.scoreString || el.textContent || '';
+    const matchId = (el.dataset.match || '').toUpperCase();
+    const m = matchMap.get(matchId);
+    if(!m) return;
+    const score = m.score_string || m.score || m.scoreString || el.textContent || '';
 
-  el.innerHTML = '';
+    el.innerHTML = '';
 
-  const url = buildMatchPageUrl({ matchObj: m, matchId: m.match_id || matchId, useWta: isWTAFromData(window._bracketData) });
-  const a = document.createElement('a');
-  a.className = 'score-link';
-  a.href = url;
-  a.textContent = score || '—';
-  a.setAttribute('title', 'Voir le match ' + (m.match_id || matchId || ''));
-  // Ouvre hors iframe : target + fallback onclick (pour sandboxed iframes sans allow-top-navigation)
-  a.target = '_top';
-  a.rel = 'noopener noreferrer';
-  a.onclick = function(ev){
-    try {
-      // si possible, forcer la navigation du top (contours sandbox)
-      if (window.top && window.top !== window) {
-        window.top.location.href = url;
-        ev.preventDefault();
-        return false;
-      }
-    } catch(e) {
-      // cross-origin top, la navigation via target sera utilisée et échouera si bloquée
-    }
-    // sinon laisser le comportement normal du lien
-  };
+    const url = buildMatchPageUrl({ matchObj: m, matchId: m.match_id || matchId, useWta: isWTAFromData(window._bracketData) });
+    const a = document.createElement('a');
+    a.className = 'score-link';
+    a.href = url;
+    a.textContent = score || '—';
+    a.setAttribute('title', 'Voir le match ' + (m.match_id || matchId || ''));
+    a.target = '_top';
+    a.rel = 'noopener noreferrer';
+    a.onclick = function(ev){
+      try {
+        if (window.top && window.top !== window) {
+          window.top.location.href = url;
+          ev.preventDefault();
+          return false;
+        }
+      } catch(e) {}
+    };
 
-  el.appendChild(a);
-});
+    el.appendChild(a);
+  });
 
-
-  // after initial render, if index promise resolves later, upgrade anchors
+  // upgrade player links once index resolves
   _indexPromise.then(idx => {
     if(!idx) return;
-    // players: upgrade elements that have data-player-id attributes (both anchors and plain spans)
     const allNodes = document.querySelectorAll('[data-player-id]');
     allNodes.forEach(node => {
       const pid = node.dataset.playerId;
       if(!pid) return;
       const href = resolveHrefFromIndex(idx, pid);
-      if(!href) return; // no href provided by index -> do nothing
+      if(!href) return;
       if(node.tagName && node.tagName.toLowerCase() === 'a'){
-        try{ 
-          node.href = href; 
-          node.setAttribute('title', node.textContent || href); 
-          // ensure top-level nav
+        try{
+          node.href = href;
+          node.setAttribute('title', node.textContent || href);
           node.target = '_top';
           node.rel = 'noopener noreferrer';
         }catch(e){}
@@ -1359,7 +1381,6 @@ async function fillFromMap(matchMap) {
       node.parentNode.replaceChild(a, node);
     });
 
-    // also upgrade any '.player-text-plain' spans which we used earlier
     document.querySelectorAll('.player-text-plain').forEach(span => {
       const pid = span.dataset.playerId;
       if(!pid) return;
@@ -1376,7 +1397,7 @@ async function fillFromMap(matchMap) {
       span.parentNode.replaceChild(a, span);
     });
 
-  }).catch(()=>{ /* ignore index errors */ });
+  }).catch(()=>{ /* ignore */ });
 
   setTimeout(createConnectors, 20);
 }
@@ -1401,7 +1422,7 @@ function notifyReady(){
   try{ window.parent.postMessage({type:'template-ready', template:'template_5'}, '*'); }catch(e){}
 }
 
-/* try auto-load fallback ONLY to fetch tournament JSON (keeps original behaviour for standalone) */
+/* try auto-load fallback ONLY to fetch tournament JSON */
 async function fetchFirst(candidates){
   for(const url of candidates){
     try{
@@ -1447,13 +1468,12 @@ document.addEventListener('DOMContentLoaded', function(){
   setTimeout(createConnectors, 30);
   notifyReady();
 
-  // try auto-load tournament JSON if embedded standalone (keeps that fallback only for tournament data,
-  // not for player links — player links strictly come from the players index if present)
+  // try auto-load tournament JSON if embedded standalone
   setTimeout(tryAutoLoadFallback, 400);
+
+  // ensure emoji detection is attempted once DOM is ready (so font metrics are stable)
+  detectFlagEmojiSupport();
 
   window.addEventListener('resize', debounce(()=> { createConnectors(); }, 100));
 });
 </script>
-
-</body>
-</html>
