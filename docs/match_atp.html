@@ -3,41 +3,41 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>ATP Match — Stylish Viewer</title>
+  <title>ATP Match — Viewer</title>
   <style>
     :root{
-      --card-radius:16px;
-      --gap:14px;
-      --muted:#667;
-      --bg:#f5f7fb;
-      --panel-bg: rgba(255,255,255,0.85);
-      --accent: #3563f6;
-      --text:#111;
-      --win-highlight: rgba(45, 200, 120, 0.12);
-      --win-border: rgba(45, 200, 120, 0.25);
-      --lose-highlight: rgba(250,120,120,0.05);
+      --card-radius:14px;
+      --muted:#6b7684;
+      --bg:#f3f6fb;
+      --panel-bg: rgba(255,255,255,0.92);
+      --text:#0f1720;
+      --green-strong: #148d3b;
+      --green-strong-contrast: #ffffff;
+      --red-soft: #ffecf0;
+      --thick-divider: rgba(12,25,40,0.12);
+      --header-bg: rgba(6,28,53,0.04);
     }
     html,body{height:100%;background:var(--bg);margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial;}
-    .page{max-width:1100px;margin:22px auto;padding:18px}
+    .page{max-width:1150px;margin:22px auto;padding:18px}
     .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
     a.home{color:var(--muted);text-decoration:none}
-    h1{margin:0 0 6px 0;font-weight:600;font-size:1.4rem;color:var(--text)}
+    h1{margin:0 0 6px 0;font-weight:700;font-size:1.35rem;color:var(--text)}
     .match-card{
       border-radius:var(--card-radius);
       padding:18px;
-      box-shadow: 0 8px 30px rgba(20,30,60,0.08);
+      box-shadow: 0 10px 30px rgba(10,20,40,0.06);
       position:relative;
       overflow:hidden;
     }
 
-    /* dynamic surface gradient placeholder: classes will set background */
-    .surface-hard{ background:linear-gradient(135deg,#e8f0ff 0%, #f3f7ff 60%); }
-    .surface-grass{ background:linear-gradient(135deg,#eefde8 0%, #f7fff3 60%); }
-    .surface-clay{ background:linear-gradient(135deg,#fff0f0 0%, #fff6f6 60%); }
-    .surface-carpet{ background:linear-gradient(135deg,#f4ecff 0%, #faf6ff 60%); }
+    /* surface gradients */
+    .surface-hard{ background:linear-gradient(135deg,#e8f2ff 0%, #f7fbff 60%); }
+    .surface-grass{ background:linear-gradient(135deg,#eefdeb 0%, #f7fff4 60%); }
+    .surface-clay{ background:linear-gradient(135deg,#fff3f2 0%, #fff9f9 60%); }
+    .surface-carpet{ background:linear-gradient(135deg,#f6efff 0%, #fbf8ff 60%); }
 
     .header-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
-    .players-names{display:flex;gap:12px;align-items:center}
+    .players-names{display:flex;gap:18px;align-items:center}
     .player-name{
       font-weight:700;
       font-size:1.05rem;
@@ -50,7 +50,7 @@
     .score-area{
       background:var(--panel-bg);
       border-radius:12px;
-      padding:12px;
+      padding:14px;
       display:flex;
       flex-direction:column;
       gap:12px;
@@ -63,47 +63,61 @@
       right:18px;
       top:12px;
       font-size:0.9rem;
-      color:#1b1f2b;
-      background:rgba(255,255,255,0.6);
-      padding:6px 10px;border-radius:10px;
+      color:#0b1220;
+      background:rgba(255,255,255,0.85);
+      padding:7px 12px;border-radius:10px;
       border:1px solid rgba(0,0,0,0.04);
       backdrop-filter: blur(4px);
+      font-weight:600;
     }
 
     .sets-grid{
       display:grid;
       grid-template-columns: 220px repeat(5, 1fr);
-      gap:8px;
+      gap:10px;
       align-items:center;
       width:100%;
     }
     .sets-grid .label{
-      font-weight:600;color:#24313f;
+      font-weight:700;color:#24313f;
       padding-left:6px;
     }
     .player-row{display:contents;}
     .cell{
-      background:rgba(255,255,255,0.6);
+      background:transparent;
       padding:10px 8px;
       border-radius:10px;
       text-align:center;
-      border:1px solid rgba(0,0,0,0.03);
-      font-weight:600;
+      font-weight:700;
+      color:var(--text);
     }
     .player-left{
-      text-align:left;padding-left:14px;font-weight:700;
+      text-align:left;padding-left:14px;font-weight:800;color:#081224;
+      text-decoration: none;
     }
-    .set-header{font-size:0.85rem;color:#3a4b5c;font-weight:700}
-    .set-cell{font-size:1rem;color:#1b2430}
+    .player-left a{ color: inherit; text-decoration: none; cursor: pointer; }
+    .set-header{font-size:0.85rem;color:#2b3b4a;font-weight:800;padding:6px 8px;border-radius:8px;background:var(--header-bg);}
 
-    .score-winner { background: linear-gradient(90deg, rgba(255,255,255,0.9), rgba(255,255,255,0.85)); }
-    .score-best { box-shadow: 0 2px 0 var(--win-border) inset; background: var(--win-highlight); border:1px solid rgba(45,200,120,0.15); }
-    .score-worse { background:var(--lose-highlight); }
+    .set-cell{font-size:1.02rem;color:#081224;padding:8px 6px;border-radius:8px;background:rgba(255,255,255,0.6);}
+
+    /* Strong highlighting for best cell */
+    .cell-best{
+      background: linear-gradient(180deg, var(--green-strong) 0%, #0f8a37 100%);
+      color: var(--green-strong-contrast);
+      box-shadow: 0 6px 18px rgba(20,120,60,0.18);
+      border-radius:8px;
+      font-weight:800;
+    }
+    .cell-worse{
+      background: var(--red-soft);
+      color: #7a1f2f;
+      border-radius:8px;
+    }
 
     /* Stats table */
     .stats-area{
       margin-top:18px;
-      background:rgba(255,255,255,0.96);
+      background:rgba(255,255,255,0.98);
       border-radius:12px;
       padding:12px;
       border:1px solid rgba(0,0,0,0.04);
@@ -113,33 +127,43 @@
       border-collapse:collapse;
       font-size:0.95rem;
       color:#122;
+      table-layout:fixed;
     }
-    .stats-table th, .stats-table td{
-      padding:8px 10px;
-      border-bottom:1px solid rgba(10,20,40,0.04);
-      text-align:center;
-      vertical-align:middle;
+    .stats-table thead th{
+      padding:10px 12px;
+      background:var(--header-bg);
+      font-weight:800;
+      color:#122;
+      border-bottom:3px solid rgba(0,0,0,0.04);
     }
-    .stats-table th.metric{ text-align:left; font-weight:700; background:transparent; color:#23303a; width:260px; }
-    .stats-table td.player-label{ font-weight:700; text-align:left; padding-left:12px; }
+    .stats-table th.metric{ text-align:left; font-weight:800; color:#172033; width:260px; padding-left:14px; }
+    .stats-table td, .stats-table th{ border-right:1px solid rgba(10,20,40,0.03); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
-    .cell-best{ background: linear-gradient(90deg, rgba(45,200,120,0.08), rgba(255,255,255,0)); border-radius:8px; padding:6px; }
-    .cell-worst{ opacity:0.85; }
-    .small-muted{ font-size:0.82rem; color:#557; display:block; margin-top:4px;}
+    /* Group separator: add thick left border to the player's 1 column of each group (Match / Set1 / Set2 ...) */
+    .group-start { border-left: 3px solid var(--thick-divider) !important; padding-left:14px; }
+    .group-start-header { background: linear-gradient(180deg, rgba(255,255,255,0.65), rgba(255,255,255,0.55)); border-left: 3px solid var(--thick-divider) !important; }
 
-    /* responsive */
-    @media (max-width:920px){
+    .stats-table td{ padding:10px 12px; text-align:center; vertical-align:middle; }
+    .stats-table td.player-label{ text-align:left; font-weight:700; padding-left:14px; }
+    .cell-small{ font-size:0.88rem; color:#274055; }
+
+    /* hover for player names */
+    .player-link{ color:inherit; text-decoration:none; border-bottom:2px dashed rgba(0,0,0,0.06); padding-bottom:2px; }
+    .player-link:hover{ border-bottom-style:solid; color:var(--green-strong); }
+
+    /* responsive tweaks */
+    @media (max-width:980px){
       .sets-grid{ grid-template-columns: 160px repeat(5, 1fr); }
-      .player-left{ font-size:0.95rem }
+      .stats-table th.metric{ width:180px; }
     }
-    @media (max-width:680px){
-      .sets-grid{ grid-template-columns: 140px repeat(5, 1fr); font-size:0.92rem }
+    @media (max-width:640px){
+      .sets-grid{ grid-template-columns: 140px repeat(5, 1fr); }
       .header-row{flex-direction:column;align-items:flex-start;gap:8px}
       .duration{position:static;align-self:flex-end}
-      .stats-table th.metric{ width:160px; }
+      .stats-table th.metric{ width:140px; }
+      .stats-table thead th{ font-size:0.86rem; padding:8px; }
+      .stats-table td{ padding:8px; }
     }
-    /* subtle badge */
-    .surface-badge{ font-size:0.85rem;padding:6px 10px;border-radius:12px;background:rgba(0,0,0,0.04); }
   </style>
 </head>
 <body>
@@ -148,7 +172,7 @@
       <div>
         <a class="home" href="/">← home</a>
       </div>
-      <div class="surface-badge" id="surface_badge"></div>
+      <div class="surface-badge" id="surface_badge" style="font-weight:700;color:#21323f"></div>
     </div>
 
     <div id="matchCard" class="match-card surface-hard">
@@ -156,15 +180,20 @@
         <div>
           <h1 id="title">ATP Match</h1>
           <div style="display:flex;gap:10px;align-items:center">
-            <div class="player-name" id="player1_name">—<span class="player-meta" id="player1_meta"></span></div>
-            <div style="width:6px"></div>
-            <div class="player-name" id="player2_name">—<span class="player-meta" id="player2_meta"></span></div>
+            <div class="player-name">
+              <a id="player1_link" class="player-link" href="#" target="_blank" rel="noopener"><span id="player1_name">—</span></a>
+              <div class="player-meta" id="player1_meta"></div>
+            </div>
+            <div class="player-name">
+              <a id="player2_link" class="player-link" href="#" target="_blank" rel="noopener"><span id="player2_name">—</span></a>
+              <div class="player-meta" id="player2_meta"></div>
+            </div>
           </div>
         </div>
 
         <div style="text-align:right">
-          <div id="match_round" style="font-weight:600;color:#23303a"></div>
-          <div id="tourney_info" class="small-muted"></div>
+          <div id="match_round" style="font-weight:700;color:#23303a"></div>
+          <div id="tourney_info" style="font-size:0.88rem;color:#3b4b59;margin-top:6px"></div>
         </div>
       </div>
 
@@ -173,7 +202,7 @@
 
         <!-- Score grid -->
         <div class="sets-grid" id="sets_grid">
-          <!-- header + player rows are injected by JS -->
+          <!-- injected -->
         </div>
 
       </div>
@@ -181,7 +210,7 @@
       <div class="stats-area" id="stats_area">
         <h3 style="margin:6px 0 12px 0">Match statistics</h3>
         <div id="stats_table_wrap">
-          <!-- table injected by JS -->
+          <!-- injected -->
         </div>
       </div>
 
@@ -190,22 +219,15 @@
   </div>
 
 <script>
-/* --------- Helpers --------- */
-function getQueryParam(name){
-  const params = new URLSearchParams(window.location.search);
-  return params.get(name);
-}
+/* ---------- Helpers ---------- */
+function getQueryParam(name){ const params = new URLSearchParams(window.location.search); return params.get(name); }
 function sanitizeJsonPath(p){
   if(!p) return null;
   try{
     const url = new URL(p, window.location.href);
-    if(url.pathname.startsWith('/matches_json/atp/') || url.pathname.startsWith('/matches_json/atp')){
-      return url.pathname + (url.search||'');
-    }
+    if(url.pathname.startsWith('/matches_json/atp/') || url.pathname.startsWith('/matches_json/atp')) return url.pathname + (url.search||'');
   }catch(e){
-    if(p.startsWith('matches_json/atp/') || p.startsWith('/matches_json/atp/')){
-      return p.replace(/^\//,'');
-    }
+    if(p.startsWith('matches_json/atp/') || p.startsWith('/matches_json/atp/')) return p.replace(/^\//,'');
   }
   return null;
 }
@@ -218,33 +240,56 @@ function tryGet(json, candidates){
 function numberFrom(v){
   if(v===null || v===undefined || v==='') return null;
   if(typeof v === 'number') return v;
-  // try percent like "72" or "72%"
   const s = String(v).replace('%','').trim();
   if(s==='') return null;
   const n = Number(s);
   return isNaN(n) ? null : n;
 }
-function padSets(arr, n){ while(arr.length < n) arr.push(null); return arr; }
 
-/* --------- Rendering logic --------- */
+/* ---------- Load players index (for linking) ---------- */
+async function loadPlayersIndex(){
+  const tryPaths = ['/players_index.json','players_index.json'];
+  for(const p of tryPaths){
+    try{
+      const res = await fetch(p);
+      if(!res.ok) throw new Error('not found');
+      const idx = await res.json();
+      if(idx && Array.isArray(idx.players)){
+        // build maps
+        const byId = new Map();
+        const byName = new Map();
+        idx.players.forEach(pl=>{
+          if(pl.player_id) byId.set(String(pl.player_id).toLowerCase(), pl);
+          if(pl.name) byName.set(String(pl.name).toLowerCase(), pl);
+          if(pl.slug) byName.set(String(pl.slug).toLowerCase(), pl);
+        });
+        return { byId, byName };
+      }
+    }catch(e){
+      // continue
+    }
+  }
+  return { byId: new Map(), byName: new Map() };
+}
+
+/* ---------- Main renderer ---------- */
 async function loadAndRender(){
-  // same query param handling as original
+  const playersIndex = await loadPlayersIndex();
+
+  // Fetch match JSON same logic as before
   let path = getQueryParam('data') || getQueryParam('file');
   if(!path){
     const params = new URLSearchParams(window.location.search);
     const tourney = params.get('tourney');
     const year = params.get('year');
     const match = params.get('match');
-    if(tourney && year && match){
-      path = `/matches_json/atp/atp_${tourney}_${year}_${match}.json`;
-    }
+    if(tourney && year && match) path = `/matches_json/atp/atp_${tourney}_${year}_${match}.json`;
   }
   const sanitized = sanitizeJsonPath(path);
   if(!sanitized){
     document.getElementById('title').innerText = 'JSON file not provided or path not allowed';
     return;
   }
-
   const tryPaths = [sanitized.startsWith('/') ? sanitized : ('/' + sanitized), sanitized];
   let json = null;
   for(const p of tryPaths){
@@ -253,22 +298,19 @@ async function loadAndRender(){
       if(!res.ok) throw new Error('HTTP '+res.status);
       json = await res.json();
       break;
-    }catch(e){
-      // continue
-    }
+    }catch(e){}
   }
   if(!json){
     document.getElementById('title').innerText = 'Unable to load JSON: ' + sanitized;
     return;
   }
-
   document.getElementById('raw_json').textContent = JSON.stringify(json, null, 2);
 
-  // basic header info (EN)
+  // header
   const p1 = tryGet(json, ['winner_player_name','winner','player_winner','player_a','player1','player1_name']) || '—';
   const p2 = tryGet(json, ['loser_player_name','loser','player_loser','player_b','player2','player2_name']) || '—';
-  document.getElementById('player1_name').childNodes[0].nodeValue = p1;
-  document.getElementById('player2_name').childNodes[0].nodeValue = p2;
+  document.getElementById('player1_name').innerText = p1;
+  document.getElementById('player2_name').innerText = p2;
 
   const p1meta = [
     tryGet(json, ['winner_country','country_winner']),
@@ -278,7 +320,6 @@ async function loadAndRender(){
     tryGet(json, ['loser_country','country_loser']),
     tryGet(json, ['loser_seed','seed_loser'])
   ].filter(Boolean).map(v=> typeof v === 'number' ? 'seed '+v : v).join(' • ');
-
   document.getElementById('player1_meta').innerText = p1meta;
   document.getElementById('player2_meta').innerText = p2meta;
 
@@ -287,342 +328,280 @@ async function loadAndRender(){
   const tm = tryGet(json,['event_year']) ? (tryGet(json,['event_year'])) : '';
   document.getElementById('tourney_info').innerText = (tryGet(json,['tourney_name']) || '') + (tm ? ' • ' + tm : '');
 
-  /* Surface background */
-  const surface = tryGet(json,['surface']) || 'Hard';
+  // Surface
+  const surface = (tryGet(json,['surface']) || 'Hard');
   const card = document.getElementById('matchCard');
   card.classList.remove('surface-hard','surface-grass','surface-clay','surface-carpet');
-  const surfaceBadge = document.getElementById('surface_badge');
   const s = String(surface).toLowerCase();
-  if(s.includes('hard')){ card.classList.add('surface-hard'); surfaceBadge.innerText = 'Surface: Hard'; }
-  else if(s.includes('grass')){ card.classList.add('surface-grass'); surfaceBadge.innerText = 'Surface: Grass'; }
-  else if(s.includes('clay')){ card.classList.add('surface-clay'); surfaceBadge.innerText = 'Surface: Clay'; }
-  else if(s.includes('carpet')){ card.classList.add('surface-carpet'); surfaceBadge.innerText = 'Surface: Carpet'; }
-  else { card.classList.add('surface-hard'); surfaceBadge.innerText = 'Surface: ' + surface; }
+  if(s.includes('hard')){ card.classList.add('surface-hard'); document.getElementById('surface_badge').innerText = 'Surface: Hard'; }
+  else if(s.includes('grass')){ card.classList.add('surface-grass'); document.getElementById('surface_badge').innerText = 'Surface: Grass'; }
+  else if(s.includes('clay')){ card.classList.add('surface-clay'); document.getElementById('surface_badge').innerText = 'Surface: Clay'; }
+  else if(s.includes('carpet')){ card.classList.add('surface-carpet'); document.getElementById('surface_badge').innerText = 'Surface: Carpet'; }
+  else { card.classList.add('surface-hard'); document.getElementById('surface_badge').innerText = 'Surface: ' + surface; }
 
-  /* Duration above score box */
+  // Duration
   const duration = tryGet(json,['match_time_total','match_time','match_date']) || '';
   document.getElementById('duration_display').innerText = duration ? 'Duration: ' + duration : '';
 
-  /* ---------- Sets rendering ---------- */
-  // gather per set scores: try set1_score, set2_score ... else try score_string split by comma
+  /* -------- Sets display (score box) -------- */
+  // gather set strings
   let setScores = [];
   for(let i=1;i<=5;i++){
-    const sk = `set${i}_score`;
-    const w = tryGet(json, [`winner_score_set${i}`, `aces_set${i}_winner`]); // dummy line to keep approach consistent
-    let sVal = null;
-    if(sk in json) sVal = json[sk];
-    // also check winner/loser per set fields
-    const wkey = `aces_set${i}_winner`; // not correct; we'll instead try winner_score_setN / loser_score_setN
-    if(sVal === null || sVal === undefined){
-      const wsetter = tryGet(json, [`winner_score_set${i}`, `set${i}_winner`, `set${i}_winner_score`]);
-      const lsetter = tryGet(json, [`loser_score_set${i}`, `set${i}_loser`, `set${i}_loser_score`]);
-      if(wsetter !== null || lsetter !== null){
-        sVal = `${wsetter||''}-${lsetter||''}`;
+    const k = `set${i}_score`;
+    let v = null;
+    if(k in json && json[k] !== null && json[k] !== undefined) v = json[k];
+    // winner/loser pair fields fallback
+    if((v===null||v===undefined) && (`winner_score_set${i}` in json || `loser_score_set${i}` in json)){
+      const w = json[`winner_score_set${i}`];
+      const l = json[`loser_score_set${i}`];
+      if(w!==undefined || l!==undefined){
+        v = `${w||''}-${l||''}`;
       }
     }
-    if(sVal) setScores.push(String(sVal));
-    else setScores.push(null);
+    setScores.push(v ? String(v) : null);
   }
-  // fallback to parsing score_string
-  if(setScores.every(v=>v===null) && json.score_string){
+  // fallback parse score_string
+  if(setScores.every(x=>x===null) && json.score_string){
     const parts = String(json.score_string).split(',').map(s=>s.trim());
     for(let i=0;i<parts.length && i<5;i++) setScores[i] = parts[i];
   }
 
-  // build grid: header row "Set 1..5"
+  // render sets grid
   const setsGrid = document.getElementById('sets_grid');
   setsGrid.innerHTML = '';
-  // header label
+  // header blank
   const label = document.createElement('div'); label.className='label'; label.innerText = ''; setsGrid.appendChild(label);
   for(let i=0;i<5;i++){
-    const h = document.createElement('div'); h.className='set-header'; h.innerText = 'Set '+(i+1);
-    setsGrid.appendChild(h);
+    const h = document.createElement('div'); h.className='set-header'; h.innerText = 'Set '+(i+1); setsGrid.appendChild(h);
   }
 
-  // player 1 row
-  const p1label = document.createElement('div'); p1label.className='player-left'; p1label.innerText = p1; setsGrid.appendChild(p1label);
-  // fetch per-set player1 values: we prefer winner/loser set fields if available
-  const p1setVals = [];
-  for(let i=1;i<=5;i++){
-    const keys = [
-      `set${i}_score`, // generic may be "6-7(3)"
-      `winner_score_set${i}`, // sometimes
-      `winner_score_set${i}`, // duplicated to trust pattern
-      // sometimes JSON stores "aces_set1_winner" etc but set score generic field is best; if not present, parse from score_string
-    ];
-    // If we have setN_score with format "6-7(3)" we need to decide which side is player1 or player2.
-    // Convention: setN_score in given example appears to be the winner's full set string (but we don't know which player that is).
-    // Better approach: parse score_string into pair of numbers per set by splitting at comma and then split the hyphen.
-    p1setVals.push(null);
+  // add clickable player names on left that link to center_court profiles (if found)
+  function makePlayerLinkElement(name, playerIdField, playerIdFromJson, playersIndexMap){
+    const wrapper = document.createElement('div');
+    wrapper.className = 'player-left';
+    // find matching player in index by id then by name
+    let profile = null;
+    if(playerIdFromJson){
+      const key = String(playerIdFromJson).toLowerCase();
+      profile = playersIndexMap.byId.get(key) || null;
+    }
+    if(!profile){
+      const byNameKey = String(name || '').toLowerCase();
+      profile = playersIndexMap.byName.get(byNameKey) || null;
+    }
+    if(profile && profile.page_href){
+      const a = document.createElement('a');
+      a.href = 'https://center_court.net/' + profile.page_href;
+      a.target = '_blank'; a.rel = 'noopener';
+      a.className = 'player-link';
+      a.innerText = name;
+      wrapper.appendChild(a);
+    } else {
+      // no profile found -> plain text
+      const span = document.createElement('span');
+      span.innerText = name;
+      wrapper.appendChild(span);
+    }
+    return wrapper;
   }
 
-  // Try to get per-player per-set values by parsing score_string into two sides
-  // Score_string like "6-7(3),6-2,6-4" — But that doesn't tell per-player relation (who had which number).
-  // More robust: if there are per-set winner/loser numeric fields, use them: winner_setN/loser_setN or aces_setN_winner etc for stats.
-  // We'll attempt to use fields like "aces_set1_winner" for stats; for scores, best-effort:
-  // Look for winner/loser set fields: e.g., "set1_score" usually equals "6-7(3)" (string). To split into per-player we need winner/loser ordering:
-  // We'll use JSON's player_winner / player_loser: assume setN representation is "winner-loser" order? Not strictly defined.
-  // For a clean UI, we will display set string same for both players but aligned per player: if we can find numeric winner/loser per set we will show.
-  // Strategy:
-  //  - If fields like firstservereturnpointswon_dividend_set1_winner exist, that indicates naming pattern with winner/loser. If numeric per-set winner/loser score fields exist (rare) we will use them.
-  //  - Otherwise show the same set string for both rows (that's still useful).
+  // player_id fields from match JSON
+  const p1_id_json = tryGet(json, ['player_id_winner','player_id_winner','player_id_winner']);
+  const p2_id_json = tryGet(json, ['player_id_loser','player_id_loser','player_id_loser']);
 
-  // Use set strings for both rows (best effort)
+  // row for player 1
+  const p1label = makePlayerLinkElement(p1, 'player_id_winner', p1_id_json, playersIndex);
+  setsGrid.appendChild(p1label);
   for(let i=0;i<5;i++){
-    const sc = setScores[i];
-    const cell1 = document.createElement('div'); cell1.className='cell set-cell'; cell1.innerText = sc || '—';
-    setsGrid.appendChild(cell1);
+    const cell = document.createElement('div');
+    cell.className = 'set-cell';
+    cell.innerText = setScores[i] || '—';
+    setsGrid.appendChild(cell);
   }
 
-  // second row: player 2
-  const p2label = document.createElement('div'); p2label.className='player-left'; p2label.innerText = p2; setsGrid.appendChild(p2label);
+  // row for player 2
+  const p2label = makePlayerLinkElement(p2, 'player_id_loser', p2_id_json, playersIndex);
+  setsGrid.appendChild(p2label);
   for(let i=0;i<5;i++){
-    const sc = setScores[i];
-    const cell2 = document.createElement('div'); cell2.className='cell set-cell'; cell2.innerText = sc || '—';
-    setsGrid.appendChild(cell2);
+    const cell = document.createElement('div');
+    cell.className = 'set-cell';
+    cell.innerText = setScores[i] || '—';
+    setsGrid.appendChild(cell);
   }
 
-  // Highlight the winner sets if we can determine who won each set:
-  // Attempt: parse set string "6-7(3)" -> strip tiebreak "(3)" then compare numbers. But we do not know which player's number is first.
-  // Use json.winner_player_name and json.loser_player_name: sets in score_string are in chronological order and numbers are winner-loser? Not guaranteed.
-  // Safer: if we can find fields like totalpointswon_dividend_set1_winner or aces_set1_winner etc to decide per set who won by checking "returngamesplayed_set1_winner"? This is messy.
-  // We'll instead highlight in the score box the row corresponding to match winner (overall) to emphasize winner visually.
-  const matchWinnerName = tryGet(json, ['winner_player_name','player_winner','winner']);
-  if(matchWinnerName && matchWinnerName === p1){
-    // p1 is winner
-    // apply subtle winner styling to p1 row cells
-    const p1cells = Array.from(setsGrid.querySelectorAll('.player-left ~ .set-cell')).slice(0,5);
-    p1cells.forEach(c => c.classList.add('score-best'));
-    const p2cells = Array.from(setsGrid.querySelectorAll('.player-left ~ .set-cell')).slice(5,10);
-    p2cells.forEach(c => c.classList.add('score-worse'));
-  } else if(matchWinnerName && matchWinnerName === p2){
-    const p1cells = Array.from(setsGrid.querySelectorAll('.player-left ~ .set-cell')).slice(0,5);
-    p1cells.forEach(c => c.classList.add('score-worse'));
-    const p2cells = Array.from(setsGrid.querySelectorAll('.player-left ~ .set-cell')).slice(5,10);
-    p2cells.forEach(c => c.classList.add('score-best'));
+  // Also make the main header player names linkable (top-of-page)
+  async function resolveProfileLink(name, idFromJson){
+    if(idFromJson){
+      const key = String(idFromJson).toLowerCase();
+      const found = playersIndex.byId.get(key);
+      if(found && found.page_href) return 'https://center_court.net/' + found.page_href;
+    }
+    const nameKey = String(name || '').toLowerCase();
+    const found2 = playersIndex.byName.get(nameKey);
+    if(found2 && found2.page_href) return 'https://center_court.net/' + found2.page_href;
+    return null;
   }
+  const link1 = await resolveProfileLink(p1, p1_id_json);
+  const link2 = await resolveProfileLink(p2, p2_id_json);
+  const elPlayer1Link = document.getElementById('player1_link');
+  const elPlayer2Link = document.getElementById('player2_link');
+  if(link1){ elPlayer1Link.href = link1; elPlayer1Link.target = '_blank'; elPlayer1Link.rel='noopener'; }
+  else { elPlayer1Link.removeAttribute('href'); elPlayer1Link.style.cursor = 'default'; }
+  if(link2){ elPlayer2Link.href = link2; elPlayer2Link.target = '_blank'; elPlayer2Link.rel='noopener'; }
+  else { elPlayer2Link.removeAttribute('href'); elPlayer2Link.style.cursor = 'default'; }
 
-  /* ---------- Stats rendering ---------- */
-  // We will present the following metrics (EN labels), using total (match-level) fields and per-set if available:
-  // Aces, Double faults, First serve %, First serve points won %, Second serve points won %, Breakpoints converted (display x/y computed using opponent's breakpointssaved fields)
-  // plus Total points won % (if present)
+  /* ---------- Stats table with clear group separators ---------- */
   const metrics = [
-    { key:'aces', label:'Aces', winner_keys:['aces_tot_winner','aces_tot_winner','aces_tot_winner'], loser_keys:['aces_tot_loser','aces_tot_loser'] , perSetKeyPrefix:'aces_set' , lowerIsBetter:false },
-    { key:'doublefaults', label:'Double faults', winner_keys:['doublefaults_tot_winner','doublefaults_tot_winner'], loser_keys:['doublefaults_tot_loser'], perSetKeyPrefix:'doublefaults_set', lowerIsBetter:true },
-    { key:'firstserve_pct', label:'First serve %', winner_keys:['firstserve_percent_tot_winner','firstserve_percent_tot_winner','firstservepercent_tot_winner'], loser_keys:['firstserve_percent_tot_loser','firstserve_percent_tot_loser'], perSetKeyPrefix:'firstserve_percent_set', lowerIsBetter:false },
-    { key:'firstservepointswon_pct', label:'First serve points won %', winner_keys:['firstservepointswon_percent_tot_winner','firstservepointswon_percent_tot_winner','firstservepointswon_percent_tot_winner'], loser_keys:['firstservepointswon_percent_tot_loser','firstservepointswon_percent_tot_loser'], perSetKeyPrefix:'firstservepointswon_percent_set', lowerIsBetter:false },
-    { key:'secondservepointswon_pct', label:'Second serve points won %', winner_keys:['secondservepointswon_percent_tot_winner','secondservepointswon_percent_tot_winner'], loser_keys:['secondservepointswon_percent_tot_loser'], perSetKeyPrefix:'secondservepointswon_percent_set', lowerIsBetter:false },
-    { key:'breakpoints_converted', label:'Breakpoints converted (x/y)', winner_keys:[], loser_keys:[], perSetKeyPrefix:'breakpointsconverted', lowerIsBetter:false, special:'breakpoints_converted' },
-    { key:'totalpointswon_pct', label:'Total points won %', winner_keys:['totalpointswon_percent_tot_winner'], loser_keys:['totalpointswon_percent_tot_loser'], perSetKeyPrefix:'totalpointswon_percent_set', lowerIsBetter:false }
+    { key:'aces', label:'Aces', winner_keys:['aces_tot_winner','aces_tot_winner'], loser_keys:['aces_tot_loser','aces_tot_loser'], perSetPrefix:'aces_set', lowerIsBetter:false },
+    { key:'doublefaults', label:'Double faults', winner_keys:['doublefaults_tot_winner'], loser_keys:['doublefaults_tot_loser'], perSetPrefix:'doublefaults_set', lowerIsBetter:true },
+    { key:'firstserve_pct', label:'First serve %', winner_keys:['firstserve_percent_tot_winner','firstservepercentage_tot_winner'], loser_keys:['firstserve_percent_tot_loser'], perSetPrefix:'firstserve_percent_set', lowerIsBetter:false },
+    { key:'firstservepointswon_pct', label:'First serve points won %', winner_keys:['firstservepointswon_percent_tot_winner'], loser_keys:['firstservepointswon_percent_tot_loser'], perSetPrefix:'firstservepointswon_percent_set', lowerIsBetter:false },
+    { key:'secondservepointswon_pct', label:'Second serve points won %', winner_keys:['secondservepointswon_percent_tot_winner'], loser_keys:['secondservepointswon_percent_tot_loser'], perSetPrefix:'secondservepointswon_percent_set', lowerIsBetter:false },
+    { key:'breakpoints_converted', label:'Breakpoints converted (x/y)', special:'breakpoints_converted', perSetPrefix:'breakpointsconverted', lowerIsBetter:false },
+    { key:'totalpointswon_pct', label:'Total points won %', winner_keys:['totalpointswon_percent_tot_winner'], loser_keys:['totalpointswon_percent_tot_loser'], perSetPrefix:'totalpointswon_percent_set', lowerIsBetter:false }
   ];
 
-  // detect how many sets have per-set stats available:
+  // detect per-set availability count
   let setsWithPerStats = 0;
-  for(let sIdx=1;sIdx<=5;sIdx++){
-    // check any per-set stat exists for that set (aces_set1_winner or aces_set1_loser etc)
-    const found = ( `aces_set${sIdx}_winner` in json ) || (`aces_set${sIdx}_loser` in json) || (`totalpointswon_percent_set${sIdx}_winner` in json) || (`totalpointswon_percent_set${sIdx}_loser` in json);
-    if(found) setsWithPerStats = sIdx;
+  for(let s=1;s<=5;s++){
+    if( (`aces_set${s}_winner` in json) || (`totalpointswon_percent_set${s}_winner` in json) || (`totalpointswon_percent_set${s}_loser` in json) ) setsWithPerStats = s;
   }
 
-  // Build table header: Metric | Player1 | Player2 | (Set1: P1 | P2) ... up to setsWithPerStats
   const wrap = document.getElementById('stats_table_wrap');
   const table = document.createElement('table'); table.className='stats-table';
+  // header
   const thead = document.createElement('thead');
   const thr = document.createElement('tr');
-  thr.innerHTML = `<th class="metric">Metric</th><th>${p1}</th><th>${p2}</th>`;
+  // Metric header
+  const thMetric = document.createElement('th'); thMetric.className='metric'; thMetric.innerText = 'Metric'; thr.appendChild(thMetric);
+  // Group start for Match: we want the Player1 column to have the left thick divider
+  const thP1 = document.createElement('th'); thP1.className='group-start-header'; thP1.innerText = p1; thr.appendChild(thP1);
+  const thP2 = document.createElement('th'); thP2.innerText = p2; thr.appendChild(thP2);
+  // per-set pairs
   for(let i=1;i<=setsWithPerStats;i++){
-    const sh = document.createElement('th'); sh.innerText = 'Set '+i + ' — ' + p1; thr.appendChild(sh);
-    const sh2 = document.createElement('th'); sh2.innerText = 'Set '+i + ' — ' + p2; thr.appendChild(sh2);
+    const ths1 = document.createElement('th'); ths1.className='group-start-header'; ths1.innerText = 'Set '+i + ' — ' + p1; thr.appendChild(ths1);
+    const ths2 = document.createElement('th'); ths2.innerText = 'Set '+i + ' — ' + p2; thr.appendChild(ths2);
   }
   thead.appendChild(thr);
   table.appendChild(thead);
 
+  // body
   const tbody = document.createElement('tbody');
 
-  // helper to get match-level / set-level values
-  function getMatchVal(side, metric){
-    // side = 'winner' or 'loser'
-    const keys = metric === 'breakpoints_converted' ? [] : (side === 'winner' ? (metricInfo.winner_keys) : (metricInfo.loser_keys));
-    if(metric === 'breakpoints_converted') return null; // handled separately
-    for(const k of keys){
-      if(k in json && json[k] !== null && json[k] !== undefined && json[k] !== '') return json[k];
-    }
-    return null;
-  }
-
-  function getSetVal(side, metricKey, setIdx){
-    // try candidate keys like `${metricKey}_set${setIdx}_winner`, `${metricKey}_set${setIdx}_loser`, or `${metricKey}_set${setIdx}`
-    const cand = [
-      `${metricKey}_set${setIdx}_winner`,
-      `${metricKey}_set${setIdx}_loser`,
-      `${metricKey}_set${setIdx}`,
-      `${metricKey}_set${setIdx}_${side}` // fallback
-    ];
-    for(const k of cand){
-      if(k in json && json[k] !== null && json[k] !== undefined && json[k] !== '') return json[k];
-    }
-    // some stats use pattern like firstserve_dividend_set1_winner / divisor; we won't attempt to compute those except breakpoints
-    return null;
-  }
-
-  // Special function to compute breakpoints converted: x / y, where (as requested) we compute player's converted as (opponent.opportunities - opponent.saved) / opponent.opportunities
-  // i.e. to compute winner converted we use loser's breakpointssaved_dividend/divisor
-  function computeBreakpointsConvertedFor(side, setIdx){
-    // side: 'winner' or 'loser'; we need to use opponent's breakpointssaved fields: opponentSide = side==='winner' ? 'loser' : 'winner'
-    const opponent = side === 'winner' ? 'loser' : 'winner';
-    const baseDivKey = setIdx ? `breakpointssaved_divisor_set${setIdx}_${opponent}` : `breakpointssaved_divisor_tot_${opponent}`;
-    const baseDivSaved = setIdx ? `breakpointssaved_dividend_set${setIdx}_${opponent}` : `breakpointssaved_dividend_tot_${opponent}`;
-    // Try variations (some JSON use _loser/_winner suffix before or after)
-    const divCandidates = [
-      baseDivKey,
-      baseDivKey.replace(/_winner|_loser/,''),
-      baseDivKey.replace(/_tot_/,'_tot_'),
-      `breakpointssaved_divisor_${opponent}` // fallback
-    ];
-    const savedCandidates = [
-      baseDivSaved,
-      baseDivSaved.replace(/_winner|_loser/,''),
-      `breakpointssaved_dividend_${opponent}`
-    ];
-
-    let opportunities = null;
-    for(const k of divCandidates){
-      if(k in json && json[k] !== null && json[k] !== undefined && json[k] !== '') { opportunities = Number(json[k]); break; }
-    }
-    let saved = null;
-    for(const k of savedCandidates){
-      if(k in json && json[k] !== null && json[k] !== undefined && json[k] !== '') { saved = Number(json[k]); break; }
-    }
-    if(opportunities === null || opportunities === 0) return null;
-    if(saved === null) saved = 0;
-    const converted = opportunities - saved;
-    return { x: converted, y: opportunities, decimal: (converted/opportunities) };
-  }
-
-  // iterate metrics
-  for(const metricInfo of metrics){
-    const tr = document.createElement('tr');
-    const metricCell = document.createElement('th'); metricCell.className='metric'; metricCell.innerText = metricInfo.label;
-    tr.appendChild(metricCell);
-
-    // match-level for both players
-    let p1val = null, p2val = null;
-    if(metricInfo.key === 'breakpoints_converted'){
-      const v1 = computeBreakpointsConvertedFor('winner', 0); // match-level
-      const v2 = computeBreakpointsConvertedFor('loser', 0);
-      p1val = v1 ? `${v1.x}/${v1.y}` : null;
-      p2val = v2 ? `${v2.x}/${v2.y}` : null;
-    } else {
-      // get match-level keys for winner/loser
-      const a = metricInfo.winner_keys || [];
-      const b = metricInfo.loser_keys || [];
-      for(const k of a){ if(k in json && json[k] !== null && json[k] !== undefined && json[k] !== ''){ p1val = json[k]; break; } }
-      for(const k of b){ if(k in json && json[k] !== null && json[k] !== undefined && json[k] !== ''){ p2val = json[k]; break; } }
-      // fallback: maybe the json uses winner/loser swapped relative to our p1/p2 assignment (we used p1=winner, p2=loser earlier)
-      // If p1 or p2 missing, try alternatives
-      if((p1val===null || p1val===undefined) && (metricInfo.winner_keys && metricInfo.winner_keys.length===0)){
-        // nothing
-      }
-    }
-
-    // convert displayed values to normalized numeric for comparison
-    function normForCompare(displayVal, metricKey){
-      if(displayVal === null || displayVal === undefined) return null;
-      // if fraction like "5/8"
-      if(String(displayVal).includes('/')){
-        const parts = String(displayVal).split('/').map(s=>s.trim());
-        const a = Number(parts[0]), b = Number(parts[1]);
-        if(!isNaN(a) && !isNaN(b) && b !== 0) return a/b;
-        return null;
-      }
-      // if percent or number
-      const n = numberFrom(displayVal);
-      if(n !== null) return n;
-      // try extract numeric from strings like "6-7(3)"
-      const m = String(displayVal).match(/(\d+)/);
-      if(m) return Number(m[1]);
+  function normForCompare(displayVal){
+    if(displayVal === null || displayVal === undefined) return null;
+    if(String(displayVal).includes('/')){
+      const parts = String(displayVal).split('/').map(s=>s.trim());
+      const a = Number(parts[0]), b = Number(parts[1]);
+      if(!isNaN(a) && !isNaN(b) && b !== 0) return a/b;
       return null;
     }
+    const n = numberFrom(displayVal);
+    if(n !== null) return n;
+    const m = String(displayVal).match(/(\d+)/);
+    if(m) return Number(m[1]);
+    return null;
+  }
 
-    const p1norm = normForCompare(p1val, metricInfo.key);
-    const p2norm = normForCompare(p2val, metricInfo.key);
+  function computeBreakpointsConverted(side, setIdx){
+    // As requested: to compute player's converted, use opponent's breakpointssaved fields:
+    // opponent = side==='winner' ? 'loser' : 'winner'
+    const opponent = side === 'winner' ? 'loser' : 'winner';
+    const suffix = setIdx ? `_set${setIdx}_${opponent}` : `_tot_${opponent}`;
+    const divKeys = [`breakpointssaved_divisor${suffix}`, `breakpointssaved_divisor_${opponent}`, `breakpointssaved_divisor`];
+    const savedKeys = [`breakpointssaved_dividend${suffix}`, `breakpointssaved_dividend_${opponent}`, `breakpointssaved_dividend`];
+    let oppOpportunities = null, oppSaved = null;
+    for(const k of divKeys){ if(k in json && json[k] !== null && json[k] !== undefined && json[k] !== '') { oppOpportunities = Number(json[k]); break; } }
+    for(const k of savedKeys){ if(k in json && json[k] !== null && json[k] !== undefined && json[k] !== '') { oppSaved = Number(json[k]); break; } }
+    if(oppOpportunities === null || oppOpportunities === 0) return null;
+    if(oppSaved === null) oppSaved = 0;
+    const converted = oppOpportunities - oppSaved;
+    return { x: converted, y: oppOpportunities, frac: converted/oppOpportunities };
+  }
 
-    // decide best/worse: for double faults lower is better; default higher is better
+  for(const metricInfo of metrics){
+    const tr = document.createElement('tr');
+    const thM = document.createElement('th'); thM.className='metric'; thM.innerText = metricInfo.label; tr.appendChild(thM);
+
+    // match level values
+    let p1val = null, p2val = null;
+    if(metricInfo.special === 'breakpoints_converted'){
+      const a = computeBreakpointsConverted('winner', 0);
+      const b = computeBreakpointsConverted('loser', 0);
+      p1val = a ? `${a.x}/${a.y}` : null;
+      p2val = b ? `${b.x}/${b.y}` : null;
+    } else {
+      // check winner_keys / loser_keys (these assume p1 is overall winner)
+      for(const k of (metricInfo.winner_keys || [])){ if(k in json && json[k] !== null && json[k] !== undefined && json[k] !== ''){ p1val = json[k]; break; } }
+      for(const k of (metricInfo.loser_keys || [])){ if(k in json && json[k] !== null && json[k] !== undefined && json[k] !== ''){ p2val = json[k]; break; } }
+      // as a fallback check generic tot keys pattern (some JSONs use slightly different names)
+      if(p1val===null){
+        const fallbackKeys = [`${metricInfo.key}_tot_winner`,`${metricInfo.key}_tot`];
+        for(const k of fallbackKeys){ if(k in json && json[k]!==null && json[k]!==undefined && json[k]!==''){ p1val = json[k]; break; } }
+      }
+      if(p2val===null){
+        const fallbackKeys = [`${metricInfo.key}_tot_loser`,`${metricInfo.key}_tot`];
+        for(const k of fallbackKeys){ if(k in json && json[k]!==null && json[k]!==undefined && json[k]!==''){ p2val = json[k]; break; } }
+      }
+    }
+
+    const p1norm = normForCompare(p1val);
+    const p2norm = normForCompare(p2val);
     let p1IsBetter = null;
     if(p1norm === null && p2norm === null) p1IsBetter = null;
     else if(p1norm === null) p1IsBetter = false;
     else if(p2norm === null) p1IsBetter = true;
-    else {
-      if(metricInfo.lowerIsBetter) p1IsBetter = (p1norm < p2norm);
-      else p1IsBetter = (p1norm > p2norm);
-    }
+    else p1IsBetter = metricInfo.lowerIsBetter ? (p1norm < p2norm) : (p1norm > p2norm);
 
-    const td1 = document.createElement('td');
-    td1.innerText = p1val !== null && p1val !== undefined ? String(p1val) : '—';
-    const td2 = document.createElement('td');
-    td2.innerText = p2val !== null && p2val !== undefined ? String(p2val) : '—';
+    const td1 = document.createElement('td'); td1.innerText = p1val !== null && p1val !== undefined ? String(p1val) : '—';
+    const td2 = document.createElement('td'); td2.innerText = p2val !== null && p2val !== undefined ? String(p2val) : '—';
+    // add group-start class to the first column of the match group (td1)
+    td1.classList.add('group-start');
 
-    if(p1IsBetter === true) td1.classList.add('cell-best');
-    else if(p1IsBetter === false) td2.classList.add('cell-best');
+    if(p1IsBetter === true) td1.classList.add('cell-best'); else if(p1IsBetter === false) td2.classList.add('cell-best');
 
     tr.appendChild(td1);
     tr.appendChild(td2);
 
-    // now per-set columns
+    // per set columns (two columns per set)
     for(let sIdx=1;sIdx<=setsWithPerStats;sIdx++){
       let v1 = null, v2 = null;
-      if(metricInfo.key === 'breakpoints_converted'){
-        const w = computeBreakpointsConvertedFor('winner', sIdx);
-        const l = computeBreakpointsConvertedFor('loser', sIdx);
-        v1 = w ? `${w.x}/${w.y}` : null;
-        v2 = l ? `${l.x}/${l.y}` : null;
+      if(metricInfo.special === 'breakpoints_converted'){
+        const a = computeBreakpointsConverted('winner', sIdx);
+        const b = computeBreakpointsConverted('loser', sIdx);
+        v1 = a ? `${a.x}/${a.y}` : null;
+        v2 = b ? `${b.x}/${b.y}` : null;
       } else {
-        // attempt to fetch set-level metric for winner/loser
-        const kWin = `${metricInfo.perSetKeyPrefix}${sIdx}_winner`;
-        const kLose = `${metricInfo.perSetKeyPrefix}${sIdx}_loser`;
-        // try multiple candidate names used in JSON:
-        const candidatesP1 = [
-          `${metricInfo.perSetKeyPrefix}${sIdx}_winner`,
-          `${metricInfo.perSetKeyPrefix}_set${sIdx}_winner`,
-          `${metricInfo.perSetKeyPrefix}_set${sIdx}`,
-          `${metricInfo.perSetKeyPrefix}${sIdx}`
+        // candidate keys for set-level stats (try winner/loser suffix)
+        const candidates1 = [
+          `${metricInfo.perSetPrefix}${sIdx}_winner`,
+          `${metricInfo.perSetPrefix}_set${sIdx}_winner`,
+          `${metricInfo.perSetPrefix}_set${sIdx}`,
+          `${metricInfo.perSetPrefix}${sIdx}`
         ];
-        const candidatesP2 = [
-          `${metricInfo.perSetKeyPrefix}${sIdx}_loser`,
-          `${metricInfo.perSetKeyPrefix}_set${sIdx}_loser`,
-          `${metricInfo.perSetKeyPrefix}_set${sIdx}`,
-          `${metricInfo.perSetKeyPrefix}${sIdx}`
+        const candidates2 = [
+          `${metricInfo.perSetPrefix}${sIdx}_loser`,
+          `${metricInfo.perSetPrefix}_set${sIdx}_loser`,
+          `${metricInfo.perSetPrefix}_set${sIdx}`,
+          `${metricInfo.perSetPrefix}${sIdx}`
         ];
-        for(const k of candidatesP1){ if(k in json && json[k] !== null && json[k] !== undefined && json[k] !== ''){ v1 = json[k]; break; } }
-        for(const k of candidatesP2){ if(k in json && json[k] !== null && json[k] !== undefined && json[k] !== ''){ v2 = json[k]; break; } }
-        // fallback: some metrics use pattern like totalpointswon_percent_set1_winner
-        if(v1===null){
-          const alt = `${metricInfo.perSetKeyPrefix}_set${sIdx}_winner`;
-          if(alt in json && json[alt] !== null) v1 = json[alt];
-        }
-        if(v2===null){
-          const alt2 = `${metricInfo.perSetKeyPrefix}_set${sIdx}_loser`;
-          if(alt2 in json && json[alt2] !== null) v2 = json[alt2];
-        }
+        for(const k of candidates1){ if(k in json && json[k]!==null && json[k]!==undefined && json[k]!==''){ v1 = json[k]; break; } }
+        for(const k of candidates2){ if(k in json && json[k]!==null && json[k]!==undefined && json[k]!==''){ v2 = json[k]; break; } }
       }
 
-      // create cells and highlight best per-set
-      const setTd1 = document.createElement('td');
-      setTd1.innerText = v1 !== null && v1 !== undefined ? String(v1) : '—';
-      const setTd2 = document.createElement('td');
-      setTd2.innerText = v2 !== null && v2 !== undefined ? String(v2) : '—';
-
-      // compute numeric norms
-      const n1 = normForCompare(v1, metricInfo.key);
-      const n2 = normForCompare(v2, metricInfo.key);
+      const n1 = normForCompare(v1);
+      const n2 = normForCompare(v2);
       let n1Better = null;
       if(n1 === null && n2 === null) n1Better = null;
       else if(n1 === null) n1Better = false;
       else if(n2 === null) n1Better = true;
-      else {
-        if(metricInfo.lowerIsBetter) n1Better = (n1 < n2);
-        else n1Better = (n1 > n2);
-      }
+      else n1Better = metricInfo.lowerIsBetter ? (n1 < n2) : (n1 > n2);
+
+      const setTd1 = document.createElement('td'); setTd1.innerText = v1!==null && v1!==undefined ? String(v1) : '—';
+      const setTd2 = document.createElement('td'); setTd2.innerText = v2!==null && v2!==undefined ? String(v2) : '—';
+      // add group-start class to the first column of each set group
+      setTd1.classList.add('group-start');
+
       if(n1Better === true) setTd1.classList.add('cell-best');
       else if(n1Better === false) setTd2.classList.add('cell-best');
 
@@ -637,8 +616,7 @@ async function loadAndRender(){
   wrap.innerHTML = '';
   wrap.appendChild(table);
 
-  // small polish: set tooltip with raw score string
-  if(json.score_string) document.getElementById('score_area').title = 'Score: ' + json.score_string;
+  // done
 }
 
 loadAndRender();
