@@ -257,6 +257,23 @@ let lastPayload = null;
 /* ----- NEW: merge index entries into normalized matches ----- */
 function mergeIndexIntoMatches(matchesArray, indexObj){
   if(!indexObj || !Array.isArray(indexObj.matches)) return;
+  // ---------- inside mergeIndexIntoMatches, when iterating indexObj.matches ----------
+for(const e of indexObj.matches){
+  if(!e.match_id) continue;
+
+  // normalize: si index contient 'filename' et 'gender' (ou sinon utiliser meta.source),
+  // construisons un link utilisable automatiquement
+  if(!e.link && e.filename){
+    const gg = (e.gender || indexObj.gender || '').toString().toLowerCase();
+    const gender = (gg === 'wta' || gg === 'women' || gg === 'f') ? 'wta' : 'atp';
+    // ensure we don't double slash
+    const candidate = `/matches_json/${gender}/${e.filename}`;
+    e.link = candidate;
+  }
+
+  map.set(String(e.match_id).toUpperCase(), e);
+}
+
   const map = new Map();
   for(const e of indexObj.matches){
     if(!e.match_id) continue;

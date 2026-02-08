@@ -1,0 +1,180 @@
+
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Match WTA</title>
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;margin:18px}
+    .match{max-width:900px;margin:0 auto}
+    .players{display:flex;justify-content:space-between;align-items:center}
+    .player{width:45%}
+    .score{font-size:1.25rem;text-align:center}
+    table{width:100%;border-collapse:collapse;margin-top:12px}
+    th,td{padding:6px;border:1px solid #ddd;text-align:center}
+    .stat-row th{ text-align:left; background:#f7f7f7 }
+  </style>
+</head>
+<body>
+  <div class="match">
+    <a href="/">← accueil</a>
+    <h1 id="title">Match WTA</h1>
+    <div class="players">
+      <div class="player">
+        <h2 id="winner">—</h2>
+        <div id="winnerMeta"></div>
+      </div>
+      <div class="score">
+        <div id="score_string">—</div>
+        <div id="match_time">—</div>
+      </div>
+      <div class="player">
+        <h2 id="loser">—</h2>
+        <div id="loserMeta"></div>
+      </div>
+    </div>
+
+    <h3>Sets</h3>
+    <table id="sets_table">
+      <thead>
+        <tr><th>Set</th><th>Vainqueur</th><th>Défait</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <h3>Statistiques clés</h3>
+    <table id="stats_table">
+      <tbody></tbody>
+    </table>
+
+    <pre id="raw_json" style="display:none"></pre>
+  </div>
+
+<script>
+function getQueryParam(name){
+  const params = new URLSearchParams(window.location.search);
+  return params.get(name);
+}
+
+function sanitizeJsonPath(p){
+  if(!p) return null;
+  try{
+    const url = new URL(p, window.location.href);
+    if(url.pathname.startsWith('/matches_json/wta/') || url.pathname.startsWith('/matches_json/wta')){
+      return url.pathname + (url.search||'');
+    }
+  }catch(e){
+    if(p.startsWith('matches_json/wta/') || p.startsWith('/matches_json/wta/')){
+      return p.replace(/^\//, '');
+    }
+  }
+  return null;
+}
+
+async function loadAndRender(){
+  let path = getQueryParam('data') || getQueryParam('file');
+  if(!path){
+    const params = new URLSearchParams(window.location.search);
+    const tourney = params.get('tourney');
+    const year = params.get('year');
+    const match = params.get('match');
+    if(tourney && year && match){
+      path = `/matches_json/wta/wta_${tourney}_${year}_${match}.json`;
+    }
+  }
+  const sanitized = sanitizeJsonPath(path);
+  if(!sanitized){
+    document.getElementById('title').innerText = 'Fichier JSON non fourni ou chemin non autorisé';
+    return;
+  }
+
+  const tryPaths = [sanitized.startsWith('/') ? sanitized : ('/' + sanitized), sanitized];
+  let json = null;
+  for(const p of tryPaths){
+    try{
+      const res = await fetch(p);
+      if(!res.ok) throw new Error('HTTP ' + res.status);
+      json = await res.json();
+      break;
+    }catch(e){
+    }
+  }
+
+  if(!json){
+    document.getElementById('title').innerText = 'Impossible de charger le JSON: ' + sanitized;
+    return;
+  }
+
+  document.getElementById('raw_json').textContent = JSON.stringify(json, null, 2);
+
+  const winner = json.winner_player_name || json.winner || json.player_winner || json.player_a || json.winner_player || '—';
+  const loser = json.loser_player_name || json.loser || json.player_loser || json.player_b || json.loser_player || '—';
+  document.getElementById('winner').innerText = winner;
+  document.getElementById('loser').innerText = loser;
+  document.getElementById('score_string').innerText = json.score_string || json.score || json['score'] || '—';
+  document.getElementById('match_time').innerText = json.match_time_total || json.match_time || '';
+
+  document.getElementById('winnerMeta').innerText = (json.winner_country || json.country_winner || '') + (json.winner_seed || json.seed_winner ? ' • seed '+ (json.winner_seed||json.seed_winner) : '');
+  document.getElementById('loserMeta').innerText = (json.loser_country || json.country_loser || '') + (json.loser_seed || json.seed_loser ? ' • seed '+ (json.loser_seed||json.seed_loser) : '');
+
+  const tbody = document.querySelector('#sets_table tbody');
+  tbody.innerHTML = '';
+  for(let i=1;i<=5;i++){
+    let v = json[`set${i}_score`] || null;
+    if(!v){
+      const w = json[`winner_score_set${i}`];
+      const l = json[`loser_score_set${i}`];
+      if(w!==undefined || l!==undefined){
+        if(w===null || w===undefined) break;
+        v = `${w || ''}-${l || ''}`;
+      }
+    }
+    if(!v) continue;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>Set ${i}</td><td>${v}</td><td></td>`;
+    tbody.appendChild(tr);
+  }
+
+  if(tbody.children.length===0 && json.score_string){
+    const parts = String(json.score_string).split(',').map(s=>s.trim());
+    parts.forEach((p,i)=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>Set ${i+1}</td><td>${p}</td><td></td>`;
+      tbody.appendChild(tr);
+    });
+  }
+
+  const statsWanted = [
+    ['Aces (vainqueur)', 'aces_tot_winner','winner_acesss_set1','aces_set1'],
+    ['Aces (défait)', 'aces_tot_loser','loser_acesss_set1','aces_set1'],
+    ['Double-fautes (vainqueur)','doublefaults_tot_winner'],
+    ['Double-fautes (défait)','doublefaults_tot_loser'],
+    ['%1ère (vainqueur)','firstserve_percent_tot_winner'],
+    ['%1ère (défait)','firstserve_percent_tot_loser'],
+    ['Points gagnés (%) (vainqueur)','totalpointswon_percent_tot_winner','winner_totptswon_set1'],
+    ['Points gagnés (%) (défait)','totalpointswon_percent_tot_loser','loser_totptswon_set1']
+  ];
+
+  const statsTbody = document.querySelector('#stats_table tbody');
+  statsTbody.innerHTML = '';
+  statsWanted.forEach(([label, ...keys])=>{
+    let found = null;
+    for(const k of keys){
+      if(k in json && json[k]!==null && json[k]!==undefined && json[k]!==''){
+        found = json[k]; break;
+      }
+    }
+    if(found!==null){
+      const tr = document.createElement('tr');
+      tr.className = 'stat-row';
+      tr.innerHTML = `<th>${label}</th><td>${found}</td>`;
+      statsTbody.appendChild(tr);
+    }
+  });
+}
+
+loadAndRender();
+</script>
+</body>
+</html>
