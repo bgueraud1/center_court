@@ -86,8 +86,8 @@ def collect_players_and_matches(rows):
         except Exception:
             l_br = None
 
-        w_key = str(w_id) if w_id else ('name:' + normalize_name(w_name) if w_name else None)
-        l_key = str(l_id) if l_id else ('name:' + normalize_name(l_name) if l_name else None)
+        w_key = str(w_id).strip() if w_id else ('name:' + normalize_name(w_name) if w_name else None)
+        l_key = str(l_id).strip() if l_id else ('name:' + normalize_name(l_name) if l_name else None)
 
         add_player(w_key, w_name, w_seed, w_br)
         add_player(l_key, l_name, l_seed, l_br)
@@ -154,16 +154,67 @@ def round_label_to_index(rlabel, rounds_total):
             return idx
     return None
 
+# ----------------- BUILD EXPLICIT MATCH TREE -----------------
+def build_match_tree(singles_draw_size):
+    """
+    Construit le graphe des matches pour un tableau de taille singles_draw_size.
+    Numérotation LS utilisée : final = 1 .. total_matches = n-1
+    Chaque niveau idx (0 = final, rounds_total-1 = 1er tour) contient matches [2**idx .. 2**(idx+1)-1]
+    Retour : dict {
+      'children': { match_num (int) : (child1, child2) or () if leaf },
+      'parent': { child_match_num: parent_match_num },
+      'round_of': { match_num: idx }  # idx 0 = final
+    }
+    """
+    if singles_draw_size & (singles_draw_size - 1) != 0:
+        raise ValueError("singles_draw_size must be a power of two")
+    rounds_total = int(math.log2(singles_draw_size))
+    total_matches = singles_draw_size - 1
+    children = {}
+    parent = {}
+    round_of = {}
+    for idx in range(0, rounds_total):
+        start = 2 ** idx
+        end = 2 ** (idx + 1) - 1
+        child_start = 2 ** (idx + 1)
+        for mnum in range(start, end + 1):
+            # children are at next level; if next level exceeds total matches, leaf (first round has no children)
+            if child_start > total_matches:
+                # leaf (first round) => no child matches
+                children[mnum] = ()
+                round_of[mnum] = idx
+                continue
+            offset = (mnum - start) * 2
+            c1 = child_start + offset
+            c2 = c1 + 1
+            children[mnum] = (c1, c2)
+            parent[c1] = mnum
+            parent[c2] = mnum
+            round_of[mnum] = idx
+    # ensure leaves present (last level)
+    leaf_start = 2 ** (rounds_total - 1)
+    leaf_end = 2 ** rounds_total - 1
+    for mnum in range(leaf_start, leaf_end + 1):
+        if mnum not in children:
+            children[mnum] = ()
+            round_of[mnum] = rounds_total - 1
+    return {'children': children, 'parent': parent, 'round_of': round_of, 'rounds_total': rounds_total}
+
 # ----------------- draw groups -----------------
 def build_draw_groups(winner_to_losers, seed_map, singles_draw_size, rounds_total):
     draw_groups = {}
     group_count = 2
+    # group_count doubles until it exceeds number of players: groups_of_{group_size}
     while group_count <= singles_draw_size:
         group_size = singles_draw_size // group_count
         level_name = f'groups_of_{group_size}'
         draw_groups[level_name] = {}
-        depth_limit = int(math.log2(group_size)) if group_size and ((group_size & (group_size-1))==0) else max(0, rounds_total - int(math.log2(group_count)))
-        for s in range(1, group_count+1):
+        # depth_limit: how many win-levels to include when starting from anchor
+        if group_size and ((group_size & (group_size - 1)) == 0):
+            depth_limit = int(math.log2(group_size))
+        else:
+            depth_limit = max(0, rounds_total - int(math.log2(group_count)))
+        for s in range(1, group_count + 1):
             anchor_key = seed_map.get(s)
             if anchor_key:
                 depths = bfs_from_anchor(winner_to_losers, anchor_key, depth_limit)
@@ -171,7 +222,13 @@ def build_draw_groups(winner_to_losers, seed_map, singles_draw_size, rounds_tota
             else:
                 depths = {}
                 group_keys = set()
-            draw_groups[level_name][s] = {'anchor_player': anchor_key, 'group_size': group_size, 'depth_limit': depth_limit, 'group_keys': group_keys, 'depths': depths}
+            draw_groups[level_name][s] = {
+                'anchor_player': anchor_key,
+                'group_size': group_size,
+                'depth_limit': depth_limit,
+                'group_keys': group_keys,
+                'depths': depths
+            }
         group_count *= 2
     return draw_groups
 
@@ -202,16 +259,16 @@ def compute_anchor_orders(draw_groups, players, singles_draw_size):
     anchor_orders = {}
     anchor_orders[0] = [1]
     if max_index >= 1:
-        anchor_orders[1] = [1,2]
-    for idx in range(2, max_index+1):
+        anchor_orders[1] = [1, 2]
+    for idx in range(2, max_index + 1):
         group_count = 2 ** idx
         ordered = []
-        parent_order = anchor_orders[idx-1]
+        parent_order = anchor_orders[idx - 1]
         for parent_seed in parent_order:
-            left_child = 2*parent_seed - 1
-            right_child = 2*parent_seed
-            left_keys = draw_groups.get(f'groups_of_{singles_draw_size // (2**idx)}', {}).get(left_child, {}).get('group_keys', set())
-            right_keys = draw_groups.get(f'groups_of_{singles_draw_size // (2**idx)}', {}).get(right_child, {}).get('group_keys', set())
+            left_child = 2 * parent_seed - 1
+            right_child = 2 * parent_seed
+            left_keys = draw_groups.get(f'groups_of_{singles_draw_size // (2 ** idx)}', {}).get(left_child, {}).get('group_keys', set())
+            right_keys = draw_groups.get(f'groups_of_{singles_draw_size // (2 ** idx)}', {}).get(right_child, {}).get('group_keys', set())
             left_rep = representative_of_anchor(players, left_keys, left_child)
             right_rep = representative_of_anchor(players, right_keys, right_child)
             if left_rep <= right_rep:
@@ -221,11 +278,20 @@ def compute_anchor_orders(draw_groups, players, singles_draw_size):
         anchor_orders[idx] = ordered
     return anchor_orders
 
-# ----------------- attribution LS### -----------------
+# ----------------- attribution LS### (graph-aware) -----------------
 def assign_ls(match_list, draw_groups, players, seed_map, singles_draw_size, verbose=False):
-    rounds_total = int(math.log2(singles_draw_size))
+    """
+    Attribution basée sur :
+     - le graphe des matches (numérotation LS fixe)
+     - l'ordre des ancres (anchor_orders)
+     - affectation unique d'une LS par match en évitant collisions.
+    """
+    # build match tree
+    mt = build_match_tree(singles_draw_size)
+    rounds_total = mt['rounds_total']
     anchor_orders = compute_anchor_orders(draw_groups, players, singles_draw_size)
-    used = set()
+
+    used = set()  # used LS numbers (int)
     def match_sort_key(m):
         r = round_label_to_index(m.get('round'), rounds_total)
         key = f"{m.get('winner_key') or ''}|{m.get('loser_key') or ''}"
@@ -238,9 +304,12 @@ def assign_ls(match_list, draw_groups, players, seed_map, singles_draw_size, ver
         if idx is None:
             m['match_id'] = ''
             continue
+
         start = 2 ** idx
-        end = 2 ** (idx+1) - 1
-        ordered_anchors = anchor_orders.get(idx)
+        end = 2 ** (idx + 1) - 1
+        ordered_anchors = anchor_orders.get(idx, [])
+
+        # if no anchors for this level, fallback hashing within the range
         if not ordered_anchors:
             h = (hash(str(m.get('winner_key')) + '|' + str(m.get('loser_key'))) & 0xffffffff)
             j = h % (end - start + 1)
@@ -251,6 +320,7 @@ def assign_ls(match_list, draw_groups, players, seed_map, singles_draw_size, ver
             m['match_id'] = f"LS{str(lsnum).zfill(3)}"
             continue
 
+        # try to find which anchor-group contains winner or loser
         chosen_anchor_index = None
         winner = m.get('winner_key'); loser = m.get('loser_key')
         level_group_size = singles_draw_size // (2 ** idx)
@@ -258,10 +328,11 @@ def assign_ls(match_list, draw_groups, players, seed_map, singles_draw_size, ver
         for j, seed_anchor in enumerate(ordered_anchors):
             info = draw_groups.get(level_name, {}).get(seed_anchor, {})
             gkeys = info.get('group_keys', set())
-            if winner in gkeys or loser in gkeys:
+            if (winner in gkeys) or (loser in gkeys):
                 chosen_anchor_index = j
                 break
 
+        # if not found, try parents (walk up levels)
         if chosen_anchor_index is None and idx > 0:
             parent_idx = idx - 1
             found_parent = None
@@ -278,27 +349,32 @@ def assign_ls(match_list, draw_groups, players, seed_map, singles_draw_size, ver
                 parent_idx -= 1
             if found_parent is not None:
                 parent_idx, p_j, p_seed = found_parent
+                # determine child indices under that parent
                 child_pos0 = 2 * p_j
                 child_pos1 = 2 * p_j + 1
-                child0_seed = ordered_anchors[child_pos0] if child_pos0 < len(ordered_anchors) else None
-                child1_seed = ordered_anchors[child_pos1] if child_pos1 < len(ordered_anchors) else None
+                # children exist in ordered_anchors for current idx
+                # protect bounds
                 def rep(seed):
                     if seed is None:
                         return 10**12
                     info = draw_groups.get(level_name, {}).get(seed, {})
                     return representative_of_anchor(players, info.get('group_keys', set()), seed)
+                child0_seed = ordered_anchors[child_pos0] if child_pos0 < len(ordered_anchors) else None
+                child1_seed = ordered_anchors[child_pos1] if child_pos1 < len(ordered_anchors) else None
                 r0 = rep(child0_seed); r1 = rep(child1_seed)
                 chosen_anchor_index = child_pos0 if r0 <= r1 else child_pos1
 
+        # final fallback: hash-based within anchors
         if chosen_anchor_index is None:
             h = (hash(str(winner) + '|' + str(loser)) & 0xffffffff)
             chosen_anchor_index = h % len(ordered_anchors)
 
         lsnum = start + chosen_anchor_index
+        # safety clamp
         if lsnum < start or lsnum > end:
             lsnum = start
         attempts = 0
-        while lsnum in used and attempts < (end-start+2):
+        while lsnum in used and attempts < (end - start + 2):
             lsnum = start + ((lsnum - start + 1) % (end - start + 1))
             attempts += 1
         used.add(lsnum)

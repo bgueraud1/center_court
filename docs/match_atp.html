@@ -3,40 +3,56 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>ATP Match — Viewer</title>
+  <title>ATP Match — Viewer (Improved)</title>
   <style>
     :root{
       --card-radius:14px;
       --muted:#6b7684;
-      --bg:#f3f6fb;
-      --panel-bg: rgba(255,255,255,0.92);
+      --bg:#edf3fb;
+      --panel-bg: rgba(255,255,255,0.98);
       --text:#0f1720;
-      --green-strong: #148d3b;
-      --green-strong-contrast: #ffffff;
-      --red-soft: #ffecf0;
-      --thick-divider: rgba(12,25,40,0.12);
+
+      --hard-start: #d7e8ff;
+      --hard-end:  #eaf3ff;
+      --grass-start:#e8ffea;
+      --grass-end:#f6fff2;
+      --clay-start:#ffe7e2;
+      --clay-end:#fff6f5;
+      --carpet-start:#f0e9ff;
+      --carpet-end:#fbf7ff;
+
+      --accent-strong: #0b66ff;
+      --match-col-bg: rgba(11,102,255,0.07);
+      --match-col-border: rgba(11,102,255,0.12);
+      --best-bg: linear-gradient(180deg, rgba(14,160,95,0.12), rgba(14,160,95,0.08));
+      --best-border: rgba(14,160,95,0.22);
+      --best-text: #054d2b;
+      --bad-bg: linear-gradient(180deg, rgba(220,50,60,0.05), rgba(220,50,60,0.02));
+      --divider-thick: rgba(12,25,40,0.14);
       --header-bg: rgba(6,28,53,0.04);
     }
-    html,body{height:100%;background:var(--bg);margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial;}
-    .page{max-width:1150px;margin:22px auto;padding:18px}
+
+    html,body{height:100%;background:var(--bg);margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial;color:var(--text);}
+    .page{max-width:1180px;margin:18px auto;padding:18px}
     .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
     a.home{color:var(--muted);text-decoration:none}
     h1{margin:0 0 6px 0;font-weight:700;font-size:1.35rem;color:var(--text)}
+
     .match-card{
       border-radius:var(--card-radius);
       padding:18px;
       box-shadow: 0 10px 30px rgba(10,20,40,0.06);
       position:relative;
-      overflow:hidden;
+      overflow:visible;
     }
 
-    /* surface gradients */
-    .surface-hard{ background:linear-gradient(135deg,#e8f2ff 0%, #f7fbff 60%); }
-    .surface-grass{ background:linear-gradient(135deg,#eefdeb 0%, #f7fff4 60%); }
-    .surface-clay{ background:linear-gradient(135deg,#fff3f2 0%, #fff9f9 60%); }
-    .surface-carpet{ background:linear-gradient(135deg,#f6efff 0%, #fbf8ff 60%); }
+    /* surface backgrounds stronger */
+    .surface-hard{ background: linear-gradient(135deg,var(--hard-start), var(--hard-end)); }
+    .surface-grass{ background: linear-gradient(135deg,var(--grass-start), var(--grass-end)); }
+    .surface-clay{ background: linear-gradient(135deg,var(--clay-start), var(--clay-end)); }
+    .surface-carpet{ background: linear-gradient(135deg,var(--carpet-start), var(--carpet-end)); }
 
-    .header-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+    .header-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
     .players-names{display:flex;gap:18px;align-items:center}
     .player-name{
       font-weight:700;
@@ -44,155 +60,127 @@
       color:var(--text);
       display:flex;flex-direction:column;
     }
-    .player-meta{font-size:0.85rem;color:#33445588}
+    .player-meta{font-size:0.86rem;color:#33445588}
 
-    /* Score box */
+    /* Score area */
     .score-area{
       background:var(--panel-bg);
       border-radius:12px;
-      padding:14px;
+      padding:22px 14px 14px 14px; /* large top padding so duration doesn't overlap */
       display:flex;
       flex-direction:column;
-      gap:12px;
-      border:1px solid rgba(0,0,0,0.04);
+      gap:14px;
+      border:1px solid rgba(0,0,0,0.05);
       position:relative;
     }
 
+    /* Duration moved above the grid but inside score area; top offset is negative to sit visually above */
     .duration{
       position:absolute;
       right:18px;
-      top:12px;
-      font-size:0.9rem;
-      color:#0b1220;
-      background:rgba(255,255,255,0.85);
-      padding:7px 12px;border-radius:10px;
-      border:1px solid rgba(0,0,0,0.04);
-      backdrop-filter: blur(4px);
-      font-weight:600;
+      top:6px;         /* sits inside the card header region */
+      font-size:0.95rem;
+      color:#07203a;
+      background:rgba(255,255,255,0.96);
+      padding:8px 12px;border-radius:10px;
+      border:1px solid rgba(0,0,0,0.06);
+      font-weight:700;
+      box-shadow: 0 6px 18px rgba(7,32,58,0.07);
+      z-index:5;
     }
 
+    /* Score grid */
     .sets-grid{
       display:grid;
       grid-template-columns: 220px repeat(5, 1fr);
-      gap:10px;
+      gap:12px;
       align-items:center;
       width:100%;
     }
-    .sets-grid .label{
-      font-weight:700;color:#24313f;
-      padding-left:6px;
-    }
-    .player-row{display:contents;}
-    .cell{
-      background:transparent;
-      padding:10px 8px;
-      border-radius:10px;
-      text-align:center;
-      font-weight:700;
-      color:var(--text);
-    }
-    .player-left{
-      text-align:left;padding-left:14px;font-weight:800;color:#081224;
-      text-decoration: none;
-    }
-    .player-left a{ color: inherit; text-decoration: none; cursor: pointer; }
-    .set-header{font-size:0.85rem;color:#2b3b4a;font-weight:800;padding:6px 8px;border-radius:8px;background:var(--header-bg);}
+    .sets-grid .label{ font-weight:800;color:#263444;padding-left:8px; }
+    .player-left{ text-align:left;padding-left:14px;font-weight:800;color:#081224; display:flex; align-items:center; gap:8px; }
+    .player-left a{ color:inherit; text-decoration:none; border-bottom:1px dashed rgba(0,0,0,0.06); padding-bottom:2px; }
+    .set-header{font-size:0.88rem;color:#243246;font-weight:800;padding:8px;border-radius:8px;background:var(--header-bg); text-align:center}
+    .set-cell{font-size:1.08rem;color:#071021;padding:10px;border-radius:8px;text-align:center;background:rgba(255,255,255,0.86);}
 
-    .set-cell{font-size:1.02rem;color:#081224;padding:8px 6px;border-radius:8px;background:rgba(255,255,255,0.6);}
-
-    /* Strong highlighting for best cell */
-    .cell-best{
-      background: linear-gradient(180deg, var(--green-strong) 0%, #0f8a37 100%);
-      color: var(--green-strong-contrast);
-      box-shadow: 0 6px 18px rgba(20,120,60,0.18);
-      border-radius:8px;
-      font-weight:800;
-    }
-    .cell-worse{
-      background: var(--red-soft);
-      color: #7a1f2f;
+    /* Highlight set winner strongly */
+    .set-winner{
+      background: linear-gradient(180deg, rgba(11,102,255,0.16), rgba(11,102,255,0.06));
+      color: #042857;
+      box-shadow: 0 6px 18px rgba(6,80,200,0.12);
+      font-weight:900;
       border-radius:8px;
     }
 
-    /* Stats table */
-    .stats-area{
-      margin-top:18px;
-      background:rgba(255,255,255,0.98);
-      border-radius:12px;
-      padding:12px;
-      border:1px solid rgba(0,0,0,0.04);
-    }
-    .stats-table{
-      width:100%;
-      border-collapse:collapse;
-      font-size:0.95rem;
-      color:#122;
-      table-layout:fixed;
-    }
-    .stats-table thead th{
-      padding:10px 12px;
-      background:var(--header-bg);
+    /* tiebreak superscript */
+    .games-sup { font-weight:900; }
+
+    .stats-area{ margin-top:18px; background:rgba(255,255,255,0.985); border-radius:12px; padding:12px; border:1px solid rgba(0,0,0,0.05); }
+    .stats-table{ width:100%; border-collapse:collapse; table-layout:fixed; font-size:0.95rem; color:#122; }
+    .stats-table thead th{ padding:10px 12px; background:var(--header-bg); font-weight:800; color:#122; border-bottom:3px solid rgba(0,0,0,0.04); }
+    .stats-table th.metric{ text-align:left; padding-left:14px; width:260px; }
+    .stats-table td, .stats-table th{ border-right:1px solid rgba(10,20,40,0.03); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:middle;}
+    .stats-table td{ padding:10px 12px; text-align:center; }
+
+    /* emphasize Match columns */
+    .match-col-td { background: var(--match-col-bg); border-left:3px solid var(--match-col-border); font-weight:800; color: #05274b; }
+    .group-header { background: linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0.6)); border-left:3px solid var(--divider-thick); }
+
+    /* best cell style (elegant, not crude) */
+    .cell-best {
+      background: var(--best-bg);
+      border: 1px solid var(--best-border);
+      color: var(--best-text);
+      border-radius:8px;
+      padding:6px 8px;
       font-weight:800;
-      color:#122;
-      border-bottom:3px solid rgba(0,0,0,0.04);
+      box-shadow: 0 6px 20px rgba(14,160,95,0.08);
     }
-    .stats-table th.metric{ text-align:left; font-weight:800; color:#172033; width:260px; padding-left:14px; }
-    .stats-table td, .stats-table th{ border-right:1px solid rgba(10,20,40,0.03); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-
-    /* Group separator: add thick left border to the player's 1 column of each group (Match / Set1 / Set2 ...) */
-    .group-start { border-left: 3px solid var(--thick-divider) !important; padding-left:14px; }
-    .group-start-header { background: linear-gradient(180deg, rgba(255,255,255,0.65), rgba(255,255,255,0.55)); border-left: 3px solid var(--thick-divider) !important; }
-
-    .stats-table td{ padding:10px 12px; text-align:center; vertical-align:middle; }
-    .stats-table td.player-label{ text-align:left; font-weight:700; padding-left:14px; }
-    .cell-small{ font-size:0.88rem; color:#274055; }
-
-    /* hover for player names */
-    .player-link{ color:inherit; text-decoration:none; border-bottom:2px dashed rgba(0,0,0,0.06); padding-bottom:2px; }
-    .player-link:hover{ border-bottom-style:solid; color:var(--green-strong); }
-
-    /* responsive tweaks */
-    @media (max-width:980px){
-      .sets-grid{ grid-template-columns: 160px repeat(5, 1fr); }
-      .stats-table th.metric{ width:180px; }
+    .cell-worse {
+      background: var(--bad-bg);
+      border-radius:8px;
+      padding:6px 8px;
+      color:#7b2430;
     }
-    @media (max-width:640px){
+
+    /* group separators for set groups: first column of each group has left border */
+    .group-start { border-left:3px solid var(--divider-thick); padding-left:12px; }
+
+    /* responsive */
+    @media (max-width:980px){ .sets-grid{ grid-template-columns: 160px repeat(5, 1fr);} .stats-table th.metric{ width:180px; } }
+    @media (max-width:680px){
       .sets-grid{ grid-template-columns: 140px repeat(5, 1fr); }
-      .header-row{flex-direction:column;align-items:flex-start;gap:8px}
-      .duration{position:static;align-self:flex-end}
-      .stats-table th.metric{ width:140px; }
-      .stats-table thead th{ font-size:0.86rem; padding:8px; }
-      .stats-table td{ padding:8px; }
+      .header-row{ flex-direction:column; align-items:flex-start; gap:10px; }
+      .duration{ position:static; align-self:flex-end; margin-bottom:6px; }
+      .score-area{ padding-top:14px; }
     }
   </style>
 </head>
 <body>
   <div class="page">
     <div class="topbar">
-      <div>
-        <a class="home" href="/">← home</a>
-      </div>
-      <div class="surface-badge" id="surface_badge" style="font-weight:700;color:#21323f"></div>
+      <div><a class="home" href="/">← home</a></div>
+      <div id="surface_badge" style="font-weight:800;color:#16324a"></div>
     </div>
 
     <div id="matchCard" class="match-card surface-hard">
       <div class="header-row">
         <div>
           <h1 id="title">ATP Match</h1>
-          <div style="display:flex;gap:10px;align-items:center">
+          <div style="display:flex;gap:12px;align-items:center">
             <div class="player-name">
-              <a id="player1_link" class="player-link" href="#" target="_blank" rel="noopener"><span id="player1_name">—</span></a>
+              <a id="player1_link" href="#" target="_blank" rel="noopener"><span id="player1_name">—</span></a>
               <div class="player-meta" id="player1_meta"></div>
             </div>
             <div class="player-name">
-              <a id="player2_link" class="player-link" href="#" target="_blank" rel="noopener"><span id="player2_name">—</span></a>
+              <a id="player2_link" href="#" target="_blank" rel="noopener"><span id="player2_name">—</span></a>
               <div class="player-meta" id="player2_meta"></div>
             </div>
           </div>
         </div>
 
         <div style="text-align:right">
-          <div id="match_round" style="font-weight:700;color:#23303a"></div>
+          <div id="match_round" style="font-weight:800;color:#23303a"></div>
           <div id="tourney_info" style="font-size:0.88rem;color:#3b4b59;margin-top:6px"></div>
         </div>
       </div>
@@ -200,18 +188,14 @@
       <div class="score-area" id="score_area">
         <div class="duration" id="duration_display">—</div>
 
-        <!-- Score grid -->
         <div class="sets-grid" id="sets_grid">
           <!-- injected -->
         </div>
-
       </div>
 
       <div class="stats-area" id="stats_area">
         <h3 style="margin:6px 0 12px 0">Match statistics</h3>
-        <div id="stats_table_wrap">
-          <!-- injected -->
-        </div>
+        <div id="stats_table_wrap"></div>
       </div>
 
       <pre id="raw_json" style="display:none"></pre>
@@ -220,44 +204,34 @@
 
 <script>
 /* ---------- Helpers ---------- */
-function getQueryParam(name){ const params = new URLSearchParams(window.location.search); return params.get(name); }
+function getQueryParam(name){ const params=new URLSearchParams(window.location.search); return params.get(name); }
 function sanitizeJsonPath(p){
   if(!p) return null;
-  try{
-    const url = new URL(p, window.location.href);
-    if(url.pathname.startsWith('/matches_json/atp/') || url.pathname.startsWith('/matches_json/atp')) return url.pathname + (url.search||'');
-  }catch(e){
-    if(p.startsWith('matches_json/atp/') || p.startsWith('/matches_json/atp/')) return p.replace(/^\//,'');
-  }
+  try{ const url=new URL(p, window.location.href); if(url.pathname.startsWith('/matches_json/atp/')||url.pathname.startsWith('/matches_json/atp')) return url.pathname + (url.search||''); }
+  catch(e){ if(p.startsWith('matches_json/atp/')||p.startsWith('/matches_json/atp/')) return p.replace(/^\//,''); }
   return null;
 }
 function tryGet(json, candidates){
-  for(const k of candidates){
-    if(k in json && json[k] !== null && json[k] !== undefined && json[k] !== '') return json[k];
-  }
+  for(const k of candidates) if(k in json && json[k] !== null && json[k] !== undefined && json[k] !== '') return json[k];
   return null;
 }
 function numberFrom(v){
-  if(v===null || v===undefined || v==='') return null;
-  if(typeof v === 'number') return v;
-  const s = String(v).replace('%','').trim();
-  if(s==='') return null;
-  const n = Number(s);
-  return isNaN(n) ? null : n;
+  if(v===null||v===undefined||v==='') return null;
+  if(typeof v==='number') return v;
+  const s=String(v).replace('%','').trim(); if(s==='') return null;
+  const n=Number(s); return isNaN(n)?null:n;
 }
 
-/* ---------- Load players index (for linking) ---------- */
+/* ---------- players_index loader (for profile links) ---------- */
 async function loadPlayersIndex(){
-  const tryPaths = ['/players_index.json','players_index.json'];
+  const tryPaths=['/players_index.json','players_index.json'];
   for(const p of tryPaths){
     try{
       const res = await fetch(p);
       if(!res.ok) throw new Error('not found');
       const idx = await res.json();
       if(idx && Array.isArray(idx.players)){
-        // build maps
-        const byId = new Map();
-        const byName = new Map();
+        const byId = new Map(), byName = new Map();
         idx.players.forEach(pl=>{
           if(pl.player_id) byId.set(String(pl.player_id).toLowerCase(), pl);
           if(pl.name) byName.set(String(pl.name).toLowerCase(), pl);
@@ -266,31 +240,66 @@ async function loadPlayersIndex(){
         return { byId, byName };
       }
     }catch(e){
-      // continue
+      // ignore
     }
   }
   return { byId: new Map(), byName: new Map() };
 }
 
-/* ---------- Main renderer ---------- */
+/* ---------- Parse score_string into per-set objects ---------- */
+function parseScoreString(score_string){
+  // returns array of { raw: "6-7(3)", g1:6, g2:7, tiebreakLoser:3|null, winnerIndex: 0|1 } with the assumption that score_string is in perspective of player1 (first value = player1's games)
+  if(!score_string) return [];
+  const parts = String(score_string).split(',').map(s=>s.trim()).filter(Boolean);
+  const sets = parts.map(part=>{
+    // match patterns like 6-7(3) or 7-6(5) or 6-2
+    const m = part.match(/^(\d+)\s*-\s*(\d+)(?:\((\d+)\))?$/);
+    if(!m) return { raw: part, g1:null, g2:null, tiebreakLoser:null, winnerIndex:null };
+    const g1 = Number(m[1]), g2 = Number(m[2]);
+    const tb = m[3] ? Number(m[3]) : null;
+    // determine winner index (0 for player1, 1 for player2)
+    let winnerIndex = null;
+    if(g1 > g2) winnerIndex = 0;
+    else if(g2 > g1) winnerIndex = 1;
+    // if tiebreak present: parentheses value convention (standard) is the tiebreak LOSER points (i.e., the value inside parentheses is how many points the loser scored in the tiebreak)
+    // we will store tb as the tiebreak-losers-points (i.e. the player who has 6 in the set will have superscript tb)
+    let tiebreakLoser = tb;
+    return { raw: part, g1, g2, tiebreakLoser, winnerIndex };
+  });
+  return sets;
+}
+
+/* ---------- Compute breakpoints converted per user's rule ---------- */
+function computeBreakpointsConverted(json, side, setIdx){
+  // side 'winner' or 'loser' ; use opponent's breakpointssaved fields to compute player's converted = opponent.opportunities - opponent.saved
+  const opponent = (side === 'winner') ? 'loser' : 'winner';
+  const suffix = setIdx ? `_set${setIdx}_${opponent}` : `_tot_${opponent}`;
+  const divCandidates = [`breakpointssaved_divisor${suffix}`, `breakpointssaved_divisor_${opponent}`, `breakpointssaved_divisor`];
+  const savedCandidates = [`breakpointssaved_dividend${suffix}`, `breakpointssaved_dividend_${opponent}`, `breakpointssaved_dividend`];
+  let oppOpp = null, oppSaved = null;
+  for(const k of divCandidates) if(k in json && json[k] !== null && json[k] !== undefined && json[k] !== '') { oppOpp = Number(json[k]); break; }
+  for(const k of savedCandidates) if(k in json && json[k] !== null && json[k] !== undefined && json[k] !== '') { oppSaved = Number(json[k]); break; }
+  if(oppOpp === null || oppOpp === 0) return null;
+  if(oppSaved === null) oppSaved = 0;
+  const converted = oppOpp - oppSaved;
+  return { x: converted, y: oppOpp, frac: converted / oppOpp };
+}
+
+/* ---------- Main rendering ---------- */
 async function loadAndRender(){
   const playersIndex = await loadPlayersIndex();
 
-  // Fetch match JSON same logic as before
+  // find match JSON path
   let path = getQueryParam('data') || getQueryParam('file');
   if(!path){
     const params = new URLSearchParams(window.location.search);
-    const tourney = params.get('tourney');
-    const year = params.get('year');
-    const match = params.get('match');
+    const tourney = params.get('tourney'), year = params.get('year'), match = params.get('match');
     if(tourney && year && match) path = `/matches_json/atp/atp_${tourney}_${year}_${match}.json`;
   }
   const sanitized = sanitizeJsonPath(path);
-  if(!sanitized){
-    document.getElementById('title').innerText = 'JSON file not provided or path not allowed';
-    return;
-  }
-  const tryPaths = [sanitized.startsWith('/') ? sanitized : ('/' + sanitized), sanitized];
+  if(!sanitized){ document.getElementById('title').innerText = 'JSON file not provided or path not allowed'; return; }
+
+  const tryPaths = [ sanitized.startsWith('/') ? sanitized : ('/' + sanitized), sanitized ];
   let json = null;
   for(const p of tryPaths){
     try{
@@ -300,168 +309,192 @@ async function loadAndRender(){
       break;
     }catch(e){}
   }
-  if(!json){
-    document.getElementById('title').innerText = 'Unable to load JSON: ' + sanitized;
-    return;
-  }
+  if(!json){ document.getElementById('title').innerText = 'Unable to load JSON: ' + sanitized; return; }
   document.getElementById('raw_json').textContent = JSON.stringify(json, null, 2);
 
-  // header
-  const p1 = tryGet(json, ['winner_player_name','winner','player_winner','player_a','player1','player1_name']) || '—';
-  const p2 = tryGet(json, ['loser_player_name','loser','player_loser','player_b','player2','player2_name']) || '—';
+  // determine player1/player2 ordering: in our UI we choose Player1 = winner (so score_string is in player1 perspective)
+  const p1 = tryGet(json, ['winner_player_name','player_winner','winner','player_a']) || 'Player 1';
+  const p2 = tryGet(json, ['loser_player_name','player_loser','loser','player_b']) || 'Player 2';
   document.getElementById('player1_name').innerText = p1;
   document.getElementById('player2_name').innerText = p2;
 
-  const p1meta = [
-    tryGet(json, ['winner_country','country_winner']),
-    tryGet(json, ['winner_seed','seed_winner'])
-  ].filter(Boolean).map(v=> typeof v === 'number' ? 'seed '+v : v).join(' • ');
-  const p2meta = [
-    tryGet(json, ['loser_country','country_loser']),
-    tryGet(json, ['loser_seed','seed_loser'])
-  ].filter(Boolean).map(v=> typeof v === 'number' ? 'seed '+v : v).join(' • ');
+  const p1meta = [ tryGet(json, ['winner_country','country_winner']), tryGet(json, ['winner_seed','seed_winner']) ].filter(Boolean).map(v=> typeof v==='number'? 'seed '+v : v).join(' • ');
+  const p2meta = [ tryGet(json, ['loser_country','country_loser']), tryGet(json, ['loser_seed','seed_loser']) ].filter(Boolean).map(v=> typeof v==='number'? 'seed '+v : v).join(' • ');
   document.getElementById('player1_meta').innerText = p1meta;
   document.getElementById('player2_meta').innerText = p2meta;
 
   document.getElementById('title').innerText = tryGet(json,['tourney_name','tournament_name']) || 'ATP Match';
   document.getElementById('match_round').innerText = tryGet(json,['round']) || '';
-  const tm = tryGet(json,['event_year']) ? (tryGet(json,['event_year'])) : '';
+  const tm = tryGet(json,['event_year']) || '';
   document.getElementById('tourney_info').innerText = (tryGet(json,['tourney_name']) || '') + (tm ? ' • ' + tm : '');
 
-  // Surface
-  const surface = (tryGet(json,['surface']) || 'Hard');
+  // surface strong visuals
+  const surface = tryGet(json,['surface']) || 'Hard';
   const card = document.getElementById('matchCard');
   card.classList.remove('surface-hard','surface-grass','surface-clay','surface-carpet');
   const s = String(surface).toLowerCase();
-  if(s.includes('hard')){ card.classList.add('surface-hard'); document.getElementById('surface_badge').innerText = 'Surface: Hard'; }
-  else if(s.includes('grass')){ card.classList.add('surface-grass'); document.getElementById('surface_badge').innerText = 'Surface: Grass'; }
-  else if(s.includes('clay')){ card.classList.add('surface-clay'); document.getElementById('surface_badge').innerText = 'Surface: Clay'; }
-  else if(s.includes('carpet')){ card.classList.add('surface-carpet'); document.getElementById('surface_badge').innerText = 'Surface: Carpet'; }
-  else { card.classList.add('surface-hard'); document.getElementById('surface_badge').innerText = 'Surface: ' + surface; }
+  const surfaceBadge = document.getElementById('surface_badge');
+  if(s.includes('hard')){ card.classList.add('surface-hard'); surfaceBadge.innerText='Surface: Hard'; }
+  else if(s.includes('grass')){ card.classList.add('surface-grass'); surfaceBadge.innerText='Surface: Grass'; }
+  else if(s.includes('clay')){ card.classList.add('surface-clay'); surfaceBadge.innerText='Surface: Clay'; }
+  else if(s.includes('carpet')){ card.classList.add('surface-carpet'); surfaceBadge.innerText='Surface: Carpet'; }
+  else { card.classList.add('surface-hard'); surfaceBadge.innerText = 'Surface: ' + surface; }
 
-  // Duration
+  // duration (moved so it doesn't overlap)
   const duration = tryGet(json,['match_time_total','match_time','match_date']) || '';
   document.getElementById('duration_display').innerText = duration ? 'Duration: ' + duration : '';
 
-  /* -------- Sets display (score box) -------- */
-  // gather set strings
-  let setScores = [];
-  for(let i=1;i<=5;i++){
-    const k = `set${i}_score`;
-    let v = null;
-    if(k in json && json[k] !== null && json[k] !== undefined) v = json[k];
-    // winner/loser pair fields fallback
-    if((v===null||v===undefined) && (`winner_score_set${i}` in json || `loser_score_set${i}` in json)){
-      const w = json[`winner_score_set${i}`];
-      const l = json[`loser_score_set${i}`];
-      if(w!==undefined || l!==undefined){
-        v = `${w||''}-${l||''}`;
-      }
-    }
-    setScores.push(v ? String(v) : null);
-  }
-  // fallback parse score_string
-  if(setScores.every(x=>x===null) && json.score_string){
-    const parts = String(json.score_string).split(',').map(s=>s.trim());
-    for(let i=0;i<parts.length && i<5;i++) setScores[i] = parts[i];
-  }
+  /* ---------- Score parsing and rendering ---------- */
+  // parse score_string into sets and show per-player games with tiebreak superscript
+  const score_string = tryGet(json,['score_string','score']) || '';
+  const sets = parseScoreString(score_string);
 
   // render sets grid
   const setsGrid = document.getElementById('sets_grid');
   setsGrid.innerHTML = '';
-  // header blank
+  // header blank cell
   const label = document.createElement('div'); label.className='label'; label.innerText = ''; setsGrid.appendChild(label);
-  for(let i=0;i<5;i++){
-    const h = document.createElement('div'); h.className='set-header'; h.innerText = 'Set '+(i+1); setsGrid.appendChild(h);
+  // header set columns
+  const usedSets = Math.max(sets.length, 5); // keep up to 5 columns (but will only show headers for available sets if you prefer)
+  for(let i=0;i<usedSets;i++){
+    const h = document.createElement('div'); h.className='set-header'; h.innerText = 'Set ' + (i+1); setsGrid.appendChild(h);
   }
 
-  // add clickable player names on left that link to center_court profiles (if found)
-  function makePlayerLinkElement(name, playerIdField, playerIdFromJson, playersIndexMap){
+  // function to create left cell with profile link (via playersIndex)
+  function makePlayerLeft(name, idCandidate){
     const wrapper = document.createElement('div');
     wrapper.className = 'player-left';
-    // find matching player in index by id then by name
+    // try match by id first
     let profile = null;
-    if(playerIdFromJson){
-      const key = String(playerIdFromJson).toLowerCase();
-      profile = playersIndexMap.byId.get(key) || null;
+    if(idCandidate){
+      const key = String(idCandidate).toLowerCase();
+      profile = playersIndex.byId.get(key) || null;
     }
     if(!profile){
-      const byNameKey = String(name || '').toLowerCase();
-      profile = playersIndexMap.byName.get(byNameKey) || null;
+      const nameKey = String(name || '').toLowerCase();
+      profile = playersIndex.byName.get(nameKey) || null;
     }
     if(profile && profile.page_href){
       const a = document.createElement('a');
       a.href = 'https://center_court.net/' + profile.page_href;
-      a.target = '_blank'; a.rel = 'noopener';
-      a.className = 'player-link';
+      a.target = '_blank'; a.rel='noopener';
       a.innerText = name;
       wrapper.appendChild(a);
     } else {
-      // no profile found -> plain text
-      const span = document.createElement('span');
-      span.innerText = name;
-      wrapper.appendChild(span);
+      const span = document.createElement('span'); span.innerText = name; wrapper.appendChild(span);
     }
     return wrapper;
   }
 
-  // player_id fields from match JSON
-  const p1_id_json = tryGet(json, ['player_id_winner','player_id_winner','player_id_winner']);
-  const p2_id_json = tryGet(json, ['player_id_loser','player_id_loser','player_id_loser']);
+  const p1_id_json = tryGet(json,['player_id_winner','player_id_winner']);
+  const p2_id_json = tryGet(json,['player_id_loser','player_id_loser']);
 
-  // row for player 1
-  const p1label = makePlayerLinkElement(p1, 'player_id_winner', p1_id_json, playersIndex);
-  setsGrid.appendChild(p1label);
-  for(let i=0;i<5;i++){
-    const cell = document.createElement('div');
-    cell.className = 'set-cell';
-    cell.innerText = setScores[i] || '—';
-    setsGrid.appendChild(cell);
+  // row player1
+  setsGrid.appendChild(makePlayerLeft(p1, p1_id_json));
+  for(let i=0;i<usedSets;i++){
+    const div = document.createElement('div'); div.className='set-cell';
+    if(i < sets.length){
+      const st = sets[i];
+      if(st.g1 === null || st.g2 === null){ div.innerText = st.raw; }
+      else {
+        // display player1's games; if tiebreak present attach superscript to the player who has 6 (the tiebreak LOSER)
+        if(st.tiebreakLoser !== null){
+          // find which player has 6 (tiebreak loser)
+          if(st.g1 === 6){
+            // display g1 with superscript
+            div.innerHTML = `<span class="games-sup">${st.g1}<sup>${st.tiebreakLoser}</sup></span>`;
+          } else {
+            div.innerHTML = `<span>${st.g1}</span>`;
+          }
+        } else {
+          div.innerText = st.g1;
+        }
+      }
+    } else { div.innerText = '—'; }
+    setsGrid.appendChild(div);
   }
 
-  // row for player 2
-  const p2label = makePlayerLinkElement(p2, 'player_id_loser', p2_id_json, playersIndex);
-  setsGrid.appendChild(p2label);
-  for(let i=0;i<5;i++){
-    const cell = document.createElement('div');
-    cell.className = 'set-cell';
-    cell.innerText = setScores[i] || '—';
-    setsGrid.appendChild(cell);
+  // row player2
+  setsGrid.appendChild(makePlayerLeft(p2, p2_id_json));
+  for(let i=0;i<usedSets;i++){
+    const div = document.createElement('div'); div.className='set-cell';
+    if(i < sets.length){
+      const st = sets[i];
+      if(st.g1 === null || st.g2 === null){ div.innerText = st.raw; }
+      else {
+        if(st.tiebreakLoser !== null){
+          // attach superscript to the player with 6 (if g2==6)
+          if(st.g2 === 6){
+            div.innerHTML = `<span class="games-sup">${st.g2}<sup>${st.tiebreakLoser}</sup></span>`;
+          } else {
+            div.innerHTML = `<span>${st.g2}</span>`;
+          }
+        } else {
+          div.innerText = st.g2;
+        }
+      }
+    } else { div.innerText = '—'; }
+    setsGrid.appendChild(div);
   }
 
-  // Also make the main header player names linkable (top-of-page)
-  async function resolveProfileLink(name, idFromJson){
+  // Now highlight per-set winner cells (strong color)
+  for(let i=0;i<sets.length;i++){
+    const st = sets[i];
+    if(st.winnerIndex === null) continue;
+    // grid layout: indexes: 0 label, 1..N set header, then row1 cells start at col index 1..N, etc.
+    // However we appended DOM elements sequentially: header row elements (label + usedSets headers) => usedSets+1 elements,
+    // then player1 row: first appended was player1-left then usedSets cells (so their order begins at (usedSets+1) + 1)
+    // Simpler: select all .sets-grid .set-cell and split into two groups of length usedSets
+  }
+  // simpler approach: select nodes and apply winner class
+  const setCells = Array.from(document.querySelectorAll('#sets_grid .set-cell'));
+  // first usedSets belong to player1, next usedSets to player2
+  for(let i=0;i<sets.length;i++){
+    const st = sets[i];
+    if(st.winnerIndex === null) continue;
+    const idxP1 = i;
+    const idxP2 = usedSets + i;
+    if(st.winnerIndex === 0){
+      // player1 won -> highlight player1 cell
+      if(setCells[idxP1]) setCells[idxP1].classList.add('set-winner');
+      if(setCells[idxP2]) setCells[idxP2].classList.add(''); // no-op
+    } else {
+      if(setCells[idxP2]) setCells[idxP2].classList.add('set-winner');
+    }
+  }
+
+  // top player links: set href for top names too (resolve via playersIndex)
+  async function resolveProfile(name, idFromJson){
     if(idFromJson){
       const key = String(idFromJson).toLowerCase();
       const found = playersIndex.byId.get(key);
       if(found && found.page_href) return 'https://center_court.net/' + found.page_href;
     }
     const nameKey = String(name || '').toLowerCase();
-    const found2 = playersIndex.byName.get(nameKey);
-    if(found2 && found2.page_href) return 'https://center_court.net/' + found2.page_href;
+    const foundByName = playersIndex.byName.get(nameKey);
+    if(foundByName && foundByName.page_href) return 'https://center_court.net/' + foundByName.page_href;
     return null;
   }
-  const link1 = await resolveProfileLink(p1, p1_id_json);
-  const link2 = await resolveProfileLink(p2, p2_id_json);
-  const elPlayer1Link = document.getElementById('player1_link');
-  const elPlayer2Link = document.getElementById('player2_link');
-  if(link1){ elPlayer1Link.href = link1; elPlayer1Link.target = '_blank'; elPlayer1Link.rel='noopener'; }
-  else { elPlayer1Link.removeAttribute('href'); elPlayer1Link.style.cursor = 'default'; }
-  if(link2){ elPlayer2Link.href = link2; elPlayer2Link.target = '_blank'; elPlayer2Link.rel='noopener'; }
-  else { elPlayer2Link.removeAttribute('href'); elPlayer2Link.style.cursor = 'default'; }
+  const link1 = await resolveProfile(p1, p1_id_json);
+  const el1 = document.getElementById('player1_link');
+  if(link1){ el1.href = link1; el1.target='_blank'; el1.rel='noopener'; } else { el1.removeAttribute('href'); el1.style.cursor='default'; }
 
-  /* ---------- Stats table with clear group separators ---------- */
+  const link2 = await resolveProfile(p2, p2_id_json);
+  const el2 = document.getElementById('player2_link');
+  if(link2){ el2.href = link2; el2.target='_blank'; el2.rel='noopener'; } else { el2.removeAttribute('href'); el2.style.cursor='default'; }
+
+  /* ---------- Stats table: nicer highlight and Match column emphasized ---------- */
   const metrics = [
     { key:'aces', label:'Aces', winner_keys:['aces_tot_winner','aces_tot_winner'], loser_keys:['aces_tot_loser','aces_tot_loser'], perSetPrefix:'aces_set', lowerIsBetter:false },
     { key:'doublefaults', label:'Double faults', winner_keys:['doublefaults_tot_winner'], loser_keys:['doublefaults_tot_loser'], perSetPrefix:'doublefaults_set', lowerIsBetter:true },
-    { key:'firstserve_pct', label:'First serve %', winner_keys:['firstserve_percent_tot_winner','firstservepercentage_tot_winner'], loser_keys:['firstserve_percent_tot_loser'], perSetPrefix:'firstserve_percent_set', lowerIsBetter:false },
+    { key:'firstserve_pct', label:'First serve %', winner_keys:['firstserve_percent_tot_winner'], loser_keys:['firstserve_percent_tot_loser'], perSetPrefix:'firstserve_percent_set', lowerIsBetter:false },
     { key:'firstservepointswon_pct', label:'First serve points won %', winner_keys:['firstservepointswon_percent_tot_winner'], loser_keys:['firstservepointswon_percent_tot_loser'], perSetPrefix:'firstservepointswon_percent_set', lowerIsBetter:false },
     { key:'secondservepointswon_pct', label:'Second serve points won %', winner_keys:['secondservepointswon_percent_tot_winner'], loser_keys:['secondservepointswon_percent_tot_loser'], perSetPrefix:'secondservepointswon_percent_set', lowerIsBetter:false },
     { key:'breakpoints_converted', label:'Breakpoints converted (x/y)', special:'breakpoints_converted', perSetPrefix:'breakpointsconverted', lowerIsBetter:false },
     { key:'totalpointswon_pct', label:'Total points won %', winner_keys:['totalpointswon_percent_tot_winner'], loser_keys:['totalpointswon_percent_tot_loser'], perSetPrefix:'totalpointswon_percent_set', lowerIsBetter:false }
   ];
 
-  // detect per-set availability count
+  // detect sets with per-set stats
   let setsWithPerStats = 0;
   for(let s=1;s<=5;s++){
     if( (`aces_set${s}_winner` in json) || (`totalpointswon_percent_set${s}_winner` in json) || (`totalpointswon_percent_set${s}_loser` in json) ) setsWithPerStats = s;
@@ -469,23 +502,17 @@ async function loadAndRender(){
 
   const wrap = document.getElementById('stats_table_wrap');
   const table = document.createElement('table'); table.className='stats-table';
-  // header
   const thead = document.createElement('thead');
   const thr = document.createElement('tr');
-  // Metric header
-  const thMetric = document.createElement('th'); thMetric.className='metric'; thMetric.innerText = 'Metric'; thr.appendChild(thMetric);
-  // Group start for Match: we want the Player1 column to have the left thick divider
-  const thP1 = document.createElement('th'); thP1.className='group-start-header'; thP1.innerText = p1; thr.appendChild(thP1);
+  const thMetric = document.createElement('th'); thMetric.className='metric'; thMetric.innerText='Metric'; thr.appendChild(thMetric);
+  const thP1 = document.createElement('th'); thP1.className='group-header'; thP1.innerText = p1; thr.appendChild(thP1);
   const thP2 = document.createElement('th'); thP2.innerText = p2; thr.appendChild(thP2);
-  // per-set pairs
   for(let i=1;i<=setsWithPerStats;i++){
-    const ths1 = document.createElement('th'); ths1.className='group-start-header'; ths1.innerText = 'Set '+i + ' — ' + p1; thr.appendChild(ths1);
-    const ths2 = document.createElement('th'); ths2.innerText = 'Set '+i + ' — ' + p2; thr.appendChild(ths2);
+    const ths1 = document.createElement('th'); ths1.className='group-header'; ths1.innerText = 'Set ' + i + ' — ' + p1; thr.appendChild(ths1);
+    const ths2 = document.createElement('th'); ths2.innerText = 'Set ' + i + ' — ' + p2; thr.appendChild(ths2);
   }
-  thead.appendChild(thr);
-  table.appendChild(thead);
+  thead.appendChild(thr); table.appendChild(thead);
 
-  // body
   const tbody = document.createElement('tbody');
 
   function normForCompare(displayVal){
@@ -503,50 +530,30 @@ async function loadAndRender(){
     return null;
   }
 
-  function computeBreakpointsConverted(side, setIdx){
-    // As requested: to compute player's converted, use opponent's breakpointssaved fields:
-    // opponent = side==='winner' ? 'loser' : 'winner'
-    const opponent = side === 'winner' ? 'loser' : 'winner';
-    const suffix = setIdx ? `_set${setIdx}_${opponent}` : `_tot_${opponent}`;
-    const divKeys = [`breakpointssaved_divisor${suffix}`, `breakpointssaved_divisor_${opponent}`, `breakpointssaved_divisor`];
-    const savedKeys = [`breakpointssaved_dividend${suffix}`, `breakpointssaved_dividend_${opponent}`, `breakpointssaved_dividend`];
-    let oppOpportunities = null, oppSaved = null;
-    for(const k of divKeys){ if(k in json && json[k] !== null && json[k] !== undefined && json[k] !== '') { oppOpportunities = Number(json[k]); break; } }
-    for(const k of savedKeys){ if(k in json && json[k] !== null && json[k] !== undefined && json[k] !== '') { oppSaved = Number(json[k]); break; } }
-    if(oppOpportunities === null || oppOpportunities === 0) return null;
-    if(oppSaved === null) oppSaved = 0;
-    const converted = oppOpportunities - oppSaved;
-    return { x: converted, y: oppOpportunities, frac: converted/oppOpportunities };
-  }
-
   for(const metricInfo of metrics){
     const tr = document.createElement('tr');
     const thM = document.createElement('th'); thM.className='metric'; thM.innerText = metricInfo.label; tr.appendChild(thM);
 
-    // match level values
+    // match-level values (p1 = winner, p2 = loser)
     let p1val = null, p2val = null;
     if(metricInfo.special === 'breakpoints_converted'){
-      const a = computeBreakpointsConverted('winner', 0);
-      const b = computeBreakpointsConverted('loser', 0);
+      const a = computeBreakpointsConverted(json, 'winner', 0);
+      const b = computeBreakpointsConverted(json, 'loser', 0);
       p1val = a ? `${a.x}/${a.y}` : null;
       p2val = b ? `${b.x}/${b.y}` : null;
     } else {
-      // check winner_keys / loser_keys (these assume p1 is overall winner)
-      for(const k of (metricInfo.winner_keys || [])){ if(k in json && json[k] !== null && json[k] !== undefined && json[k] !== ''){ p1val = json[k]; break; } }
-      for(const k of (metricInfo.loser_keys || [])){ if(k in json && json[k] !== null && json[k] !== undefined && json[k] !== ''){ p2val = json[k]; break; } }
-      // as a fallback check generic tot keys pattern (some JSONs use slightly different names)
-      if(p1val===null){
-        const fallbackKeys = [`${metricInfo.key}_tot_winner`,`${metricInfo.key}_tot`];
-        for(const k of fallbackKeys){ if(k in json && json[k]!==null && json[k]!==undefined && json[k]!==''){ p1val = json[k]; break; } }
+      for(const k of (metricInfo.winner_keys || [])) if(k in json && json[k] !== null && json[k] !== undefined && json[k] !== '') { p1val = json[k]; break; }
+      for(const k of (metricInfo.loser_keys || [])) if(k in json && json[k] !== null && json[k] !== undefined && json[k] !== '') { p2val = json[k]; break; }
+      // fallback generic names
+      if(p1val === null){
+        const f1 = `${metricInfo.key}_tot_winner`; if(f1 in json) p1val = json[f1];
       }
-      if(p2val===null){
-        const fallbackKeys = [`${metricInfo.key}_tot_loser`,`${metricInfo.key}_tot`];
-        for(const k of fallbackKeys){ if(k in json && json[k]!==null && json[k]!==undefined && json[k]!==''){ p2val = json[k]; break; } }
+      if(p2val === null){
+        const f2 = `${metricInfo.key}_tot_loser`; if(f2 in json) p2val = json[f2];
       }
     }
 
-    const p1norm = normForCompare(p1val);
-    const p2norm = normForCompare(p2val);
+    const p1norm = normForCompare(p1val), p2norm = normForCompare(p2val);
     let p1IsBetter = null;
     if(p1norm === null && p2norm === null) p1IsBetter = null;
     else if(p1norm === null) p1IsBetter = false;
@@ -555,58 +562,43 @@ async function loadAndRender(){
 
     const td1 = document.createElement('td'); td1.innerText = p1val !== null && p1val !== undefined ? String(p1val) : '—';
     const td2 = document.createElement('td'); td2.innerText = p2val !== null && p2val !== undefined ? String(p2val) : '—';
-    // add group-start class to the first column of the match group (td1)
-    td1.classList.add('group-start');
-
+    // emphasize match columns
+    td1.classList.add('match-col-td');
+    // highlight best
     if(p1IsBetter === true) td1.classList.add('cell-best'); else if(p1IsBetter === false) td2.classList.add('cell-best');
 
-    tr.appendChild(td1);
-    tr.appendChild(td2);
+    tr.appendChild(td1); tr.appendChild(td2);
 
-    // per set columns (two columns per set)
+    // per-set columns
     for(let sIdx=1;sIdx<=setsWithPerStats;sIdx++){
       let v1 = null, v2 = null;
       if(metricInfo.special === 'breakpoints_converted'){
-        const a = computeBreakpointsConverted('winner', sIdx);
-        const b = computeBreakpointsConverted('loser', sIdx);
+        const a = computeBreakpointsConverted(json, 'winner', sIdx);
+        const b = computeBreakpointsConverted(json, 'loser', sIdx);
         v1 = a ? `${a.x}/${a.y}` : null;
         v2 = b ? `${b.x}/${b.y}` : null;
       } else {
-        // candidate keys for set-level stats (try winner/loser suffix)
-        const candidates1 = [
-          `${metricInfo.perSetPrefix}${sIdx}_winner`,
-          `${metricInfo.perSetPrefix}_set${sIdx}_winner`,
-          `${metricInfo.perSetPrefix}_set${sIdx}`,
-          `${metricInfo.perSetPrefix}${sIdx}`
-        ];
-        const candidates2 = [
-          `${metricInfo.perSetPrefix}${sIdx}_loser`,
-          `${metricInfo.perSetPrefix}_set${sIdx}_loser`,
-          `${metricInfo.perSetPrefix}_set${sIdx}`,
-          `${metricInfo.perSetPrefix}${sIdx}`
-        ];
-        for(const k of candidates1){ if(k in json && json[k]!==null && json[k]!==undefined && json[k]!==''){ v1 = json[k]; break; } }
-        for(const k of candidates2){ if(k in json && json[k]!==null && json[k]!==undefined && json[k]!==''){ v2 = json[k]; break; } }
+        // candidate keys
+        const candidates1 = [`${metricInfo.perSetPrefix}${sIdx}_winner`, `${metricInfo.perSetPrefix}_set${sIdx}_winner`, `${metricInfo.perSetPrefix}_set${sIdx}`, `${metricInfo.perSetPrefix}${sIdx}`];
+        const candidates2 = [`${metricInfo.perSetPrefix}${sIdx}_loser`, `${metricInfo.perSetPrefix}_set${sIdx}_loser`, `${metricInfo.perSetPrefix}_set${sIdx}`, `${metricInfo.perSetPrefix}${sIdx}`];
+        for(const k of candidates1) if(k in json && json[k] !== null && json[k] !== undefined && json[k] !== '') { v1 = json[k]; break; }
+        for(const k of candidates2) if(k in json && json[k] !== null && json[k] !== undefined && json[k] !== '') { v2 = json[k]; break; }
       }
 
-      const n1 = normForCompare(v1);
-      const n2 = normForCompare(v2);
+      const n1 = normForCompare(v1), n2 = normForCompare(v2);
       let n1Better = null;
       if(n1 === null && n2 === null) n1Better = null;
       else if(n1 === null) n1Better = false;
       else if(n2 === null) n1Better = true;
       else n1Better = metricInfo.lowerIsBetter ? (n1 < n2) : (n1 > n2);
 
-      const setTd1 = document.createElement('td'); setTd1.innerText = v1!==null && v1!==undefined ? String(v1) : '—';
-      const setTd2 = document.createElement('td'); setTd2.innerText = v2!==null && v2!==undefined ? String(v2) : '—';
-      // add group-start class to the first column of each set group
+      const setTd1 = document.createElement('td'); setTd1.innerText = v1 !== null && v1 !== undefined ? String(v1) : '—';
+      const setTd2 = document.createElement('td'); setTd2.innerText = v2 !== null && v2 !== undefined ? String(v2) : '—';
+      // emphasize first col of each set group
       setTd1.classList.add('group-start');
+      if(n1Better === true) setTd1.classList.add('cell-best'); else if(n1Better === false) setTd2.classList.add('cell-best');
 
-      if(n1Better === true) setTd1.classList.add('cell-best');
-      else if(n1Better === false) setTd2.classList.add('cell-best');
-
-      tr.appendChild(setTd1);
-      tr.appendChild(setTd2);
+      tr.appendChild(setTd1); tr.appendChild(setTd2);
     }
 
     tbody.appendChild(tr);
