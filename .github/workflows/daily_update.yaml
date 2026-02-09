@@ -64,17 +64,23 @@ jobs:
           python -m pip install --upgrade pip
           # ajouter d'autres dépendances si nécessaires
 
-      - name: Generate birthday_today.json
+      - name: Generate birthday_today.json and daily_guess.json
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
           set -euxo pipefail
           mkdir -p "${BUILD_DIR}/tools"
-          # On tente d'écrire dans BUILD_DIR via --out; si le script écrit ailleurs, on le détectera ensuite.
+          # generate birthday (ton script existant)
           python scripts/generate_birthday_box.py \
             --players-by-birth docs/tools/players_by_birth.json \
             --latest-atp docs/tools/latest_atp_ranking.json \
             --latest-wta docs/tools/latest_wta_ranking.json \
             --out "${BUILD_DIR}/tools/birthday_today.json" || true
+
+          # generate daily guess file (new)
+          python scripts/generate_daily_guess.py \
+            --atp player_data_atp.csv \
+            --wta player_data_wta.csv \
+            --out "${BUILD_DIR}/tools/daily_guess.json" || true
 
           echo ">>> After generation: listing possible locations"
           echo "BUILD_DIR/tools:"
@@ -84,19 +90,29 @@ jobs:
           echo "site_static/tools:"
           ls -la site_static/tools || true
 
+
       - name: Copy into site_static/tools (for site serving)
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
           set -euxo pipefail
           mkdir -p site_static/tools
 
-          # Prioritize BUILD_DIR output if présent; else fallback à docs/tools (si le script a écrit directement dedans)
+          # Prioritize BUILD_DIR output if present; else fallback to docs/tools
           if [ -f "${BUILD_DIR}/tools/birthday_today.json" ]; then
             cp -v "${BUILD_DIR}/tools/birthday_today.json" site_static/tools/ || true
           elif [ -f "docs/tools/birthday_today.json" ]; then
             cp -v "docs/tools/birthday_today.json" site_static/tools/ || true
           else
-            echo "Aucun fichier généré trouvé dans BUILD_DIR ni docs/tools"
+            echo "Aucun birthday_today.json généré trouvé"
+          fi
+
+          # daily_guess.json
+          if [ -f "${BUILD_DIR}/tools/daily_guess.json" ]; then
+            cp -v "${BUILD_DIR}/tools/daily_guess.json" site_static/tools/ || true
+          elif [ -f "docs/tools/daily_guess.json" ]; then
+            cp -v "docs/tools/daily_guess.json" site_static/tools/ || true
+          else
+            echo "Aucun daily_guess.json généré trouvé"
           fi
 
           ls -la site_static/tools || true
@@ -128,6 +144,8 @@ jobs:
 
           # Stage known locations explicitement pour éviter les modifications non-stagées
           git add -f docs/tools/birthday_today.json site_static/tools/birthday_today.json || true
+          git add -f docs/tools/birthday_today.json site_static/tools/birthday_today.json || true
+          git add -f docs/tools/daily_guess.json site_static/tools/daily_guess.json || true
 
           # Safety: abort if index.html or other manual files would be staged
           if git diff --cached --name-only | grep -Eiq '(^|/)index\.html$'; then
