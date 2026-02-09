@@ -1,0 +1,674 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Guess The Player — Prototype</title>
+
+<!-- PapaParse pour parser CSV robustement -->
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+<style>
+  :root{font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;padding:0;margin:0}
+  body{max-width:980px;margin:24px auto;padding:18px;background:#fafafa;color:#111;border-radius:8px;box-shadow:0 6px 30px rgba(0,0,0,0.06)}
+  h1{margin-top:0}
+  .controls{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+  .panel{background:white;padding:12px;border-radius:8px;box-shadow:0 3px 10px rgba(0,0,0,0.03);margin-top:12px}
+  label{font-weight:600}
+  input[type="text"]{padding:8px;border-radius:6px;border:1px solid #ddd}
+  button{padding:8px 12px;border-radius:8px;border:none;background:#1f7aec;color:white;cursor:pointer}
+  button.secondary{background:#6c6f76}
+  table{width:100%;border-collapse:collapse;margin-top:12px}
+  th,td{padding:8px;border-bottom:1px solid #eee;text-align:left}
+  tr.correct{background:#e6ffed}
+  .hint{font-size:0.9rem;color:#555}
+  .small{font-size:0.9rem;color:#666}
+  .result-good{color:green;font-weight:700}
+  .result-bad{color:#c0392b;font-weight:700}
+  .meta{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px}
+  .chip{background:#f1f5f9;padding:6px 10px;border-radius:999px}
+  .reveal{margin-top:12px}
+  .hidden{display:none}
+  .distance{font-weight:700}
+  .explain{font-size:0.9rem;color:#444;background:#fff8d6;padding:8px;border-radius:6px}
+</style>
+</head>
+<body>
+
+<h1>Guess the player — Prototype</h1>
+<p class="hint">Le jeu choisit un·e joueur·se au hasard selon la difficulté et par pays. Tape un nom (autocomplétion disponible), puis valider. Compare le résultat avec le joueur cible. Les signes <strong>+</strong>/<strong>-</strong> indiquent si la valeur du guess est supérieure ou inférieure à celle de la cible.</p>
+
+<div class="panel">
+  <div class="controls">
+    <div>
+      <label for="difficulty">Difficulté</label><br>
+      <select id="difficulty">
+        <option value="20">Très facile — Top 20</option>
+        <option value="100">Moyen — Top 100</option>
+        <option value="300">Difficile — Top 300</option>
+      </select>
+    </div>
+
+    <div>
+      <label for="maxGuesses">Essais max</label><br>
+      <input id="maxGuesses" type="number" min="1" max="12" value="6" style="width:72px">
+    </div>
+
+    <div style="align-self:end">
+      <button id="startBtn">Démarrer une partie</button>
+      <button id="resetBtn" class="secondary">Réinitialiser</button>
+    </div>
+  </div>
+
+  <div id="gameArea" class="panel hidden">
+    <div class="meta">
+      <div class="chip">Niveau: <span id="levelLabel">—</span></div>
+      <div class="chip">Pays choisi: <strong id="selectedCountry">—</strong></div>
+      <div class="chip">Essais restants: <strong id="remaining">—</strong></div>
+      <div class="chip">Score actuel: <strong id="score">0</strong></div>
+    </div>
+
+    <div style="margin-top:10px;">
+      <label for="guessInput">Tape le nom du joueur / joueuse</label><br>
+      <!-- datalist pour autocomplétion -->
+      <input id="guessInput" list="playersList" placeholder="Ex: Novak Djokovic" style="width:65%">
+      <datalist id="playersList"></datalist>
+      <button id="guessBtn">Valider</button>
+    </div>
+
+    <div class="small" style="margin-top:8px">
+      Signes: <strong>+</strong> = la valeur du guess est supérieure à la cible ; <strong>-</strong> = inférieure. (ex : age + => tu as deviné une personne plus âgée)
+    </div>
+
+    <table id="guessesTable" class="panel" aria-live="polite">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Nom deviné</th>
+          <th>Âge</th>
+          <th>Classement carrière</th>
+          <th>Pays</th>
+          <th>Birth city (km)</th>
+          <th>Taille (cm)</th>
+          <th>Right-handed</th>
+          <th>Two-handed BH</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <div id="revealArea" class="reveal hidden panel">
+      <h3>Réponse</h3>
+      <div id="answerSummary"></div>
+      <div style="margin-top:8px">
+        <button id="newRoundBtn">Nouvelle partie</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------------------------
+   CONFIG & UTIL FUNCTIONS
+   --------------------------- */
+
+// Paths absolus (page située dans /games/guess_player_game/)
+const ATP_CSV = '/player_data_atp.csv';
+const WTA_CSV = '/player_data_wta.csv';
+const GEOCODES_FILES = [
+  '/maps_html/geocodes.json',
+  '/maps_html/geocodes_atp.json',
+  '/maps_html/geocodes',
+  '/maps_html/geocodes_atp'
+];
+// daily guess (généré par le workflow) — accessible si present
+const DAILY_GUESS_PATH = '/tools/daily_guess.json';
+
+
+let players = []; // liste combinée
+let dailyGuessData = null; // contiendra le JSON si présent (daily_guess.json)
+let geocodes = {}; // mapping city -> [lat,lon]
+let target = null;
+let remaining = 6;
+let maxGuesses = 6;
+let levelTopN = 20;
+let guesses = [];
+let score = 0;
+
+/* Haversine distance (km) */
+function haversineKm(lat1, lon1, lat2, lon2){
+  const toRad = v => v*Math.PI/180;
+  const R = 6371;
+  const dLat = toRad(lat2-lat1);
+  const dLon = toRad(lon2-lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  const c = 2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R*c;
+}
+
+/* Charger daily_guess.json si présent (no-cache pour toujours récupérer la version la plus récente) */
+async function loadDailyGuessIfAvailable(){
+  try{
+    const res = await fetch(DAILY_GUESS_PATH, { cache: 'no-cache' });
+    if(!res.ok) {
+      console.info('daily_guess.json non trouvé (ok code):', res.status);
+      return null;
+    }
+    const j = await res.json();
+    // simple validation minimale
+    if(j && j.levels) {
+      dailyGuessData = j;
+      console.info('daily_guess loaded:', j.date || '(no date)');
+      return j;
+    }
+    return null;
+  }catch(err){
+    console.info('daily_guess.json absent ou erreur fetch:', err && err.message);
+    return null;
+  }
+}
+
+
+function tryParseDate(s){
+  if(!s) return null;
+  // normalize common bad whitespace
+  s = s.trim();
+  // Some entries have "Mar 30 1999" or "2001-08-16"
+  const d = new Date(s);
+  if(!isNaN(d)) return d;
+  // try replacing multiple spaces, remove time part if present
+  const clean = s.replace(/\s+/g,' ').split(' ')[0];
+  const d2 = new Date(clean);
+  return isNaN(d2) ? null : d2;
+}
+
+function calcAgeFromBirthDate(birthDate){
+  const d = tryParseDate(birthDate);
+  if(!d) return null;
+  const today = new Date();
+  let age = today.getFullYear() - d.getFullYear();
+  const m = today.getMonth() - d.getMonth();
+  if(m<0 || (m===0 && today.getDate() < d.getDate())) age--;
+  return age;
+}
+
+function parseHeightToCm(height_cm_raw, height_inches_raw){
+  // prefer height_cm if present like "1.91m"
+  if(height_cm_raw){
+    const s = String(height_cm_raw).trim();
+    const mMatch = s.match(/([\d,.]+)/);
+    if(mMatch){
+      const val = parseFloat(mMatch[1].replace(',','.'));
+      if(!isNaN(val) && val < 5){ // meters
+        return Math.round(val*100);
+      } else if(!isNaN(val) && val > 50){ // maybe centimeters already
+        return Math.round(val);
+      }
+    }
+  }
+  if(height_inches_raw){
+    const s = String(height_inches_raw).trim();
+    // pattern like 6' 3" or 5' 11'
+    const match = s.match(/(\d+)\s*'\s*(\d+)/);
+    if(match){
+      const feet = Number(match[1]);
+      const inches = Number(match[2]);
+      const totalInches = feet*12 + inches;
+      return Math.round(totalInches * 2.54);
+    }
+  }
+  return null;
+}
+
+function normalizeBoolFromString(s){
+  if(!s) return null;
+  s = String(s).toLowerCase();
+  if(s.includes('right')) return true;
+  if(s.includes('left')) return false;
+  if(s.includes('two') || s.includes('two-handed') || s.includes('two-handed')) return true;
+  if(s.includes('one') || s.includes('one-handed')) return false;
+  if(s === 'true' || s === 'yes' || s === 'y' ) return true;
+  if(s === 'false' || s === 'no' || s === 'n') return false;
+  return null;
+}
+
+/* rank: smaller is better. Return numeric or Infinity */
+function parseRank(v){
+  if(v===undefined || v==='-' || v===null) return Infinity;
+  const n = Number(String(v).replace(/[^\d.-]/g,''));
+  return isNaN(n) ? Infinity : n;
+}
+
+/* Normalize field names across ATP & WTA and build players[] */
+function normalizeRow(row, source){
+  // row: object from PapaParse
+  const p = {};
+  // common fields mapping (try both CSV column names)
+  p.full_name = row.full_name || row.Full_name || row['full_name'] || '';
+  p.player_id = row.player_id || row.player_id || row.player_id || '';
+  p.represented_country = row.represented_country || row.represented_country || row.represented_country || row.represented_country || row['represented_country'] || row.represented_country || '';
+  // height fields differ
+  p.height_cm_raw = row.height_cm || row.height_cm || row.height_cm;
+  p.height_inches_raw = row.height_inches || row.height_inches || row['height_inches'];
+  p.plays = row.plays || row.plays || row.plays || '';
+  p.backhand = row.backhand || row.backhand || row.backhand || '';
+  p.birth_date = row.birth_date || row.birth_date || row.birth_date || '';
+  p.birthplace = row.birthplace || row.birthplace || row.birthplace || '';
+  p.source = source; // 'ATP' or 'WTA'
+  // rankings fields differ: ATP highest_ranking, WTA best_rank
+  p.rank_raw = row.highest_ranking || row.best_rank || row.best_rank || row.highest_ranking || '';
+  p.rank = parseRank(p.rank_raw);
+  // prize_money, etc optional - keep raw copy
+  p.raw = row;
+  // computed fields
+  p.age = calcAgeFromBirthDate(p.birth_date);
+  p.height_cm = parseHeightToCm(p.height_cm_raw, p.height_inches_raw);
+  p.right_handed = normalizeBoolFromString(p.plays);
+  // backhand: check two-handed presence in backhand column
+  p.two_handed = (p.backhand && String(p.backhand).toLowerCase().includes('two')) ? true : ((p.backhand && String(p.backhand).toLowerCase().includes('one')) ? false : (p.backhand ? null : null));
+  return p;
+}
+
+/* ---------------------------
+   LOADING DATA
+   --------------------------- */
+
+async function loadCsvsAndGeocodes(){
+  const atpPromise = fetch(ATP_CSV).then(r=>r.ok? r.text(): Promise.reject('ATP CSV not found'));
+  const wtaPromise = fetch(WTA_CSV).then(r=>r.ok? r.text(): ''); // WTA may be present
+  let atpText = '', wtaText = '';
+  try{
+    atpText = await atpPromise;
+  }catch(e){
+    console.error('Impossible de charger', ATP_CSV, e);
+    alert('ERREUR: impossible de charger ' + ATP_CSV + ' — vérifie que le fichier est dans docs/');
+    throw e;
+  }
+  try{ wtaText = await wtaPromise; }catch(e){ wtaText = ''; }
+
+  // parse with PapaParse
+  const atpData = Papa.parse(atpText, {header:true, skipEmptyLines:true}).data;
+  const wtaData = wtaText ? Papa.parse(wtaText, {header:true, skipEmptyLines:true}).data : [];
+
+  players = [];
+  atpData.forEach(r => players.push(normalizeRow(r,'ATP')));
+  wtaData.forEach(r => players.push(normalizeRow(r,'WTA')));
+
+  // load geocodes: try multiple filenames
+  for(const path of GEOCODES_FILES){
+    try{
+      const res = await fetch(path);
+      if(!res.ok) continue;
+      const txt = await res.text();
+      let parsed = null;
+      try { parsed = JSON.parse(txt); } catch(e) { parsed = null; }
+      if(parsed && parsed.geocode) {
+        geocodes = {...geocodes, ...parsed.geocode};
+      } else if(parsed) {
+        // maybe file is a bare mapping
+        geocodes = {...geocodes, ...parsed};
+      }
+    }catch(e){
+      // ignore missing files
+    }
+  }
+
+  populateDatalist();
+}
+
+/* Fill datalist with player names for autocompletion */
+function populateDatalist(){
+  const dl = document.getElementById('playersList');
+  dl.innerHTML = '';
+  // unique names
+  const names = [...new Map(players.map(p=>[p.full_name, p])).values()].map(p=>p.full_name).sort((a,b)=>a.localeCompare(b));
+  names.forEach(n=>{
+    const opt = document.createElement('option');
+    opt.value = n;
+    dl.appendChild(opt);
+  });
+}
+
+/* ---------------------------
+   GAME LOGIC
+   --------------------------- */
+
+function pickRandomTarget(topN){
+  // build pool: players with rank <= topN AND having a represented_country
+  const pool = players.filter(p=>p.rank <= topN && p.represented_country && p.represented_country.trim().length>0);
+  if(pool.length === 0){
+    // fallback: relax rank filter
+    const fallback = players.filter(p=>p.represented_country && p.represented_country.trim().length>0);
+    if(fallback.length===0) throw new Error('Pas de joueurs disponibles avec country renseigné.');
+    return fallback[Math.floor(Math.random()*fallback.length)];
+  }
+  // choose random country from pool
+  const countries = [...new Set(pool.map(p=>p.represented_country))];
+  let country = countries[Math.floor(Math.random()*countries.length)];
+  // filter pool for country
+  let countryPlayers = pool.filter(p=>p.represented_country === country);
+  // if empty (edge), pick another
+  if(countryPlayers.length === 0){
+    countryPlayers = pool;
+    country = countryPlayers[Math.floor(Math.random()*countryPlayers.length)].represented_country;
+  }
+  const chosen = countryPlayers[Math.floor(Math.random()*countryPlayers.length)];
+  return { chosen, country };
+}
+
+function startGame(){
+  // read settings
+  levelTopN = Number(document.getElementById('difficulty').value) || 20;
+  maxGuesses = Math.max(1, Number(document.getElementById('maxGuesses').value) || 6);
+  remaining = maxGuesses;
+  guesses = [];
+  // conserve score (optionnel) ; ici on remet à 0 pour chaque partie
+  score = 0;
+
+  // Try to use daily guess if available and matches the chosen level
+  let usedDaily = false;
+  if(dailyGuessData && dailyGuessData.levels){
+    let key = (levelTopN <= 20) ? 'top20' : (levelTopN <= 100 ? 'top100' : 'top300');
+    const lvl = dailyGuessData.levels[key];
+    if(lvl && lvl.chosen){
+      const chosenInfo = lvl.chosen;
+      // Try to find the full player object in loaded players (prefer by player_id, fallback name)
+      let match = null;
+      if(chosenInfo.player_id){
+        match = players.find(p => p.player_id && p.player_id === chosenInfo.player_id);
+      }
+      if(!match && chosenInfo.full_name){
+        match = players.find(p => p.full_name && p.full_name.trim() === chosenInfo.full_name.trim());
+      }
+      if(match){
+        target = match;
+      } else {
+        // Build a minimal target object from chosenInfo (some fields may be missing)
+        target = {
+          full_name: chosenInfo.full_name || (chosenInfo.player_id || 'Unknown'),
+          player_id: chosenInfo.player_id || null,
+          represented_country: chosenInfo.represented_country || null,
+          rank: (typeof chosenInfo.rank !== 'undefined' && chosenInfo.rank !== null) ? parseRank(chosenInfo.rank) : Infinity,
+          height_cm: chosenInfo.height_cm || null,
+          birth_date: chosenInfo.birth_date || null,
+          birthplace: chosenInfo.birthplace || null,
+          source: chosenInfo.source || 'DAILY'
+        };
+        // compute derived fields if possible
+        target.age = calcAgeFromBirthDate(target.birth_date);
+        // right_handed and two_handed unknown here (null)
+        target.right_handed = null;
+        target.two_handed = null;
+      }
+      // set chosen country label using daily JSON 'country' if present, else from target
+      const countryLabel = (lvl.country && lvl.country.length) ? lvl.country : (target.represented_country || '—');
+      document.getElementById('selectedCountry').textContent = countryLabel;
+      usedDaily = true;
+      console.info('Using daily target for', key, ':', target.full_name);
+    }
+  }
+
+  // Fallback: random selection if daily not used or not available
+  if(!usedDaily){
+    const pick = pickRandomTarget(levelTopN);
+    target = pick.chosen;
+    document.getElementById('selectedCountry').textContent = pick.country || '—';
+    console.info('Random target chosen (dev):', target.full_name);
+  }
+
+  document.getElementById('levelLabel').textContent = `Top ${levelTopN}`;
+  document.getElementById('remaining').textContent = remaining;
+  document.getElementById('score').textContent = score;
+
+  // reveal UI
+  document.getElementById('gameArea').classList.remove('hidden');
+  document.getElementById('revealArea').classList.add('hidden');
+  clearGuessesTable();
+}
+
+
+/* clear table */
+function clearGuessesTable(){
+  const tbody = document.querySelector('#guessesTable tbody');
+  tbody.innerHTML = '';
+}
+
+/* find a player by full_name (case-insensitive) */
+function findPlayerByName(name){
+  if(!name) return null;
+  name = name.trim().toLowerCase();
+  return players.find(p => p.full_name && p.full_name.trim().toLowerCase() === name) || null;
+}
+
+/* compare guessed player to target and return an object of comparisons */
+function comparePlayers(guess, target){
+  const res = {};
+  res.nameMatch = guess.full_name.trim().toLowerCase() === target.full_name.trim().toLowerCase();
+
+  // age
+  if(guess.age != null && target.age != null){
+    res.ageGuess = guess.age;
+    res.ageTarget = target.age;
+    res.ageSign = (guess.age === target.age) ? '=' : (guess.age > target.age ? '+' : '-');
+  } else {
+    res.ageGuess = guess.age;
+    res.ageTarget = target.age;
+    res.ageSign = null;
+  }
+
+  // rank (career high)
+  const gRank = guess.rank;
+  const tRank = target.rank;
+  if(isFinite(gRank) && isFinite(tRank)){
+    res.rankGuess = gRank;
+    res.rankTarget = tRank;
+    // sign: + if guess value > target value (numerically greater -> worse)
+    res.rankSign = (gRank === tRank) ? '=' : (gRank > tRank ? '+' : '-');
+  } else {
+    res.rankGuess = isFinite(gRank) ? gRank : null;
+    res.rankTarget = isFinite(tRank) ? tRank : null;
+    res.rankSign = null;
+  }
+
+  // country
+  res.sameCountry = (guess.represented_country && target.represented_country && guess.represented_country === target.represented_country);
+
+  // birthplace distance via geocodes
+  let dist = null;
+  const cityGuess = guess.birthplace;
+  const cityTarget = target.birthplace;
+  if(cityGuess && cityTarget){
+    const keyG = cityGuess;
+    const keyT = cityTarget;
+    const gCoord = geocodes[keyG] || geocodes[String(keyG).trim()] || geocodes[String(keyG).replace(/"/g,'').trim()];
+    const tCoord = geocodes[keyT] || geocodes[String(keyT).trim()] || geocodes[String(keyT).replace(/"/g,'').trim()];
+    if(gCoord && tCoord && gCoord.length>=2 && tCoord.length>=2){
+      dist = Math.round(haversineKm(gCoord[0], gCoord[1], tCoord[0], tCoord[1]));
+    }
+  }
+  res.birthDistanceKm = dist;
+
+  // height
+  if(guess.height_cm != null && target.height_cm != null){
+    res.heightGuess = guess.height_cm;
+    res.heightTarget = target.height_cm;
+    res.heightSign = (guess.height_cm === target.height_cm) ? '=' : (guess.height_cm > target.height_cm ? '+' : '-');
+  } else {
+    res.heightGuess = guess.height_cm;
+    res.heightTarget = target.height_cm;
+    res.heightSign = null;
+  }
+
+  // right-handed
+  res.rightMatch = (guess.right_handed === target.right_handed);
+
+  // two-handed backhand
+  // note: WTA may have null => show N/A
+  if(guess.two_handed === null || target.two_handed === null){
+    res.twoHanded = null;
+  } else {
+    res.twoHanded = (guess.two_handed === target.two_handed);
+  }
+
+  return res;
+}
+
+/* append a guess row to table */
+function appendGuessRow(guessPlayer, comparison){
+  const tbody = document.querySelector('#guessesTable tbody');
+  const tr = document.createElement('tr');
+  const idx = guesses.length;
+
+  // if exact match -> highlight
+  if(comparison.nameMatch) tr.classList.add('correct');
+
+  const tdIndex = document.createElement('td'); tdIndex.textContent = idx;
+  const tdName = document.createElement('td'); tdName.textContent = guessPlayer.full_name;
+  const tdAge = document.createElement('td');
+  tdAge.innerHTML = (comparison.ageGuess!=null ? `${comparison.ageGuess}` : '—') + (comparison.ageSign ? ` <strong>${comparison.ageSign}</strong>` : '');
+  const tdRank = document.createElement('td');
+  tdRank.innerHTML = (comparison.rankGuess!=null && isFinite(comparison.rankGuess) ? `${comparison.rankGuess}` : '—') + (comparison.rankSign ? ` <strong>${comparison.rankSign}</strong>` : '');
+  const tdCountry = document.createElement('td');
+  tdCountry.innerHTML = guessPlayer.represented_country || '—' + (comparison.sameCountry ? ' <span class="result-good">✓</span>' : '');
+  const tdBirth = document.createElement('td');
+  tdBirth.innerHTML = (comparison.birthDistanceKm!=null ? `<span class="distance">${comparison.birthDistanceKm} km</span>` : 'inconnu');
+  const tdHeight = document.createElement('td');
+  tdHeight.innerHTML = (comparison.heightGuess!=null ? `${comparison.heightGuess} cm` : '—') + (comparison.heightSign ? ` <strong>${comparison.heightSign}</strong>` : '');
+  const tdRight = document.createElement('td');
+  tdRight.innerHTML = (guessPlayer.right_handed === null ? '—' : (guessPlayer.right_handed ? 'Oui' : 'Non')) + (comparison.rightMatch ? ' <span class="result-good">✓</span>' : '');
+  const tdTwo = document.createElement('td');
+  tdTwo.innerHTML = (guessPlayer.two_handed === null ? 'N/A' : (guessPlayer.two_handed ? 'Oui' : 'Non')) + (comparison.twoHanded === true ? ' <span class="result-good">✓</span>' : (comparison.twoHanded === false ? ' <span class="result-bad">✗</span>' : ''));
+
+  tr.appendChild(tdIndex);
+  tr.appendChild(tdName);
+  tr.appendChild(tdAge);
+  tr.appendChild(tdRank);
+  tr.appendChild(tdCountry);
+  tr.appendChild(tdBirth);
+  tr.appendChild(tdHeight);
+  tr.appendChild(tdRight);
+  tr.appendChild(tdTwo);
+
+  tbody.prepend(tr); // newest on top
+}
+
+/* scoring: if found on guess n => score decreases with guesses; difficulty multiplier */
+function computeScoreOnWin(guessNumber){
+  // base 100 points scaled
+  const base = 100;
+  const penaltyPerGuess = base / maxGuesses;
+  let raw = Math.max(10, Math.round(base - (guessNumber-1)*penaltyPerGuess));
+  // difficulty factor: Top20=1, Top100=1.15, Top300=1.35 roughly
+  const factor = (levelTopN <= 20) ? 1.0 : (levelTopN <= 100 ? 1.15 : 1.35);
+  return Math.round(raw * factor);
+}
+
+/* when user makes a guess */
+function handleGuess(name){
+  if(!target) return;
+  if(remaining <= 0) return;
+  const guessPlayer = findPlayerByName(name);
+  if(!guessPlayer){
+    alert("Nom introuvable. Vérifie l'orthographe ou choisis dans la liste.");
+    return;
+  }
+  remaining--;
+  document.getElementById('remaining').textContent = remaining;
+
+  const comparison = comparePlayers(guessPlayer, target);
+  guesses.push({player: guessPlayer, comparison});
+  appendGuessRow(guessPlayer, comparison);
+
+  // check win
+  if(comparison.nameMatch){
+    // win
+    const points = computeScoreOnWin(guesses.length);
+    score += points;
+    document.getElementById('score').textContent = score;
+    revealAnswer(true, points);
+    return;
+  }
+
+  if(remaining <= 0){
+    revealAnswer(false, 0);
+  }
+}
+
+/* show answer panel */
+function revealAnswer(won, gainedPoints){
+  const area = document.getElementById('revealArea');
+  const summary = document.getElementById('answerSummary');
+  area.classList.remove('hidden');
+
+  let html = `<p>Partie terminée — ${won ? '<span style="color:green">Tu as gagné !</span>' : '<span style="color:#c0392b">Tu as perdu.</span>'}</p>`;
+  html += `<p><strong>Joueur cible :</strong> ${target.full_name} (${target.source})</p>`;
+  html += `<ul>
+    <li>Pays : ${target.represented_country || '—'}</li>
+    <li>Naissance : ${target.birthplace || '—'} (${target.birth_date || '—'})</li>
+    <li>Age : ${target.age!=null ? target.age : '—'}</li>
+    <li>Classement carrière : ${isFinite(target.rank) ? target.rank : '—'}</li>
+    <li>Taille : ${target.height_cm!=null ? target.height_cm + ' cm' : '—'}</li>
+    <li>Right-handed : ${target.right_handed === null ? '—' : (target.right_handed ? 'Oui' : 'Non')}</li>
+    <li>Two-handed BH : ${target.two_handed === null ? 'N/A' : (target.two_handed ? 'Oui' : 'Non')}</li>
+  </ul>`;
+
+  if(won){
+    html += `<p class="result-good">Tu as gagné ${gainedPoints} points pour cette manche.</p>`;
+  } else {
+    html += `<p class="result-bad">0 point — essaie une nouvelle partie !</p>`;
+  }
+
+  summary.innerHTML = html;
+  document.getElementById('newRoundBtn').focus();
+}
+
+/* ---------------------------
+   UI BINDING
+   --------------------------- */
+
+document.getElementById('startBtn').addEventListener('click', ()=>{
+  startGame();
+});
+
+document.getElementById('resetBtn').addEventListener('click', ()=>{
+  location.reload();
+});
+
+document.getElementById('guessBtn').addEventListener('click', ()=>{
+  const name = document.getElementById('guessInput').value;
+  if(!name) return alert('Écris un nom avant de valider.');
+  handleGuess(name);
+  document.getElementById('guessInput').value = '';
+  document.getElementById('guessInput').focus();
+});
+
+document.getElementById('guessInput').addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter'){
+    e.preventDefault();
+    document.getElementById('guessBtn').click();
+  }
+});
+
+document.getElementById('newRoundBtn').addEventListener('click', ()=>{
+  startGame();
+});
+
+/* ---------------------------
+   INITIALISATION
+   --------------------------- */
+
+(async function init(){
+  try{
+    await loadCsvsAndGeocodes();
+    // charger daily_guess.json s'il existe (no-cache)
+    await loadDailyGuessIfAvailable();
+    // enable start button
+    document.getElementById('startBtn').disabled = false;
+  }catch(e){
+    console.error(e);
+  }
+})();
+
+</script>
+</body>
+</html>
