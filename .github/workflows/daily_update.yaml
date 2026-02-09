@@ -64,23 +64,27 @@ jobs:
           python -m pip install --upgrade pip
           # ajouter d'autres dépendances si nécessaires
 
-      - name: Generate birthday_today.json and daily_guess.json
+      - name: Generate birthday_today.json and game assets (daily_guess, players_catalog, geocodes_combined)
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
           set -euxo pipefail
           mkdir -p "${BUILD_DIR}/tools"
-          # generate birthday (ton script existant)
+
+          # existing birthday generation (ton script actuel)
           python scripts/generate_birthday_box.py \
             --players-by-birth docs/tools/players_by_birth.json \
             --latest-atp docs/tools/latest_atp_ranking.json \
             --latest-wta docs/tools/latest_wta_ranking.json \
             --out "${BUILD_DIR}/tools/birthday_today.json" || true
 
-          # generate daily guess file (new)
+          # NEW: generate daily guess + players catalog + geocodes combined
           python scripts/generate_daily_guess.py \
             --atp player_data_atp.csv \
             --wta player_data_wta.csv \
-            --out "${BUILD_DIR}/tools/daily_guess.json" || true
+            --geocodes-dir maps_html \
+            --out-daily "${BUILD_DIR}/tools/daily_guess.json" \
+            --out-players "${BUILD_DIR}/tools/players_catalog.json" \
+            --out-geocodes "${BUILD_DIR}/tools/geocodes_combined.json" || true
 
           echo ">>> After generation: listing possible locations"
           echo "BUILD_DIR/tools:"
@@ -91,13 +95,14 @@ jobs:
           ls -la site_static/tools || true
 
 
+
       - name: Copy into site_static/tools (for site serving)
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
           set -euxo pipefail
           mkdir -p site_static/tools
 
-          # Prioritize BUILD_DIR output if present; else fallback to docs/tools
+          # birthday_today.json
           if [ -f "${BUILD_DIR}/tools/birthday_today.json" ]; then
             cp -v "${BUILD_DIR}/tools/birthday_today.json" site_static/tools/ || true
           elif [ -f "docs/tools/birthday_today.json" ]; then
@@ -115,7 +120,26 @@ jobs:
             echo "Aucun daily_guess.json généré trouvé"
           fi
 
+          # players_catalog.json
+          if [ -f "${BUILD_DIR}/tools/players_catalog.json" ]; then
+            cp -v "${BUILD_DIR}/tools/players_catalog.json" site_static/tools/ || true
+          elif [ -f "docs/tools/players_catalog.json" ]; then
+            cp -v "docs/tools/players_catalog.json" site_static/tools/ || true
+          else
+            echo "Aucun players_catalog.json généré trouvé"
+          fi
+
+          # geocodes_combined.json
+          if [ -f "${BUILD_DIR}/tools/geocodes_combined.json" ]; then
+            cp -v "${BUILD_DIR}/tools/geocodes_combined.json" site_static/tools/ || true
+          elif [ -f "docs/tools/geocodes_combined.json" ]; then
+            cp -v "docs/tools/geocodes_combined.json" site_static/tools/ || true
+          else
+            echo "Aucun geocodes_combined.json généré trouvé"
+          fi
+
           ls -la site_static/tools || true
+
 
       - name: Commit new birthday JSON (whitelist safe commit)
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
@@ -143,9 +167,12 @@ jobs:
           fi
 
           # Stage known locations explicitement pour éviter les modifications non-stagées
-          git add -f docs/tools/birthday_today.json site_static/tools/birthday_today.json || true
+
           git add -f docs/tools/birthday_today.json site_static/tools/birthday_today.json || true
           git add -f docs/tools/daily_guess.json site_static/tools/daily_guess.json || true
+          git add -f docs/tools/players_catalog.json site_static/tools/players_catalog.json || true
+          git add -f docs/tools/geocodes_combined.json site_static/tools/geocodes_combined.json || true
+
 
           # Safety: abort if index.html or other manual files would be staged
           if git diff --cached --name-only | grep -Eiq '(^|/)index\.html$'; then
