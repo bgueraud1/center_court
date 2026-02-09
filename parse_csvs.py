@@ -10,6 +10,15 @@ from pathlib import Path
 from collections import defaultdict
 from datetime import datetime
 
+# optional special parser import (safe)
+try:
+    from parse_wta_special import process_wta_special_csv
+except Exception:
+    process_wta_special_csv = None
+
+SPECIAL_PREFIXES = ('wta_901', 'wta_903', 'wta_904', 'wta_905')
+
+
 ROOT = Path('.')
 MATCHES_DIR = ROOT / 'matches'
 OUTPUT_DIR = ROOT / 'docs' / 'data' / 'tournaments'
@@ -363,10 +372,49 @@ for kind in ('atp_matches','wta_matches'):
         continue
 
     for csvfile in d.glob('*.csv'):
+        # ---- special delegation for some WTA files ----
+        stem = csvfile.stem.lower()
+        if kind.startswith('wta') and any(stem.startswith(p) for p in SPECIAL_PREFIXES) and process_wta_special_csv:
+            if VERBOSE:
+                print(f"[SPECIAL] delegating {csvfile.name} to parse_wta_special.py")
+            try:
+                # process_wta_special_csv reads the CSV and writes the JSON into OUTPUT_DIR.
+                out_path = process_wta_special_csv(csvfile, OUTPUT_DIR, verbose=VERBOSE)
+                # If it returned a path, load the produced JSON meta to update index/calendar
+                if out_path:
+                    try:
+                        with open(out_path, 'r', encoding='utf-8') as _f:
+                            produced = json.load(_f)
+                        meta2 = produced.get('meta', {}) or {}
+                        src = (meta2.get('source') or 'wta').lower()
+                        tid = str(meta2.get('tourney_id') or stem)
+                        year_val = meta2.get('year') or ''
+                        # update index and calendar exactly like the main loop does
+                        index_key = f"{src}_{tid}"
+                        index[index_key].append(int(year_val) if str(year_val).isdigit() else year_val)
+                        calendar_list.append({
+                            'source': src,
+                            'tourney_id': tid,
+                            'year': int(year_val) if str(year_val).isdigit() else year_val,
+                            'tourney_name': meta2.get('tourney_name') or '',
+                            'start_date': meta2.get('start_date') or '',
+                            'surface': meta2.get('surface') or '',
+                            'level': meta2.get('level') or ''
+                        })
+                    except Exception as e_meta:
+                        # don't fail the whole run if reading produced JSON fails
+                        print(f"[SPECIAL ERROR] reading produced JSON for {csvfile.name}: {e_meta}")
+            except Exception as e:
+                print(f"[SPECIAL ERROR] processing {csvfile.name} with parse_wta_special: {e}")
+            # skip normal processing for this file
+            continue
+
+        # ---- normal processing for non-special files ----
         rows = read_csv_rows(csvfile)
         if not rows:
             continue
 
+        # (the rest of your original code continues unchanged here)
         name_parts = csvfile.stem.split('_')
         if len(name_parts) >= 3:
             _, tourney_id_str, year_str = name_parts[:3]
