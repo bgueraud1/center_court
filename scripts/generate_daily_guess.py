@@ -2,17 +2,24 @@
 """
 scripts/generate_daily_guess.py
 
-Usage:
-  python scripts/generate_daily_guess.py --atp path/to/player_data_atp.csv --wta path/to/player_data_wta.csv --out outpath/daily_guess.json
+Lit player_data_atp.csv et player_data_wta.csv (à la racine du repo),
+lit les fichiers maps_html/geocodes* (s'il existent),
+écrit 3 fichiers JSON :
+ - daily_guess.json  (sélection déterministe par date Europe/Paris)
+ - players_catalog.json (catalogue complet normalisé des joueurs)
+ - geocodes_combined.json (mapping city -> [lat,lon], sous clé "geocode")
 
-Le script est déterministe par date Europe/Paris (seed = YYYY-MM-DD).
+Usage (example):
+ python scripts/generate_daily_guess.py \
+   --atp player_data_atp.csv \
+   --wta player_data_wta.csv \
+   --geocodes-dir maps_html \
+   --out-daily out/daily_guess.json \
+   --out-players out/players_catalog.json \
+   --out-geocodes out/geocodes_combined.json
 """
-import csv
-import json
-import argparse
+import csv, json, argparse, sys, os, re, random
 from datetime import datetime, timezone
-import random
-import sys
 
 try:
     from zoneinfo import ZoneInfo
@@ -25,8 +32,6 @@ def parse_rank(val):
     s = str(val).strip()
     if s == '' or s == '-' or s.lower() == 'nan':
         return None
-    # extract digits
-    import re
     m = re.search(r'(\d+)', s)
     if not m:
         return None
@@ -36,84 +41,142 @@ def parse_rank(val):
         return None
 
 def parse_height(row):
-    # attempt to find height in cm in several columns
-    for k in ('height_cm','height_cm_raw','height_cm_raw','height_cm_raw '):
+    # try multiple fields
+    for k in ('height_cm','height_cm_raw','height_cm '):
         if k in row and row[k]:
-            s = row[k].strip()
-            # e.g. "1.91m" or "191"
-            s2 = ''
-            import re
+            s = str(row[k]).strip()
             m = re.search(r'([\d.,]+)', s)
             if m:
-                s2 = m.group(1)
                 try:
-                    val = float(s2.replace(',','.'))
-                    if val < 5:  # meters
+                    val = float(m.group(1).replace(',','.'))
+                    if val < 5:
                         return int(round(val*100))
-                    if val > 50 and val < 300:
+                    if 50 < val < 300:
                         return int(round(val))
                 except:
                     pass
-    # fallback to height_inches
-    if 'height_inches' in row and row['height_inches']:
-        s = row['height_inches']
-        import re
-        m = re.search(r"(\d+)\s*'\s*(\d+)", s)
+    # fallback to inches
+    h = row.get('height_inches') or row.get('height_inches ')
+    if h:
+        m = re.search(r"(\d+)\s*'\s*(\d+)", h)
         if m:
             feet = int(m.group(1)); inches = int(m.group(2))
             total = feet*12 + inches
             return int(round(total * 2.54))
     return None
 
-def load_csv(path, source_tag):
-    rows = []
+def normalize_bool_play(s):
+    if not s: return None
+    s2 = str(s).lower()
+    if 'right' in s2: return True
+    if 'left' in s2: return False
+    return None
+
+def normalize_twohand(s):
+    if not s: return None
+    s2 = str(s).lower()
+    if 'two' in s2: return True
+    if 'one' in s2: return False
+    return None
+
+def load_csv(path, source):
+    out = []
+    if not os.path.isfile(path):
+        return out
     with open(path, newline='', encoding='utf-8') as fh:
         reader = csv.DictReader(fh)
         for r in reader:
-            rows.append((r, source_tag))
-    return rows
+            r2 = {k.strip(): (v.strip() if isinstance(v,str) else v) for k,v in r.items()}
+            r2['_source'] = source
+            out.append(r2)
+    return out
 
 def build_players(atp_rows, wta_rows):
     players = []
-    for row, src in (atp_rows + wta_rows):
-        # normalize common fields
-        full_name = row.get('full_name') or row.get('Full_name') or row.get('fullName') or ''
-        player_id = row.get('player_id') or row.get('playerId') or row.get('playerID') or ''
-        country = (row.get('represented_country') or row.get('representedCountry') or row.get('represented') or '').strip()
-        if country == '':
-            # some WTA sample uses column 'represented_country' yes; leave empty otherwise
-            country = row.get('represented_country') or row.get('representedCountry') or ''
-        # rank
-        rank_raw = row.get('highest_ranking') or row.get('best_rank') or row.get('bestRank') or row.get('rank') or ''
-        rank = parse_rank(rank_raw)
-        birth_date = row.get('birth_date') or row.get('birthDate') or ''
-        birthplace = row.get('birthplace') or row.get('birth_place') or row.get('birthplace') or ''
-        height_cm = parse_height(row)
+    for r in (atp_rows + wta_rows):
+        # find likely name fields
+        full_name = r.get('full_name') or r.get('Full_name') or r.get('fullName') or r.get('full name') or ''
+        player_id = r.get('player_id') or r.get('playerId') or r.get('playerID') or r.get('player id') or ''
+        country = (r.get('represented_country') or r.get('representedCountry') or r.get('represented') or '').strip()
+        rank = parse_rank(r.get('highest_ranking') or r.get('best_rank') or r.get('bestRank') or r.get('best_rank'))
+        birth_date = r.get('birth_date') or r.get('birthDate') or r.get('BirthDate') or r.get('birth date') or ''
+        birthplace = r.get('birthplace') or r.get('birth_place') or r.get('Birthplace') or ''
+        height_cm = parse_height(r)
+        plays = r.get('plays') or r.get('play') or r.get('plays ')
+        backhand = r.get('backhand') or ''
+        age = None
+        if birth_date:
+            try:
+                # permissive parse (ISO or simple)
+                d = None
+                try:
+                    d = datetime.fromisoformat(birth_date)
+                except:
+                    try:
+                        d = datetime.strptime(birth_date, '%Y-%m-%d')
+                    except:
+                        # try other forms like "Mar 30 1999"
+                        try:
+                            d = datetime.strptime(birth_date, '%b %d %Y')
+                        except:
+                            d = None
+                if d:
+                    today = datetime.now()
+                    age = today.year - d.year - ((today.month, today.day) < (d.month, d.day))
+            except Exception:
+                age = None
         players.append({
-            'full_name': full_name.strip(),
-            'player_id': player_id.strip(),
-            'represented_country': country.strip(),
+            'full_name': full_name,
+            'player_id': player_id,
+            'represented_country': country,
             'rank': rank,
             'birth_date': birth_date,
             'birthplace': birthplace,
             'height_cm': height_cm,
-            'source': src
+            'plays': plays,
+            'backhand': backhand,
+            'right_handed': normalize_bool_play(plays),
+            'two_handed': normalize_twohand(backhand),
+            'age': age,
+            'source': r.get('_source', '')
         })
     return players
 
+def load_geocodes(dirpath):
+    combined = {}
+    if not os.path.isdir(dirpath):
+        return combined
+    for fname in os.listdir(dirpath):
+        if not fname.lower().startswith('geocode'):
+            continue
+        path = os.path.join(dirpath, fname)
+        try:
+            with open(path, 'r', encoding='utf-8') as fh:
+                data = json.load(fh)
+            # if file is { "geocode": { ... } } or bare mapping
+            if isinstance(data, dict):
+                if 'geocode' in data and isinstance(data['geocode'], dict):
+                    for k,v in data['geocode'].items():
+                        combined[k] = v
+                else:
+                    # assume bare mapping name->coords
+                    for k,v in data.items():
+                        combined[k] = v
+        except Exception:
+            # ignore errors but warn
+            print("Warning: cannot read geocode file", path, file=sys.stderr)
+    return combined
+
 def choose_for_level(players, topN, rng):
-    pool = [p for p in players if p.get('represented_country') and p.get('represented_country').strip() and p.get('rank') is not None and p.get('rank') <= topN]
+    pool = [p for p in players if p.get('represented_country') and p.get('rank') is not None and p.get('rank') <= topN]
     if not pool:
-        # fallback to any player with country
-        pool = [p for p in players if p.get('represented_country') and p.get('represented_country').strip()]
+        pool = [p for p in players if p.get('represented_country')]
     if not pool:
-        # final fallback: any player
         pool = players[:]
     countries = sorted(list({p['represented_country'] for p in pool if p.get('represented_country')}))
     if not countries:
         chosen = rng.choice(pool)
         return chosen, None
-    # pick country deterministically
     country = rng.choice(countries)
     by_country = [p for p in pool if p.get('represented_country') == country]
     if not by_country:
@@ -126,13 +189,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--atp', required=True)
     ap.add_argument('--wta', required=True)
-    ap.add_argument('--out', required=True)
+    ap.add_argument('--geocodes-dir', default='maps_html')
+    ap.add_argument('--out-daily', required=True)
+    ap.add_argument('--out-players', required=True)
+    ap.add_argument('--out-geocodes', required=True)
     args = ap.parse_args()
 
-    # compute seed: Europe/Paris date (YYYY-MM-DD)
     try:
         if ZoneInfo:
-            tz = ZoneInfo("Europe/Paris")
+            tz = ZoneInfo('Europe/Paris')
             now = datetime.now(tz)
         else:
             now = datetime.now(timezone.utc)
@@ -140,24 +205,29 @@ def main():
         now = datetime.now(timezone.utc)
 
     seed_date = now.strftime('%Y-%m-%d')
-    rng = random.Random(seed_date)  # deterministic per date
+    rng = random.Random(seed_date)
 
-    # load CSVs
     atp_rows = load_csv(args.atp, 'ATP')
     wta_rows = load_csv(args.wta, 'WTA')
 
     players = build_players(atp_rows, wta_rows)
 
-    out = {
-        'date': seed_date,
-        'generated_at_iso': now.isoformat(),
-        'seed': seed_date,
-        'levels': {}
-    }
+    # write players_catalog.json (full list normalized)
+    players_out = players  # already normalized
+    os.makedirs(os.path.dirname(args.out_players), exist_ok=True)
+    with open(args.out_players, 'w', encoding='utf-8') as fh:
+        json.dump({'generated_at': now.isoformat(), 'count': len(players_out), 'players': players_out}, fh, ensure_ascii=False, indent=2)
 
+    # combine geocodes
+    geos = load_geocodes(args.geocodes_dir)
+    os.makedirs(os.path.dirname(args.out_geocodes), exist_ok=True)
+    with open(args.out_geocodes, 'w', encoding='utf-8') as fh:
+        json.dump({'geocode': geos}, fh, ensure_ascii=False, indent=2)
+
+    # generate daily choices
+    out = {'date': seed_date, 'generated_at_iso': now.isoformat(), 'seed': seed_date, 'levels': {}}
     for topN, key in ((20, 'top20'), (100, 'top100'), (300, 'top300')):
         chosen, country = choose_for_level(players, topN, rng)
-        # sanitize chosen data to output
         out['levels'][key] = {
             'chosen': {
                 'player_id': chosen.get('player_id'),
@@ -173,12 +243,11 @@ def main():
             'pool_size': len([p for p in players if p.get('represented_country') and p.get('rank') is not None and p.get('rank') <= topN])
         }
 
-    # write out
-    with open(args.out, 'w', encoding='utf-8') as fh:
+    os.makedirs(os.path.dirname(args.out_daily), exist_ok=True)
+    with open(args.out_daily, 'w', encoding='utf-8') as fh:
         json.dump(out, fh, ensure_ascii=False, indent=2)
 
-    print("Wrote", args.out)
-    print("Seed date:", seed_date)
+    print("Wrote:", args.out_players, args.out_geocodes, args.out_daily)
     sys.exit(0)
 
 if __name__ == '__main__':
