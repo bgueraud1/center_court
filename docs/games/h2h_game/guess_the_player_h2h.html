@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Guess The Player H2H — Game</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; background:#f6f8fb; color:#111; margin:20px;}
+    .wrap { max-width:980px; margin:0 auto; background:#fff; padding:18px; border-radius:10px; box-shadow:0 8px 30px rgba(20,20,40,0.06); }
+    h1 { margin:0 0 8px 0; font-size:1.3rem; }
+    .muted { color:#6b7280; font-size:0.95rem; }
+    .controls { display:flex; gap:10px; align-items:center; margin:12px 0; flex-wrap:wrap; }
+    select, input[type="text"], button { padding:8px 10px; border-radius:6px; border:1px solid #dbe4f2; font-size:14px; }
+    #feedback { margin-top:12px; }
+    #log { margin-top:12px; font-family:monospace; background:#f1f5fb; padding:10px; border-radius:8px; max-height:320px; overflow:auto; }
+    table { width:100%; border-collapse:collapse; margin-top:8px; }
+    th, td { text-align:left; padding:8px; border-bottom:1px solid #eee; }
+    .hint { background:#eef2ff; padding:8px; border-radius:6px; display:inline-block; margin-top:8px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Guess The Player H2H</h1>
+    <div class="muted">Page chargera <code>/selected_players.json</code> (depuis la racine du site) et les fichiers H2H dans <code>/data/h2h/</code>.</div>
+
+    <div class="controls">
+      <label>Mode:
+        <select id="modeSelect">
+          <option value="atp">ATP</option>
+          <option value="wta">WTA</option>
+        </select>
+      </label>
+
+      <label>Niveau:
+        <select id="levelSelect">
+          <option value="easy">Easy</option>
+          <option value="medium">Medium</option>
+          <option value="hard">Hard</option>
+        </select>
+      </label>
+
+      <button id="loadBtn">Charger cible</button>
+      <div style="margin-left:auto" class="muted">Changer mode/niveau recharge la page (pour forcer le rechargement des H2H).</div>
+    </div>
+
+    <div id="targetInfo" class="muted">Cible non chargée.</div>
+
+    <div style="margin-top:12px; display:flex; gap:10px;">
+      <input id="guessInput" placeholder="Propose un joueur parmi les 6 joueurs (ex: Novak Djokovic)" style="flex:1"/>
+      <button id="guessBtn">Proposer</button>
+    </div>
+
+    <div id="feedback"></div>
+    <div id="log">Journal...</div>
+  </div>
+
+<script>
+/*
+Comportement principal:
+- Charge /selected_players.json (chemin absolu, racine Netlify)
+- Détermine la cible selon mode+level (par défaut ATP easy).
+- Précharge les fichiers H2H entre la cible et les 5 autres joueurs sélectionnés (chemin /data/h2h/<id>_<id>.json)
+- Quand l'utilisateur propose un nom, on essaye de matcher ce nom parmi les 6 joueurs (recherche insensible à la casse / partielle).
+- Affiche l'H2H selon level (easy/medium/hard).
+- Si l'utilisateur change mode/level via selects, on reload la page avec query params.
+*/
+
+const logEl = document.getElementById('log');
+function log(...args){
+  const line = '[' + new Date().toLocaleTimeString() + '] ' + args.join(' ');
+  logEl.textContent = line + '\n' + logEl.textContent;
+}
+
+const DEFAULT_MODE = 'atp';
+const DEFAULT_LEVEL = 'easy';
+
+// Helpers pour query params
+function getQueryParams(){
+  const q = new URLSearchParams(window.location.search);
+  return { mode: q.get('mode') || DEFAULT_MODE, level: q.get('level') || DEFAULT_LEVEL };
+}
+function setQueryParams(mode, level){
+  const q = new URLSearchParams({ mode, level });
+  window.location.search = q.toString(); // reload
+}
+
+// Elements
+const modeSelect = document.getElementById('modeSelect');
+const levelSelect = document.getElementById('levelSelect');
+const loadBtn = document.getElementById('loadBtn');
+const guessBtn = document.getElementById('guessBtn');
+const guessInput = document.getElementById('guessInput');
+const targetInfo = document.getElementById('targetInfo');
+const feedback = document.getElementById('feedback');
+
+let selectedPlayersData = null; // loaded JSON
+let currentTarget = null; // {level, player: {...}}
+let h2hCache = {}; // key "idA_idB" -> json
+
+// Init select values from URL
+(function initSelects(){
+  const qp = getQueryParams();
+  modeSelect.value = qp.mode;
+  levelSelect.value = qp.level;
+})();
+
+// If user changes mode/level we reload the page (user required behavior)
+modeSelect.addEventListener('change', () => {
+  setQueryParams(modeSelect.value, levelSelect.value);
+});
+levelSelect.addEventListener('change', () => {
+  setQueryParams(modeSelect.value, levelSelect.value);
+});
+
+// Load selected_players.json
+async function loadSelectedPlayers(){
+  try {
+    const r = await fetch('/selected_players.json');
+    if (!r.ok) throw new Error('selected_players.json introuvable: ' + r.status);
+    selectedPlayersData = await r.json();
+    log('selected_players.json chargé.');
+    return selectedPlayersData;
+  } catch (e) {
+    log('Erreur chargement selected_players.json', e.message);
+    feedback.innerHTML = '<div class="muted">Erreur: impossible de charger /selected_players.json sur le serveur.</div>';
+    throw e;
+  }
+}
+
+// Determine target for current mode+level
+function pickTargetFor(mode, level){
+  if (!selectedPlayersData) return null;
+  const arr = selectedPlayersData[mode] || [];
+  if (!Array.isArray(arr) || arr.length === 0) return null;
+  // find item with matching level
+  const found = arr.find(x => x.level === level);
+  if (!found) return null;
+  return found.player;
+}
+
+// Preload H2H files between targetId and the other selected players
+async function preloadH2HForTarget(targetId){
+  if (!selectedPlayersData) return;
+  // collect all other players (ids) from both sides
+  const all = [];
+  (selectedPlayersData.atp || []).forEach(x => { if (x.player && x.player.player_id) all.push(x.player.player_id); });
+  (selectedPlayersData.wta || []).forEach(x => { if (x.player && x.player.player_id) all.push(x.player.player_id); });
+  // unique & exclude target
+  const uniq = Array.from(new Set(all)).filter(id => id !== targetId);
+  if (uniq.length === 0) { log('Aucun autre joueur trouvé pour préchargement.'); return; }
+  log('Préchargement H2H pour cible', targetId, 'avec', uniq.length, 'opposants (parmi les 6).');
+  for (const opp of uniq){
+    try {
+      await fetchH2H(targetId, opp, true);
+    } catch(e){
+      // ignore missing files
+    }
+  }
+  log('Préchargement terminé.');
+}
+
+// Fetch H2H trying both orderings; cache found ones
+async function fetchH2H(idA, idB, cacheOnly=false){
+  const k1 = `${idA}_${idB}`;
+  const k2 = `${idB}_${idA}`;
+  if (h2hCache[k1]) return h2hCache[k1];
+  if (h2hCache[k2]) return h2hCache[k2];
+  const paths = [
+    `/data/h2h/${k1}.json`,
+    `/data/h2h/${k2}.json`
+  ];
+  for (const p of paths){
+    try {
+      const r = await fetch(p);
+      if (!r.ok) continue;
+      const j = await r.json();
+      // decide canonical key
+      const fileKey = p.includes(k1) ? k1 : k2;
+      h2hCache[fileKey] = j;
+      log('H2H trouvé:', p);
+      return j;
+    } catch(e){}
+  }
+  if (!cacheOnly) log('H2H non trouvé pour', idA, idB);
+  throw new Error('H2H not found');
+}
+
+// Render helpers (simple)
+function renderEasy(h2h){
+  if (!h2h) return '<div class="muted">Données H2H indisponibles.</div>';
+  const p1 = (h2h.aggregates && h2h.aggregates.player1) || {};
+  const p2 = (h2h.aggregates && h2h.aggregates.player2) || {};
+  const name1 = (h2h.player1 && h2h.player1.full_name) || '';
+  const name2 = (h2h.player2 && h2h.player2.full_name) || '';
+  return `<div><strong>H2H :</strong><br/>${name1}: ${p1.h2h_wins||0} wins<br/>${name2}: ${p2.h2h_wins||0} wins<br/><small class="muted">total matches: ${(h2h.meta && h2h.meta.total_matches) || ( (p1.h2h_wins||0) + (p2.h2h_wins||0) )}</small></div>`;
+}
+function renderMedium(h2h){
+  if (!h2h) return '<div class="muted">Données H2H indisponibles.</div>';
+  // group by surface
+  const matches = Array.isArray(h2h.matches) ? h2h.matches : [];
+  const per = {};
+  matches.forEach(m => {
+    const s = m.surface || 'Unknown';
+    per[s] = per[s] || [];
+    per[s].push(m);
+  });
+  let html = renderEasy(h2h);
+  html += '<div style="margin-top:8px;"><strong>Détail par surface :</strong></div>';
+  if (Object.keys(per).length === 0) html += '<div class="muted">Pas de détail par surface disponible.</div>';
+  for (const s of Object.keys(per)){
+    const winsA = per[s].filter(m => m.player_id_winner === (h2h.player1 && h2h.player1.id)).length;
+    const winsB = per[s].filter(m => m.player_id_winner === (h2h.player2 && h2h.player2.id)).length;
+    html += `<div style="margin-left:8px;"><em>${s}</em>: ${winsA} - ${winsB} (${per[s].length} matches)</div>`;
+  }
+  return html;
+}
+function renderHard(h2h){
+  if (!h2h) return '<div class="muted">Données H2H indisponibles.</div>';
+  const matches = Array.isArray(h2h.matches) ? h2h.matches.slice().sort((a,b) => (a.match_date||'').localeCompare(b.match_date||'')) : [];
+  if (matches.length === 0) return '<div class="muted">Aucun match détaillé disponible.</div>';
+  let html = `<div><strong>Liste des matches (${matches.length})</strong></div>`;
+  html += `<table><thead><tr><th>Date</th><th>Tournoi</th><th>Surface</th><th>Round</th><th>Score</th><th>Winner</th></tr></thead><tbody>`;
+  for (const m of matches){
+    html += `<tr>
+      <td>${m.match_date || m.start_date || ''}</td>
+      <td>${(m.tourney_name || m.event_id || '')} ${(m.event_year||'')}</td>
+      <td>${m.surface||''}</td>
+      <td>${m.round||''}</td>
+      <td>${m.score_string||''}</td>
+      <td>${m.winner_player_name||''}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  return html;
+}
+
+// Main flow when clicking "Charger cible"
+loadBtn.addEventListener('click', async () => {
+  const mode = modeSelect.value;
+  const level = levelSelect.value;
+  try {
+    await loadSelectedPlayers();
+    const target = pickTargetFor(mode, level);
+    if (!target) {
+      targetInfo.innerHTML = `<div class="muted">Aucune cible trouvée pour ${mode.toUpperCase()} ${level} dans selected_players.json.</div>`;
+      log('Aucune cible disponible pour', mode, level);
+      return;
+    }
+    currentTarget = target;
+    targetInfo.innerHTML = `<strong>Cible (${mode.toUpperCase()} - ${level}):</strong> ${target.full_name} [${target.player_id}] <span class="muted"> (birth_year: ${target.birth_year || 'N/A'}, rank: ${target.parsed_rank || 'N/A'})</span>`;
+    // Précharge H2H entre la cible et tous les autres joueurs de selected_players.json
+    await preloadH2HForTarget(target.player_id);
+  } catch (e){
+    log('Erreur lors du chargement cible', e.message);
+  }
+});
+
+// Guess button: match proposition to one of the 6 players from selected_players.json
+guessBtn.addEventListener('click', async () => {
+  const guessText = guessInput.value.trim();
+  if (!guessText) { alert('Écris le nom d\'un joueur'); return; }
+  if (!selectedPlayersData) { alert('Charge d\'abord la cible (bouton "Charger cible")'); return; }
+  if (!currentTarget) { alert('Charge d\'abord la cible (bouton "Charger cible")'); return; }
+
+  // flatten list of 6 players
+  const pool = [];
+  (selectedPlayersData.atp || []).forEach(x => { if (x.player) pool.push(x.player); });
+  (selectedPlayersData.wta || []).forEach(x => { if (x.player) pool.push(x.player); });
+
+  // match by exact id, exact name, or substring (case-insensitive)
+  const q = guessText.toLowerCase();
+  let matched = pool.find(p => (p.player_id && p.player_id.toLowerCase() === q));
+  if (!matched) matched = pool.find(p => (p.full_name && p.full_name.toLowerCase() === q));
+  if (!matched) matched = pool.find(p => (p.full_name && p.full_name.toLowerCase().includes(q)));
+  if (!matched) {
+    feedback.innerHTML = `<div class="muted">Proposition non trouvée parmi les 6 joueurs sélectionnés aujourd'hui. Vérifie l'orthographe ou propose un des joueurs listés dans selected_players.json.</div>`;
+    log('Proposition non correspondante:', guessText);
+    return;
+  }
+
+  // If guessed is the target itself
+  if (matched.player_id === currentTarget.player_id) {
+    feedback.innerHTML = `<div style="padding:10px;border-radius:8px;background:#e6ffed">Bravo ! Tu as trouvé la cible : <strong>${currentTarget.full_name}</strong></div>`;
+    log('Cible trouvée par l\'utilisateur.');
+    return;
+  }
+
+  // Try to fetch H2H between matched and target (use cached if possible)
+  try {
+    const h2h = await fetchH2H(matched.player_id, currentTarget.player_id);
+    // render according to level
+    const level = levelSelect.value;
+    let html = '';
+    if (level === 'easy') html = renderEasy(h2h);
+    else if (level === 'medium') html = renderMedium(h2h);
+    else html = renderHard(h2h);
+    feedback.innerHTML = `<div><strong>Proposition :</strong> ${matched.full_name} [${matched.player_id}]</div>` + html;
+    log('Affichage H2H pour proposition:', matched.full_name, matched.player_id);
+  } catch (e){
+    feedback.innerHTML = `<div class="muted">Aucun fichier H2H disponible entre ${matched.full_name} et ${currentTarget.full_name} sur le serveur (/data/h2h/...).</div>`;
+    log('H2H absent pour', matched.player_id, currentTarget.player_id);
+  }
+});
+
+// Autoload on page load: if URL params exist, auto click charger cible
+(async function onLoad(){
+  try {
+    // attempt to load selected players quietly so the user can click load
+    await fetch('/selected_players.json').then(r => { if (r.ok) selectedPlayersData = r.json(); });
+  } catch(e){}
+  // Auto-click load if params are present or default
+  const qp = getQueryParams();
+  // Set selects to qp (already done), then automatically load target for default behavior
+  // For convenience, we auto-trigger load so ATP easy loads without user clicking
+  document.getElementById('loadBtn').click();
+})();
+</script>
+</body>
+</html>
