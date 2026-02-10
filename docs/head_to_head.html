@@ -134,14 +134,16 @@ const H2H_BASES = [
   'https://www.center-court.net/data/h2h/'
 ];
 
-/* manifest candidate paths (try several) */
-const IMAGE_MANIFEST_PATHS = [
-  '/index/players_atp_images_manifest.json',
-  '/index/players_images_manifest.json',
-  '/index/players_images_manifest.json',
+const MANIFEST_ATP = '/index/players_atp_images_manifest.json';
+const MANIFEST_WTA = '/index/players_wta_images_manifest.json';
+const MANIFEST_COMMON = '/index/players_images_manifest.json';
+const MANIFEST_ALTERNATES = [
   '/players_images_manifest.json',
   '/index/players_images.json'
 ];
+
+let imageManifest = null;
+let imageManifestSourceUrl = null;
 
 /* If you use Cloudinary fallback, set your cloud name here (optional) */
 window.CLOUDINARY_CLOUD_NAME = window.CLOUDINARY_CLOUD_NAME || '';
@@ -171,7 +173,6 @@ const jsonLinkWrap = document.getElementById('json-link-wrap');
 let playersCatalog = null;
 let playersById = {};
 let playersByName = [];
-let imageManifest = null;
 
 /* helpers */
 function showStatus(msg, ms=4000, err=false){
@@ -256,47 +257,84 @@ p1Input.addEventListener('keydown', e => { if(e.key === 'Enter') displayBtn.clic
 p2Input.addEventListener('keydown', e => { if(e.key === 'Enter') displayBtn.click(); });
 
 /* image manifest loader (robust) */
-async function loadImageManifestOnce(){
-  if(imageManifest !== null) return imageManifest;
-  for(const path of IMAGE_MANIFEST_PATHS){
-    try{
-      const r = await fetch(path, {cache:'no-cache', mode:'cors'});
-      if(!r || !r.ok) continue;
-      const json = await r.json();
-      imageManifest = Array.isArray(json) ? json : json; // keep structure (array or object)
-      console.log('[H2H] image manifest loaded from', path);
+async function loadImageManifestOnce(prefer = null){
+  if (imageManifest !== null) return imageManifest; // cache
+  const tryOrder = [];
+  if (prefer === 'WTA') {
+    tryOrder.push(MANIFEST_WTA, MANIFEST_COMMON, MANIFEST_ATP);
+  } else if (prefer === 'ATP') {
+    tryOrder.push(MANIFEST_ATP, MANIFEST_COMMON, MANIFEST_WTA);
+  } else {
+    tryOrder.push(MANIFEST_COMMON, MANIFEST_ATP, MANIFEST_WTA);
+  }
+  // ajoute fallback alternates
+  for (const s of MANIFEST_ALTERNATES) tryOrder.push(s);
+
+  for (const path of tryOrder){
+    try {
+      const res = await fetch(path, { cache: 'no-cache', mode: 'cors' });
+      if (!res || !res.ok) { console.debug('[manifest] not found', path, res && res.status); continue; }
+      const ct = res.headers.get('content-type') || '';
+      let json;
+      if (ct.includes('application/json')) json = await res.json();
+      else {
+        const txt = await res.text();
+        try { json = JSON.parse(txt); } catch(e){ console.debug('[manifest] not parsable JSON', path); continue; }
+      }
+      imageManifest = json;
+      imageManifestSourceUrl = path;
+      console.info('[manifest] loaded', path);
       return imageManifest;
-    } catch(e){ continue; }
+    } catch (e) {
+      console.debug('[manifest] fetch error', path, e && e.message);
+      continue;
+    }
   }
   imageManifest = null;
+  imageManifestSourceUrl = null;
+  console.warn('[manifest] aucun manifest trouvé');
   return null;
 }
 
 /* find entry in manifest: tries by player_id, slug, public_id includes slug, exact public_id matches */
 function findManifestEntry(manifest, pid, slug){
-  if(!manifest) return null;
-  const slugLc = (slug||'').toLowerCase();
-  if(Array.isArray(manifest)){
-    for(const it of manifest){
-      if(!it) continue;
-      const entryPid = (it.player_id || it.id || '').toString();
-      const entrySlug = (it.slug || (it.public_id||'').split('/').pop() || it.id || '').toString().toLowerCase();
-      if(pid && entryPid && String(pid) === String(entryPid)) return it;
-      if(slug && entrySlug && (entrySlug === slugLc)) return it;
-      if(slug && it.public_id && it.public_id.toLowerCase().indexOf(slugLc) !== -1) return it;
+  if (!manifest) return null;
+  const slugLc = (slug || '').toString().toLowerCase();
+
+  if (Array.isArray(manifest)) {
+    for (const it of manifest) {
+      if (!it) continue;
+      // common keys: player_id, slug, public_id, url
+      if (pid && (String(it.player_id || it.id || '').toString() === String(pid))) return it;
+      const itSlug = (it.slug || (it.public_id || '').split('/').pop() || '').toString().toLowerCase();
+      if (slug && itSlug === slugLc) return it;
+      if (slug && it.public_id && it.public_id.toLowerCase().includes(slugLc)) return it;
     }
-  } else if(typeof manifest === 'object'){
-    if(pid && manifest[pid]) return manifest[pid];
-    if(slug && manifest[slug]) return manifest[slug];
-    // try values
-    for(const k of Object.keys(manifest)){
+  } else if (typeof manifest === 'object') {
+    // manifest may be an object keyed by id or public_id
+    if (pid && manifest[pid]) return manifest[pid];
+    if (slug && manifest[slug]) return manifest[slug];
+    // fallback: iterate values and try to match player_id field
+    for (const k of Object.keys(manifest)) {
       const it = manifest[k];
-      if(!it) continue;
-      if(pid && (it.player_id && String(it.player_id) === String(pid))) return it;
+      if (!it) continue;
+      if (pid && (String(it.player_id || it.id || '') === String(pid))) return it;
+      const itSlug = (it.slug || (it.public_id||'').split('/').pop() || '').toString().toLowerCase();
+      if (slug && itSlug === slugLc) return it;
     }
   }
   return null;
 }
+
+function preferManifestForPair(p1, p2){
+  const s1 = (playersById[p1] && playersById[p1].source) ? String(playersById[p1].source).toUpperCase() : null;
+  const s2 = (playersById[p2] && playersById[p2].source) ? String(playersById[p2].source).toUpperCase() : null;
+  if (s1 === 'WTA' || s2 === 'WTA') return 'WTA';
+  if (s1 === 'ATP' || s2 === 'ATP') return 'ATP';
+  return null;
+}
+const prefer = preferManifestForPair(p1Id, p2Id);
+
 
 /* render single player image into container (async) */
 async function renderPlayerImage(containerEl, playerRec){
@@ -540,7 +578,7 @@ async function fetchAndRenderFromUrlParams(){
   showStatus('Chargement du H2H...', 12000);
   const res = await fetchH2HJson(urlP1, urlP2);
   if(!res){ showStatus('Aucun JSON H2H trouvé (vérifie /data/h2h).', 7000, true); return; }
-  await loadImageManifestOnce(); // prefetch manifest for images
+  await loadImageManifestOnce(prefer); // prefetch manifest for images
   await renderPayload(res.json, res.url, urlP1, urlP2);
   hideStatus();
 }
