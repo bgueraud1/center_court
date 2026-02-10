@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-scripts/generate_daily_guess.py (fix birth-year extraction + stricter selection)
+scripts/generate_daily_guess.py (fix birth-year extraction + stricter selection + improved geocode loading
+ plus country-mode: prefer top300, then top500, then any; if country lacks player/joueuse, try another country)
 
 Usage (exemple):
  python scripts/generate_daily_guess.py \
@@ -201,22 +202,100 @@ def build_player_record(row):
     }
 
 
+def normalize_place_key(key):
+    """Normalize keys found in geocode caches so lookups using birthplace strings
+       are more likely to match:
+       - remove surrounding quotes ' or "
+       - strip leading commas (e.g. ",Ann Arbor, MI, USA" -> "Ann Arbor, MI, USA")
+       - collapse multiple spaces, trim
+    """
+    if not isinstance(key, str):
+        return key
+    s = key.strip()
+    # remove surrounding single or double quotes
+    if (s.startswith('"') and s.endswith('"')) or (s.startswith("'") and s.endswith("'")):
+        s = s[1:-1].strip()
+    # remove a leading comma (and any following whitespace)
+    s = re.sub(r'^[,]\s*', '', s)
+    # collapse multiple spaces
+    s = re.sub(r'\s+', ' ', s).strip()
+    return s
+
+
 def load_geocodes(dirpath):
+    """
+    Load and combine geocode caches from dirpath (recursive).
+    Accepts different JSON shapes:
+      - {"geocode": { ... }}
+      - {"SomeKey": { "<place>": [lat,lon], ... }}
+      - {"<place>": [lat,lon], ...}
+      - [ {"place": "...", "coords":[lat,lon]}, ... ]
+    Filters/normalizes place keys so birthplace strings are likely to match.
+    """
     combined = {}
-    if not os.path.isdir(dirpath): return combined
-    for fname in os.listdir(dirpath):
-        if not fname.lower().startswith('geocode'): continue
-        path = os.path.join(dirpath, fname)
-        try:
-            with open(path, 'r', encoding='utf-8') as fh:
-                data = json.load(fh)
-            if isinstance(data, dict):
-                if 'geocode' in data and isinstance(data['geocode'], dict):
-                    for k,v in data['geocode'].items(): combined[k] = v
-                else:
-                    for k,v in data.items(): combined[k] = v
-        except Exception as e:
-            print(f"[WARN] lecture geocode {path} failed: {e}", file=sys.stderr)
+    if not os.path.isdir(dirpath):
+        return combined
+
+    for root, dirs, files in os.walk(dirpath):
+        for fname in files:
+            if not fname.lower().endswith('.json'):
+                continue
+            # prefer files that mention coords/geocode/cache in their name, but do not strictly require it
+            if not re.search(r'(geocode|coords|cache)', fname, re.I):
+                # still attempt to load any .json file — some caches may have arbitrary names
+                pass
+            path = os.path.join(root, fname)
+            try:
+                with open(path, 'r', encoding='utf-8') as fh:
+                    data = json.load(fh)
+                entries = {}
+
+                # common case: top-level "geocode"
+                if isinstance(data, dict):
+                    if 'geocode' in data and isinstance(data['geocode'], dict):
+                        entries = data['geocode']
+                    else:
+                        # if dict directly maps place->coords, accept it
+                        if all((isinstance(v, (list, tuple)) and len(v) >= 2) for v in data.values()):
+                            entries = data
+                        else:
+                            # try to find a nested dict that looks like place->coords mapping
+                            for k,v in data.items():
+                                if isinstance(v, dict) and all((isinstance(val, (list,tuple)) and len(val) >= 2) for val in v.values()):
+                                    entries = v
+                                    break
+                            # final heuristic: maybe a list under some key
+                            if not entries:
+                                for k,v in data.items():
+                                    if isinstance(v, list):
+                                        # if list elements look like {"place":..,"coords":[..]} convert
+                                        mapped = {}
+                                        ok = True
+                                        for item in v:
+                                            if not isinstance(item, dict) or 'place' not in item or 'coords' not in item:
+                                                ok = False
+                                                break
+                                            mapped[item['place']] = item['coords']
+                                        if ok and mapped:
+                                            entries = mapped
+                                            break
+
+                elif isinstance(data, list):
+                    # list of objects like {"place": "...", "coords":[lat,lon]}
+                    mapped = {}
+                    for item in data:
+                        if isinstance(item, dict) and 'place' in item and 'coords' in item:
+                            mapped[item['place']] = item['coords']
+                    if mapped:
+                        entries = mapped
+
+                # Merge normalized entries into combined
+                for k, v in (entries.items() if isinstance(entries, dict) else []):
+                    nk = normalize_place_key(k)
+                    combined[nk] = v
+
+            except Exception as e:
+                print(f"[WARN] lecture geocode {path} failed: {e}", file=sys.stderr)
     return combined
 
 
@@ -298,6 +377,71 @@ def choose_random_by_country(players, rng, exclude_ids=None):
     return chosen, country
 
 
+# --- New helpers for country-mode selection with rank preference ---
+def select_player_from_country_with_rank_pref(players_in_country, rng, exclude_ids=None, rank_limits=(50,100,300,500)):
+    """
+    players_in_country: list of player dicts (already filtered for the gender)
+    Try in order:
+      - candidates with rank <= rank_limits[0]
+      - then rank <= rank_limits[1]
+      - then any candidates (still requiring is_player_complete)
+    exclude_ids: iterable of player_ids to exclude (strings)
+    Returns chosen player dict or None.
+    """
+    exclude_ids = set(str(x) for x in (exclude_ids or []))
+    def candidates_with_limit(limit):
+        return [p for p in players_in_country if p.get('rank') is not None and p.get('rank') <= limit and str(p.get('player_id')) not in exclude_ids and is_player_complete(p)]
+    # try first limit
+    if rank_limits and rank_limits[0] is not None:
+        c = candidates_with_limit(rank_limits[0])
+        if c:
+            return rng.choice(c)
+    # second limit
+    if rank_limits and len(rank_limits) > 1 and rank_limits[1] is not None:
+        c = candidates_with_limit(rank_limits[1])
+        if c:
+            return rng.choice(c)
+    # fallback: any in country (complete & not excluded)
+    c = [p for p in players_in_country if str(p.get('player_id')) not in exclude_ids and is_player_complete(p)]
+    if c:
+        return rng.choice(c)
+    return None
+
+def find_common_country_with_both_genders(atp_players, wta_players, rng):
+    """
+    Try to find a country that has at least one ATP and one WTA eligible player,
+    with preference for top300 then top500 then any (the function doesn't pick players,
+    only tests presence). Countries are tried in random order and removed if they
+    don't provide both genders.
+    Returns chosen country string or None.
+    """
+    atp_map = {}
+    wta_map = {}
+    for p in atp_players:
+        c = p.get('represented_country')
+        if not c: continue
+        atp_map.setdefault(c, []).append(p)
+    for p in wta_players:
+        c = p.get('represented_country')
+        if not c: continue
+        wta_map.setdefault(c, []).append(p)
+
+    # candidates are intersection of countries that appear in both maps (we want both genders)
+    common_countries = list(set(atp_map.keys()).intersection(set(wta_map.keys())))
+    rng.shuffle(common_countries)
+    for country in common_countries:
+        atp_candidates = atp_map.get(country, [])
+        wta_candidates = wta_map.get(country, [])
+        # use the same rank pref used later: check whether pick is possible (without excluding ids here)
+        atp_ok = select_player_from_country_with_rank_pref(atp_candidates, rng, exclude_ids=None) is not None
+        wta_ok = select_player_from_country_with_rank_pref(wta_candidates, rng, exclude_ids=None) is not None
+        if atp_ok and wta_ok:
+            return country
+        # otherwise, continue to next country (this effectively "removes" this country)
+    return None
+# --- end new helpers ---
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--atp', required=True)
@@ -370,7 +514,8 @@ def main():
     def pick_levels_for_gender(valid_players, fixed_by_country=None):
         """Pick top20/top100/top300 and a 'by_country' entry for the provided valid_players.
            If fixed_by_country is provided, the 'by_country' pick will be taken from that country
-           (if possible); otherwise a random country present in valid_players will be chosen.
+           (if possible) using rank preference <=300, <=500, then any; otherwise a random country present
+           in valid_players will be chosen.
         """
         chosen_ids = set()
         res = {}
@@ -415,47 +560,79 @@ def main():
                 if chosen.get('player_id'): chosen_ids.add(str(chosen.get('player_id')))
         # by_country selection: prefer fixed_by_country if provided
         if fixed_by_country:
-            # attempt to pick from fixed_by_country; if no candidates there, fall back to normal random selection
-            candidates = [p for p in valid_players if p.get('represented_country') == fixed_by_country and is_player_complete(p) and str(p.get('player_id')) not in chosen_ids]
-            if candidates:
-                chosen = rng.choice(candidates)
-                chosen_country = fixed_by_country
+            # attempt to pick from fixed_by_country using rank preference <=300, <=500, then any
+            candidates_all = [p for p in valid_players if p.get('represented_country') == fixed_by_country and is_player_complete(p) and str(p.get('player_id')) not in chosen_ids]
+            chosen = select_player_from_country_with_rank_pref(candidates_all, rng, exclude_ids=chosen_ids, rank_limits=(300,500))
+            if chosen:
                 pool_size = len([p for p in valid_players if p.get('represented_country') == fixed_by_country and is_player_complete(p)])
+                res['by_country'] = {
+                    'chosen': {
+                        'player_id': chosen.get('player_id'),
+                        'full_name': chosen.get('full_name'),
+                        'source': chosen.get('source'),
+                        'represented_country': chosen.get('represented_country'),
+                        'rank': chosen.get('rank'),
+                        'height_cm': chosen.get('height_cm'),
+                        'birth_date': chosen.get('birth_date'),
+                        'birthplace': chosen.get('birthplace'),
+                        'birth_year': chosen.get('birth_year')
+                    },
+                    'country': fixed_by_country,
+                    'pool_size': pool_size
+                }
             else:
-                chosen, chosen_country = choose_random_by_country(valid_players, rng, exclude_ids=chosen_ids)
-                pool_size = len([p for p in valid_players if p.get('represented_country') == chosen_country and is_player_complete(p)]) if chosen_country else 0
+                # fallback: try a random country selection (respecting chosen_ids)
+                chosen, country = choose_random_by_country(valid_players, rng, exclude_ids=chosen_ids)
+                if chosen:
+                    pool_size = len([p for p in valid_players if p.get('represented_country') == country and is_player_complete(p)])
+                    res['by_country'] = {
+                        'chosen': {
+                            'player_id': chosen.get('player_id'),
+                            'full_name': chosen.get('full_name'),
+                            'source': chosen.get('source'),
+                            'represented_country': chosen.get('represented_country'),
+                            'rank': chosen.get('rank'),
+                            'height_cm': chosen.get('height_cm'),
+                            'birth_date': chosen.get('birth_date'),
+                            'birthplace': chosen.get('birthplace'),
+                            'birth_year': chosen.get('birth_year')
+                        },
+                        'country': country,
+                        'pool_size': pool_size
+                    }
+                else:
+                    res['by_country'] = {'chosen': None, 'country': None, 'pool_size': 0}
         else:
-            chosen, chosen_country = choose_random_by_country(valid_players, rng, exclude_ids=chosen_ids)
-            pool_size = len([p for p in valid_players if p.get('represented_country') == chosen_country and is_player_complete(p)]) if chosen_country else 0
-
-        if chosen:
-            res['by_country'] = {
-                'chosen': {
-                    'player_id': chosen.get('player_id'),
-                    'full_name': chosen.get('full_name'),
-                    'source': chosen.get('source'),
-                    'represented_country': chosen.get('represented_country'),
-                    'rank': chosen.get('rank'),
-                    'height_cm': chosen.get('height_cm'),
-                    'birth_date': chosen.get('birth_date'),
-                    'birthplace': chosen.get('birthplace'),
-                    'birth_year': chosen.get('birth_year')
-                },
-                'country': chosen_country,
-                'pool_size': pool_size
-            }
-        else:
-            res['by_country'] = {'chosen': None, 'country': None, 'pool_size': 0}
+            chosen, country = choose_random_by_country(valid_players, rng, exclude_ids=chosen_ids)
+            if chosen:
+                pool_size = len([p for p in valid_players if p.get('represented_country') == country and is_player_complete(p)])
+                res['by_country'] = {
+                    'chosen': {
+                        'player_id': chosen.get('player_id'),
+                        'full_name': chosen.get('full_name'),
+                        'source': chosen.get('source'),
+                        'represented_country': chosen.get('represented_country'),
+                        'rank': chosen.get('rank'),
+                        'height_cm': chosen.get('height_cm'),
+                        'birth_date': chosen.get('birth_date'),
+                        'birthplace': chosen.get('birthplace'),
+                        'birth_year': chosen.get('birth_year')
+                    },
+                    'country': country,
+                    'pool_size': pool_size
+                }
+            else:
+                res['by_country'] = {'chosen': None, 'country': None, 'pool_size': 0}
         return res
 
     # choose a random country that has at least one eligible ATP and one eligible WTA player
-    atp_countries = {p.get('represented_country') for p in atp_valid if p.get('represented_country')}
-    wta_countries = {p.get('represented_country') for p in wta_valid if p.get('represented_country')}
-    common_countries = sorted(list(atp_countries.intersection(wta_countries)))
-    fixed_country = None
-    if common_countries:
-        fixed_country = rng.choice(common_countries)
-        print(f"[INFO] country chosen for both ATP and WTA by-country pick: {fixed_country}")
+    # but with the new rule: for the chosen country, we prefer picking a player/joueuse in top300,
+    # else top500, else any. If a country doesn't have both genders (by those criteria), remove it and pick another.
+    fixed_country = find_common_country_with_both_genders(atp_valid, wta_valid, rng)
+    if fixed_country:
+        print(f"[INFO] country chosen for both ATP and WTA by-country pick (with rank pref 300/500/any): {fixed_country}")
+    else:
+        print(f"[INFO] no single country found that provides both ATP and WTA players under the rank preferences; proceed without fixed country.", file=sys.stderr)
 
     out['ATP'] = pick_levels_for_gender(atp_valid, fixed_by_country=fixed_country)
     out['WTA'] = pick_levels_for_gender(wta_valid, fixed_by_country=fixed_country)
