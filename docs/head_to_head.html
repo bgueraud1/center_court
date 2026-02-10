@@ -5,23 +5,26 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Head to Head — H2H</title>
 <style>
-  /* --- Reset & base --- */
   :root{
     --accent:#0b5fff;
     --muted:#6b7280;
     --bg:#fff;
     --card:#f8fafc;
-    --glass: rgba(255,255,255,0.6);
-    --win-green: #19a974;
-    --lose-red: #ef4444;
     font-family: Inter, system-ui, "Helvetica Neue", Arial, sans-serif;
   }
   body{ margin:0; color:#0f172a; background: linear-gradient(180deg,#f3f6fb 0%, #fff 100%); }
-  .container{ max-width:1100px; margin:36px auto; padding:20px; }
+  .container{ max-width:1150px; margin:28px auto; padding:18px; }
   .h2h-content{ background: white; border-radius:12px; box-shadow: 0 8px 30px rgba(11,35,76,0.06); padding:18px; }
-  .header{ display:flex; justify-content:flex-end; }
-  .partner-link img{ height:36px; opacity:.85; }
-  .match-stats{ display:flex; gap:18px; align-items:center; justify-content:space-between; padding:18px 8px; }
+  .top-row{ display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+  .search-block{ display:flex; gap:12px; align-items:center; }
+  .player-picker{ display:flex; gap:8px; align-items:center; background:#f3f6fb; padding:8px 10px; border-radius:10px; }
+  .picker-input{ border:none; background:transparent; outline:none; width:220px; font-weight:600; color:#0b5fff; }
+  .picker-input::placeholder{ color:#94a3b8; font-weight:400 }
+  .btn{ padding:8px 12px; border-radius:8px; border:none; cursor:pointer; font-weight:600 }
+  .btn-primary{ background:var(--accent); color:white }
+  .btn-ghost{ background:transparent; border:1px solid #e6eefc; color:var(--accent) }
+  .swap-btn{ background:#fff; border:1px solid #eee; padding:8px; border-radius:8px; cursor:pointer }
+  .match-stats{ display:flex; gap:18px; align-items:center; justify-content:space-between; padding:18px 8px; margin-top:18px; }
   .player, .opponent{ width:22%; text-align:center; }
   .headshot{ width:110px; height:110px; border-radius:50%; overflow:hidden; margin:0 auto 8px; background:#eee; display:flex; align-items:center; justify-content:center; }
   .headshot img{ width:100%; height:100%; object-fit:cover; display:block; }
@@ -33,16 +36,8 @@
   .chart .bar{ stroke:var(--accent); stroke-width:14; stroke-linecap:round; }
   .chart circle{ stroke:#e6eefc; stroke-width:14; }
   .chart span{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; font-weight:600; color:#0f172a; font-size:14px; line-height:1.1; }
-  /* search */
-  .search-players{ display:flex; gap:12px; margin-top:12px; }
-  .search-wrapper{ display:flex; gap:8px; align-items:center; width:100%; }
-  .search-initial{ display:flex; align-items:center; gap:8px; background:#f3f6fb; padding:10px 12px; border-radius:10px; flex:1; }
-  .search-initial .info{ flex:1; }
-  .search-initial .name a{ font-weight:600; color:#0b5fff; text-decoration:none; }
-  .country{ display:inline-flex; gap:6px; align-items:center; color:var(--muted); font-size:13px; margin-top:6px; }
-  .player-search, .opponent-search{ background:var(--accent); color:#fff; border:none; padding:8px 12px; border-radius:8px; cursor:pointer; }
-  /* h2h data */
-  .h2h-data{ display:flex; gap:18px; padding:12px; margin-top:10px; }
+  .muted{ color:var(--muted); font-size:13px; }
+  .h2h-data{ display:flex; gap:18px; padding:12px; margin-top:8px; }
   .player-data, .opponent-data{ width:24%; background:var(--card); padding:12px; border-radius:10px; }
   .shared-data{ flex:1; background:linear-gradient(180deg, #fff, #fbfdff); padding:12px; border-radius:10px; }
   ul{ list-style:none; padding:0; margin:0; }
@@ -55,36 +50,50 @@
   table{ width:100%; border-collapse:collapse; font-size:14px; }
   th{ text-align:left; padding:8px; color:var(--muted); font-weight:600; border-bottom:2px solid #f0f4ff; }
   td{ padding:8px; vertical-align:middle; border-bottom:1px solid #f7f9fc; }
-  .match .player-info{ display:flex; gap:8px; align-items:center; }
   .player-image{ width:36px; height:36px; border-radius:50%; object-fit:cover; }
-  .atp-flag { width:22px; height:14px; }
-  .muted { color:var(--muted); font-size:13px; }
-  .placeholder{ text-align:center; padding:30px; color:var(--muted); }
-  /* responsive */
+  .autocomplete-list{ position:absolute; z-index:1500; background:white; border-radius:8px; box-shadow: 0 6px 20px rgba(15,23,42,0.08); width:360px; max-height:320px; overflow:auto; }
+  .autocomplete-item{ padding:8px 10px; border-bottom:1px solid #f4f7fb; cursor:pointer; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .autocomplete-item:hover, .autocomplete-item.active{ background:#f3f6fb; }
+  .msg{ margin-top:12px; padding:10px; border-radius:8px; background:#fff4; color:var(--muted) }
   @media (max-width:900px){
     .match-stats{ flex-direction:column; gap:12px; align-items:center; }
-    .player, .opponent{ width:auto; }
-    .win-stats{ width:100%;}
     .h2h-data{ flex-direction:column; }
     .player-data, .opponent-data{ width:100%; }
+    .autocomplete-list{ width:92vw; left:4vw; right:4vw; }
   }
 </style>
 </head>
 <body>
   <div class="container">
     <div class="h2h-content" id="h2h-root">
-      <div class="header">
-        <!-- partner image (optional) -->
-        <a class="partner-link" href="#" target="_blank" style="display:none">
-          <img src="/-/media/sites/atp-tour/header/lexus-atp-head2head_1.png" alt="Partner">
-        </a>
+      <div class="top-row">
+        <div class="search-block" aria-hidden="false">
+          <div class="player-picker" style="position:relative">
+            <input id="p1-input" class="picker-input" placeholder="Joueur 1 (nom ou id)" autocomplete="off" />
+            <div id="p1-suggestions" class="autocomplete-list" style="display:none"></div>
+          </div>
+
+          <button class="swap-btn" id="swap-btn" title="Swap">⇄</button>
+
+          <div class="player-picker" style="position:relative">
+            <input id="p2-input" class="picker-input" placeholder="Joueur 2 (nom ou id)" autocomplete="off" />
+            <div id="p2-suggestions" class="autocomplete-list" style="display:none"></div>
+          </div>
+
+          <button class="btn btn-primary" id="load-btn">Afficher H2H</button>
+          <button class="btn btn-ghost" id="clear-btn">Effacer</button>
+        </div>
+
+        <div style="display:flex; gap:8px; align-items:center;">
+          <a href="#" id="open-json-link" class="muted" target="_blank" style="text-decoration:none; font-size:13px;">Voir JSON (si disponible)</a>
+        </div>
       </div>
 
-      <div class="match-stats" id="match-stats">
+      <div id="status-msg" class="msg" style="display:none"></div>
+
+      <div class="match-stats" id="match-stats" style="display:none">
         <div class="player" id="player-left">
-          <div>
-            <div class="headshot" id="left-headshot"><img src="" alt=""></div>
-          </div>
+          <div><div class="headshot" id="left-headshot"><img src="" alt=""></div></div>
           <div class="muted" id="left-name"></div>
         </div>
 
@@ -103,83 +112,30 @@
         </div>
 
         <div class="opponent" id="player-right">
-          <div>
-            <div class="headshot" id="right-headshot"><img src="" alt=""></div>
-          </div>
+          <div><div class="headshot" id="right-headshot"><img src="" alt=""></div></div>
           <div class="muted" id="right-name"></div>
         </div>
       </div>
 
-      <div class="search-players">
-        <div class="search-wrapper">
-          <div class="search-initial">
-            <div class="info">
-              <div class="name"><a href="#" id="left-link"><span id="left-name-link">Player 1</span></a></div>
-              <div class="country" id="left-country"></div>
-            </div>
-            <button class="player-search" id="left-select-btn" title="Changer joueur">Search</button>
-          </div>
-        </div>
-
-        <div class="search-wrapper">
-          <div class="search-initial">
-            <div class="info">
-              <div class="name"><a href="#" id="right-link"><span id="right-name-link">Player 2</span></a></div>
-              <div class="country" id="right-country"></div>
-            </div>
-            <button class="opponent-search" id="right-select-btn" title="Changer adversaire">Search</button>
-          </div>
-        </div>
+      <div class="h2h-data" id="h2h-data" style="display:none">
+        <div class="player-data" id="player-data-left"><ul id="player-left-list"><li class="placeholder">—</li></ul></div>
+        <div class="shared-data" id="shared-data"><ul id="shared-list"><li class="placeholder">—</li></ul></div>
+        <div class="opponent-data" id="player-data-right"><ul id="player-right-list"><li class="placeholder">—</li></ul></div>
       </div>
 
-      <div class="h2h-data" id="h2h-data">
-        <div class="player-data" id="player-data-left">
-          <ul id="player-left-list"><li class="placeholder">Chargement…</li></ul>
-        </div>
-
-        <div class="shared-data" id="shared-data">
-          <ul id="shared-list"><li class="placeholder">Chargement des statistiques…</li></ul>
-        </div>
-
-        <div class="opponent-data" id="player-data-right">
-          <ul id="player-right-list"><li class="placeholder">Chargement…</li></ul>
-        </div>
-      </div>
-
-      <div class="event-breakdown" id="event-breakdown">
+      <div class="event-breakdown" id="event-breakdown" style="display:none">
         <h4>Event Breakdown</h4>
-        <div class="event-breakdown-list" id="event-table-container">
-          <div class="placeholder">Chargement des rencontres…</div>
-        </div>
-      </div>
-
-    </div>
-
-    <!-- hidden search modal (simple implementation) -->
-    <div id="search-modal" style="display:none; position:fixed; inset:0; background:rgba(2,6,23,0.5); z-index:2000; align-items:center; justify-content:center;">
-      <div style="background:white; width:92%; max-width:900px; border-radius:10px; padding:18px; max-height:86vh; overflow:auto;">
-        <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:8px;">
-          <h3 id="modal-title" style="margin:0">Choisir un joueur</h3>
-          <button id="modal-close" style="background:#eee;border:none;padding:8px;border-radius:8px;cursor:pointer">Fermer</button>
-        </div>
-        <div style="display:flex; gap:12px;">
-          <input id="search-input" type="search" placeholder="Tapez le nom ou l'ID..." style="flex:1;padding:10px;border-radius:8px;border:1px solid #e6eefc">
-          <select id="category-select" style="padding:10px;border-radius:8px;">
-            <option value="auto">ATP / WTA (auto)</option>
-            <option value="atp">ATP</option>
-            <option value="wta">WTA</option>
-          </select>
-        </div>
-        <div id="search-results" style="margin-top:12px;"></div>
+        <div class="event-breakdown-list" id="event-table-container"><div class="placeholder">—</div></div>
       </div>
     </div>
-
   </div>
 
 <script>
-/* ===========================
-   Utilitaires
-   =========================== */
+/* ====== Configuration ====== */
+const PLAYERS_CATALOG_URL = '/tools/players_catalog.json'; // fichier JSON fourni
+const H2H_JSON_BASE = '/data/h2h/'; // dossiers data/h2h/{P1}_{P2}.json
+
+/* ====== Utilitaires ====== */
 function qs(name, url = location.href) {
   name = name.replace(/[\\[\\]]/g, "\\$&");
   const regex = new RegExp("[?&]" + name + "(=([^&#]*)|&|#|$)");
@@ -188,158 +144,253 @@ function qs(name, url = location.href) {
   if (!results[2]) return '';
   return decodeURIComponent(results[2].replace(/\+/g, " "));
 }
+function normId(s){ if (!s) return ''; return String(s).trim().toUpperCase(); }
 function safeText(s){ return (s==null||s==='')? '—' : String(s); }
 function formatMoney(s){
-  if (s==null || s === '') return '—';
-  // if already formatted (starts with $), return
+  if (!s) return '—';
   if (/^[£$€]/.test(s)) return s;
   const n = Number(String(s).replace(/[^0-9\.\-]/g,''));
   if (isNaN(n)) return s;
   return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n);
 }
-function parseCSV(text){
-  // returns array of objects (first line header). Simple robust parser supporting quoted fields and CRLF
-  const rows = [];
-  let cur = [];
-  let i=0, inQuotes=false, field='';
-  // Normalize newlines
-  text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  while (i < text.length) {
-    const ch = text[i];
-    if (inQuotes) {
-      if (ch === '"') {
-        if (text[i+1] === '"') { field += '"'; i+=2; continue; }
-        inQuotes = false; i++; continue;
-      } else { field += ch; i++; continue; }
-    } else {
-      if (ch === '"') { inQuotes = true; i++; continue; }
-      if (ch === ',') { cur.push(field); field=''; i++; continue; }
-      if (ch === '\n') { cur.push(field); rows.push(cur); cur=[]; field=''; i++; continue; }
-      field += ch; i++; continue;
+
+/* ====== État ====== */
+let playersCatalog = null; // contenu /tools/players_catalog.json
+let playersIndexById = {};  // id -> player
+let playersIndexByName = []; // array for search {id,full_name,represented_country,rank,source}
+const p1Input = document.getElementById('p1-input');
+const p2Input = document.getElementById('p2-input');
+const p1Sug = document.getElementById('p1-suggestions');
+const p2Sug = document.getElementById('p2-suggestions');
+const loadBtn = document.getElementById('load-btn');
+const swapBtn = document.getElementById('swap-btn');
+const clearBtn = document.getElementById('clear-btn');
+const statusMsg = document.getElementById('status-msg');
+const openJsonLink = document.getElementById('open-json-link');
+
+/* ====== Chargement du catalogue ====== */
+async function loadPlayersCatalog(){
+  try {
+    const res = await fetch(PLAYERS_CATALOG_URL, {cache: "no-cache"});
+    if (!res.ok) throw new Error('Catalogue introuvable');
+    playersCatalog = await res.json();
+    if (!playersCatalog.players || !Array.isArray(playersCatalog.players)) {
+      throw new Error('Format catalogue invalide');
     }
+    playersIndexById = {};
+    playersIndexByName = [];
+    for (const p of playersCatalog.players){
+      const id = (p.player_id || p.playerId || '').toString().toUpperCase();
+      const name = p.full_name || p.fullName || p.name || '';
+      const country = p.represented_country || p.country || '';
+      const rank = p.rank || p.best_rank || null;
+      const source = p.source || (p._raw_row && p._raw_row._source) || '';
+      const rec = Object.assign({}, p, { id, name, country, rank, source });
+      if (id) playersIndexById[id] = rec;
+      playersIndexByName.push({ id, name, country, rank, source, _raw: p });
+    }
+    // small optimisation: lowercase names for search
+    playersIndexByName.forEach(x => x._lc = (x.name || '').toLowerCase());
+    showStatus(`Catalogue chargé: ${playersIndexByName.length} joueurs.`, 'info', 3000);
+  } catch (err){
+    console.warn('Erreur catalogue:', err);
+    showStatus('Impossible de charger le catalogue des joueurs (docs/tools/players_catalog.json). La recherche automatique est indisponible.', 'error', 8000);
   }
-  // last
-  if (field !== '' || cur.length) { cur.push(field); rows.push(cur); }
-  if (rows.length === 0) return [];
-  const headers = rows[0].map(h => h.trim());
-  const data = rows.slice(1).map(r => {
-    const obj = {};
-    for (let j=0;j<headers.length;j++){
-      obj[headers[j]] = r[j] !== undefined ? r[j] : '';
-    }
-    return obj;
+}
+
+/* ====== Autocomplete simple ====== */
+function findPlayersByQuery(q, limit=12){
+  q = (q || '').toLowerCase().trim();
+  if (!q) return [];
+  // search by id exact start, then name includes; rank boost
+  const byId = [];
+  const byName = [];
+  for (const p of playersIndexByName){
+    if (!p.id && !p.name) continue;
+    if (p.id && p.id.toLowerCase().startsWith(q)) byId.push(p);
+    else if (p._lc && p._lc.includes(q)) byName.push(p);
+    if (byId.length + byName.length >= limit) break;
+  }
+  const merged = byId.concat(byName).slice(0, limit);
+  return merged;
+}
+
+function renderSuggestions(list, container, inputEl){
+  if (!list || list.length === 0){
+    container.style.display = 'none';
+    container.innerHTML = '';
+    return;
+  }
+  container.innerHTML = '';
+  for (const item of list){
+    const div = document.createElement('div');
+    div.className = 'autocomplete-item';
+    div.innerHTML = `<div style="display:flex;align-items:center;gap:10px">
+        <img src="/-/media/alias/player-headshot/${item.id}" alt="${item.name}" style="width:36px;height:36px;border-radius:50%;object-fit:cover; background:#f2f6fb"/>
+        <div>
+          <div style="font-weight:600">${item.name}</div>
+          <div class="muted" style="font-size:12px">${item.id} • ${item.country || ''} ${item.rank? '• #'+item.rank : ''}</div>
+        </div>
+      </div>`;
+    div.addEventListener('click', ()=>{
+      inputEl.value = item.id || item.name;
+      container.style.display = 'none';
+      inputEl.dataset.selectedId = item.id; // store selected id
+    });
+    container.appendChild(div);
+  }
+  container.style.display = 'block';
+}
+
+/* ====== Evénements sur inputs ====== */
+p1Input.addEventListener('input', (e)=>{
+  delete p1Input.dataset.selectedId;
+  const q = p1Input.value.trim();
+  if (!q) { p1Sug.style.display='none'; return; }
+  // if user typed an ID that exists, show it first
+  const norm = q.toUpperCase();
+  const matches = [];
+  if (playersIndexById[norm]) matches.push(playersIndexById[norm]);
+  const found = findPlayersByQuery(q, 12);
+  // convert to unified shape
+  for (const f of found){
+    if (!matches.find(m=>m.id===f.id)) matches.push(f);
+  }
+  renderSuggestions(matches, p1Sug, p1Input);
+});
+p2Input.addEventListener('input', (e)=>{
+  delete p2Input.dataset.selectedId;
+  const q = p2Input.value.trim();
+  if (!q) { p2Sug.style.display='none'; return; }
+  const norm = q.toUpperCase();
+  const matches = [];
+  if (playersIndexById[norm]) matches.push(playersIndexById[norm]);
+  const found = findPlayersByQuery(q, 12);
+  for (const f of found){
+    if (!matches.find(m=>m.id===f.id)) matches.push(f);
+  }
+  renderSuggestions(matches, p2Sug, p2Input);
+});
+
+/* close suggestions when clicking outside */
+document.addEventListener('click', (ev)=>{
+  if (!ev.target.closest('.player-picker')) {
+    p1Sug.style.display='none';
+    p2Sug.style.display='none';
+  }
+});
+
+/* allow Enter key on inputs to trigger load */
+[p1Input, p2Input].forEach(inp=>{
+  inp.addEventListener('keydown', (e)=>{
+    if (e.key === 'Enter') { e.preventDefault(); loadBtn.click(); }
   });
-  return data;
+});
+
+/* ====== Actions boutons ====== */
+swapBtn.addEventListener('click', ()=>{
+  const a = p1Input.value;
+  p1Input.value = p2Input.value;
+  p2Input.value = a;
+  const ida = p1Input.dataset.selectedId;
+  p1Input.dataset.selectedId = p2Input.dataset.selectedId;
+  p2Input.dataset.selectedId = ida;
+});
+clearBtn.addEventListener('click', ()=>{
+  p1Input.value = '';
+  p2Input.value = '';
+  delete p1Input.dataset.selectedId;
+  delete p2Input.dataset.selectedId;
+  hideAllPanels();
+  showStatus('Sélection effacée', 'info', 1800);
+});
+loadBtn.addEventListener('click', async ()=>{
+  const val1 = p1Input.dataset.selectedId || p1Input.value.trim();
+  const val2 = p2Input.dataset.selectedId || p2Input.value.trim();
+  if (!val1 || !val2) { showStatus('Indiquez deux joueurs (nom ou id).', 'error', 4000); return; }
+  // if inputs are names (not IDs), try to resolve to ID via catalog
+  const id1 = resolveToId(val1);
+  const id2 = resolveToId(val2);
+  if (!id1 || !id2) {
+    showStatus('Impossible de résoudre au moins un joueur en ID via le catalogue. Tapez l\'ID ou choisissez dans la liste.', 'error', 6000);
+    return;
+  }
+  // update URL
+  const url = new URL(location.href);
+  url.searchParams.set('p1', id1);
+  url.searchParams.set('p2', id2);
+  history.replaceState({}, '', url.toString());
+  // load H2H JSON
+  await fetchAndRenderH2H(id1, id2);
+});
+
+/* ====== Résolution nom -> id ====== */
+function resolveToId(value){
+  if (!value) return null;
+  const v = value.trim();
+  const up = v.toUpperCase();
+  if (playersIndexById[up]) return up;
+  // check by exact name
+  const lc = v.toLowerCase();
+  const exact = playersIndexByName.find(p => p._lc === lc);
+  if (exact) return exact.id;
+  // partial match returns first
+  const partial = playersIndexByName.find(p => p._lc && p._lc.includes(lc));
+  if (partial) return partial.id;
+  return null;
 }
-function isNumericId(id){ if (!id) return false; return /^[0-9]+$/.test(id); }
 
-/* ===========================
-   Chargement ressources
-   =========================== */
-
-const p1 = (qs('p1') || '').trim();
-const p2 = (qs('p2') || '').trim();
-
-const H2H_DIR = './data/h2h/'; // emplacement des JSON pré-générés
-const ATP_CSV = './player_data_atp.csv';
-const WTA_CSV = './player_data_wta.csv';
-
-let playersIndex = { atp: {}, wta: {} }; // maps player_id -> record
-
-async function loadPlayerCSVs(){
-  // charge ATP
-  try {
-    const r = await fetch(ATP_CSV);
-    if (r.ok){
-      const text = await r.text();
-      const rows = parseCSV(text);
-      for (const row of rows){
-        // header contains player_id column
-        const id = (row.player_id || row.playerId || row.playerID || row.player_id || '').toString().trim();
-        if (id) playersIndex.atp[id] = row;
-      }
-    }
-  } catch(e){ console.warn('Impossible de charger player_data_atp.csv', e); }
-  try {
-    const r2 = await fetch(WTA_CSV);
-    if (r2.ok){
-      const text2 = await r2.text();
-      const rows2 = parseCSV(text2);
-      // WTA file may have player_id column named player_id or PlayerID; try to find the column name dynamically
-      for (const row of rows2){
-        const keys = Object.keys(row);
-        // heuristique pour trouver player_id column
-        let id = row.player_id || row.playerId || row.player || row.player_id || row.playerID || '';
-        if (!id) {
-          // try columns that look like numbers (some rows may have empty height first)
-          for (const k of keys){
-            if (/^player/i.test(k) || /id$/i.test(k) ) { id = row[k]; break; }
-          }
-        }
-        id = (id || '').toString().trim();
-        if (id) playersIndex.wta[id] = row;
-      }
-    }
-  } catch(e){ console.warn('Impossible de charger player_data_wta.csv', e); }
+/* ====== Affichage messages ====== */
+function showStatus(msg, type='info', autoHideMs=null){
+  statusMsg.style.display = 'block';
+  statusMsg.textContent = msg;
+  statusMsg.style.background = (type === 'error') ? '#fff0f0' : '#f6fcff';
+  if (autoHideMs) {
+    setTimeout(()=>{ statusMsg.style.display='none'; }, autoHideMs);
+  }
 }
+function hideStatus(){ statusMsg.style.display='none'; }
 
-/* ===========================
-   Charger JSON H2H
-   =========================== */
-
-async function loadH2H(p1id, p2id){
-  // tries p1_p2.json and fallback p2_p1.json
+/* ====== Chargement JSON H2H ====== */
+async function fetchH2HJson(p1, p2){
+  // essais : /data/h2h/P1_P2.json puis /data/h2h/P2_P1.json
   const candidates = [
-    `${H2H_DIR}${p1id}_${p2id}.json`,
-    `${H2H_DIR}${p2id}_${p1id}.json`
+    `${H2H_JSON_BASE}${p1}_${p2}.json`,
+    `${H2H_JSON_BASE}${p2}_${p1}.json`
   ];
   for (const path of candidates){
     try {
-      const r = await fetch(path);
-      if (r.ok){
-        const json = await r.json();
-        return { json, path };
-      }
-    } catch(e){ /* continue */ }
+      const r = await fetch(path, {cache: "no-cache"});
+      if (!r.ok) continue;
+      const json = await r.json();
+      return { json, path };
+    } catch (err){
+      // continue to next candidate
+    }
   }
   return null;
 }
 
-/* ===========================
-   Render helpers
-   =========================== */
-
+/* ====== Render H2H (central) ====== */
+function hideAllPanels(){
+  document.getElementById('match-stats').style.display = 'none';
+  document.getElementById('h2h-data').style.display = 'none';
+  document.getElementById('event-breakdown').style.display = 'none';
+  openJsonLink.href = '#';
+}
 function setHeadshot(elId, player, fallbackName){
   const el = document.getElementById(elId);
   const img = el.querySelector('img');
-  img.alt = fallbackName || (player && player.name) || 'Player';
-  // prefer explicit headshot in JSON (player.headshot) or build a path
-  let src = player && (player.headshot || player.headshot_url || player.image);
-  if (!src && player && player.id){
-    // try common pattern used on the ATP site; keep as-is if not found
-    // many sites use uppercase id like "DH58" or numeric ids
-    src = `/-/media/alias/player-headshot/${player.id}`;
-  }
-  if (!src) {
-    img.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="100%" height="100%" fill="%23e6eefc"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="20" fill="%237b8798">No photo</text></svg>';
-  } else {
-    img.src = src;
-  }
+  img.alt = fallbackName || (player && player.full_name) || 'Player';
+  let src = '';
+  if (player && player.headshot) src = player.headshot;
+  else if (player && player.id) src = `/-/media/alias/player-headshot/${player.id}`;
+  else src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="100%" height="100%" fill="%23e6eefc"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="20" fill="%237b8798">No photo</text></svg>';
+  img.src = src;
 }
-
 function setNameFields(leftObj, rightObj){
-  document.getElementById('left-name').textContent = leftObj.name || leftObj.full_name || '—';
-  document.getElementById('right-name').textContent = rightObj.name || rightObj.full_name || '—';
-  document.getElementById('left-name-link').textContent = leftObj.name || leftObj.full_name || 'Player 1';
-  document.getElementById('right-name-link').textContent = rightObj.name || rightObj.full_name || 'Player 2';
-
-  // links to profile if slug present
-  const leftProfile = leftObj.profile_url || leftObj.profile || (leftObj.id ? `/en/players/${(leftObj.slug||leftObj.id).toString().toLowerCase()}/${leftObj.id}/overview` : '#');
-  const rightProfile = rightObj.profile_url || rightObj.profile || (rightObj.id ? `/en/players/${(rightObj.slug||rightObj.id).toString().toLowerCase()}/${rightObj.id}/overview` : '#');
-  document.getElementById('left-link').href = leftProfile;
-  document.getElementById('right-link').href = rightProfile;
-  document.getElementById('left-country').innerHTML = (leftObj.country)? `<svg class="atp-flag"><rect width="22" height="14" fill="#ddd"/></svg><span>${leftObj.country}</span>` : '';
-  document.getElementById('right-country').innerHTML = (rightObj.country)? `<svg class="atp-flag"><rect width="22" height="14" fill="#ddd"/></svg><span>${rightObj.country}</span>` : '';
+  document.getElementById('left-name').textContent = leftObj.full_name || leftObj.name || leftObj.id || '—';
+  document.getElementById('right-name').textContent = rightObj.full_name || rightObj.name || rightObj.id || '—';
 }
 
 function renderPlayerBox(playerRecord, containerSelector){
@@ -347,25 +398,14 @@ function renderPlayerBox(playerRecord, containerSelector){
   container.innerHTML = '';
   const ul = document.createElement('ul');
   const keys = [
-    ['Rank','highest_ranking','best_rank','best_rank','best_rank'],
+    ['Rank','rank','best_rank','highest_ranking'],
     ['Age','age'],
-    ['Weight','weight','weight_kg'],
-    ['Height','height_inches','height_cm'],
+    ['Weight','weight'],
+    ['Height','height_cm','height','height_inches'],
     ['Plays','plays'],
     ['Backhand','backhand'],
     ['Turned Pro','turned_pro']
   ];
-  // compute age from birth_date if available
-  const now = new Date();
-  let age = '';
-  if (playerRecord && (playerRecord.birth_date||playerRecord.birthdate||playerRecord.birthDate)){
-    const bd = new Date((playerRecord.birth_date||playerRecord.birthdate||playerRecord.birthDate).replace(/ /g,'T'));
-    if (!isNaN(bd)) {
-      let a = now.getFullYear() - bd.getFullYear();
-      const m = now.getMonth() - bd.getMonth(); if (m < 0 || (m === 0 && now.getDate() < bd.getDate())) a--;
-      age = a;
-    }
-  }
   for (const k of keys){
     const label = k[0];
     let val = '';
@@ -374,7 +414,6 @@ function renderPlayerBox(playerRecord, containerSelector){
       if (!key) continue;
       if (playerRecord && (playerRecord[key] !== undefined && playerRecord[key] !== '')) { val = playerRecord[key]; break;}
     }
-    if (label === 'Age') val = age || val;
     const li = document.createElement('li');
     li.innerHTML = `<span class="label">${label}</span><span class="value">${safeText(val)}</span>`;
     ul.appendChild(li);
@@ -382,98 +421,15 @@ function renderPlayerBox(playerRecord, containerSelector){
   container.appendChild(ul);
 }
 
-function renderSharedStats(h2hJson, leftId, rightId){
-  const shared = document.getElementById('shared-list');
-  shared.innerHTML = '';
-  // possible fields to show: ytd_wl, career_wl, career_titles, prize_money
-  // try to read from JSON's aggregates; otherwise derive from matches array
-  const leftAgg = h2hJson.player1_aggregates || h2hJson.player1 || h2hJson.left || {};
-  const rightAgg = h2hJson.player2_aggregates || h2hJson.player2 || h2hJson.right || {};
-  // fallback: compute totals from matches if available
-  const matches = h2hJson.matches || h2hJson.results || [];
-  // helper to compute W/L string if present
-  function wlString(obj){
-    if (!obj) return '—';
-    if (obj.ytd_wins !== undefined || obj.ytd_losses !== undefined) return `${obj.ytd_wins||0}/${obj.ytd_losses||0}`;
-    if (obj.ytd && typeof obj.ytd === 'string') return obj.ytd;
-    return '—';
+function tryParseRatio(txt){
+  if (!txt) return null;
+  const m = String(txt).match(/^\\s*(\\d+)\\s*\\/\\s*(\\d+)\\s*$/);
+  if (m) {
+    return Number(m[1]);
   }
-  // compute career wl fallback
-  function careerWL(obj, id){
-    if (obj && (obj.career_wins !== undefined || obj.career_losses !== undefined)) return `${obj.career_wins||0}/${obj.career_losses||0}`;
-    // derive from match list (only H2H matches)
-    let win=0, loss=0;
-    for (const m of matches){
-      const winner = (m.winner_player_name || m.winner || m.winner_id || m.winner_id || '').toString();
-      const loser  = (m.loser_player_name  || m.loser  || m.loser_id  || '').toString();
-      if (!winner) continue;
-      if (String(winner).includes(id) || (m.player_winner && String(m.player_winner).includes(id))) {
-        win++;
-      } else if (String(loser).includes(id) || (m.player_loser && String(m.player_loser).includes(id))) {
-        loss++;
-      } else {
-        // try by name matching if ids not present
-        const pname = (obj && (obj.name||obj.full_name||obj.player_name)) || '';
-        if (pname && m.winner_player_name && m.winner_player_name.includes(pname)) win++;
-        if (pname && m.loser_player_name && m.loser_player_name.includes(pname)) loss++;
-      }
-    }
-    if (win+loss === 0) return '—';
-    return `${win}/${loss}`;
-  }
-  // career titles
-  function careerTitles(obj){ if (obj && obj.titles !== undefined) return String(obj.titles); return '—'; }
-  // prize money
-  function prizeMoney(obj){ if (obj && obj.prize_money !== undefined) return formatMoney(obj.prize_money); if (obj && obj.career_prize) return formatMoney(obj.career_prize); return '—'; }
-
-  const rows = [
-    { label:'YTD W/L', left: wlString(leftAgg), right: wlString(rightAgg) },
-    { label:'YTD titles', left: leftAgg.ytd_titles || '-', right: rightAgg.ytd_titles || '-' },
-    { label:'Career W/L', left: careerWL(leftAgg, leftId), right: careerWL(rightAgg, rightId) },
-    { label:'Career titles', left: careerTitles(leftAgg), right: careerTitles(rightAgg) },
-    { label:'Career prize money', left: prizeMoney(leftAgg), right: prizeMoney(rightAgg) }
-  ];
-
-  for (const r of rows){
-    const li = document.createElement('li');
-    const leftVal = r.left || '—';
-    const rightVal = r.right || '—';
-    // compute percentage for progress bar (left proportion)
-    let percent = 0;
-    const numericLeft = tryParseRatio(leftVal);
-    const numericRight = tryParseRatio(rightVal);
-    if (numericLeft !== null && numericRight !== null && (numericLeft + numericRight) > 0){
-      percent = Math.round(100 * numericLeft / (numericLeft + numericRight));
-    } else {
-      // fallback for titles/prize: attempt to parse number
-      const nL = Number(String(leftVal).replace(/[^0-9\.\-]/g,'')) || 0;
-      const nR = Number(String(rightVal).replace(/[^0-9\.\-]/g,'')) || 0;
-      if ((nL + nR) > 0) percent = Math.round(100 * nL / (nL + nR));
-    }
-    li.innerHTML = `<span class="player">${safeText(leftVal)}</span><span class="label">${r.label}</span><span class="opponent">${safeText(rightVal)}</span><div class="progress"><div class="value" style="width:${percent}%;"></div></div>`;
-    shared.appendChild(li);
-  }
-
-  // Also update chart with wins from h2hJson
-  let leftWins = 0, rightWins = 0;
-  if (h2hJson.total) {
-    leftWins = h2hJson.total.left_wins || h2hJson.total.player1_wins || 0;
-    rightWins = h2hJson.total.right_wins || h2hJson.total.player2_wins || 0;
-  } else {
-    // try aggregates
-    leftWins = leftAgg.h2h_wins || leftAgg.h2hWins || leftAgg.h2h || leftAgg.wins || 0;
-    rightWins = rightAgg.h2h_wins || rightAgg.h2hWins || rightAgg.h2h || rightAgg.wins || 0;
-  }
-  // fallback: count matches array
-  if ((leftWins+rightWins) === 0 && Array.isArray(matches)){
-    for (const m of matches){
-      const w = (m.winner_player_name || m.winner || m.winner_id || m.player_winner || '').toString();
-      const l = (m.loser_player_name || m.loser || m.loser_id || m.player_loser || '').toString();
-      if (w && (String(w).includes(leftId) || (leftAgg && leftAgg.name && String(w).includes(leftAgg.name)))) leftWins++;
-      else if (w && (String(w).includes(rightId) || (rightAgg && rightAgg.name && String(w).includes(rightAgg.name)))) rightWins++;
-    }
-  }
-  updateChart(leftWins, rightWins);
+  const m2 = String(txt).match(/(\\d+)/);
+  if (m2) return Number(m2[1]);
+  return null;
 }
 
 function updateChart(leftWins, rightWins){
@@ -484,32 +440,65 @@ function updateChart(leftWins, rightWins){
   if (!svgBar) return;
   const circumference = 2 * Math.PI * 127;
   let leftFraction = total === 0 ? 0.5 : leftWins/total;
-  // stroke-dashoffset from 0..circumference. Full circle = circumference; we show left fraction as filled part.
   const offset = circumference * (1 - leftFraction);
   svgBar.style.strokeDasharray = `${circumference}`;
   svgBar.style.strokeDashoffset = `${offset}`;
 }
 
-/* helpers for parsing "6/2" style */
-function tryParseRatio(txt){
-  if (!txt) return null;
-  const m = String(txt).match(/^\\s*(\\d+)\\s*\\/\\s*(\\d+)\\s*$/);
-  if (m) {
-    const a = Number(m[1]), b = Number(m[2]);
-    if ((a+b)===0) return null;
-    // return wins proportion (e.g. 6/(6+2)=.75) but for progress we want left absolute wins
-    return a;
+function renderSharedStats(h2hJson, leftId, rightId){
+  const shared = document.getElementById('shared-list');
+  shared.innerHTML = '';
+  const leftAgg = (h2hJson.aggregates && h2hJson.aggregates.player1) ? h2hJson.aggregates.player1 : (h2hJson.player1 || {});
+  const rightAgg = (h2hJson.aggregates && h2hJson.aggregates.player2) ? h2hJson.aggregates.player2 : (h2hJson.player2 || {});
+  const matches = h2hJson.matches || [];
+
+  function wlString(obj){
+    if (!obj) return '—';
+    if (obj.h2h_wins !== undefined && obj.h2h_losses !== undefined) return `${obj.h2h_wins}/${obj.h2h_losses}`;
+    if (obj.ytd_wins !== undefined && obj.ytd_losses !== undefined) return `${obj.ytd_wins}/${obj.ytd_losses}`;
+    return '—';
   }
-  // try "311/181"
-  const m2 = String(txt).match(/(\\d+)\\s*\\/?\\s*(\\d*)/);
-  if (m2) return Number(m2[1]) || null;
-  return null;
+  function careerWL(obj){
+    if (!obj) return '—';
+    if (obj.career_wins !== undefined && obj.career_losses !== undefined) return `${obj.career_wins}/${obj.career_losses}`;
+    return '—';
+  }
+  function careerTitles(obj){ return obj && (obj.titles || obj.career_titles) ? String(obj.titles || obj.career_titles) : '—'; }
+  function prizeMoney(obj){ return obj && (obj.prize_money || obj.prize_money_usd || obj.prize) ? formatMoney(obj.prize_money || obj.prize_money_usd || obj.prize) : '—'; }
+
+  const rows = [
+    { label:'H2H (W/L)', left: wlString(leftAgg), right: wlString(rightAgg) },
+    { label:'YTD W/L', left: leftAgg.ytd ? leftAgg.ytd : (leftAgg.ytd_wins? `${leftAgg.ytd_wins}/${leftAgg.ytd_losses}` : '—'), right: rightAgg.ytd ? rightAgg.ytd : (rightAgg.ytd_wins? `${rightAgg.ytd_wins}/${rightAgg.ytd_losses}` : '—') },
+    { label:'Career W/L', left: careerWL(leftAgg), right: careerWL(rightAgg) },
+    { label:'Career titles', left: careerTitles(leftAgg), right: careerTitles(rightAgg) },
+    { label:'Career prize money', left: prizeMoney(leftAgg), right: prizeMoney(rightAgg) }
+  ];
+  for (const r of rows){
+    const li = document.createElement('li');
+    const leftVal = r.left || '—';
+    const rightVal = r.right || '—';
+    let percent = 0;
+    const nL = tryParseRatio(leftVal) || Number(String(leftVal).replace(/[^0-9]/g,'')) || 0;
+    const nR = tryParseRatio(rightVal) || Number(String(rightVal).replace(/[^0-9]/g,'')) || 0;
+    if ((nL + nR) > 0) percent = Math.round(100 * nL / (nL + nR));
+    li.innerHTML = `<span class="player">${safeText(leftVal)}</span><span class="label">${r.label}</span><span class="opponent">${safeText(rightVal)}</span><div class="progress"><div class="value" style="width:${percent}%;"></div></div>`;
+    shared.appendChild(li);
+  }
+
+  // compute wins for chart
+  let leftWins = (leftAgg && leftAgg.h2h_wins) ? leftAgg.h2h_wins : 0;
+  let rightWins = (rightAgg && rightAgg.h2h_wins) ? rightAgg.h2h_wins : 0;
+  if ((leftWins + rightWins) === 0 && Array.isArray(matches)) {
+    for (const m of matches){
+      const w = (m.winner_player_name || m.winner || m.player_id_winner || '').toString();
+      if (w && (String(w).toUpperCase() === String(leftId).toUpperCase() || (playersIndexById && playersIndexById[leftId] && playersIndexById[leftId].full_name && (m.winner_player_name || '').includes(playersIndexById[leftId].full_name)))) leftWins++;
+      else rightWins++;
+    }
+  }
+  updateChart(leftWins, rightWins);
 }
 
-/* ===========================
-   Event breakdown table
-   =========================== */
-
+/* ====== Event Breakdown ====== */
 function renderEventTable(matches){
   const container = document.getElementById('event-table-container');
   if (!matches || matches.length === 0){
@@ -518,172 +507,107 @@ function renderEventTable(matches){
   }
   const table = document.createElement('table');
   const thead = document.createElement('thead');
-  thead.innerHTML = `<tr><th width="8%">Year</th><th width="22%">Winner</th><th width="18%">Event</th><th width="12%">Round</th><th width="12%">Surface</th><th width="12%">Score</th><th width="16%">View details</th></tr>`;
+  thead.innerHTML = `<tr><th width="6%">Year</th><th width="26%">Winner</th><th width="18%">Event</th><th width="12%">Round</th><th width="12%">Surface</th><th width="12%">Score</th><th width="14%">Voir</th></tr>`;
   table.appendChild(thead);
   const tbody = document.createElement('tbody');
-  for (const m of matches){
-    const year = m.event_year || m.tourney_year || (m.match_date ? (new Date(m.match_date)).getFullYear() : '');
-    const winnerName = m.winner_player_name || m.winner || m.player_winner || m.player_a || m.player_a_name || m.playerA || m.winner_player || '—';
-    const loserName = m.loser_player_name || m.loser || m.player_loser || m.player_b || m.player_b_name || '—';
-    const event = m.tourney_name || m.tournament_name || m.tournament || m.event || '—';
-    const round = m.round || m.match_round || '—';
-    const surface = m.surface || m.surf || '—';
-    const score = m.score_string || m.score || (m.set1_score ? [m.set1_score,m.set2_score,m.set3_score,m.set4_score,m.set5_score].filter(Boolean).join(' ') : '—');
-    // details link heuristics (if JSON contains match_id or link)
-    const matchLink = m.match_link || m.details_link || m.view_link || (m.event_id && m.match_id ? `/en/scores/match-stats/archive/${m.event_id}/${m.match_id}` : '#');
-    const row = document.createElement('tr');
-    row.innerHTML = `<td>${safeText(year)}</td>
-      <td><div class="match"><div class="stats-item"><div class="player-info"><div class="profile"><img class="player-image" src="${m.winner_image || ''}" alt="${winnerName}"></div><div class="country"><span class="muted">${m.winner_country || ''}</span></div><div class="name"><a href="#">${winnerName}</a></div></div></div></div></td>
-      <td class="center"><a href="${m.tourney_link||'#'}">${event}</a></td>
-      <td class="center">${safeText(round)}</td>
-      <td class="center">${safeText(surface)}</td>
-      <td class="center">${safeText(score)}</td>
-      <td class="center"><a class="atp_button" href="${matchLink}">View</a></td>`;
-    tbody.appendChild(row);
+  // sort by year desc
+  const sorted = matches.slice().sort((a,b)=>{
+    const ya = a.event_year || (a.match_date? (new Date(a.match_date)).getFullYear() : '');
+    const yb = b.event_year || (b.match_date? (new Date(b.match_date)).getFullYear() : '');
+    return String(yb).localeCompare(String(ya));
+  });
+  for (const m of sorted){
+    const year = m.event_year || (m.match_date ? (new Date(m.match_date)).getFullYear() : '');
+    const winnerName = m.winner_player_name || m.winner || '—';
+    const loserName  = m.loser_player_name || m.loser || '—';
+    const event = m.tourney_name || m.tournament_name || m.tournament || '—';
+    const round = m.round || '—';
+    const surface = m.surface || '—';
+    const score = m.score_string || '—';
+    const link = m.match_link || '#';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${safeText(year)}</td>
+      <td><div style="display:flex;align-items:center;gap:8px"><img class="player-image" src="${m.winner_image||('/-/media/alias/player-headshot/'+(m.player_id_winner||''))}" alt="${winnerName}" /> <div><div style="font-weight:600">${winnerName}</div><div class="muted">${m.winner_country||''}</div></div></div></td>
+      <td><a href="#">${event}</a></td>
+      <td>${safeText(round)}</td>
+      <td>${safeText(surface)}</td>
+      <td>${safeText(score)}</td>
+      <td><a class="btn btn-ghost" href="${link}">View</a></td>`;
+    tbody.appendChild(tr);
   }
   table.appendChild(tbody);
   container.innerHTML = '';
   container.appendChild(table);
 }
 
-/* ===========================
-   Main bootstrap
-   =========================== */
-async function bootstrap(){
-  // if no p1/p2, show search UI only
-  await loadPlayerCSVs();
-
-  if (!p1 || !p2) {
-    // show placeholders and allow search
-    document.getElementById('player-left-list').innerHTML = '<li class="placeholder">Indiquez &p1; et &p2; en paramètre URL (ex. ?p1=DH58&p2=F0F1) ou utilisez la recherche.</li>';
-    document.getElementById('player-right-list').innerHTML = '<li class="placeholder">Indiquez &p1; et &p2; en paramètre URL (ex. ?p1=DH58&p2=F0F1) ou utilisez la recherche.</li>';
-    document.getElementById('event-table-container').innerHTML = '<div class="placeholder">Aucun joueur sélectionné.</div>';
-    attachSearchButtons();
+/* ====== Main fetch & render flow ====== */
+async function fetchAndRenderH2H(p1, p2){
+  hideAllPanels();
+  showStatus(`Chargement des données H2H pour ${p1} vs ${p2}…`, 'info');
+  openJsonLink.href = '#';
+  const res = await fetchH2HJson(p1, p2);
+  if (!res) {
+    showStatus(`Aucun JSON H2H trouvé pour ${p1} & ${p2}. Assure-toi que ${H2H_JSON_BASE}${p1}_${p2}.json ou ${H2H_JSON_BASE}${p2}_${p1}.json existe.`, 'error', 8000);
     return;
   }
+  hideStatus();
+  openJsonLink.href = res.path;
+  openJsonLink.textContent = 'Voir JSON';
+  const payload = res.json;
+  // determine left/right from payload or playersCatalog
+  const leftId = p1;
+  const rightId = p2;
+  const leftPlayer = playersIndexById[leftId] || (payload.player1 && payload.player1.id==leftId ? payload.player1 : (payload.player1 && payload.player1.id ? payload.player1 : { id:leftId, full_name: payload.player1 && payload.player1.full_name || leftId }));
+  const rightPlayer = playersIndexById[rightId] || (payload.player2 && payload.player2.id==rightId ? payload.player2 : (payload.player2 && payload.player2.id ? payload.player2 : { id:rightId, full_name: payload.player2 && payload.player2.full_name || rightId }));
 
-  // load H2H JSON
-  const h2hRes = await loadH2H(p1, p2);
-  if (!h2hRes) {
-    document.getElementById('h2h-data').innerHTML = `<div style="padding:18px;">Aucun fichier JSON H2H trouvé pour <strong>${p1}</strong> et <strong>${p2}</strong>.<br>Vérifiez que le JSON pré-généré est disponible dans <code>${H2H_DIR}</code> nommé <code>${p1}_${p2}.json</code> ou <code>${p2}_${p1}.json</code>.</div>`;
-    attachSearchButtons();
-    return;
-  }
-  const h2hJson = h2hRes.json;
+  // show top match-stats
+  document.getElementById('match-stats').style.display = 'flex';
+  setHeadshot('left-headshot', leftPlayer, leftPlayer.full_name || leftId);
+  setHeadshot('right-headshot', rightPlayer, rightPlayer.full_name || rightId);
+  setNameFields(leftPlayer, rightPlayer);
 
-  // decide left/right info from JSON or fallback to player CSVs
-  let left = h2hJson.player1 || h2hJson.left || {};
-  let right = h2hJson.player2 || h2hJson.right || {};
-  // if left/right minimal, try to use ids p1/p2 and lookup in CSVs
-  if ((!left.id && !left.player_id) && playersIndex.atp[p1]) left = Object.assign({}, playersIndex.atp[p1], { id: p1 });
-  if ((!right.id && !right.player_id) && playersIndex.atp[p2]) right = Object.assign({}, playersIndex.atp[p2], { id: p2 });
-  if ((!left.id && !left.player_id) && playersIndex.wta[p1]) left = Object.assign({}, playersIndex.wta[p1], { id: p1 });
-  if ((!right.id && !right.player_id) && playersIndex.wta[p2]) right = Object.assign({}, playersIndex.wta[p2], { id: p2 });
-
-  // set name/flags/headshots
-  left.name = left.name || left.full_name || left.player_name || left.player || left.player_a || left.playerA || p1;
-  right.name = right.name || right.full_name || right.player_name || right.player || right.player_b || right.playerB || p2;
-  left.id = left.id || p1;
-  right.id = right.id || p2;
-  // country codes
-  left.country = left.country || left.represented_country || left.represented || left.country_winner || left.country_a || '';
-  right.country = right.country || right.represented_country || right.country_loser || right.country_b || '';
-
-  setHeadshot('left-headshot', left, left.name);
-  setHeadshot('right-headshot', right, right.name);
-  setNameFields(left, right);
-
-  // render player data (pull more info from playersIndex if available)
-  // merge CSV info into left/right
-  const leftCsv = (isNumericId(left.id) ? playersIndex.wta[left.id] : playersIndex.atp[left.id]) || {};
-  const rightCsv = (isNumericId(right.id) ? playersIndex.wta[right.id] : playersIndex.atp[right.id]) || {};
-  // prefer CSV fields for display
-  const mergedLeft = Object.assign({}, leftCsv, left);
-  const mergedRight = Object.assign({}, rightCsv, right);
+  // render player boxes (merge payload player info with catalog)
+  const mergedLeft = Object.assign({}, playersIndexById[leftId] || {}, (payload.player1 || {}));
+  const mergedRight = Object.assign({}, playersIndexById[rightId] || {}, (payload.player2 || {}));
   renderPlayerBox(mergedLeft, '#player-left-list');
   renderPlayerBox(mergedRight, '#player-right-list');
 
   // shared stats
-  renderSharedStats(h2hJson, left.id, right.id);
+  renderSharedStats(payload, leftId, rightId);
 
-  // event breakdown (match list)
-  const matches = h2hJson.matches || h2hJson.results || [];
+  // matches
+  document.getElementById('h2h-data').style.display = 'flex';
+  const matches = payload.matches || [];
   renderEventTable(matches);
-
-  attachSearchButtons();
+  document.getElementById('event-breakdown').style.display = 'block';
+  showStatus(`Chargé: ${matches.length} matches (JSON: ${res.path})`, 'info', 3000);
 }
 
-/* ===========================
-   Search UI
-   =========================== */
-
-function attachSearchButtons(){
-  document.getElementById('left-select-btn').addEventListener('click', ()=> openSearchModal('left'));
-  document.getElementById('right-select-btn').addEventListener('click', ()=> openSearchModal('right'));
-  document.getElementById('modal-close').addEventListener('click', closeModal);
-  document.getElementById('search-input').addEventListener('input', onSearchInput);
-  document.getElementById('category-select').addEventListener('change', onSearchInput);
-}
-
-let currentTarget = null;
-function openSearchModal(target){
-  currentTarget = target; // 'left' or 'right'
-  document.getElementById('modal-title').textContent = `Choisir un joueur (${target === 'left' ? 'Joueur' : 'Adversaire'})`;
-  document.getElementById('search-input').value = '';
-  document.getElementById('search-results').innerHTML = '<div class="muted">Tapez un nom ou un ID pour rechercher...</div>';
-  document.getElementById('search-modal').style.display = 'flex';
-  document.getElementById('search-input').focus();
-}
-
-function closeModal(){ document.getElementById('search-modal').style.display = 'none'; }
-
-function onSearchInput(){
-  const q = document.getElementById('search-input').value.trim().toLowerCase();
-  const cat = document.getElementById('category-select').value;
-  const pool = [];
-  // create pool from playersIndex
-  if (cat === 'wta' || cat === 'auto') {
-    for (const id in playersIndex.wta) pool.push({ id, rec: playersIndex.wta[id], type: 'wta' });
-  }
-  if (cat === 'atp' || cat === 'auto') {
-    for (const id in playersIndex.atp) pool.push({ id, rec: playersIndex.atp[id], type: 'atp' });
-  }
-  const resultsEl = document.getElementById('search-results');
-  resultsEl.innerHTML = '';
-  if (!q) {
-    resultsEl.innerHTML = `<div class="muted">Afficher ${pool.length} joueurs</div>`;
-    return;
-  }
-  const matches = pool.filter(p => {
-    const name = ((p.rec.full_name||p.rec.fullname||p.rec.full_name||'') + ' ' + (p.id||'')).toLowerCase();
-    return name.includes(q) || String(p.id).toLowerCase().includes(q);
-  }).slice(0,80);
-  if (matches.length === 0) { resultsEl.innerHTML = '<div class="muted">Aucun résultat</div>'; return; }
-  for (const m of matches){
-    const row = document.createElement('div');
-    row.style.display='flex'; row.style.justifyContent='space-between'; row.style.padding='8px'; row.style.borderBottom='1px solid #f4f7fb'; row.style.cursor='pointer';
-    row.innerHTML = `<div><strong>${m.rec.full_name || m.rec.fullname || m.rec.fullname || m.rec.full_name || m.id}</strong><div class="muted">${m.id} • ${m.rec.represented_country || m.rec.represented || m.rec.representedCountry || ''}</div></div><div style="align-self:center"><button style="padding:6px 8px;border-radius:6px;background:var(--accent);color:white;border:none">Sélectionner</button></div>`;
-    row.addEventListener('click', ()=> {
-      selectSearchResult(m.id);
-    });
-    resultsEl.appendChild(row);
+/* ====== Initialisation ====== */
+async function initFromUrl(){
+  await loadPlayersCatalog();
+  const urlP1 = qs('p1');
+  const urlP2 = qs('p2');
+  if (urlP1) p1Input.value = urlP1;
+  if (urlP2) p2Input.value = urlP2;
+  // if both available, try to load
+  if (urlP1 && urlP2) {
+    const id1 = resolveToId(urlP1) || urlP1.toUpperCase();
+    const id2 = resolveToId(urlP2) || urlP2.toUpperCase();
+    // set selectedId dataset so when swapping etc it's preserved
+    p1Input.dataset.selectedId = id1;
+    p2Input.dataset.selectedId = id2;
+    await fetchAndRenderH2H(id1, id2);
+  } else {
+    showStatus('Saisis deux joueurs (nom ou id) et clique sur "Afficher H2H".', 'info', 5000);
   }
 }
 
-function selectSearchResult(selectedId){
-  closeModal();
-  // redirect to same page with updated param
-  const url = new URL(location.href);
-  if (currentTarget === 'left') url.searchParams.set('p1', selectedId);
-  else url.searchParams.set('p2', selectedId);
-  // if both present, navigate
-  location.href = url.toString();
-}
-
-/* ===========================
-   Boot
-   =========================== */
-bootstrap();
+/* ====== Kickoff ====== */
+initFromUrl().catch(err=>{
+  console.error(err);
+  showStatus('Erreur d\'initialisation. Vérifie la console.', 'error');
+});
 </script>
 </body>
 </html>
