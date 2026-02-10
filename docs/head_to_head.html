@@ -3,32 +3,31 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Head to Head — H2H (robuste)</title>
+<title>Head to Head — H2H</title>
 <style>
   :root{ --accent:#0b5fff; --muted:#6b7280; --card:#f8fafc; font-family:Inter,system-ui,Arial; }
   body{ margin:0; background:linear-gradient(180deg,#f3f6fb,#fff); color:#0f172a }
-  .container{ max-width:1150px; margin:28px auto; padding:18px; }
+  .container{ max-width:1100px; margin:28px auto; padding:18px; }
   .h2h-content{ background:#fff; border-radius:12px; padding:18px; box-shadow:0 8px 30px rgba(11,35,76,0.06) }
-  .top-row{ display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap }
-  .search-block{ display:flex; gap:12px; align-items:center; flex-wrap:wrap }
+  .row{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
   .player-picker{ position:relative; display:flex; gap:8px; background:#f3f6fb; padding:8px 10px; border-radius:10px; align-items:center }
-  .picker-input{ border:none; background:transparent; outline:none; width:220px; font-weight:600; color:#0b5fff }
+  .picker-input{ border:none; background:transparent; outline:none; width:240px; font-weight:600; color:#0b5fff }
   .btn{ padding:8px 12px; border-radius:8px; cursor:pointer; border:none; font-weight:600 }
   .btn-primary{ background:var(--accent); color:#fff }
   .btn-ghost{ background:transparent; border:1px solid #e6eefc; color:var(--accent) }
-  .swap-btn{ background:#fff; border:1px solid #eee; padding:8px; border-radius:8px; cursor:pointer }
+  .msg{ margin-top:12px; padding:10px; border-radius:8px; background:#f6fcff; color:var(--muted) }
+  .autocomplete-list{ position:absolute; z-index:1500; background:white; border-radius:8px; box-shadow:0 6px 20px rgba(15,23,42,0.08); width:360px; max-height:320px; overflow:auto }
+  .autocomplete-item{ padding:8px 10px; border-bottom:1px solid #f4f7fb; cursor:pointer; display:flex; gap:10px; align-items:center }
+  .muted{ color:var(--muted); font-size:13px }
+  /* minimal for results */
   .match-stats{ display:flex; gap:18px; align-items:center; justify-content:space-between; padding:18px 8px; margin-top:18px; }
   .player, .opponent{ width:22%; text-align:center; }
   .headshot{ width:110px;height:110px;border-radius:50%;overflow:hidden;margin:0 auto 8px;background:#eee;display:flex;align-items:center;justify-content:center }
   .headshot img{ width:100%;height:100%;object-fit:cover }
-  .win-stats{ width:34%; display:flex; align-items:center; justify-content:center }
-  .stats{ display:flex; align-items:center; gap:12px }
   .chart{ position:relative; width:140px;height:140px }
   .chart svg{ transform:rotate(-90deg) }
   .chart .bar{ stroke:var(--accent); stroke-width:14; stroke-linecap:round }
   .chart circle{ stroke:#e6eefc; stroke-width:14 }
-  .chart span{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; font-weight:600 }
-  .muted{ color:var(--muted); font-size:13px }
   .h2h-data{ display:flex; gap:18px; padding:12px; margin-top:8px }
   .player-data, .opponent-data{ width:24%; background:var(--card); padding:12px; border-radius:10px }
   .shared-data{ flex:1; background:linear-gradient(180deg,#fff,#fbfdff); padding:12px; border-radius:10px }
@@ -40,10 +39,6 @@
   table{ width:100%; border-collapse:collapse; font-size:14px }
   th{ text-align:left; padding:8px; color:var(--muted); border-bottom:2px solid #f0f4ff }
   td{ padding:8px; vertical-align:middle; border-bottom:1px solid #f7f9fc }
-  .player-image{ width:36px;height:36px;border-radius:50%;object-fit:cover }
-  .autocomplete-list{ position:absolute; z-index:1500; background:white; border-radius:8px; box-shadow:0 6px 20px rgba(15,23,42,0.08); width:360px; max-height:320px; overflow:auto }
-  .autocomplete-item{ padding:8px 10px; border-bottom:1px solid #f4f7fb; cursor:pointer; display:flex; justify-content:space-between; align-items:center; gap:8px }
-  .msg{ margin-top:12px; padding:10px; border-radius:8px; background:#f6fcff; color:var(--muted) }
   @media (max-width:900px){
     .match-stats{ flex-direction:column }
     .h2h-data{ flex-direction:column }
@@ -54,223 +49,180 @@
 </head>
 <body>
   <div class="container">
-    <div class="h2h-content" id="h2h-root">
-      <div class="top-row">
-        <div class="search-block">
-          <div class="player-picker" style="position:relative">
-            <input id="p1-input" class="picker-input" placeholder="Joueur 1 (nom ou id)" autocomplete="off" />
-            <div id="p1-suggestions" class="autocomplete-list" style="display:none"></div>
-          </div>
-
-          <button class="swap-btn" id="swap-btn" title="Swap">⇄</button>
-
-          <div class="player-picker" style="position:relative">
-            <input id="p2-input" class="picker-input" placeholder="Joueur 2 (nom ou id)" autocomplete="off" />
-            <div id="p2-suggestions" class="autocomplete-list" style="display:none"></div>
-          </div>
-
-          <button class="btn btn-primary" id="load-btn">Afficher H2H</button>
-          <button class="btn btn-ghost" id="clear-btn">Effacer</button>
-          <button class="btn" id="diagnose-btn" title="Diagnostic (console)">Diagnostic</button>
+    <div class="h2h-content">
+      <div class="row">
+        <div class="player-picker" style="position:relative">
+          <input id="p1-input" class="picker-input" placeholder="Joueur 1 (nom ou id)" autocomplete="off" />
+          <div id="p1-suggestions" class="autocomplete-list" style="display:none"></div>
         </div>
 
-        <div style="display:flex; gap:8px; align-items:center;">
-          <a href="#" id="open-json-link" class="muted" target="_blank" style="text-decoration:none; font-size:13px;">Voir JSON (si disponible)</a>
+        <button id="swap-btn" class="btn">⇄</button>
+
+        <div class="player-picker" style="position:relative">
+          <input id="p2-input" class="picker-input" placeholder="Joueur 2 (nom ou id)" autocomplete="off" />
+          <div id="p2-suggestions" class="autocomplete-list" style="display:none"></div>
         </div>
+
+        <button id="display-btn" class="btn btn-primary">Display H2H</button>
+        <button id="clear-btn" class="btn btn-ghost">Clear</button>
       </div>
 
-      <div id="status-msg" class="msg" style="display:none"></div>
+      <div id="status" class="msg" style="display:none"></div>
 
-      <div class="match-stats" id="match-stats" style="display:none">
-        <div class="player" id="player-left">
-          <div><div class="headshot" id="left-headshot"><img src="" alt=""></div></div>
-          <div class="muted" id="left-name"></div>
-        </div>
-
-        <div class="win-stats">
-          <div class="stats">
-            <div class="player" id="left-wins">0</div>
-            <div class="chart" aria-hidden="true">
-              <svg width="140" height="140" viewBox="0 0 264 264" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Win chart">
-                <circle r="127" cx="132" cy="132" fill="transparent" ></circle>
-                <circle class="bar" r="127" cx="132" cy="132" fill="transparent" stroke-dasharray="797.96" stroke-dashoffset="0"></circle>
-              </svg>
-              <span id="chart-label">Vs<br>wins</span>
-            </div>
-            <div class="opponent" id="right-wins">0</div>
+      <!-- résultats (chargés après reload si p1&p2 fournis) -->
+      <div id="results-area" style="display:none">
+        <div class="match-stats" id="match-stats">
+          <div class="player" id="player-left">
+            <div class="headshot" id="left-headshot"><img src="" alt=""></div>
+            <div class="muted" id="left-name"></div>
+          </div>
+          <div class="chart" id="center-chart">
+            <svg width="140" height="140" viewBox="0 0 264 264" xmlns="http://www.w3.org/2000/svg" role="img">
+              <circle r="127" cx="132" cy="132" fill="transparent"></circle>
+              <circle class="bar" r="127" cx="132" cy="132" fill="transparent" stroke-dasharray="797.96" stroke-dashoffset="0"></circle>
+            </svg>
+            <div style="text-align:center;font-weight:600;margin-top:8px" id="chart-label">Vs wins</div>
+          </div>
+          <div class="opponent" id="player-right">
+            <div class="headshot" id="right-headshot"><img src="" alt=""></div>
+            <div class="muted" id="right-name"></div>
           </div>
         </div>
 
-        <div class="opponent" id="player-right">
-          <div><div class="headshot" id="right-headshot"><img src="" alt=""></div></div>
-          <div class="muted" id="right-name"></div>
+        <div class="h2h-data" id="h2h-data">
+          <div class="player-data"><ul id="player-left-list"><li>—</li></ul></div>
+          <div class="shared-data"><ul id="shared-list"><li>—</li></ul></div>
+          <div class="opponent-data"><ul id="player-right-list"><li>—</li></ul></div>
         </div>
-      </div>
 
-      <div class="h2h-data" id="h2h-data" style="display:none">
-        <div class="player-data" id="player-data-left"><ul id="player-left-list"><li class="placeholder">—</li></ul></div>
-        <div class="shared-data" id="shared-data"><ul id="shared-list"><li class="placeholder">—</li></ul></div>
-        <div class="opponent-data" id="player-data-right"><ul id="player-right-list"><li class="placeholder">—</li></ul></div>
-      </div>
-
-      <div class="event-breakdown" id="event-breakdown" style="display:none">
-        <h4>Event Breakdown</h4>
-        <div class="event-breakdown-list" id="event-table-container"><div class="placeholder">—</div></div>
+        <div class="event-breakdown" id="event-breakdown">
+          <h4>Event Breakdown</h4>
+          <div id="event-table-container"><div class="placeholder">—</div></div>
+        </div>
       </div>
     </div>
   </div>
 
 <script>
-/* Robust headtohead loader
-   - essaye plusieurs chemins pour le catalogue et les JSON H2H
-   - affiche messages d'état et logs console pour diagnostic
+/* Simple, robust head-to-head page
+   - Charge players_catalog.json automatiquement à l'arrivée
+   - Si URL contient ?p1=ID&p2=ID, page RELOAD affichera le H2H JSON (après le catalogue)
+   - Display H2H: force reload en ajoutant ?p1=ID&p2=ID à l'URL
+   - Try several candidate paths (relative, root, origin, center-court)
 */
 
-/* Config */
-const CANDIDATE_HOSTS = [
-  '', // relative paths (./tools/...)
-  '', // placeholder for root-relative (starts with /)
-  window.location.origin || '',
-  'https://www.center-court.net'
-].filter(Boolean);
-const CATALOG_PATHS = [
-  'tools/players_catalog.json',
-  '/tools/players_catalog.json'
-];
-const H2H_BASE_PATHS = [
-  'data/h2h/',
-  '/data/h2h/'
+const CATALOG_CANDIDATES = [
+  './tools/players_catalog.json',
+  '/tools/players_catalog.json',
+  window.location.origin + '/tools/players_catalog.json',
+  'https://www.center-court.net/tools/players_catalog.json'
 ];
 
-function qs(name, url = location.href) {
-  name = name.replace(/[\\[\\]]/g, "\\$&");
-  const regex = new RegExp("[?&]" + name + "(=([^&#]*)|&|#|$)");
-  const results = regex.exec(url);
-  if (!results) return null;
-  if (!results[2]) return '';
-  return decodeURIComponent(results[2].replace(/\+/g, " "));
-}
-function normId(s){ if (!s) return ''; return String(s).trim().toUpperCase(); }
-function safeText(s){ return (s==null||s==='')? '—' : String(s); }
-function log(...args){ console.log('[H2H]', ...args); }
-function showStatus(msg, type='info', timeout=null){
-  const el = document.getElementById('status-msg');
-  el.style.display = 'block';
-  el.textContent = msg;
-  el.style.background = type==='error' ? '#fff0f0' : '#f6fcff';
-  if (timeout) setTimeout(()=> el.style.display='none', timeout);
-}
-function hideStatus(){ document.getElementById('status-msg').style.display='none' }
+const H2H_CANDIDATES_BASES = [
+  './data/h2h/',
+  '/data/h2h/',
+  window.location.origin + '/data/h2h/',
+  'https://www.center-court.net/data/h2h/'
+];
 
-/* Elements */
 const p1Input = document.getElementById('p1-input');
 const p2Input = document.getElementById('p2-input');
 const p1Sug = document.getElementById('p1-suggestions');
 const p2Sug = document.getElementById('p2-suggestions');
-const loadBtn = document.getElementById('load-btn');
-const swapBtn = document.getElementById('swap-btn');
+const displayBtn = document.getElementById('display-btn');
 const clearBtn = document.getElementById('clear-btn');
-const diagnoseBtn = document.getElementById('diagnose-btn');
-const openJsonLink = document.getElementById('open-json-link');
+const swapBtn = document.getElementById('swap-btn');
+const statusEl = document.getElementById('status');
 
-/* State */
 let playersCatalog = null;
 let playersIndexById = {};
 let playersIndexByName = [];
 
-/* Try sequential fetch with candidate roots + path */
-async function tryFetchCandidates(paths, description, options = {}) {
-  // paths: array of path strings (may start with / or not)
-  // options: { candidatesHosts: array }
-  const hosts = options.candidatesHosts || CANDIDATE_HOSTS;
-  for (const host of hosts) {
-    for (const p of paths) {
-      let url;
-      if (host === '') {
-        // try relative path first (relative to current page)
-        url = p.startsWith('/') ? p : './' + p;
+/* Helpers */
+function setStatus(msg, ms=null, isError=false){
+  statusEl.style.display = 'block';
+  statusEl.textContent = msg;
+  statusEl.style.background = isError ? '#fff0f0' : '#f6fcff';
+  if (ms) setTimeout(()=> statusEl.style.display='none', ms);
+}
+function hideStatus(){ statusEl.style.display='none'; }
+function qs(name){ const u = new URL(location.href); return u.searchParams.get(name); }
+function normId(s){ return s ? String(s).trim().toUpperCase() : ''; }
+
+/* Fetch candidates sequentially */
+async function tryFetch(paths){
+  for (const p of paths){
+    try {
+      console.log('[H2H] try', p);
+      const r = await fetch(p, {cache:'no-cache', mode:'cors'});
+      if (!r.ok){ console.log('[H2H] not ok', p, r.status); continue; }
+      const ct = r.headers.get('content-type') || '';
+      if (ct.indexOf('application/json') === -1){
+        // try parse text anyway
+        const txt = await r.text();
+        try { const json = JSON.parse(txt); return { json, url: p }; } catch(e){ console.log('[H2H] not json', p); continue; }
       } else {
-        // host present: ensure single slash
-        url = host.replace(/\/$/, '') + (p.startsWith('/') ? p : '/' + p);
+        const json = await r.json();
+        return { json, url: p };
       }
-      try {
-        log('Tentative fetch', description, url);
-        const res = await fetch(url, { cache: 'no-cache', mode: 'cors' });
-        if (!res.ok) {
-          log('Non OK', res.status, url);
-          continue;
-        }
-        const ct = res.headers.get('content-type') || '';
-        if (ct.includes('application/json')) {
-          const json = await res.json();
-          log('Succès', url);
-          return { json, url };
-        } else {
-          // try to parse anyway
-          const txt = await res.text();
-          try { const json = JSON.parse(txt); return { json, url }; } catch(e){ log('Not JSON', url); continue; }
-        }
-      } catch (err) {
-        log('Erreur fetch', url, err && err.message);
-        continue;
-      }
+    } catch(err){
+      console.log('[H2H] fetch error', p, err && err.message);
+      continue;
     }
   }
   return null;
 }
 
-/* Load players catalog using candidate paths */
-async function loadPlayersCatalog() {
-  const result = await tryFetchCandidates(CATALOG_PATHS, 'players_catalog.json');
-  if (!result) {
-    showStatus('Impossible de charger players_catalog.json (essayé plusieurs chemins). La recherche auto est désactivée — tu peux saisir un ID manuellement.', 'error', 8000);
+/* Load players_catalog.json automatically (first thing) */
+async function loadCatalog(){
+  setStatus('Chargement du catalogue des joueurs...', 12000);
+  const res = await tryFetch(CATALOG_CANDIDATES);
+  if (!res){
+    setStatus('Impossible de charger players_catalog.json — autocomplétion désactivée. Tu peux entrer des IDs manuellement.', 8000, true);
+    playersCatalog = null;
     return;
   }
-  playersCatalog = result.json;
-  // build indexes
+  playersCatalog = res.json;
   playersIndexById = {};
   playersIndexByName = [];
   if (playersCatalog && Array.isArray(playersCatalog.players)){
     for (const p of playersCatalog.players){
       const id = (p.player_id || p.playerId || '').toString().toUpperCase();
-      const name = p.full_name || p.name || '';
-      const entry = Object.assign({}, p, { id, name, rank: p.rank || null });
-      if (id) playersIndexById[id] = entry;
-      playersIndexByName.push(entry);
+      const name = p.full_name || p.fullName || p.name || '';
+      const rec = Object.assign({}, p, { id, name });
+      if (id) playersIndexById[id] = rec;
+      playersIndexByName.push(rec);
     }
     playersIndexByName.forEach(x => x._lc = (x.name || '').toLowerCase());
-    showStatus(`Catalogue chargé (${playersIndexByName.length} joueurs)`, 'info', 2500);
+    setStatus(`Catalogue chargé (${playersIndexByName.length} joueurs).`, 2500);
   } else {
-    showStatus('Catalogue chargé mais format inattendu.', 'error', 6000);
+    setStatus('Catalogue chargé mais format inattendu.', 5000, true);
   }
 }
 
-/* Autocomplete (simple) */
-function findPlayersByQuery(q, limit=12){
-  q = (q || '').toLowerCase().trim();
+/* Autocomplete */
+function findPlayers(q, limit=12){
+  q = (q||'').toLowerCase().trim();
   if (!q) return [];
-  const byId = [];
-  const byName = [];
-  if (playersIndexById[q.toUpperCase()]) byId.push(playersIndexById[q.toUpperCase()]);
+  const out = [];
+  if (playersIndexById[q.toUpperCase()]) out.push(playersIndexById[q.toUpperCase()]);
   for (const p of playersIndexByName){
-    if (p._lc && p._lc.indexOf(q) !== -1) byName.push(p);
-    if (byId.length + byName.length >= limit) break;
+    if (p._lc && p._lc.includes(q)) out.push(p);
+    if (out.length >= limit) break;
   }
-  return byId.concat(byName).slice(0, limit);
+  return out.slice(0,limit);
 }
 function renderSuggestions(list, container, inputEl){
-  if (!list || list.length === 0){ container.style.display='none'; container.innerHTML=''; return; }
+  if (!list || list.length===0){ container.style.display='none'; container.innerHTML=''; return; }
   container.innerHTML = '';
   for (const item of list){
     const div = document.createElement('div');
     div.className = 'autocomplete-item';
-    div.innerHTML = `<div style="display:flex;align-items:center;gap:10px">
-      <img src="/-/media/alias/player-headshot/${item.id}" alt="${item.name}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;background:#f2f6fb" />
-      <div><div style="font-weight:600">${item.name}</div><div class="muted" style="font-size:12px">${item.id} • ${item.represented_country || item.country || ''} ${item.rank? '• #'+item.rank : ''}</div></div>
-      </div>`;
-    div.addEventListener('click', ()=>{
-      inputEl.value = item.id || item.name;
-      inputEl.dataset.selectedId = item.id || '';
+    div.innerHTML = `<img src="/-/media/alias/player-headshot/${item.id}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;margin-right:8px">
+                     <div style="flex:1"><div style="font-weight:600">${item.name}</div><div class="muted">${item.id} • ${item.represented_country||item.country||''}</div></div>`;
+    div.addEventListener('click', ()=> {
+      inputEl.value = item.id;
+      inputEl.dataset.selectedId = item.id;
       container.style.display='none';
     });
     container.appendChild(div);
@@ -278,62 +230,40 @@ function renderSuggestions(list, container, inputEl){
   container.style.display='block';
 }
 
-/* Inputs behavior */
-p1Input.addEventListener('input', (e)=>{
+/* Input listeners */
+p1Input.addEventListener('input', ()=> {
   delete p1Input.dataset.selectedId;
   const q = p1Input.value.trim();
-  if (!q) { p1Sug.style.display='none'; return; }
-  if (playersCatalog) {
-    const matches = findPlayersByQuery(q, 12);
-    renderSuggestions(matches, p1Sug, p1Input);
-  } else {
-    // no catalog: hide suggestions
-    p1Sug.style.display='none';
-  }
+  if (!q){ p1Sug.style.display='none'; return; }
+  if (!playersCatalog){ p1Sug.style.display='none'; return; }
+  const matches = findPlayers(q, 10);
+  renderSuggestions(matches, p1Sug, p1Input);
 });
-p2Input.addEventListener('input', (e)=>{
+p2Input.addEventListener('input', ()=> {
   delete p2Input.dataset.selectedId;
   const q = p2Input.value.trim();
-  if (!q) { p2Sug.style.display='none'; return; }
-  if (playersCatalog) {
-    const matches = findPlayersByQuery(q, 12);
-    renderSuggestions(matches, p2Sug, p2Input);
-  } else { p2Sug.style.display='none'; }
+  if (!q){ p2Sug.style.display='none'; return; }
+  if (!playersCatalog){ p2Sug.style.display='none'; return; }
+  const matches = findPlayers(q, 10);
+  renderSuggestions(matches, p2Sug, p2Input);
 });
-document.addEventListener('click', (ev)=> { if (!ev.target.closest('.player-picker')) { p1Sug.style.display='none'; p2Sug.style.display='none'; } });
-[p1Input,p2Input].forEach(inp => inp.addEventListener('keydown', (e)=> { if (e.key==='Enter') { e.preventDefault(); loadBtn.click(); } }));
+document.addEventListener('click', (ev)=> { if (!ev.target.closest('.player-picker')){ p1Sug.style.display='none'; p2Sug.style.display='none'; } });
 
-/* Buttons */
-swapBtn.addEventListener('click', ()=> {
-  const a = p1Input.value, aid = p1Input.dataset.selectedId;
-  p1Input.value = p2Input.value; p1Input.dataset.selectedId = p2Input.dataset.selectedId || '';
-  p2Input.value = a; p2Input.dataset.selectedId = aid || '';
-});
-clearBtn.addEventListener('click', ()=> {
-  p1Input.value=''; p2Input.value=''; delete p1Input.dataset.selectedId; delete p2Input.dataset.selectedId;
-  hideAllPanels(); showStatus('Sélection effacée', 'info', 1400);
-});
-diagnoseBtn.addEventListener('click', ()=> {
-  console.log('--- DIAGNOSTIC H2H ---');
-  console.log('location.origin=', window.location.origin);
-  console.log('CANDIDATE_HOSTS=', CANDIDATE_HOSTS);
-  console.log('playersCatalog loaded=', !!playersCatalog);
-  showStatus('Diagnostic écrit dans la console (ouvre DevTools).', 'info', 3000);
-});
-
-/* Resolve user input to ID (using catalog or treat input as ID if it looks like one) */
-function resolveToId(value){
-  if (!value) return null;
-  const v = value.trim();
-  if (!v) return null;
-  const up = v.toUpperCase();
-  // if catalog present, prefer exact id
-  if (playersIndexById[up]) return up;
-  // if input looks like alphanumeric id (e.g. S0AG, SC73), treat as ID:
-  if (/^[A-Z0-9]+$/.test(up)) return up;
-  // try exact matching by name
+/* Resolve to ID: use selectedId, try exact id, else try match by name, else accept alnum ID */
+function resolveIdFromInput(val){
+  if (!val) return null;
+  val = val.trim();
+  if (!val) return null;
+  if (val.match(/^[A-Za-z0-9]+$/)) {
+    // could be id or compact name; prefer exact id in catalog
+    const up = val.toUpperCase();
+    if (playersIndexById[up]) return up;
+    // else accept as id
+    return up;
+  }
+  // else try lookup by name
   if (playersCatalog){
-    const lc = v.toLowerCase();
+    const lc = val.toLowerCase();
     const exact = playersIndexByName.find(p => p._lc === lc);
     if (exact) return exact.id;
     const partial = playersIndexByName.find(p => p._lc && p._lc.includes(lc));
@@ -342,238 +272,203 @@ function resolveToId(value){
   return null;
 }
 
-/* Multi-candidate H2H fetch */
-async function fetchH2HJsonCandidates(p1, p2){
-  // produce candidate filenames with both cases and both orders
-  const candidatesFilenames = [];
-  const p1u = normId(p1);
-  const p2u = normId(p2);
-  const combos = [
-    [p1u, p2u],
-    [p2u, p1u],
-    [p1u.toLowerCase(), p2u.toLowerCase()],
-    [p2u.toLowerCase(), p1u.toLowerCase()]
+/* Display H2H: MUST RELOAD the page (navigation), not SPA */
+displayBtn.addEventListener('click', ()=> {
+  let v1 = p1Input.dataset.selectedId || p1Input.value.trim();
+  let v2 = p2Input.dataset.selectedId || p2Input.value.trim();
+  if (!v1 || !v2){ setStatus('Veuillez indiquer deux joueurs (nom ou ID).', 4000, true); return; }
+  // try to resolve to IDs, but we will navigate with what resolveIdFromInput returns (if null -> still use raw as fallback)
+  const id1 = resolveIdFromInput(v1) || v1;
+  const id2 = resolveIdFromInput(v2) || v2;
+  // Build URL and reload page
+  const target = window.location.pathname + `?p1=${encodeURIComponent(id1)}&p2=${encodeURIComponent(id2)}`;
+  // navigate (full reload)
+  window.location.href = target;
+});
+
+/* Clear */
+clearBtn.addEventListener('click', ()=> {
+  p1Input.value=''; p2Input.value=''; delete p1Input.dataset.selectedId; delete p2Input.dataset.selectedId;
+  hideResults();
+  setStatus('Sélection effacée', 1600);
+});
+
+/* Swap */
+swapBtn.addEventListener('click', ()=> {
+  const a = p1Input.value, aid = p1Input.dataset.selectedId;
+  p1Input.value = p2Input.value; p1Input.dataset.selectedId = p2Input.dataset.selectedId || '';
+  p2Input.value = a; p2Input.dataset.selectedId = aid || '';
+});
+
+/* Hide results area */
+function hideResults(){ document.getElementById('results-area').style.display='none'; }
+
+/* Fetch H2H JSON after reload when ?p1 & ?p2 exist */
+async function fetchH2H(p1, p2){
+  setStatus(`Chargement H2H ${p1} vs ${p2}...`, 12000);
+  // build candidate URLs (both orders, mixed case)
+  const candidates = [];
+  const permutations = [
+    [p1, p2],
+    [p2, p1],
+    [p1.toLowerCase(), p2.toLowerCase()],
+    [p2.toLowerCase(), p1.toLowerCase()]
   ];
-  for (const [a,b] of combos){
-    const name = `${a}_${b}.json`;
-    for (const base of H2H_BASE_PATHS) {
-      candidatesFilenames.push(base + name);
+  const suffixes = ['.json'];
+  for (const base of H2H_CANDIDATES_BASES){
+    for (const [a,b] of permutations){
+      candidates.push(base + `${a}_${b}.json`);
+      candidates.push(base + `${a}-${b}.json`);
+      candidates.push(base + `${a}${b}.json`);
     }
   }
-  // also try with no underscore? (rare) and with dash
-  for (const [a,b] of combos){
-    candidatesFilenames.push(...H2H_BASE_PATHS.map(base => base + `${a}-${b}.json`));
-    candidatesFilenames.push(...H2H_BASE_PATHS.map(base => base + `${a}${b}.json`));
-  }
-  // use tryFetchCandidates to attempt them with candidate hosts
-  const res = await tryFetchCandidates(candidatesFilenames, `H2H ${p1}/${p2}`);
-  return res; // { json, url } or null
-}
-
-/* Hide panels helper */
-function hideAllPanels(){
-  document.getElementById('match-stats').style.display='none';
-  document.getElementById('h2h-data').style.display='none';
-  document.getElementById('event-breakdown').style.display='none';
-  openJsonLink.href = '#'; openJsonLink.textContent = 'Voir JSON (si disponible)';
-}
-
-/* Render helpers (simplified and resilient) */
-function setHeadshot(elId, player, fallbackName){
-  const el = document.getElementById(elId);
-  const img = el.querySelector('img');
-  img.alt = fallbackName || (player && player.full_name) || 'Player';
-  let src = '';
-  if (player && (player.headshot || player.image || player.photo)) src = player.headshot || player.image || player.photo;
-  else if (player && player.id) src = `/-/media/alias/player-headshot/${player.id}`;
-  else src = '';
-  img.src = src || ('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="100%" height="100%" fill="%23e6eefc"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="18" fill="%237b8798">No photo</text></svg>');
-}
-function setNameFields(leftObj, rightObj){
-  document.getElementById('left-name').textContent = leftObj.full_name || leftObj.name || leftObj.id || '—';
-  document.getElementById('right-name').textContent = rightObj.full_name || rightObj.name || rightObj.id || '—';
-}
-function renderPlayerBox(playerRecord, containerSelector){
-  const container = document.querySelector(containerSelector);
-  container.innerHTML = '';
-  const ul = document.createElement('ul');
-  const keys = [
-    ['Rank','rank','highest_ranking','best_rank'],
-    ['Age','age'],
-    ['Weight','weight'],
-    ['Height','height_cm','height','height_inches'],
-    ['Plays','plays'],
-    ['Backhand','backhand'],
-    ['Turned Pro','turned_pro']
-  ];
-  for (const k of keys){
-    const label = k[0];
-    let val = '';
-    for (let i=1;i<k.length;i++){
-      const key = k[i];
-      if (playerRecord && (playerRecord[key] !== undefined && playerRecord[key] !== '')) { val = playerRecord[key]; break; }
+  // try sequentially
+  for (const url of candidates){
+    try {
+      console.log('[H2H] try H2H URL', url);
+      const r = await fetch(url, {cache:'no-cache', mode:'cors'});
+      if (!r.ok){
+        console.log('[H2H] failed', r.status, url);
+        continue;
+      }
+      const payload = await r.json();
+      console.log('[H2H] loaded', url);
+      renderH2H(payload, url, p1, p2);
+      return;
+    } catch(err){
+      console.log('[H2H] err', err && err.message, url);
+      continue;
     }
-    const li = document.createElement('li');
-    li.innerHTML = `<span class="label">${label}</span><span class="value">${safeText(val)}</span>`;
-    ul.appendChild(li);
   }
-  container.appendChild(ul);
-}
-function tryParseRatio(txt){
-  if (!txt) return null;
-  const m = String(txt).match(/^\\s*(\\d+)\\s*\\/\\s*(\\d+)\\s*$/);
-  if (m) return Number(m[1]);
-  const m2 = String(txt).match(/(\\d+)/);
-  if (m2) return Number(m2[1]);
-  return null;
-}
-function updateChart(leftWins, rightWins){
-  document.getElementById('left-wins').textContent = leftWins;
-  document.getElementById('right-wins').textContent = rightWins;
-  const total = leftWins + rightWins;
-  const svgBar = document.querySelector('.chart .bar');
-  if (!svgBar) return;
-  const circumference = 2 * Math.PI * 127;
-  let leftFraction = total === 0 ? 0.5 : leftWins/total;
-  const offset = circumference * (1 - leftFraction);
-  svgBar.style.strokeDasharray = `${circumference}`;
-  svgBar.style.strokeDashoffset = `${offset}`;
+  setStatus(`Aucun JSON H2H trouvé pour ${p1} & ${p2}. (essayé plusieurs chemins)`, 8000, true);
 }
 
-function renderSharedStats(h2hJson, leftId, rightId){
-  const shared = document.getElementById('shared-list');
-  shared.innerHTML = '';
-  const leftAgg = (h2hJson.aggregates && h2hJson.aggregates.player1) ? h2hJson.aggregates.player1 : (h2hJson.player1 || {});
-  const rightAgg = (h2hJson.aggregates && h2hJson.aggregates.player2) ? h2hJson.aggregates.player2 : (h2hJson.player2 || {});
-  const matches = h2hJson.matches || [];
-  function wlString(obj){ if (!obj) return '—'; if (obj.h2h_wins!==undefined && obj.h2h_losses!==undefined) return `${obj.h2h_wins}/${obj.h2h_losses}`; return '—'; }
-  function careerWL(obj){ if (!obj) return '—'; if (obj.career_wins!==undefined && obj.career_losses!==undefined) return `${obj.career_wins}/${obj.career_losses}`; return '—'; }
-  function careerTitles(obj){ return obj && (obj.titles || obj.career_titles) ? String(obj.titles || obj.career_titles) : '—'; }
-  function prizeMoney(obj){ return obj && (obj.prize_money || obj.prize) ? (String(obj.prize_money || obj.prize)) : '—'; }
+/* Render H2H payload into page (simple mapping) */
+function renderH2H(payload, jsonUrl, leftInputId, rightInputId){
+  hideStatus();
+  document.getElementById('results-area').style.display='block';
+  // left/right player objects (prefer payload.player1/player2)
+  const p1obj = payload.player1 || payload.player || payload.left || { id:leftInputId, full_name:leftInputId };
+  const p2obj = payload.player2 || payload.opponent || payload.right || { id:rightInputId, full_name:rightInputId };
+  // merge with catalog if available
+  const leftMerged = Object.assign({}, playersIndexById[p1obj.id] || {}, p1obj);
+  const rightMerged = Object.assign({}, playersIndexById[p2obj.id] || {}, p2obj);
+  // headshots + names
+  const leftHead = document.querySelector('#left-headshot img'); leftHead.alt = leftMerged.full_name || leftMerged.name || leftMerged.id; leftHead.src = leftMerged.headshot || `/-/media/alias/player-headshot/${leftMerged.id}`;
+  const rightHead = document.querySelector('#right-headshot img'); rightHead.alt = rightMerged.full_name || rightMerged.name || rightMerged.id; rightHead.src = rightMerged.headshot || `/-/media/alias/player-headshot/${rightMerged.id}`;
+  document.getElementById('left-name').textContent = leftMerged.full_name || leftMerged.name || leftMerged.id;
+  document.getElementById('right-name').textContent = rightMerged.full_name || rightMerged.name || rightMerged.id;
+
+  // fill left/right info boxes (minimal)
+  function fillBox(rec, selector){
+    const el = document.querySelector(selector);
+    el.innerHTML = '';
+    const ul = document.createElement('ul');
+    const rows = [
+      ['Rank', rec.rank || rec.best_rank || rec.highest_ranking || '—'],
+      ['Age', rec.age || '—'],
+      ['Height', rec.height || rec.height_cm || '—'],
+      ['Plays', rec.plays || '—'],
+      ['Backhand', rec.backhand || '—']
+    ];
+    for (const r of rows){
+      const li = document.createElement('li');
+      li.innerHTML = `<span class="label">${r[0]}</span><span class="value">${r[1]}</span>`;
+      ul.appendChild(li);
+    }
+    el.appendChild(ul);
+  }
+  fillBox(leftMerged, '#player-left-list');
+  fillBox(rightMerged, '#player-right-list');
+
+  // shared stats from payload.aggregates if present
+  const sharedList = document.getElementById('shared-list');
+  sharedList.innerHTML = '';
+  const leftAgg = (payload.aggregates && payload.aggregates.player1) ? payload.aggregates.player1 : payload.player1 || {};
+  const rightAgg = (payload.aggregates && payload.aggregates.player2) ? payload.aggregates.player2 : payload.player2 || {};
   const rows = [
-    { label:'H2H (W/L)', left: wlString(leftAgg), right: wlString(rightAgg) },
-    { label:'Career W/L', left: careerWL(leftAgg), right: careerWL(rightAgg) },
-    { label:'Career titles', left: careerTitles(leftAgg), right: careerTitles(rightAgg) },
-    { label:'Career prize money', left: prizeMoney(leftAgg), right: prizeMoney(rightAgg) }
+    ['H2H (W/L)', leftAgg.h2h_wins ? (leftAgg.h2h_wins + '/' + (leftAgg.h2h_losses||0)) : '—', rightAgg.h2h_wins ? (rightAgg.h2h_wins + '/' + (rightAgg.h2h_losses||0)) : '—'],
+    ['Career W/L', leftAgg.career_wins ? (leftAgg.career_wins + '/' + (leftAgg.career_losses||0)) : '—', rightAgg.career_wins ? (rightAgg.career_wins + '/' + (rightAgg.career_losses||0)) : '—'],
+    ['Career prize', leftAgg.prize_money || '—', rightAgg.prize_money || '—']
   ];
   for (const r of rows){
     const li = document.createElement('li');
-    const leftVal = r.left || '—';
-    const rightVal = r.right || '—';
-    let percent = 0;
-    const nL = tryParseRatio(leftVal) || Number(String(leftVal).replace(/[^0-9]/g,'')) || 0;
-    const nR = tryParseRatio(rightVal) || Number(String(rightVal).replace(/[^0-9]/g,'')) || 0;
-    if ((nL+nR)>0) percent = Math.round(100 * nL / (nL+nR));
-    li.innerHTML = `<span class="player">${safeText(leftVal)}</span><span class="label">${r.label}</span><span class="opponent">${safeText(rightVal)}</span><div class="progress"><div class="value" style="width:${percent}%;"></div></div>`;
-    shared.appendChild(li);
+    const leftVal = r[1] || '—';
+    const rightVal = r[2] || '—';
+    const nL = Number(String(leftVal).match(/\d+/)?.[0] || 0);
+    const nR = Number(String(rightVal).match(/\d+/)?.[0] || 0);
+    const pct = (nL + nR) ? Math.round(100 * nL / (nL + nR)) : 0;
+    li.innerHTML = `<span class="player">${leftVal}</span><span class="label">${r[0]}</span><span class="opponent">${rightVal}</span><div class="progress"><div class="value" style="width:${pct}%;"></div></div>`;
+    sharedList.appendChild(li);
   }
-  // wins for chart
+
+  // chart: compute wins
   let leftWins = (leftAgg && leftAgg.h2h_wins) ? leftAgg.h2h_wins : 0;
   let rightWins = (rightAgg && rightAgg.h2h_wins) ? rightAgg.h2h_wins : 0;
-  if ((leftWins + rightWins) === 0 && Array.isArray(matches)) {
-    for (const m of matches){
-      if (m.player_id_winner && m.player_id_winner.toUpperCase() === leftId.toUpperCase()) leftWins++;
-      else if (m.player_id_winner && m.player_id_winner.toUpperCase() === rightId.toUpperCase()) rightWins++;
+  if (leftWins+rightWins === 0 && Array.isArray(payload.matches)){
+    for (const m of payload.matches){
+      const w = m.player_id_winner || m.player_winner || m.winner_player_name || m.winner;
+      if (w && (String(w).toUpperCase() === String(leftMerged.id).toUpperCase())) leftWins++;
+      else rightWins++;
     }
   }
-  updateChart(leftWins, rightWins);
+  const svgBar = document.querySelector('.chart .bar');
+  if (svgBar){
+    const circumference = 2 * Math.PI * 127;
+    const leftFraction = (leftWins + rightWins) === 0 ? 0.5 : (leftWins / (leftWins + rightWins));
+    const offset = circumference * (1 - leftFraction);
+    svgBar.style.strokeDasharray = `${circumference}`;
+    svgBar.style.strokeDashoffset = `${offset}`;
+    document.getElementById('chart-label').textContent = `${leftWins} — ${rightWins}`;
+  }
+
+  // event breakdown table
+  const matches = payload.matches || [];
+  renderEventTable(matches);
+
+  setStatus(`H2H chargé (${matches.length} matches). JSON: ${jsonUrl}`, 5000);
 }
 
+/* Render matches table */
 function renderEventTable(matches){
-  const container = document.getElementById('event-table-container');
-  if (!matches || matches.length === 0){ container.innerHTML = '<div class="placeholder">Aucun match head-to-head enregistré.</div>'; return; }
+  const cont = document.getElementById('event-table-container');
+  if (!matches || matches.length === 0){ cont.innerHTML = '<div class="placeholder">Aucun match H2H</div>'; return; }
   const table = document.createElement('table');
-  const thead = document.createElement('thead');
-  thead.innerHTML = `<tr><th>Year</th><th>Winner</th><th>Event</th><th>Round</th><th>Surface</th><th>Score</th><th>Voir</th></tr>`;
-  table.appendChild(thead);
+  table.innerHTML = '<thead><tr><th>Year</th><th>Winner</th><th>Event</th><th>Round</th><th>Surface</th><th>Score</th></tr></thead>';
   const tbody = document.createElement('tbody');
   const sorted = matches.slice().sort((a,b)=> (b.event_year||'').toString().localeCompare((a.event_year||'').toString()));
   for (const m of sorted){
     const year = m.event_year || (m.match_date ? (new Date(m.match_date)).getFullYear() : '');
-    const winnerName = m.winner_player_name || m.winner || '—';
+    const winner = m.winner_player_name || m.winner || '—';
     const event = m.tourney_name || m.tournament_name || m.tournament || '—';
     const round = m.round || '—';
     const surface = m.surface || '—';
     const score = m.score_string || '—';
-    const link = m.match_link || '#';
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${safeText(year)}</td><td><div style="display:flex;align-items:center;gap:8px"><img class="player-image" src="${m.winner_image||('/-/media/alias/player-headshot/'+(m.player_id_winner||''))}" alt="${winnerName}" /> <div><div style="font-weight:600">${winnerName}</div><div class="muted">${m.winner_country||''}</div></div></div></td><td><a href="#">${event}</a></td><td>${safeText(round)}</td><td>${safeText(surface)}</td><td>${safeText(score)}</td><td><a class="btn btn-ghost" href="${link}">View</a></td>`;
+    tr.innerHTML = `<td>${year}</td><td>${winner}</td><td>${event}</td><td>${round}</td><td>${surface}</td><td>${score}</td>`;
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
-  container.innerHTML=''; container.appendChild(table);
+  cont.innerHTML = '';
+  cont.appendChild(table);
 }
 
-/* Main flow: load H2H then render */
-async function fetchAndRenderH2H(p1raw, p2raw){
-  hideAllPanels();
-  showStatus(`Recherche H2H pour ${p1raw} vs ${p2raw}…`, 'info');
-  const p1 = resolveToId(p1raw) || normId(p1raw);
-  const p2 = resolveToId(p2raw) || normId(p2raw);
-  if (!p1 || !p2){ showStatus('Impossible de résoudre au moins un des joueurs en ID. Vérifiez votre saisie ou choisissez dans la liste.', 'error', 6000); return; }
-  log('fetch H2H IDs', p1, p2);
-  const result = await fetchH2HJsonCandidates(p1, p2);
-  if (!result){
-    showStatus(`Aucun JSON trouvé pour ${p1} & ${p2} (essayé plusieurs chemins).`, 'error', 8000);
-    return;
-  }
-  hideStatus();
-  openJsonLink.href = result.url;
-  openJsonLink.textContent = 'Voir JSON';
-  const payload = result.json;
-  // player objects
-  const leftPlayer = playersIndexById[p1] || (payload.player1 && (payload.player1.id===p1 ? payload.player1 : { id:p1, full_name: payload.player1 && payload.player1.full_name || p1 })) || { id:p1, full_name:p1 };
-  const rightPlayer = playersIndexById[p2] || (payload.player2 && (payload.player2.id===p2 ? payload.player2 : { id:p2, full_name: payload.player2 && payload.player2.full_name || p2 })) || { id:p2, full_name:p2 };
-
-  // show top
-  document.getElementById('match-stats').style.display='flex';
-  setHeadshot('left-headshot', leftPlayer, leftPlayer.full_name || p1);
-  setHeadshot('right-headshot', rightPlayer, rightPlayer.full_name || p2);
-  setNameFields(leftPlayer, rightPlayer);
-  // boxes
-  const mergedLeft = Object.assign({}, playersIndexById[p1] || {}, payload.player1 || {});
-  const mergedRight = Object.assign({}, playersIndexById[p2] || {}, payload.player2 || {});
-  renderPlayerBox(mergedLeft, '#player-left-list');
-  renderPlayerBox(mergedRight, '#player-right-list');
-  // shared stats
-  renderSharedStats(payload, p1, p2);
-  // matches
-  document.getElementById('h2h-data').style.display='flex';
-  const matches = payload.matches || [];
-  renderEventTable(matches);
-  document.getElementById('event-breakdown').style.display='block';
-  showStatus(`Chargé: ${matches.length} matches (JSON: ${result.url})`, 'info', 4000);
-}
-
-/* Init from URL if p1/p2 exist */
-async function init(){
-  await loadPlayersCatalog(); // best-effort
-  const urlP1 = qs('p1');
-  const urlP2 = qs('p2');
+/* Initialization: load catalog, then if URL has p1/p2 load H2H */
+window.addEventListener('DOMContentLoaded', async ()=>{
+  // start by loading catalog (must be automatic)
+  await loadCatalog();
+  // prefill inputs if p1/p2 in URL
+  const urlP1 = qs('p1'); const urlP2 = qs('p2');
   if (urlP1) { p1Input.value = urlP1; p1Input.dataset.selectedId = urlP1.toUpperCase(); }
   if (urlP2) { p2Input.value = urlP2; p2Input.dataset.selectedId = urlP2.toUpperCase(); }
+  // If both present, automatically load H2H JSON (this will happen after reload too)
   if (urlP1 && urlP2){
-    // auto-load
-    await fetchAndRenderH2H(urlP1, urlP2);
+    // try to fetch H2H and render
+    await fetchH2H(urlP1, urlP2);
   } else {
-    showStatus('Saisis deux joueurs (nom ou id) puis clique sur "Afficher H2H".', 'info', 4500);
+    setStatus('Saisis deux joueurs puis clique sur Display H2H. Le catalogue est chargé automatiquement.', 4000);
   }
-}
-
-/* Attach load button */
-loadBtn.addEventListener('click', async ()=>{
-  const v1 = p1Input.dataset.selectedId || p1Input.value.trim();
-  const v2 = p2Input.dataset.selectedId || p2Input.value.trim();
-  if (!v1 || !v2) { showStatus('Indiquez deux joueurs (nom ou id).', 'error', 4000); return; }
-  // update URL for bookmarking
-  const url = new URL(location.href);
-  url.searchParams.set('p1', v1); url.searchParams.set('p2', v2); history.replaceState({}, '', url.toString());
-  await fetchAndRenderH2H(v1, v2);
 });
-
-/* start */
-init().catch(err => { console.error(err); showStatus('Erreur d\'initialisation (regarde la console).', 'error', 8000); });
-
 </script>
 </body>
 </html>
