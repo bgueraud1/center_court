@@ -1,143 +1,130 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Guess The Player H2H — Jeu</title>
+<title>Guess The Player — H2H Game</title>
 
 <style>
   :root{
+    --bg: #fafafa;
+    --card: #ffffff;
+    --muted: #6b7280;
+    --accent: #1f7aec;
+    --accent-600: #165fc6;
+    --shadow: 0 8px 30px rgba(16,24,40,0.06);
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
     color: #0f1724;
   }
-  body{
-    margin: 20px;
-    background: #f5f7fb;
-    -webkit-font-smoothing:antialiased;
-  }
-  .site {
-    max-width: 980px;
-    margin: 0 auto;
-  }
-  .card {
-    background: white;
-    padding: 18px;
-    border-radius: 12px;
-    box-shadow: 0 8px 30px rgba(16,24,40,0.06);
-    margin-bottom: 18px;
-  }
-  h1 { margin: 0 0 6px 0; font-size: 1.35rem; }
-  p.lead { margin: 6px 0 0 0; color: #556070; font-size:0.95rem; }
+  html,body { height:100%; margin:0; background:var(--bg); -webkit-font-smoothing:antialiased; }
+  .container { max-width:980px; margin:26px auto; padding:18px; }
+  .card { background:var(--card); padding:18px; border-radius:12px; box-shadow:var(--shadow); }
+  h1 { margin:0; font-size:1.4rem; }
+  p.lead { margin:6px 0 0 0; color:var(--muted); font-size:0.95rem; }
 
   .controls { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-top:12px; }
-  label { font-size:0.9rem; color:#1f2a44; font-weight:600; display:block; margin-bottom:6px; }
+  .control { min-width:160px; }
+  label { display:block; font-size:0.90rem; font-weight:600; color:#122033; margin-bottom:6px; }
   select, input[type="text"], input[type="number"], button {
-    padding: 8px 10px; border-radius:10px; border:1px solid #e6edf7; font-size:14px;
-    background: white;
+    padding:8px 10px; border-radius:10px; border:1px solid #e6edf7; font-size:14px; background:white;
   }
-  button.primary { background:#1f7aec; color:white; border:none; cursor:pointer; box-shadow: 0 6px 18px rgba(31,122,236,0.12); }
-  button.ghost { background:transparent; color:#1f2a44; border:1px solid #e6edf7; cursor:pointer; }
-  .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  button.primary { background:var(--accent); color:white; border:none; cursor:pointer; padding:9px 12px; border-radius:10px; box-shadow:0 6px 18px rgba(31,122,236,0.12); }
+  button.ghost { background:transparent; border:1px solid #e6edf7; color:#123; cursor:pointer; padding:8px 10px; border-radius:10px; }
 
   .meta { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
   .chip { background:#f1f5f9; padding:8px 12px; border-radius:999px; font-weight:600; color:#26314a; font-size:0.9rem; }
 
-  .game-panel { display:flex; gap:18px; margin-top:16px; align-items:flex-start; }
-  .left { flex: 1 1 480px; min-width:280px; }
+  .game-grid { display:flex; gap:18px; margin-top:18px; align-items:flex-start; }
+  .left { flex:1 1 520px; min-width:280px; }
   .right { width:360px; min-width:260px; }
 
   .panel { background:#fbfdff; border-radius:10px; padding:12px; border:1px solid #edf4ff; }
-  .small { font-size:0.92rem; color:#51627a; }
+  .small { font-size:0.92rem; color:var(--muted); }
 
-  .input-guess { display:flex; gap:8px; margin-top:8px; }
-  input[type="text"].big { flex:1; padding:10px 12px; font-size:14px; border-radius:10px; border:1px solid #e6edf7; }
-  .datalist-suggestions { display:none; }
+  .input-row { display:flex; gap:8px; margin-top:8px; align-items:center; }
+  input.big { flex:1; padding:10px 12px; font-size:14px; border-radius:10px; border:1px solid #e6edf7; }
 
   table { width:100%; border-collapse:collapse; margin-top:12px; font-size:14px; }
-  th,td { padding:8px 10px; border-bottom:1px solid #eef3fb; text-align:left; vertical-align:middle; }
-  thead th { color:#3a4a64; font-weight:700; font-size:13px; }
+  th, td { padding:10px 8px; border-bottom:1px solid #eef3fb; text-align:left; vertical-align:middle; }
+  thead th { color:#344154; font-weight:700; font-size:13px; }
   tbody tr.correct { background:#e8fff0; }
-  .muted { color:#6b7280; font-size:0.9rem; }
 
-  .h2h-output { margin-top:12px; }
-  .h2h-box { background:white; border-radius:8px; padding:10px; border:1px solid #eef4ff; }
-  .surface-item { margin-left:8px; margin-top:6px; color:#233; }
+  .h2h-area { margin-top:12px; }
+  .h2h-card { background:white; border-radius:8px; padding:10px; border:1px solid #eef4ff; }
 
-  .answer { margin-top:12px; padding:12px; border-radius:10px; background:#f8fff4; border:1px solid #e3f6df; color:#0d6b2b; font-weight:700; }
-  .error { margin-top:12px; padding:12px; border-radius:10px; background:#fff6f6; border:1px solid #ffd6d6; color:#9b1d1d; font-weight:700; }
+  .status { margin-top:10px; color:var(--muted); }
 
-  .footer { margin-top:10px; color:#6b7280; font-size:0.9rem; }
+  .reveal { margin-top:12px; padding:12px; border-radius:10px; background:#f8fff4; border:1px solid #e3f6df; color:#0d6b2b; font-weight:700; }
 
-  /* responsive */
+  .muted-note { color:var(--muted); font-size:0.92rem; margin-top:8px; }
+
   @media (max-width:880px){
-    .game-panel { flex-direction: column; }
+    .game-grid { flex-direction:column; }
     .right { width:100%; }
   }
 </style>
 </head>
 <body>
-  <div class="site">
+  <div class="container">
     <div class="card">
-      <h1>Guess The Player H2H</h1>
-      <p class="lead">Devine la joueuse / le joueur caché. Propose un nom — la page affichera le H2H entre ta proposition et la cible (suivant la difficulté).</p>
+      <h1>Guess The Player — H2H</h1>
+      <p class="lead">Guess the hidden player. Enter a name (autocomplete available), then submit — the H2H between your guess and the hidden player will be displayed according to the difficulty level.</p>
 
-      <div class="controls">
-        <div>
+      <div class="controls" aria-hidden="false">
+        <div class="control">
           <label for="modeSelect">Mode</label>
-          <select id="modeSelect" aria-label="Mode (ATP or WTA)">
+          <select id="modeSelect" aria-label="Mode">
             <option value="atp">ATP</option>
             <option value="wta">WTA</option>
           </select>
         </div>
 
-        <div>
-          <label for="levelSelect">Niveau</label>
-          <select id="levelSelect" aria-label="Niveau">
+        <div class="control">
+          <label for="levelSelect">Level</label>
+          <select id="levelSelect" aria-label="Level">
             <option value="easy">Easy</option>
             <option value="medium">Medium</option>
             <option value="hard">Hard</option>
           </select>
         </div>
 
-        <div>
-          <label for="maxGuesses">Essais max</label>
-          <input id="maxGuesses" type="number" value="8" min="1" max="30" />
+        <div class="control">
+          <label for="maxGuesses">Max guesses</label>
+          <input id="maxGuesses" type="number" min="1" max="30" value="8" />
         </div>
 
         <div style="margin-left:auto; align-self:end">
-          <button id="loadBtn" class="primary">Charger la cible</button>
-          <button id="revealBtn" class="ghost" title="Révéler la cible (pour debug)">Révéler</button>
+          <button id="loadBtn" class="primary">Load target</button>
+          <button id="revealBtn" class="ghost" title="Reveal target (for testing)">Reveal</button>
         </div>
       </div>
 
-      <div class="meta">
-        <div class="chip" id="levelChip">Niveau: —</div>
-        <div class="chip" id="remainingChip">Essais: —</div>
+      <div class="meta" aria-hidden="false">
+        <div class="chip" id="levelChip">Level: —</div>
+        <div class="chip" id="remainingChip">Guesses: —</div>
         <div class="chip" id="scoreChip">Score: 0</div>
       </div>
     </div>
 
-    <div class="game-panel">
+    <div class="game-grid">
       <div class="left">
         <div class="panel">
-          <div class="small">Entrez le nom d'un joueur (autocomplétion activée — source: <code>/tools/players_catalog.json</code>)</div>
-          <div class="input-guess">
-            <input id="guessInput" list="playersList" class="big" placeholder="Ex : Rafael Nadal" autocomplete="off" />
+          <div class="small">Type a player name (autocomplete uses <code>/tools/players_catalog.json</code>)</div>
+          <div class="input-row">
+            <input id="guessInput" class="big" list="playersList" placeholder="e.g. Novak Djokovic" autocomplete="off" />
             <datalist id="playersList"></datalist>
-            <button id="guessBtn" class="primary">Proposer</button>
+            <button id="guessBtn" class="primary">Submit</button>
           </div>
 
-          <div id="status" class="muted" style="margin-top:8px">Cible non chargée.</div>
+          <div id="status" class="status">Target not loaded.</div>
 
-          <div id="h2hArea" class="h2h-output"></div>
+          <div id="h2hArea" class="h2h-area" aria-live="polite"></div>
         </div>
 
         <div class="panel" style="margin-top:12px">
-          <div class="small">Historique des propositions</div>
-          <table aria-live="polite">
-            <thead>
-              <tr><th>#</th><th>Nom proposé</th><th>Résultat</th><th>Note</th></tr>
-            </thead>
+          <div class="small">Guess history</div>
+          <table>
+            <thead><tr><th>#</th><th>Guessed</th><th>Result</th><th>Note</th></tr></thead>
             <tbody id="guessesTbody"></tbody>
           </table>
         </div>
@@ -145,52 +132,47 @@
 
       <div class="right">
         <div class="panel">
-          <h3 style="margin:0 0 8px 0">Cible (cachée)</h3>
-          <div class="small">La cible est sélectionnée depuis <code>/selected_players.json</code>. Elle n'est pas révélée tant que tu n'as pas trouvé la bonne réponse.</div>
+          <h3 style="margin:0 0 8px 0">Target (hidden)</h3>
+          <div class="small">The target is chosen from <code>/selected_players.json</code> according to your selected mode & level.</div>
           <div style="margin-top:12px">
             <div class="chip" id="targetMeta">—</div>
           </div>
 
           <div style="margin-top:12px">
-            <button id="resetBtn" class="ghost">Réinitialiser la page</button>
-            <button id="revealAnswerBtn" class="ghost" style="margin-left:8px">Montrer la cible (fin)</button>
+            <button id="resetBtn" class="ghost">Reset page</button>
+            <button id="revealAnswerBtn" class="ghost" style="margin-left:8px">Show target</button>
           </div>
         </div>
 
         <div class="panel" style="margin-top:12px">
-          <div class="small">Info</div>
-          <div style="margin-top:8px" id="infoBox" class="muted">Par défaut : <strong>ATP / easy</strong>. Changer le mode/niveau recharge la page.</div>
+          <div class="small">Notes</div>
+          <div class="muted-note">By default: ATP / easy. Change mode/level to reload the page with the new target. H2H files are expected under <code>/data/h2h/{id}_{id}.json</code>.</div>
         </div>
       </div>
     </div>
-
-    <div class="footer muted">Dépendances : aucun (juste JSON statiques). Place <code>selected_players.json</code> à la racine du site, <code>tools/players_catalog.json</code> et les fichiers H2H dans <code>data/h2h/</code>.</div>
   </div>
 
 <script>
 /*
-  Behavior summary:
-  - Load /selected_players.json and /tools/players_catalog.json
-  - Default mode=atp, level=easy (use query params if present)
-  - When user clicks "Charger la cible" => pick the target (selected_players[mode].find(level).player)
-    -> Preload/cache H2H JSONs for this target against the other selected players (helps UX)
-  - Autocomplete uses players_catalog.json (expects array of { player_id, full_name } or mapping)
-  - User can guess any catalog player; the game fetches /data/h2h/{guessId}_{targetId}.json or reversed
-  - Render H2H depending on level:
-      easy: aggregated wins
-      medium: aggregate + per-surface counts
-      hard: list of matches
-  - Changing mode/level triggers page reload with ?mode=&level=
+  H2H Game (English)
+  - Loads /selected_players.json
+  - Loads /tools/players_catalog.json (structure: { ..., players: [ { full_name, player_id, ... }, ... ] })
+  - Default: mode=atp, level=easy (query params supported)
+  - Autocomplete comes from players_catalog.json
+  - Guesses use player_id from catalog to fetch /data/h2h/{guessId}_{targetId}.json or reversed
+  - Renders according to level:
+      easy   -> aggregated wins
+      medium -> aggregated + per-surface counts
+      hard   -> full match list
+  - No debug logs printed to UI
 */
 
-(function(){
-  // DOM refs
+(async function(){
+  // DOM elements
   const modeSelect = document.getElementById('modeSelect');
   const levelSelect = document.getElementById('levelSelect');
   const loadBtn = document.getElementById('loadBtn');
   const revealBtn = document.getElementById('revealBtn');
-  const revealAnswerBtn = document.getElementById('revealAnswerBtn');
-  const resetBtn = document.getElementById('resetBtn');
   const guessBtn = document.getElementById('guessBtn');
   const guessInput = document.getElementById('guessInput');
   const playersListEl = document.getElementById('playersList');
@@ -201,150 +183,134 @@
   const remainingChip = document.getElementById('remainingChip');
   const scoreChip = document.getElementById('scoreChip');
   const targetMeta = document.getElementById('targetMeta');
-  const infoBox = document.getElementById('infoBox');
+  const resetBtn = document.getElementById('resetBtn');
+  const revealAnswerBtn = document.getElementById('revealAnswerBtn');
 
-  // Config / state
-  let selectedPlayers = null; // content of /selected_players.json
-  let playersCatalog = [];    // content of /tools/players_catalog.json
-  let target = null;          // chosen target player object (from selectedPlayers)
-  let targetMode = 'atp';
-  let targetLevel = 'easy';
-  let h2hCache = {};          // key 'idA_idB' -> json
-  let guesses = [];           // list of {playerId, playerName, found:Boolean, h2hJson or null}
-  let maxGuesses = 8;
+  // state
+  let selectedPlayers = null;
+  let catalog = []; // normalized players array {full_name, player_id, ...}
+  let target = null; // chosen target object from selected_players.json
+  let h2hCache = {}; // key "idA_idB" -> json
   let remaining = 8;
   let score = 0;
 
-  // Read query params for mode/level
   function getQueryParams(){
-    const q = new URLSearchParams(window.location.search);
+    const q = new URLSearchParams(location.search);
     return { mode: q.get('mode') || 'atp', level: q.get('level') || 'easy' };
   }
   function setQueryParams(mode, level){
     const q = new URLSearchParams({ mode, level });
-    window.location.search = q.toString();
+    location.search = q.toString();
   }
 
-  // Normalize players_catalog structure into array of {player_id, full_name}
-  function normalizeCatalog(data){
-    if(!data) return [];
-    if(Array.isArray(data)){
-      return data.map(item => {
-        if(typeof item === 'string') return { player_id: item, full_name: item };
-        // try common keys
-        const id = item.player_id || item.id || item.playerId || item.pid || item.idPlayer || item.playerid || '';
-        const name = item.full_name || item.fullName || item.name || item.fullname || '';
-        return { player_id: String(id || '').trim(), full_name: String(name || '').trim() };
-      }).filter(x => x.player_id && x.full_name);
-    } else if(typeof data === 'object'){
-      // maybe mapping id -> name
-      const arr = [];
-      for(const k in data){
-        if(data.hasOwnProperty(k)){
-          arr.push({ player_id: String(k), full_name: String(data[k]) });
-        }
+  // initialize selects from URL
+  const qp = getQueryParams();
+  modeSelect.value = qp.mode;
+  levelSelect.value = qp.level;
+
+  // when user changes mode/level, reload page with params
+  modeSelect.addEventListener('change', ()=> setQueryParams(modeSelect.value, levelSelect.value));
+  levelSelect.addEventListener('change', ()=> setQueryParams(modeSelect.value, levelSelect.value));
+
+  // utility: safe fetch json
+  async function fetchJson(path){
+    const r = await fetch(path, { cache: 'no-cache' });
+    if(!r.ok) throw new Error('Fetch failed ' + path);
+    return await r.json();
+  }
+
+  // load selected_players.json
+  async function loadSelectedPlayers(){
+    const data = await fetchJson('/selected_players.json');
+    selectedPlayers = data;
+  }
+
+  // load players catalog and normalize
+  async function loadPlayersCatalog(){
+    try {
+      const raw = await fetchJson('/tools/players_catalog.json');
+      // expected shape: { ..., players: [ {...}, ... ] }
+      if(Array.isArray(raw.players)) {
+        catalog = raw.players.map(p => ({
+          player_id: String(p.player_id || p.playerId || p.id || '').trim(),
+          full_name: String(p.full_name || p.fullName || p.name || '').trim(),
+          represented_country: p.represented_country || p.representedCountry || p.country || null,
+          raw: p
+        })).filter(x => x.player_id && x.full_name);
+      } else if(Array.isArray(raw)){
+        // fallback: file is an array
+        catalog = raw.map(p => ({
+          player_id: String(p.player_id || p.id || '').trim(),
+          full_name: String(p.full_name || p.name || '').trim(),
+          represented_country: p.represented_country || p.country || null,
+          raw: p
+        })).filter(x => x.player_id && x.full_name);
+      } else {
+        catalog = [];
       }
-      return arr;
+    } catch(e){
+      catalog = [];
     }
-    return [];
+    buildDatalist();
   }
 
-  // UI updates
-  function setStatus(text){
-    statusEl.textContent = text;
-  }
-  function setMetaChips(){
-    levelChip.textContent = `Niveau: ${targetLevel}`;
-    remainingChip.textContent = `Essais: ${remaining}`;
-    scoreChip.textContent = `Score: ${score}`;
-  }
-  function resetGameState(){
-    guesses = [];
-    h2hCache = {};
-    guessInput.value = '';
-    guessesTbody.innerHTML = '';
-    h2hArea.innerHTML = '';
-    remaining = Number(document.getElementById('maxGuesses').value) || 8;
-    maxGuesses = remaining;
-    score = 0;
-    setMetaChips();
-  }
-
-  // Fill datalist for autocomplete from playersCatalog
   function buildDatalist(){
     playersListEl.innerHTML = '';
-    // dedupe by name
+    // dedupe
     const seen = new Set();
-    const names = playersCatalog.map(p => p.full_name).filter(n => n && !seen.has(n) ? (seen.add(n), true) : false);
-    names.sort((a,b)=>a.localeCompare(b));
-    for(const n of names){
+    const names = [];
+    for(const p of catalog){
+      const n = p.full_name;
+      if(n && !seen.has(n)){
+        seen.add(n);
+        names.push(n);
+      }
+    }
+    names.sort((a,b)=> a.localeCompare(b));
+    for(const name of names){
       const opt = document.createElement('option');
-      opt.value = n;
+      opt.value = name;
       playersListEl.appendChild(opt);
     }
   }
 
-  // Utility: find player id from catalog by name (exact or case-insensitive)
+  // find player id by name (exact or substring)
   function findIdByName(name){
     if(!name) return null;
-    const n = name.trim().toLowerCase();
-    let p = playersCatalog.find(x => x.full_name && x.full_name.trim().toLowerCase() === n);
-    if(p) return p.player_id;
-    // try substring match
-    p = playersCatalog.find(x => x.full_name && x.full_name.trim().toLowerCase().includes(n));
-    return p ? p.player_id : null;
+    const q = name.trim().toLowerCase();
+    let found = catalog.find(p => p.full_name.toLowerCase() === q);
+    if(found) return found.player_id;
+    found = catalog.find(p => p.full_name.toLowerCase().includes(q));
+    return found ? found.player_id : null;
   }
 
-  // Fetch selected_players.json
-  async function loadSelectedPlayers(){
-    const r = await fetch('/selected_players.json', {cache:'no-cache'});
-    if(!r.ok) throw new Error('selected_players.json introuvable: ' + r.status);
-    const j = await r.json();
-    return j;
-  }
-
-  // Fetch players_catalog.json
-  async function loadPlayersCatalog(){
-    const r = await fetch('/tools/players_catalog.json', {cache:'no-cache'});
-    if(!r.ok) {
-      // graceful fallback: empty array
-      return [];
-    }
-    const j = await r.json();
-    return normalizeCatalog(j);
-  }
-
-  // Determine target from selected_players by mode+level
-  function pickTargetFromSelected(mode, level){
+  // pick target from selected_players.json based on mode+level
+  function pickTarget(mode, level){
     if(!selectedPlayers) return null;
     const arr = selectedPlayers[mode] || [];
-    const found = arr.find(x => x.level === level);
-    if(!found) return null;
-    // expected structure: { level: "easy", player: { full_name, player_id, ... } }
-    return found.player || null;
+    const item = arr.find(x => x.level === level);
+    return item ? item.player : null;
   }
 
-  // Preload H2H for target vs other selected players (cache)
+  // preload H2H for target against other selected players (only the 5 other selected players)
   async function preloadH2HForTarget(targetId){
     if(!selectedPlayers) return;
-    // collect all players' ids from both atp/wta selected lists
     const all = [];
-    (selectedPlayers.atp||[]).forEach(x => { if(x.player && x.player.player_id) all.push(String(x.player.player_id)); });
-    (selectedPlayers.wta||[]).forEach(x => { if(x.player && x.player.player_id) all.push(String(x.player.player_id)); });
+    (selectedPlayers.atp || []).forEach(x => { if(x.player && x.player.player_id) all.push(String(x.player.player_id)); });
+    (selectedPlayers.wta || []).forEach(x => { if(x.player && x.player.player_id) all.push(String(x.player.player_id)); });
     const uniq = Array.from(new Set(all)).filter(id => id !== targetId);
     for(const opp of uniq){
-      // ignore errors
-      try{ await fetchH2H(targetId, opp, true); } catch(e){}
+      try{ await fetchH2H(targetId, opp, true); } catch(e){ /* ignore */ }
     }
   }
 
-  // Fetch H2H file trying both orders; cache results
+  // fetch H2H trying both orderings, cache result
   async function fetchH2H(idA, idB, cacheOnly=false){
     const k1 = `${idA}_${idB}`, k2 = `${idB}_${idA}`;
     if(h2hCache[k1]) return h2hCache[k1];
     if(h2hCache[k2]) return h2hCache[k2];
-    const paths = [`/data/h2h/${k1}.json`, `/data/h2h/${k2}.json`];
-    for(const p of paths){
+    const p1 = `/data/h2h/${k1}.json`, p2 = `/data/h2h/${k2}.json`;
+    for(const p of [p1,p2]){
       try{
         const r = await fetch(p);
         if(!r.ok) continue;
@@ -354,23 +320,23 @@
         return j;
       }catch(e){}
     }
-    if(cacheOnly) throw new Error('not-found');
+    if(cacheOnly) throw new Error('not found');
     throw new Error('H2H not found');
   }
 
-  // Render functions
+  // rendering helpers
   function renderEasy(h2h){
-    if(!h2h) return `<div class="h2h-box">Aucune donnée H2H disponible.</div>`;
+    if(!h2h) return `<div class="h2h-card">No H2H data available.</div>`;
     const p1 = (h2h.aggregates && h2h.aggregates.player1) || {};
     const p2 = (h2h.aggregates && h2h.aggregates.player2) || {};
     const n1 = (h2h.player1 && h2h.player1.full_name) || '';
     const n2 = (h2h.player2 && h2h.player2.full_name) || '';
-    const total = (h2h.meta && h2h.meta.total_matches) || ( (p1.h2h_wins||0) + (p2.h2h_wins||0) );
-    return `<div class="h2h-box">
-      <div style="font-weight:700;margin-bottom:6px">H2H global</div>
-      <div>${n1}: <strong>${p1.h2h_wins||0}</strong> wins</div>
-      <div>${n2}: <strong>${p2.h2h_wins||0}</strong> wins</div>
-      <div class="muted" style="margin-top:6px">Total matches: ${total}</div>
+    const total = (h2h.meta && h2h.meta.total_matches) || ((p1.h2h_wins||0)+(p2.h2h_wins||0));
+    return `<div class="h2h-card">
+      <div style="font-weight:700;margin-bottom:6px">Head-to-head</div>
+      <div>${escapeHtml(n1)}: <strong>${p1.h2h_wins||0}</strong></div>
+      <div>${escapeHtml(n2)}: <strong>${p2.h2h_wins||0}</strong></div>
+      <div class="small muted-note" style="margin-top:8px">Total matches: ${total}</div>
     </div>`;
   }
 
@@ -384,12 +350,12 @@
       grouped[s].push(m);
     });
     let html = renderEasy(h2h);
-    html += `<div class="h2h-box" style="margin-top:8px"><div style="font-weight:700;margin-bottom:6px">Détail par surface</div>`;
-    if(Object.keys(grouped).length===0) html += `<div class="muted">Aucun match détaillé.</div>`;
+    html += `<div class="h2h-card" style="margin-top:8px"><div style="font-weight:700;margin-bottom:6px">By surface</div>`;
+    if(Object.keys(grouped).length===0) html += `<div class="small muted-note">No detailed matches available.</div>`;
     for(const s of Object.keys(grouped)){
       const wins1 = grouped[s].filter(m => m.player_id_winner === (h2h.player1 && h2h.player1.id)).length;
       const wins2 = grouped[s].filter(m => m.player_id_winner === (h2h.player2 && h2h.player2.id)).length;
-      html += `<div class="surface-item"><strong>${s}</strong> — ${wins1} - ${wins2} (${grouped[s].length})</div>`;
+      html += `<div style="margin-left:8px;margin-top:6px"><strong>${escapeHtml(s)}</strong>: ${wins1} - ${wins2} (${grouped[s].length})</div>`;
     }
     html += `</div>`;
     return html;
@@ -398,232 +364,202 @@
   function renderHard(h2h){
     if(!h2h) return renderEasy(null);
     const matches = Array.isArray(h2h.matches) ? h2h.matches.slice().sort((a,b)=> (a.match_date||'').localeCompare(b.match_date||'')) : [];
-    if(matches.length===0) return `<div class="h2h-box">Aucun match détaillé disponible.</div>`;
-    let html = `<div class="h2h-box"><div style="font-weight:700;margin-bottom:8px">Liste des matches (${matches.length})</div><div style="max-height:320px;overflow:auto">`;
-    html += `<table style="width:100%"><thead><tr><th>Date</th><th>Tournoi</th><th>Surface</th><th>Round</th><th>Score</th></tr></thead><tbody>`;
+    if(matches.length===0) return `<div class="h2h-card">No match details available.</div>`;
+    let html = `<div class="h2h-card"><div style="font-weight:700;margin-bottom:8px">Matches (${matches.length})</div><div style="max-height:320px;overflow:auto">`;
+    html += `<table style="width:100%"><thead><tr><th>Date</th><th>Tournament</th><th>Surface</th><th>Round</th><th>Score</th></tr></thead><tbody>`;
     matches.forEach(m=>{
       html += `<tr>
-        <td>${m.match_date || m.start_date || ''}</td>
-        <td>${(m.tourney_name || m.event_id || '')} ${(m.event_year||'')}</td>
-        <td>${m.surface||''}</td>
-        <td>${m.round||''}</td>
-        <td>${m.score_string||''}</td>
+        <td>${escapeHtml(m.match_date||m.start_date||'')}</td>
+        <td>${escapeHtml((m.tourney_name||m.event_id||'') + ' ' + (m.event_year||''))}</td>
+        <td>${escapeHtml(m.surface||'')}</td>
+        <td>${escapeHtml(m.round||'')}</td>
+        <td>${escapeHtml(m.score_string||'')}</td>
       </tr>`;
     });
     html += `</tbody></table></div></div>`;
     return html;
   }
 
-  // Add guess row to table
-  function addGuessRow(idx, name, resultText, noteHtml, correct){
+  function addGuessRow(idx, guessedName, resultText, noteHtml, correct){
     const tr = document.createElement('tr');
     if(correct) tr.classList.add('correct');
-    tr.innerHTML = `<td style="width:40px">${idx}</td><td>${escapeHtml(name)}</td><td>${escapeHtml(resultText)}</td><td>${noteHtml || ''}</td>`;
+    tr.innerHTML = `<td style="width:48px">${idx}</td><td>${escapeHtml(guessedName)}</td><td>${escapeHtml(resultText)}</td><td>${noteHtml||''}</td>`;
     guessesTbody.prepend(tr);
   }
 
   function escapeHtml(s){
-    if(!s && s!==0) return '';
+    if(s===undefined || s===null) return '';
     return String(s).replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m]; });
   }
 
-  // Check if guessed player id equals target id
-  function isCorrectGuess(guessId){
-    if(!target) return false;
-    return String(guessId) === String(target.player_id);
+  // whether guess matches target
+  function isCorrect(guessId){
+    return target && String(guessId) === String(target.player_id);
   }
 
-  // When user submits a guess
-  async function handleGuessSubmission(){
-    const name = guessInput.value && guessInput.value.trim();
+  // submission handler
+  async function submitGuess(){
+    const name = (guessInput.value || '').trim();
     if(!name) return;
-    // find id from catalog
     const guessId = findIdByName(name);
     if(!guessId){
-      // accept free-text guess but cannot fetch H2H if no id
-      addGuessRow(guesses.length+1, name, 'Inconnu (catalogue)', '<span class="muted">Le nom n\'est pas présent dans players_catalog.json</span>', false);
+      addGuessRow(guessesTbody.children.length+1, name, 'Not in catalog', '<span class="small muted-note">Name not found in players_catalog.json</span>', false);
       guessInput.value = '';
       remaining = Math.max(0, remaining-1);
-      setMetaChips();
+      updateChips();
+      if(remaining <= 0) revealTarget(false);
       return;
     }
 
-    // decrement remaining
+    // decrement remaining and update UI
     remaining = Math.max(0, remaining-1);
-    setMetaChips();
+    updateChips();
 
     // fetch H2H
     let h2h = null;
     try {
       h2h = await fetchH2H(guessId, target.player_id);
     } catch(e) {
-      // no H2H found
-      addGuessRow(guesses.length+1, name, 'Aucun H2H', '<span class="muted">Aucun fichier H2H trouvé dans /data/h2h/</span>', false);
+      addGuessRow(guessesTbody.children.length+1, name, 'No H2H', '<span class="small muted-note">Missing H2H file in /data/h2h/</span>', false);
       guessInput.value = '';
-      if(remaining <= 0){
-        revealTarget(false);
-      }
+      if(remaining <= 0) revealTarget(false);
       return;
     }
 
     // render according to level
     let html = '';
-    const level = targetLevel;
-    if(level === 'easy') html = renderEasy(h2h);
-    else if(level === 'medium') html = renderMedium(h2h);
+    if(levelSelect.value === 'easy') html = renderEasy(h2h);
+    else if(levelSelect.value === 'medium') html = renderMedium(h2h);
     else html = renderHard(h2h);
-
     h2hArea.innerHTML = html;
 
-    const correct = isCorrectGuess(guessId);
-    addGuessRow(guesses.length+1, name, correct ? 'Exact !' : 'Non', correct ? '<span class="answer">Bravo — tu as trouvé la cible</span>' : (level === 'easy' ? '<span class="muted">Affichage easy</span>' : ''), correct);
+    const correct = isCorrect(guessId);
+    addGuessRow(guessesTbody.children.length+1, name, correct ? 'Correct' : 'No', correct ? '<span class="reveal">You found the target</span>' : '', correct);
 
     guessInput.value = '';
 
-    if(correct){
-      // reveal details and stop
+    if(correct) {
       revealTarget(true);
       return;
     }
-
-    if(remaining <= 0){
-      revealTarget(false);
-    }
+    if(remaining <= 0) revealTarget(false);
   }
 
-  // Reveal target details (end of game)
+  // reveal target details
   function revealTarget(won){
-    // show target summary in right panel
     const p = target || {};
-    let summary = `<div style="font-weight:700">${escapeHtml(p.full_name || '—')}</div>`;
-    summary += `<div class="muted" style="margin-top:6px">ID: ${escapeHtml(p.player_id || '—')}</div>`;
-    if(p.represented_country) summary += `<div style="margin-top:6px">Pays: ${escapeHtml(p.represented_country)}</div>`;
-    if(p.birthplace) summary += `<div>Naissance: ${escapeHtml(p.birthplace)} ${p.birth_date ? '('+escapeHtml(p.birth_date)+')' : ''}</div>`;
-    if(p.parsed_rank) summary += `<div>Meilleur classement: ${escapeHtml(p.parsed_rank)}</div>`;
-    targetMeta.innerHTML = summary;
-    if(won){
-      statusEl.innerHTML = `<div class="answer">Tu as gagné — cible révélée</div>`;
-    } else {
-      statusEl.innerHTML = `<div class="error">Partie terminée — cible révélée</div>`;
-    }
-    // optionally show the full H2H vs target & top guess
-    // disable guess input
+    let html = `<div style="font-weight:700">${escapeHtml(p.full_name || '—')}</div>`;
+    html += `<div class="small muted-note" style="margin-top:6px">ID: ${escapeHtml(p.player_id || '—')}</div>`;
+    if(p.represented_country) html += `<div style="margin-top:8px">Country: ${escapeHtml(p.represented_country)}</div>`;
+    if(p.birthplace) html += `<div>Birthplace: ${escapeHtml(p.birthplace)} ${p.birth_date ? '('+escapeHtml(p.birth_date)+')' : ''}</div>`;
+    if(p.parsed_rank || p.rank) html += `<div>Best ranking: ${escapeHtml(p.parsed_rank || p.rank)}</div>`;
+    targetMeta.innerHTML = html;
+    statusEl.innerHTML = won ? `<div class="reveal">You won — target revealed</div>` : `<div class="reveal">Game over — target revealed</div>`;
     guessInput.disabled = true;
     guessBtn.disabled = true;
   }
 
-  // load everything and initialize UI
+  function updateChips(){
+    document.getElementById('levelChip').textContent = 'Level: ' + levelSelect.value;
+    document.getElementById('remainingChip').textContent = 'Guesses: ' + remaining;
+    document.getElementById('scoreChip').textContent = 'Score: ' + score;
+  }
+
+  // find id by name (exact first, then substring)
+  function findIdByName(name){
+    if(!name) return null;
+    const q = name.trim().toLowerCase();
+    let found = catalog.find(p => p.full_name.toLowerCase() === q);
+    if(found) return found.player_id;
+    found = catalog.find(p => p.full_name.toLowerCase().includes(q));
+    return found ? found.player_id : null;
+  }
+
+  // page-level init
   async function init(){
-    // set selects from query params
-    const qp = getQueryParams();
-    targetMode = qp.mode || 'atp';
-    targetLevel = qp.level || 'easy';
-    modeSelect.value = targetMode;
-    levelSelect.value = targetLevel;
-
-    // change handler: reload page with params
-    modeSelect.addEventListener('change', ()=> setQueryParams(modeSelect.value, levelSelect.value));
-    levelSelect.addEventListener('change', ()=> setQueryParams(modeSelect.value, levelSelect.value));
-
-    // other UI bindings
-    loadBtn.addEventListener('click', async ()=> {
-      await doLoadTarget();
-    });
-    guessBtn.addEventListener('click', handleGuessSubmission);
-    guessInput.addEventListener('keydown', (e)=> { if(e.key === 'Enter') { e.preventDefault(); handleGuessSubmission(); }});
-    revealBtn.addEventListener('click', ()=> {
-      if(target) alert(`CIBLE (debug): ${target.full_name} [${target.player_id}]`);
-    });
-    resetBtn.addEventListener('click', ()=> location.reload());
-    revealAnswerBtn.addEventListener('click', ()=> revealTarget(false));
-
-    // load selected_players and catalog
+    // load catalog & selected players
     try {
-      selectedPlayers = await loadSelectedPlayers();
+      await Promise.all([ loadPlayersCatalog(), loadSelectedPlayers() ]);
     } catch(e){
-      statusEl.innerHTML = `<div class="error">Erreur: impossible de charger /selected_players.json</div>`;
+      statusEl.textContent = 'Error loading required JSON files.';
+      statusEl.classList.add('error');
       return;
     }
+    // set initial remaining
+    remaining = Number(document.getElementById('maxGuesses').value) || 8;
+    updateChips();
+
+    // wire UI
+    loadBtn.addEventListener('click', async () => {
+      // load target from selected_players.json
+      const mode = modeSelect.value;
+      const level = levelSelect.value;
+      const chosen = pickTarget(mode, level);
+      if(!chosen){
+        statusEl.textContent = `No target defined for ${mode.toUpperCase()} / ${level}.`;
+        return;
+      }
+      target = chosen;
+      statusEl.textContent = 'Target loaded — make your guesses.';
+      // preload H2H for target against other selected players
+      try { await preloadH2HForTarget(String(target.player_id)); } catch(e){}
+      // reset history & enable inputs
+      guessesTbody.innerHTML = '';
+      h2hArea.innerHTML = '';
+      guessInput.disabled = false;
+      guessBtn.disabled = false;
+      remaining = Number(document.getElementById('maxGuesses').value) || 8;
+      updateChips();
+      targetMeta.textContent = 'Target ready (hidden)';
+      guessInput.focus();
+    });
+
+    // submit guess handlers
+    guessBtn.addEventListener('click', submitGuess);
+    guessInput.addEventListener('keydown', (e) => { if(e.key === 'Enter') { e.preventDefault(); submitGuess(); } });
+
+    // reveal and reset
+    revealBtn.addEventListener('click', ()=> { if(target) alert(`DEBUG TARGET: ${target.full_name} [${target.player_id}]`); });
+    revealAnswerBtn.addEventListener('click', ()=> revealTarget(false));
+    resetBtn.addEventListener('click', ()=> location.reload());
+
+    // auto-load the default target so ATP/easy is ready out of the box
+    loadBtn.click();
+  }
+
+  async function loadPlayersCatalog(){
     try {
-      playersCatalog = await loadPlayersCatalog();
-    } catch(e){
-      playersCatalog = [];
+      const obj = await fetchJson('/tools/players_catalog.json');
+      if(Array.isArray(obj.players)){
+        catalog = obj.players.map(p => ({
+          player_id: String(p.player_id || p.playerId || p.id || '').trim(),
+          full_name: String(p.full_name || p.fullName || p.name || '').trim(),
+          represented_country: p.represented_country || p.country || null,
+          raw: p
+        })).filter(x => x.player_id && x.full_name);
+      } else {
+        catalog = [];
+      }
+    } catch(e) {
+      catalog = [];
     }
     buildDatalist();
-    // auto click load to have default experience
-    await doLoadTarget();
   }
 
-  // orchestrate loading and preloading
-  async function doLoadTarget(){
-    resetGameState();
-    // pick target from selected_players.json
-    targetMode = modeSelect.value;
-    targetLevel = levelSelect.value;
-    const chosen = pickTargetFromSelected(targetMode, targetLevel);
-    if(!chosen){
-      // no target for this mode+level
-      statusEl.innerHTML = `<div class="error">Aucune cible définie pour ${targetMode.toUpperCase()} / ${targetLevel}. Vérifie selected_players.json</div>`;
-      return;
-    }
-    target = chosen;
-    // hide its name in UI, but we can show a little metadata (not revealing)
-    statusEl.textContent = 'Cible chargée — devine qui c’est !';
-    // set chip
-    remaining = Number(document.getElementById('maxGuesses').value) || 8;
-    setMetaChips();
-    // Preload H2H between target and other selected players (not everywhere)
-    try {
-      await preloadH2HForTarget(String(target.player_id));
-    } catch(e){}
-    // focus guess input
-    guessInput.disabled = false;
-    guessBtn.disabled = false;
-    guessInput.focus();
-    // clear previous UI
-    guessesTbody.innerHTML = '';
-    h2hArea.innerHTML = '';
-    targetMeta.textContent = 'Cible prête (cachée)';
-  }
-
-  // helper loads
   async function loadSelectedPlayers(){
-    return await fetch('/selected_players.json', { cache: 'no-cache' }).then(r => {
-      if(!r.ok) throw new Error('selected_players.json not found');
-      return r.json();
-    });
-  }
-  async function loadPlayersCatalog(){
-    return await fetch('/tools/players_catalog.json', { cache: 'no-cache' }).then(r => {
-      if(!r.ok) return [];
-      return r.json();
-    });
+    const obj = await fetchJson('/selected_players.json');
+    selectedPlayers = obj;
   }
 
-  // small wrapper for cache/h2h fetch used earlier (duplicated for scoping)
-  async function fetchH2H(idA, idB){
-    return await (async function(id1, id2){
-      const k1 = `${id1}_${id2}`, k2 = `${id2}_${id1}`;
-      if(h2hCache[k1]) return h2hCache[k1];
-      if(h2hCache[k2]) return h2hCache[k2];
-      const p1 = `/data/h2h/${k1}.json`, p2 = `/data/h2h/${k2}.json`;
-      // try direct then inverse
-      for(const p of [p1, p2]){
-        try{
-          const r = await fetch(p);
-          if(!r.ok) continue;
-          const j = await r.json();
-          const key = p.includes(k1) ? k1 : k2;
-          h2hCache[key] = j;
-          return j;
-        }catch(e){}
-      }
-      throw new Error('H2H not found');
-    })(idA, idB);
+  function pickTarget(mode, level){
+    if(!selectedPlayers) return null;
+    const arr = selectedPlayers[mode] || [];
+    const found = arr.find(x => x.level === level);
+    return found ? found.player : null;
   }
 
   // start
-  init();
+  await init();
 })();
 </script>
 </body>
