@@ -117,13 +117,14 @@
   </div>
 
 <script>
-/* headtohead — intégration WTA manifest priority, Cloudinary fallback, palette switching
-   - Autocomplete: affiche uniquement le nom (stocke l'id dans dataset.selectedId)
-   - Lorsque ?p1 & ?p2 présents : charge catalogue, choisit préférence de manifest (WTA si au moins un WTA), charge manifest, charge JSON H2H et render
-   - Display H2H: reload page with ?p1=ID&p2=ID
+/* Full head-to-head page with fallback when no H2H JSON exists.
+   - Loads players_catalog.json automatically for autocomplete.
+   - Loads prioritized image manifest (WTA-first when appropriate).
+   - If no H2H JSON is found for the pair, still displays both players and shows H2H = 0—0 and no matches.
+   - Display H2H reloads page with ?p1=ID&p2=ID
 */
 
-/* Config PATHS */
+/* CONFIG */
 const PLAYERS_CATALOG_PATHS = [
   '/tools/players_catalog.json',
   './tools/players_catalog.json',
@@ -138,19 +139,12 @@ const H2H_BASES = [
   'https://www.center-court.net/data/h2h/'
 ];
 
-/* Manifest path candidates */
 const MANIFEST_ATP = '/index/players_atp_images_manifest.json';
 const MANIFEST_WTA = '/index/players_wta_images_manifest.json';
 const MANIFEST_COMMON = '/index/players_images_manifest.json';
-const MANIFEST_ALTERNATES = [
-  '/players_images_manifest.json',
-  '/index/players_images.json'
-];
+const MANIFEST_ALTERNATES = ['/players_images_manifest.json','/index/players_images.json'];
 
-let imageManifest = null;
-let imageManifestSourceUrl = null;
-
-/* If you have a Cloudinary cloud name, set it here (optional) */
+/* Optional Cloudinary fallback (set your cloud name globally if you want it) */
 window.CLOUDINARY_CLOUD_NAME = window.CLOUDINARY_CLOUD_NAME || '';
 
 /* Elements */
@@ -178,8 +172,10 @@ const jsonLinkWrap = document.getElementById('json-link-wrap');
 let playersCatalog = null;
 let playersById = {};
 let playersByName = [];
+let imageManifest = null;
+let imageManifestSourceUrl = null;
 
-/* Helpers */
+/* Utilities */
 function showStatus(msg, ms=4000, err=false){
   statusEl.style.display = 'block';
   statusEl.textContent = msg;
@@ -189,7 +185,7 @@ function showStatus(msg, ms=4000, err=false){
 function qs(name){ const u = new URL(location.href); return u.searchParams.get(name); }
 function normId(s){ return s ? String(s).trim().toUpperCase() : ''; }
 
-/* Try fetch list of urls sequentially */
+/* Fetch helpers */
 async function tryFetchList(paths){
   for(const p of paths){
     try {
@@ -207,7 +203,7 @@ async function tryFetchList(paths){
   return null;
 }
 
-/* Load players catalog automatically */
+/* Load players catalog */
 async function loadCatalog(){
   const res = await tryFetchList(PLAYERS_CATALOG_PATHS);
   if(!res){
@@ -230,7 +226,7 @@ async function loadCatalog(){
   }
 }
 
-/* Autocomplete (display only name) */
+/* Autocomplete (name only) */
 function searchPlayers(q, limit=12){
   if(!q) return [];
   const s = q.toLowerCase().trim();
@@ -248,8 +244,8 @@ function renderSuggestions(list, container, inputEl){
     div.className = 'suggest-item';
     div.innerHTML = `<img src="/-/media/alias/player-headshot/${item.id}" alt="${item.name}"><div style="flex:1"><div class="title">${item.name}</div><div class="meta">${item.id} • ${item.represented_country||item.country||''}</div></div>`;
     div.addEventListener('click', ()=>{
-      inputEl.value = item.name; // show name
-      inputEl.dataset.selectedId = item.id; // store id
+      inputEl.value = item.name; // show only name
+      inputEl.dataset.selectedId = item.id; // keep id
       container.style.display = 'none';
     });
     container.appendChild(div);
@@ -257,14 +253,14 @@ function renderSuggestions(list, container, inputEl){
   container.style.display = 'block';
 }
 
-/* Input event wiring */
+/* Input wiring */
 p1Input.addEventListener('input', ()=>{ delete p1Input.dataset.selectedId; const q=p1Input.value.trim(); if(!q||!playersCatalog){p1Sug.style.display='none';return;} renderSuggestions(searchPlayers(q,12), p1Sug, p1Input); });
 p2Input.addEventListener('input', ()=>{ delete p2Input.dataset.selectedId; const q=p2Input.value.trim(); if(!q||!playersCatalog){p2Sug.style.display='none';return;} renderSuggestions(searchPlayers(q,12), p2Sug, p2Input); });
 document.addEventListener('click', e => { if(!e.target.closest('.picker')){ p1Sug.style.display='none'; p2Sug.style.display='none'; }});
 p1Input.addEventListener('keydown', e => { if(e.key === 'Enter') displayBtn.click(); });
 p2Input.addEventListener('keydown', e => { if(e.key === 'Enter') displayBtn.click(); });
 
-/* Manifest load (prefers WTA or ATP depending) */
+/* Manifest loader with preference */
 async function loadImageManifestOnce(prefer = null){
   if(imageManifest !== null) return imageManifest;
   const tryOrder = [];
@@ -293,7 +289,7 @@ async function loadImageManifestOnce(prefer = null){
   return null;
 }
 
-/* Find entry in manifest (array or object) */
+/* Find manifest entry */
 function findManifestEntry(manifest, pid, slug){
   if(!manifest) return null;
   const slugLc = (slug||'').toString().toLowerCase();
@@ -319,17 +315,13 @@ function findManifestEntry(manifest, pid, slug){
   return null;
 }
 
-/* Render player image into container element (async). Uses manifest, then combined.image, then Cloudinary guess, then alias path */
+/* Render player image */
 async function renderPlayerImage(containerEl, playerRec){
   containerEl.innerHTML = '';
   const pid = (playerRec && (playerRec.id || playerRec.player_id || playerRec.playerId)) ? String(playerRec.id || playerRec.player_id || playerRec.playerId) : '';
   const slug = (playerRec && (playerRec.slug || playerRec.player_slug || playerRec.name)) ? String(playerRec.slug || playerRec.player_slug || playerRec.name).toLowerCase() : '';
-  // manifest
   let manifest = imageManifest;
-  if(!manifest) {
-    // fallback: attempt to load without preference
-    manifest = await loadImageManifestOnce(null);
-  }
+  if(!manifest) manifest = await loadImageManifestOnce(null);
   let entry = findManifestEntry(manifest, pid, slug);
   if(entry){
     if(entry.url){
@@ -343,12 +335,10 @@ async function renderPlayerImage(containerEl, playerRec){
       containerEl.appendChild(img); return;
     }
   }
-  // fallback combined.image/headshot/photo
   if(playerRec && (playerRec.image || playerRec.headshot || playerRec.photo)){
     const img = document.createElement('img'); img.src = playerRec.image || playerRec.headshot || playerRec.photo; img.alt = playerRec.full_name || playerRec.name || pid; img.loading='lazy';
     containerEl.appendChild(img); return;
   }
-  // cloudinary heuristic
   if(window.CLOUDINARY_CLOUD_NAME && (pid || slug)){
     const candidates = [];
     if(pid && slug) candidates.push(`players/${pid}-${slug}`);
@@ -362,7 +352,6 @@ async function renderPlayerImage(containerEl, playerRec){
       return;
     }
   }
-  // last fallback alias path
   if(pid){
     const img = document.createElement('img'); img.src = `/-/media/alias/player-headshot/${pid}`; img.alt = playerRec.full_name || playerRec.name || pid; img.loading='lazy';
     img.onerror = ()=> { containerEl.innerHTML = '<div style="color:var(--muted)">No image</div>'; };
@@ -387,7 +376,7 @@ function resolveIdFromInput(el){
   return null;
 }
 
-/* Build preference for manifest: 'WTA' if either player is WTA, else 'ATP' if either ATP, else null */
+/* Prefer manifest for pair */
 function preferManifestForPair(p1, p2){
   const s1 = (playersById[p1] && playersById[p1].source) ? String(playersById[p1].source).toUpperCase() : null;
   const s2 = (playersById[p2] && playersById[p2].source) ? String(playersById[p2].source).toUpperCase() : null;
@@ -396,7 +385,7 @@ function preferManifestForPair(p1, p2){
   return null;
 }
 
-/* Apply palette (violet if WTA present) */
+/* Palette switching */
 function applyPaletteForPlayers(leftId, rightId, payload){
   let leftSource = (playersById[leftId] && playersById[leftId].source) ? playersById[leftId].source.toUpperCase() : null;
   let rightSource = (playersById[rightId] && playersById[rightId].source) ? playersById[rightId].source.toUpperCase() : null;
@@ -412,7 +401,7 @@ function applyPaletteForPlayers(leftId, rightId, payload){
   }
 }
 
-/* Fetch H2H JSON robustly */
+/* Robust H2H fetch */
 async function fetchH2HJson(p1, p2){
   const combos = [[p1,p2],[p2,p1],[p1.toLowerCase(),p2.toLowerCase()],[p2.toLowerCase(),p1.toLowerCase()]];
   const trials = [];
@@ -451,10 +440,10 @@ function renderEvents(matches){
   table.appendChild(tbody); eventsTableWrap.appendChild(table);
 }
 
-/* Render full payload */
+/* Render payload (used both for found JSON and fallback) */
 async function renderPayload(payload, jsonUrl, p1, p2){
   resultsWrap.style.display = 'block';
-  jsonLinkWrap.innerHTML = `<a href="${jsonUrl}" target="_blank" class="small-muted">Voir JSON</a>`;
+  jsonLinkWrap.innerHTML = jsonUrl ? `<a href="${jsonUrl}" target="_blank" class="small-muted">Voir JSON</a>` : '<span class="small-muted">No H2H JSON (fallback)</span>';
   const p1payload = payload.player1 || payload.player || {};
   const p2payload = payload.player2 || payload.opponent || {};
   const leftCatalog = playersById[p1] || {};
@@ -532,7 +521,24 @@ async function renderPayload(payload, jsonUrl, p1, p2){
   showStatus(`Chargé: ${payload.matches ? payload.matches.length : 0} matches`, 4500);
 }
 
-/* Display click: reload with ?p1=ID&p2=ID */
+/* If no H2H JSON found, show players and set H2H to 0-0 */
+async function renderFallbackNoH2H(p1, p2){
+  // prepare fallback payload
+  const leftCatalog = playersById[p1] || { id: p1, full_name: p1 };
+  const rightCatalog = playersById[p2] || { id: p2, full_name: p2 };
+  const payload = {
+    player1: leftCatalog,
+    player2: rightCatalog,
+    aggregates: {
+      player1: { h2h_wins: 0, h2h_losses: 0, career_wins: leftCatalog.career_wins || 0, career_losses: leftCatalog.career_losses || 0, titles: leftCatalog.titles || 0, prize_money: leftCatalog.prize_money || leftCatalog.prize || '—' },
+      player2: { h2h_wins: 0, h2h_losses: 0, career_wins: rightCatalog.career_wins || 0, career_losses: rightCatalog.career_losses || 0, titles: rightCatalog.titles || 0, prize_money: rightCatalog.prize_money || rightCatalog.prize || '—' }
+    },
+    matches: []
+  };
+  await renderPayload(payload, null, p1, p2);
+}
+
+/* Display button -> reload with ?p1=ID&p2=ID */
 displayBtn.addEventListener('click', ()=>{
   const v1 = p1Input.dataset.selectedId || p1Input.value.trim();
   const v2 = p2Input.dataset.selectedId || p2Input.value.trim();
@@ -547,7 +553,7 @@ displayBtn.addEventListener('click', ()=>{
 clearBtn.addEventListener('click', ()=>{ p1Input.value=''; p2Input.value=''; delete p1Input.dataset.selectedId; delete p2Input.dataset.selectedId; resultsWrap.style.display='none'; showStatus('Sélection effacée', 1200); });
 swapBtn.addEventListener('click', ()=>{ const a=p1Input.value, aid=p1Input.dataset.selectedId; p1Input.value=p2Input.value; p1Input.dataset.selectedId=p2Input.dataset.selectedId||''; p2Input.value=a; p2Input.dataset.selectedId=aid||''; });
 
-/* On load: catalog -> determine manifest preference -> load manifest -> fetch h2h -> render */
+/* On load: load catalog, set inputs (if present), load prioritized manifest, fetch H2H if possible or fallback */
 window.addEventListener('DOMContentLoaded', async ()=>{
   await loadCatalog();
   const url = new URL(location.href);
@@ -556,19 +562,42 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   if(urlP1 && playersById[urlP1]){ p1Input.value = playersById[urlP1].name || urlP1; p1Input.dataset.selectedId = urlP1; }
   if(urlP2 && playersById[urlP2]){ p2Input.value = playersById[urlP2].name || urlP2; p2Input.dataset.selectedId = urlP2; }
   if(urlP1 && urlP2){
-    // determine manifest preference (WTA first if any WTA)
+    // prefer WTA manifest if any WTA player
     const prefer = preferManifestForPair(urlP1, urlP2);
-    await loadImageManifestOnce(prefer); // prioritized manifest load
+    await loadImageManifestOnce(prefer);
     const res = await fetchH2HJson(urlP1, urlP2);
-    if(!res){ showStatus('Aucun JSON H2H trouvé (vérifie /data/h2h).', 7000, true); return; }
+    if(!res){
+      // fallback: show players and H2H 0-0, no matches
+      await renderFallbackNoH2H(urlP1, urlP2);
+      return;
+    }
     await renderPayload(res.json, res.url, urlP1, urlP2);
   } else {
     showStatus('Saisis deux joueurs (nom) puis clique Display H2H. Le catalogue est chargé automatiquement.', 5000);
   }
 });
 
-/* Robust H2H fetch wrapper (reuse) */
-async function fetchH2HJson(p1, p2){ return await (async function(p1,p2){ const combos=[[p1,p2],[p2,p1],[p1.toLowerCase(),p2.toLowerCase()],[p2.toLowerCase(),p1.toLowerCase()]]; const trials=[]; for(const base of H2H_BASES){ for(const [a,b] of combos){ trials.push(base+`${a}_${b}.json`, base+`${a}-${b}.json`, base+`${a}${b}.json`); } } for(const url of trials){ try{ const r = await fetch(url, {cache:'no-cache', mode:'cors'}); if(!r || !r.ok) continue; const json = await r.json(); return {json, url}; }catch(e){ continue; } } return null; })(p1,p2); }
+/* fetch H2H wrapper reused */
+async function fetchH2HJson(p1, p2){
+  const combos = [[p1,p2],[p2,p1],[p1.toLowerCase(),p2.toLowerCase()],[p2.toLowerCase(),p1.toLowerCase()]];
+  const trials = [];
+  for(const base of H2H_BASES){
+    for(const [a,b] of combos){
+      trials.push(base + `${a}_${b}.json`);
+      trials.push(base + `${a}-${b}.json`);
+      trials.push(base + `${a}${b}.json`);
+    }
+  }
+  for(const url of trials){
+    try{
+      const r = await fetch(url, {cache:'no-cache', mode:'cors'});
+      if(!r || !r.ok) continue;
+      const json = await r.json();
+      return { json, url };
+    } catch(e){ continue; }
+  }
+  return null;
+}
 
 </script>
 </body>
