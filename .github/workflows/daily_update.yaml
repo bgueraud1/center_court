@@ -94,54 +94,57 @@ jobs:
           echo "site_static/tools:"
           ls -la site_static/tools || true
 
-
-
       - name: Copy into site_static/tools (for site serving)
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
           set -euxo pipefail
           mkdir -p site_static/tools
+          mkdir -p docs/tools
 
-          # birthday_today.json
+          # birthday_today.json (canonical)
           if [ -f "${BUILD_DIR}/tools/birthday_today.json" ]; then
-            cp -v "${BUILD_DIR}/tools/birthday_today.json" site_static/tools/ || true
+            cp -v "${BUILD_DIR}/tools/birthday_today.json" docs/tools/birthday_today.json || true
+            cp -v "${BUILD_DIR}/tools/birthday_today.json" site_static/tools/birthday_today.json || true
           elif [ -f "docs/tools/birthday_today.json" ]; then
-            cp -v "docs/tools/birthday_today.json" site_static/tools/ || true
+            cp -v "docs/tools/birthday_today.json" site_static/tools/birthday_today.json || true
           else
             echo "Aucun birthday_today.json généré trouvé"
           fi
 
           # daily_guess.json
           if [ -f "${BUILD_DIR}/tools/daily_guess.json" ]; then
-            cp -v "${BUILD_DIR}/tools/daily_guess.json" site_static/tools/ || true
+            cp -v "${BUILD_DIR}/tools/daily_guess.json" docs/tools/daily_guess.json || true
+            cp -v "${BUILD_DIR}/tools/daily_guess.json" site_static/tools/daily_guess.json || true
           elif [ -f "docs/tools/daily_guess.json" ]; then
-            cp -v "docs/tools/daily_guess.json" site_static/tools/ || true
+            cp -v "docs/tools/daily_guess.json" site_static/tools/daily_guess.json || true
           else
             echo "Aucun daily_guess.json généré trouvé"
           fi
 
           # players_catalog.json
           if [ -f "${BUILD_DIR}/tools/players_catalog.json" ]; then
-            cp -v "${BUILD_DIR}/tools/players_catalog.json" site_static/tools/ || true
+            cp -v "${BUILD_DIR}/tools/players_catalog.json" docs/tools/players_catalog.json || true
+            cp -v "${BUILD_DIR}/tools/players_catalog.json" site_static/tools/players_catalog.json || true
           elif [ -f "docs/tools/players_catalog.json" ]; then
-            cp -v "docs/tools/players_catalog.json" site_static/tools/ || true
+            cp -v "docs/tools/players_catalog.json" site_static/tools/players_catalog.json || true
           else
             echo "Aucun players_catalog.json généré trouvé"
           fi
 
           # geocodes_combined.json
           if [ -f "${BUILD_DIR}/tools/geocodes_combined.json" ]; then
-            cp -v "${BUILD_DIR}/tools/geocodes_combined.json" site_static/tools/ || true
+            cp -v "${BUILD_DIR}/tools/geocodes_combined.json" docs/tools/geocodes_combined.json || true
+            cp -v "${BUILD_DIR}/tools/geocodes_combined.json" site_static/tools/geocodes_combined.json || true
           elif [ -f "docs/tools/geocodes_combined.json" ]; then
-            cp -v "docs/tools/geocodes_combined.json" site_static/tools/ || true
+            cp -v "docs/tools/geocodes_combined.json" site_static/tools/geocodes_combined.json || true
           else
             echo "Aucun geocodes_combined.json généré trouvé"
           fi
 
+          ls -la docs/tools || true
           ls -la site_static/tools || true
 
-
-      - name: Commit new birthday JSON (whitelist safe commit)
+      - name: Commit new generated JSON (whitelist safe commit)
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         env:
           GIT_AUTHOR_NAME: "github-actions[bot]"
@@ -151,28 +154,9 @@ jobs:
           git config user.name "$GIT_AUTHOR_NAME"
           git config user.email "$GIT_AUTHOR_EMAIL"
 
-          # Copier le canonical généré vers docs/tools (source de vérité) et site_static
-          if [ -f "${BUILD_DIR}/tools/birthday_today.json" ]; then
-            echo "Using ${BUILD_DIR}/tools/birthday_today.json as canonical generated file"
-            mkdir -p docs/tools
-            cp -v "${BUILD_DIR}/tools/birthday_today.json" docs/tools/birthday_today.json || true
-            mkdir -p site_static/tools
-            cp -v "${BUILD_DIR}/tools/birthday_today.json" site_static/tools/birthday_today.json || true
-          elif [ -f "docs/tools/birthday_today.json" ]; then
-            echo "Generator wrote directly into docs/tools; copying into site_static"
-            mkdir -p site_static/tools
-            cp -v "docs/tools/birthday_today.json" site_static/tools/birthday_today.json || true
-          else
-            echo "No generated file found in BUILD_DIR nor docs/tools - nothing to commit"
-          fi
-
-          # Stage known locations explicitement pour éviter les modifications non-stagées
-
-          git add -f docs/tools/birthday_today.json site_static/tools/birthday_today.json || true
-          git add -f docs/tools/daily_guess.json site_static/tools/daily_guess.json || true
-          git add -f docs/tools/players_catalog.json site_static/tools/players_catalog.json || true
-          git add -f docs/tools/geocodes_combined.json site_static/tools/geocodes_combined.json || true
-
+          # Stage canonical generated files from docs/tools and their site_static copies
+          git add -f docs/tools/birthday_today.json docs/tools/daily_guess.json docs/tools/players_catalog.json docs/tools/geocodes_combined.json || true
+          git add -f site_static/tools/birthday_today.json site_static/tools/daily_guess.json site_static/tools/players_catalog.json site_static/tools/geocodes_combined.json || true
 
           # Safety: abort if index.html or other manual files would be staged
           if git diff --cached --name-only | grep -Eiq '(^|/)index\.html$'; then
@@ -184,10 +168,23 @@ jobs:
           if [ -n "$(git diff --cached --name-only)" ]; then
             echo "Files staged to commit:"
             git diff --cached --name-only || true
-            git commit -m "ci(daily): update birthday_today.json" || true
+            git commit -m "ci(daily): update generated tools (birthday_today, daily_guess, players_catalog, geocodes)" || true
           else
             echo "No generated changes to commit"
           fi
+
+      - name: Clean build artefacts to avoid rebase conflicts
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euxo pipefail
+          # Remove temporary build directory to ensure working tree is clean for rebase/push
+          if [ -d "${BUILD_DIR}/tools" ]; then
+            rm -rf "${BUILD_DIR}/tools" || true
+            echo "Removed ${BUILD_DIR}/tools to avoid rebase conflicts"
+          fi
+          # Also remove any stale untracked files we don't want interfering (careful)
+          git clean -fd -n || true
+          echo "Workspace cleaned (dry-run shown above)."
 
       - name: Push changes (use PAT if available, else GITHUB_TOKEN)
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
@@ -207,7 +204,7 @@ jobs:
           git fetch origin main --quiet || true
 
           # Show working tree status for debug
-          echo "Working tree status before rebase:"
+          echo "Working tree status before rebase (should be clean):"
           git status --porcelain || true
 
           # Rebase local HEAD onto origin/main to reduce conflicts (si origin/main existe)

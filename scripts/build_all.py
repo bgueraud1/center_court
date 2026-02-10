@@ -248,43 +248,16 @@ for pattern in ("node_knn_top10.csv","graphsage_knn_top10.csv","node_embeddings*
             print("Could not copy data file", f, e)
 
 # -------------------------
-# 5) Now generate player pages
+# 5) Now generate player pages (WTA + ATP)
 # -------------------------
-print("Generating player pages...")
-try:
-    res = subprocess.run(
-        [sys.executable, str(ROOT / "scripts" / "generate_players.py")],
-        cwd=str(ROOT),
-        env=env,
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        timeout=900
-    )
-    if res.stdout:
-        print(res.stdout)
-    if res.stderr:
-        print("STDERR from generate_players:", res.stderr)
-except subprocess.CalledProcessError as e:
-    print("generate_players failed, returncode:", e.returncode)
-    if e.output:
-        print("OUTPUT:", e.output)
-    if e.stderr:
-        print("STDERR:", e.stderr)
-    raise
-except Exception as e:
-    print("Unexpected error running generate_players:", e)
-    raise
+print("Generating WTA player pages (if matches dir exists)...")
+wta_matches = ROOT / "matches" / "wta_matches"
+gen_wta = ROOT / "scripts" / "generate_players.py"
 
-"""
-# === Generate ATP player pages (if script exists) ===
-print("Generating ATP player pages (if available)...")
-gen_atp = ROOT / "scripts" / "generate_players_atp.py"
-if gen_atp.exists():
+if gen_wta.exists() and wta_matches.exists():
     try:
         res = subprocess.run(
-            [sys.executable, str(gen_atp)],
+            [sys.executable, str(gen_wta), "--matches-dir", str(wta_matches)],
             cwd=str(ROOT),
             env=env,
             check=True,
@@ -296,19 +269,70 @@ if gen_atp.exists():
         if res.stdout:
             print(res.stdout)
         if res.stderr:
-            print("STDERR from generate_players_atp:", res.stderr)
+            print("STDERR from generate_players (WTA):", res.stderr)
     except subprocess.CalledProcessError as e:
-        print("generate_players_atp failed, returncode:", e.returncode)
+        print("generate_players (WTA) failed, returncode:", e.returncode)
         if e.output:
             print("OUTPUT:", e.output)
         if e.stderr:
             print("STDERR:", e.stderr)
         raise
+    except Exception as e:
+        print("Unexpected error running generate_players (WTA):", e)
+        raise
+else:
+    if not gen_wta.exists():
+        print(f"No {gen_wta} found — skipping WTA player generation.")
+    else:
+        print(f"No WTA matches dir found at {wta_matches} — skipping WTA player generation.")
+
+
+# === Generate ATP player pages (if script exists) ===
+print("Generating ATP player pages (if available)...")
+gen_atp = ROOT / "scripts" / "generate_players_atp.py"
+atp_matches = ROOT / "matches" / "atp_matches"
+
+if gen_atp.exists():
+    if atp_matches.exists():
+        atp_args = [sys.executable, str(gen_atp), "--matches-dir", str(atp_matches)]
+    else:
+        print(f"No ATP matches dir found at {atp_matches} — skipping ATP generation.")
+        atp_args = None
+
+    if atp_args:
+        try:
+            res = subprocess.run(
+                atp_args,
+                cwd=str(ROOT),
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=900
+            )
+            if res.stdout:
+                print(res.stdout)
+            if res.stderr:
+                print("STDERR from generate_players_atp:", res.stderr)
+        except subprocess.CalledProcessError as e:
+            print("generate_players_atp failed, returncode:", e.returncode)
+            if e.output:
+                print("OUTPUT:", e.output)
+            if e.stderr:
+                print("STDERR:", e.stderr)
+            raise
+        except Exception as e:
+            print("Unexpected error running generate_players_atp:", e)
+            raise
 else:
     print("No generate_players_atp.py found — skipping ATP player pages.")
 
 # copy players directories into docs (if present)
-for src_dir, dst_dir in [(ROOT / "players", BUILD_DIR / "players"), (ROOT / "players_atp", BUILD_DIR / "players_atp")]:
+for src_dir, dst_dir in [
+    (ROOT / "players", BUILD_DIR / "players"),
+    (ROOT / "players_atp", BUILD_DIR / "players_atp")
+]:
     if src_dir.exists() and src_dir.is_dir():
         try:
             shutil.copytree(src_dir, dst_dir, dirs_exist_ok=True)
@@ -316,7 +340,6 @@ for src_dir, dst_dir in [(ROOT / "players", BUILD_DIR / "players"), (ROOT / "pla
         except Exception as e:
             print(f"Could not copy player dir {src_dir} -> {dst_dir}: {e}")
 
-"""
 
 # -------------------------
 # 6) Build the nicer index.html with sections, custom names, header logo, footer
