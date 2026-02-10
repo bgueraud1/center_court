@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Head-to-Head — H2H</title>
+<link rel="preconnect" href="https://res.cloudinary.com" crossorigin>
 <style>
   :root{
     --bg:#f6f9fc; --card:#fff; --muted:#64748b;
@@ -39,7 +40,6 @@
   .info-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px dashed #eef6f9}
   .info-row:last-child{border-bottom:0}
   .muted-sm{color:var(--muted);font-size:13px}
-  /* center */
   .center-card{display:flex;flex-direction:column;align-items:center;gap:12px;padding:12px;border-radius:12px;background:linear-gradient(180deg,#fff,#fbfdff)}
   .chart-wrap{width:240px;height:240px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:transparent}
   svg.progress { width:240px;height:240px; overflow:visible; }
@@ -93,9 +93,7 @@
           <div class="center-card card" id="center-card">
             <div class="chart-wrap">
               <svg class="progress" viewBox="0 0 264 264" role="img" aria-hidden="true">
-                <!-- background track -->
                 <circle cx="132" cy="132" r="112" fill="transparent" stroke="#eef6ff" stroke-width="22"></circle>
-                <!-- dynamic bar (we will compute circumference) -->
                 <circle id="progress-bar" cx="132" cy="132" r="112" fill="transparent" stroke-width="22" stroke-linecap="round" stroke="var(--accent)"></circle>
               </svg>
             </div>
@@ -119,7 +117,13 @@
   </div>
 
 <script>
-/* headtohead improved: robust image manifest lookup, WTA color palette, larger circle */
+/* headtohead — intégration WTA manifest priority, Cloudinary fallback, palette switching
+   - Autocomplete: affiche uniquement le nom (stocke l'id dans dataset.selectedId)
+   - Lorsque ?p1 & ?p2 présents : charge catalogue, choisit préférence de manifest (WTA si au moins un WTA), charge manifest, charge JSON H2H et render
+   - Display H2H: reload page with ?p1=ID&p2=ID
+*/
+
+/* Config PATHS */
 const PLAYERS_CATALOG_PATHS = [
   '/tools/players_catalog.json',
   './tools/players_catalog.json',
@@ -134,6 +138,7 @@ const H2H_BASES = [
   'https://www.center-court.net/data/h2h/'
 ];
 
+/* Manifest path candidates */
 const MANIFEST_ATP = '/index/players_atp_images_manifest.json';
 const MANIFEST_WTA = '/index/players_wta_images_manifest.json';
 const MANIFEST_COMMON = '/index/players_images_manifest.json';
@@ -145,10 +150,10 @@ const MANIFEST_ALTERNATES = [
 let imageManifest = null;
 let imageManifestSourceUrl = null;
 
-/* If you use Cloudinary fallback, set your cloud name here (optional) */
+/* If you have a Cloudinary cloud name, set it here (optional) */
 window.CLOUDINARY_CLOUD_NAME = window.CLOUDINARY_CLOUD_NAME || '';
 
-/* elements */
+/* Elements */
 const p1Input = document.getElementById('p1-input');
 const p2Input = document.getElementById('p2-input');
 const p1Sug = document.getElementById('p1-suggestions');
@@ -174,7 +179,7 @@ let playersCatalog = null;
 let playersById = {};
 let playersByName = [];
 
-/* helpers */
+/* Helpers */
 function showStatus(msg, ms=4000, err=false){
   statusEl.style.display = 'block';
   statusEl.textContent = msg;
@@ -184,32 +189,38 @@ function showStatus(msg, ms=4000, err=false){
 function qs(name){ const u = new URL(location.href); return u.searchParams.get(name); }
 function normId(s){ return s ? String(s).trim().toUpperCase() : ''; }
 
-/* try fetch candidate paths */
+/* Try fetch list of urls sequentially */
 async function tryFetchList(paths){
   for(const p of paths){
-    try{
+    try {
       const r = await fetch(p, {cache:'no-cache', mode:'cors'});
       if(!r || !r.ok) continue;
       const ct = r.headers.get('content-type') || '';
-      if(ct.indexOf('application/json') !== -1) return {json: await r.json(), url: p};
+      if(ct.includes('application/json')) {
+        const json = await r.json();
+        return { json, url: p };
+      }
       const txt = await r.text();
-      try { return {json: JSON.parse(txt), url: p}; } catch(e){ continue; }
+      try { const json = JSON.parse(txt); return { json, url: p }; } catch(e){ continue; }
     } catch(e){ continue; }
   }
   return null;
 }
 
-/* load players catalog automatically */
+/* Load players catalog automatically */
 async function loadCatalog(){
   const res = await tryFetchList(PLAYERS_CATALOG_PATHS);
-  if(!res){ showStatus('Impossible de charger players_catalog.json — autocomplétion désactivée (tu peux entrer un ID).', 7000, true); return; }
+  if(!res){
+    showStatus('Impossible de charger players_catalog.json — autocomplétion désactivée (tu peux entrer un ID).', 7000, true);
+    return;
+  }
   playersCatalog = res.json;
   playersById = {}; playersByName = [];
   if(playersCatalog && Array.isArray(playersCatalog.players)){
     for(const p of playersCatalog.players){
       const id = (p.player_id || p.playerId || '').toString().toUpperCase();
       const name = p.full_name || p.fullName || p.name || '';
-      const rec = Object.assign({}, p, {id, name});
+      const rec = Object.assign({}, p, { id, name });
       if(id) playersById[id] = rec;
       if(name){ rec._lc = name.toLowerCase(); playersByName.push(rec); }
     }
@@ -219,18 +230,15 @@ async function loadCatalog(){
   }
 }
 
-/* autocomplete (display only name) */
+/* Autocomplete (display only name) */
 function searchPlayers(q, limit=12){
   if(!q) return [];
   const s = q.toLowerCase().trim();
   const out = [];
   const up = q.toUpperCase();
   if(playersById[up]) out.push(playersById[up]);
-  for(const p of playersByName){
-    if(p._lc.includes(s)) out.push(p);
-    if(out.length >= limit) break;
-  }
-  return out.slice(0, limit);
+  for(const p of playersByName){ if(p._lc.includes(s)) out.push(p); if(out.length>=limit) break; }
+  return out.slice(0,limit);
 }
 function renderSuggestions(list, container, inputEl){
   if(!list || list.length===0){ container.style.display='none'; container.innerHTML=''; return; }
@@ -240,8 +248,8 @@ function renderSuggestions(list, container, inputEl){
     div.className = 'suggest-item';
     div.innerHTML = `<img src="/-/media/alias/player-headshot/${item.id}" alt="${item.name}"><div style="flex:1"><div class="title">${item.name}</div><div class="meta">${item.id} • ${item.represented_country||item.country||''}</div></div>`;
     div.addEventListener('click', ()=>{
-      inputEl.value = item.name; // only name shown
-      inputEl.dataset.selectedId = item.id; // keep id for navigation
+      inputEl.value = item.name; // show name
+      inputEl.dataset.selectedId = item.id; // store id
       container.style.display = 'none';
     });
     container.appendChild(div);
@@ -249,123 +257,98 @@ function renderSuggestions(list, container, inputEl){
   container.style.display = 'block';
 }
 
-/* inputs */
+/* Input event wiring */
 p1Input.addEventListener('input', ()=>{ delete p1Input.dataset.selectedId; const q=p1Input.value.trim(); if(!q||!playersCatalog){p1Sug.style.display='none';return;} renderSuggestions(searchPlayers(q,12), p1Sug, p1Input); });
 p2Input.addEventListener('input', ()=>{ delete p2Input.dataset.selectedId; const q=p2Input.value.trim(); if(!q||!playersCatalog){p2Sug.style.display='none';return;} renderSuggestions(searchPlayers(q,12), p2Sug, p2Input); });
 document.addEventListener('click', e => { if(!e.target.closest('.picker')){ p1Sug.style.display='none'; p2Sug.style.display='none'; }});
 p1Input.addEventListener('keydown', e => { if(e.key === 'Enter') displayBtn.click(); });
 p2Input.addEventListener('keydown', e => { if(e.key === 'Enter') displayBtn.click(); });
 
-/* image manifest loader (robust) */
+/* Manifest load (prefers WTA or ATP depending) */
 async function loadImageManifestOnce(prefer = null){
-  if (imageManifest !== null) return imageManifest; // cache
+  if(imageManifest !== null) return imageManifest;
   const tryOrder = [];
-  if (prefer === 'WTA') {
-    tryOrder.push(MANIFEST_WTA, MANIFEST_COMMON, MANIFEST_ATP);
-  } else if (prefer === 'ATP') {
-    tryOrder.push(MANIFEST_ATP, MANIFEST_COMMON, MANIFEST_WTA);
-  } else {
-    tryOrder.push(MANIFEST_COMMON, MANIFEST_ATP, MANIFEST_WTA);
-  }
-  // ajoute fallback alternates
-  for (const s of MANIFEST_ALTERNATES) tryOrder.push(s);
-
-  for (const path of tryOrder){
+  if(prefer === 'WTA'){ tryOrder.push(MANIFEST_WTA, MANIFEST_COMMON, MANIFEST_ATP); }
+  else if(prefer === 'ATP'){ tryOrder.push(MANIFEST_ATP, MANIFEST_COMMON, MANIFEST_WTA); }
+  else { tryOrder.push(MANIFEST_COMMON, MANIFEST_ATP, MANIFEST_WTA); }
+  for(const alt of MANIFEST_ALTERNATES) tryOrder.push(alt);
+  for(const path of tryOrder){
     try {
-      const res = await fetch(path, { cache: 'no-cache', mode: 'cors' });
-      if (!res || !res.ok) { console.debug('[manifest] not found', path, res && res.status); continue; }
-      const ct = res.headers.get('content-type') || '';
+      const r = await fetch(path, {cache:'no-cache', mode:'cors'});
+      if(!r || !r.ok) continue;
+      const ct = r.headers.get('content-type') || '';
       let json;
-      if (ct.includes('application/json')) json = await res.json();
+      if(ct.includes('application/json')) json = await r.json();
       else {
-        const txt = await res.text();
-        try { json = JSON.parse(txt); } catch(e){ console.debug('[manifest] not parsable JSON', path); continue; }
+        const txt = await r.text();
+        try { json = JSON.parse(txt); } catch(e){ continue; }
       }
-      imageManifest = json;
-      imageManifestSourceUrl = path;
-      console.info('[manifest] loaded', path);
+      imageManifest = json; imageManifestSourceUrl = path;
+      console.info('[H2H] image manifest loaded', path);
       return imageManifest;
-    } catch (e) {
-      console.debug('[manifest] fetch error', path, e && e.message);
-      continue;
-    }
+    } catch(e){ continue; }
   }
-  imageManifest = null;
-  imageManifestSourceUrl = null;
-  console.warn('[manifest] aucun manifest trouvé');
+  imageManifest = null; imageManifestSourceUrl = null;
+  console.warn('[H2H] aucun manifest d\'image trouvé');
   return null;
 }
 
-/* find entry in manifest: tries by player_id, slug, public_id includes slug, exact public_id matches */
+/* Find entry in manifest (array or object) */
 function findManifestEntry(manifest, pid, slug){
-  if (!manifest) return null;
-  const slugLc = (slug || '').toString().toLowerCase();
-
-  if (Array.isArray(manifest)) {
-    for (const it of manifest) {
-      if (!it) continue;
-      // common keys: player_id, slug, public_id, url
-      if (pid && (String(it.player_id || it.id || '').toString() === String(pid))) return it;
-      const itSlug = (it.slug || (it.public_id || '').split('/').pop() || '').toString().toLowerCase();
-      if (slug && itSlug === slugLc) return it;
-      if (slug && it.public_id && it.public_id.toLowerCase().includes(slugLc)) return it;
-    }
-  } else if (typeof manifest === 'object') {
-    // manifest may be an object keyed by id or public_id
-    if (pid && manifest[pid]) return manifest[pid];
-    if (slug && manifest[slug]) return manifest[slug];
-    // fallback: iterate values and try to match player_id field
-    for (const k of Object.keys(manifest)) {
-      const it = manifest[k];
-      if (!it) continue;
-      if (pid && (String(it.player_id || it.id || '') === String(pid))) return it;
+  if(!manifest) return null;
+  const slugLc = (slug||'').toString().toLowerCase();
+  if(Array.isArray(manifest)){
+    for(const it of manifest){
+      if(!it) continue;
+      if(pid && String(it.player_id || it.id || '') === String(pid)) return it;
       const itSlug = (it.slug || (it.public_id||'').split('/').pop() || '').toString().toLowerCase();
-      if (slug && itSlug === slugLc) return it;
+      if(slug && itSlug === slugLc) return it;
+      if(slug && it.public_id && it.public_id.toLowerCase().includes(slugLc)) return it;
+    }
+  } else if(typeof manifest === 'object'){
+    if(pid && manifest[pid]) return manifest[pid];
+    if(slug && manifest[slug]) return manifest[slug];
+    for(const k of Object.keys(manifest)){
+      const it = manifest[k];
+      if(!it) continue;
+      if(pid && (String(it.player_id || it.id || '') === String(pid))) return it;
+      const itSlug = (it.slug || (it.public_id||'').split('/').pop() || '').toString().toLowerCase();
+      if(slug && itSlug === slugLc) return it;
     }
   }
   return null;
 }
 
-function preferManifestForPair(p1, p2){
-  const s1 = (playersById[p1] && playersById[p1].source) ? String(playersById[p1].source).toUpperCase() : null;
-  const s2 = (playersById[p2] && playersById[p2].source) ? String(playersById[p2].source).toUpperCase() : null;
-  if (s1 === 'WTA' || s2 === 'WTA') return 'WTA';
-  if (s1 === 'ATP' || s2 === 'ATP') return 'ATP';
-  return null;
-}
-const prefer = preferManifestForPair(p1Id, p2Id);
-
-
-/* render single player image into container (async) */
+/* Render player image into container element (async). Uses manifest, then combined.image, then Cloudinary guess, then alias path */
 async function renderPlayerImage(containerEl, playerRec){
-  containerEl.innerHTML = ''; // clear
-  // prepare identifiers
+  containerEl.innerHTML = '';
   const pid = (playerRec && (playerRec.id || playerRec.player_id || playerRec.playerId)) ? String(playerRec.id || playerRec.player_id || playerRec.playerId) : '';
   const slug = (playerRec && (playerRec.slug || playerRec.player_slug || playerRec.name)) ? String(playerRec.slug || playerRec.player_slug || playerRec.name).toLowerCase() : '';
-  // try manifest(s)
-  const manifest = await loadImageManifestOnce();
-  const entry = findManifestEntry(manifest, pid, slug);
+  // manifest
+  let manifest = imageManifest;
+  if(!manifest) {
+    // fallback: attempt to load without preference
+    manifest = await loadImageManifestOnce(null);
+  }
+  let entry = findManifestEntry(manifest, pid, slug);
   if(entry){
-    // prefer explicit url
     if(entry.url){
       const img = document.createElement('img'); img.src = entry.url; img.alt = playerRec.full_name || playerRec.name || pid; img.loading='lazy';
       containerEl.appendChild(img); return;
     }
-    // build cloudinary url from public_id when possible
     if(entry.public_id && window.CLOUDINARY_CLOUD_NAME){
-      const safe = encodeURIComponent(entry.public_id);
-      // format: crop to square and auto quality/format, similar to your example
-      const url = `https://res.cloudinary.com/${window.CLOUDINARY_CLOUD_NAME}/image/upload/c_fill,g_auto,h_800,w_800/f_auto,q_auto/v1/${entry.public_id}`;
+      const public_id = entry.public_id.replace(/^\/+/,'');
+      const url = `https://res.cloudinary.com/${window.CLOUDINARY_CLOUD_NAME}/image/upload/c_fill,g_auto,h_800,w_800/f_auto,q_auto/v1/${public_id}`;
       const img = document.createElement('img'); img.src = url; img.alt = playerRec.full_name || playerRec.name || pid; img.loading='lazy';
       containerEl.appendChild(img); return;
     }
   }
-  // fallback to combined fields (image/headshot)
+  // fallback combined.image/headshot/photo
   if(playerRec && (playerRec.image || playerRec.headshot || playerRec.photo)){
     const img = document.createElement('img'); img.src = playerRec.image || playerRec.headshot || playerRec.photo; img.alt = playerRec.full_name || playerRec.name || pid; img.loading='lazy';
     containerEl.appendChild(img); return;
   }
-  // try cloudinary naming convention (pid-slug, slug, pid) if cloud name provided
+  // cloudinary heuristic
   if(window.CLOUDINARY_CLOUD_NAME && (pid || slug)){
     const candidates = [];
     if(pid && slug) candidates.push(`players/${pid}-${slug}`);
@@ -373,15 +356,13 @@ async function renderPlayerImage(containerEl, playerRec){
     if(pid) candidates.push(`players/${pid}`);
     for(const public_id of candidates){
       const url = `https://res.cloudinary.com/${window.CLOUDINARY_CLOUD_NAME}/image/upload/c_fill,g_auto,h_800,w_800/f_auto,q_auto/v1/${public_id}`;
-      // we insert the img; if it 404, browser will show broken image but it's acceptable as last-resort
       const img = document.createElement('img'); img.src = url; img.alt = playerRec.full_name || playerRec.name || pid; img.loading='lazy';
-      img.onerror = ()=> { /* if broken, remove and continue to next candidate */ img.remove(); };
+      img.onerror = ()=> { img.remove(); };
       containerEl.appendChild(img);
-      // wait a tick to let onerror potentially fire; but we can't synchronously detect 404 reliably.
       return;
     }
   }
-  // last fallback: local alias
+  // last fallback alias path
   if(pid){
     const img = document.createElement('img'); img.src = `/-/media/alias/player-headshot/${pid}`; img.alt = playerRec.full_name || playerRec.name || pid; img.loading='lazy';
     img.onerror = ()=> { containerEl.innerHTML = '<div style="color:var(--muted)">No image</div>'; };
@@ -390,7 +371,7 @@ async function renderPlayerImage(containerEl, playerRec){
   containerEl.innerHTML = '<div style="color:var(--muted)">No image</div>';
 }
 
-/* resolve id from input */
+/* Resolve ID from input element */
 function resolveIdFromInput(el){
   if(el.dataset.selectedId) return el.dataset.selectedId;
   const raw = el.value.trim();
@@ -398,7 +379,6 @@ function resolveIdFromInput(el){
   const up = raw.toUpperCase();
   if(playersById[up]) return up;
   if(/^[A-Z0-9]+$/.test(up)) return up;
-  // name match
   const lc = raw.toLowerCase();
   const exact = playersByName.find(p => p._lc === lc);
   if(exact) return exact.id;
@@ -407,24 +387,32 @@ function resolveIdFromInput(el){
   return null;
 }
 
-/* display button -> reload page with ?p1=ID&p2=ID */
-displayBtn.addEventListener('click', ()=>{
-  const v1 = p1Input.dataset.selectedId || p1Input.value.trim();
-  const v2 = p2Input.dataset.selectedId || p2Input.value.trim();
-  if(!v1 || !v2){ showStatus('Indique deux joueurs (sélection ou ID).', 4000, true); return; }
-  const id1 = resolveIdFromInput(p1Input);
-  const id2 = resolveIdFromInput(p2Input);
-  if(!id1 || !id2){ showStatus('Impossible de résoudre un des joueurs en ID. Choisis dans la liste ou saisis un ID.', 5000, true); return; }
-  const url = new URL(location.href);
-  url.searchParams.set('p1', id1); url.searchParams.set('p2', id2);
-  window.location.href = url.toString(); // full reload
-});
+/* Build preference for manifest: 'WTA' if either player is WTA, else 'ATP' if either ATP, else null */
+function preferManifestForPair(p1, p2){
+  const s1 = (playersById[p1] && playersById[p1].source) ? String(playersById[p1].source).toUpperCase() : null;
+  const s2 = (playersById[p2] && playersById[p2].source) ? String(playersById[p2].source).toUpperCase() : null;
+  if(s1 === 'WTA' || s2 === 'WTA') return 'WTA';
+  if(s1 === 'ATP' || s2 === 'ATP') return 'ATP';
+  return null;
+}
 
-/* clear / swap */
-clearBtn.addEventListener('click', ()=>{ p1Input.value=''; p2Input.value=''; delete p1Input.dataset.selectedId; delete p2Input.dataset.selectedId; resultsWrap.style.display='none'; showStatus('Sélection effacée', 1200); });
-swapBtn.addEventListener('click', ()=>{ const a=p1Input.value, aid=p1Input.dataset.selectedId; p1Input.value=p2Input.value; p1Input.dataset.selectedId=p2Input.dataset.selectedId||''; p2Input.value=a; p2Input.dataset.selectedId=aid||''; });
+/* Apply palette (violet if WTA present) */
+function applyPaletteForPlayers(leftId, rightId, payload){
+  let leftSource = (playersById[leftId] && playersById[leftId].source) ? playersById[leftId].source.toUpperCase() : null;
+  let rightSource = (playersById[rightId] && playersById[rightId].source) ? playersById[rightId].source.toUpperCase() : null;
+  if(!leftSource && payload && payload.player1 && payload.player1.source) leftSource = payload.player1.source.toUpperCase();
+  if(!rightSource && payload && payload.player2 && payload.player2.source) rightSource = payload.player2.source.toUpperCase();
+  const anyWta = (leftSource === 'WTA' || rightSource === 'WTA');
+  if(anyWta){
+    document.documentElement.style.setProperty('--accent', getComputedStyle(document.documentElement).getPropertyValue('--accent-WTA-1').trim());
+    document.documentElement.style.setProperty('--accent-2', getComputedStyle(document.documentElement).getPropertyValue('--accent-WTA-2').trim());
+  } else {
+    document.documentElement.style.setProperty('--accent', getComputedStyle(document.documentElement).getPropertyValue('--accent-ATP-1').trim());
+    document.documentElement.style.setProperty('--accent-2', getComputedStyle(document.documentElement).getPropertyValue('--accent-ATP-2').trim());
+  }
+}
 
-/* fetch H2H JSON robustly */
+/* Fetch H2H JSON robustly */
 async function fetchH2HJson(p1, p2){
   const combos = [[p1,p2],[p2,p1],[p1.toLowerCase(),p2.toLowerCase()],[p2.toLowerCase(),p1.toLowerCase()]];
   const trials = [];
@@ -440,49 +428,43 @@ async function fetchH2HJson(p1, p2){
       const r = await fetch(url, {cache:'no-cache', mode:'cors'});
       if(!r || !r.ok) continue;
       const json = await r.json();
-      return {json, url};
-    }catch(e){ continue; }
+      return { json, url };
+    } catch(e){ continue; }
   }
   return null;
 }
 
-/* render shared stats + set colors for WTA if necessary */
-function applyPaletteForPlayers(leftId, rightId, payload){
-  // default ATP palette in :root; change CSS vars if WTA detected
-  let leftSource = (playersById[leftId] && playersById[leftId].source) ? playersById[leftId].source.toUpperCase() : null;
-  let rightSource = (playersById[rightId] && playersById[rightId].source) ? playersById[rightId].source.toUpperCase() : null;
-  // fallback: payload may include player1.source/player2.source
-  try {
-    if(!leftSource && payload && payload.player1 && payload.player1.source) leftSource = payload.player1.source.toUpperCase();
-    if(!rightSource && payload && payload.player2 && payload.player2.source) rightSource = payload.player2.source.toUpperCase();
-  } catch(e){}
-  const anyWta = (leftSource === 'WTA' || rightSource === 'WTA');
-  if(anyWta){
-    document.documentElement.style.setProperty('--accent', getComputedStyle(document.documentElement).getPropertyValue('--accent-WTA-1').trim());
-    document.documentElement.style.setProperty('--accent-2', getComputedStyle(document.documentElement).getPropertyValue('--accent-WTA-2').trim());
-  } else {
-    document.documentElement.style.setProperty('--accent', getComputedStyle(document.documentElement).getPropertyValue('--accent-ATP-1').trim());
-    document.documentElement.style.setProperty('--accent-2', getComputedStyle(document.documentElement).getPropertyValue('--accent-ATP-2').trim());
+/* Render events table */
+function renderEvents(matches){
+  eventsTableWrap.innerHTML = '';
+  if(!Array.isArray(matches) || matches.length === 0){ eventsTableWrap.innerHTML = '<div class="small-muted">Aucun match H2H</div>'; return; }
+  const table = document.createElement('table');
+  const thead = document.createElement('thead'); thead.innerHTML = '<tr><th>Year</th><th>Winner</th><th>Event</th><th>Round</th><th>Surface</th><th>Score</th></tr>'; table.appendChild(thead);
+  const tbody = document.createElement('tbody');
+  const sorted = matches.slice().sort((a,b)=> (b.event_year||'').toString().localeCompare((a.event_year||'').toString()));
+  for(const m of sorted){
+    const tr = document.createElement('tr');
+    const year = m.event_year || (m.match_date ? (new Date(m.match_date)).getFullYear() : '');
+    tr.innerHTML = `<td>${year}</td><td>${m.winner_player_name||m.winner||'—'}</td><td>${m.tourney_name||m.tournament||'—'}</td><td>${m.round||'—'}</td><td>${m.surface||'—'}</td><td>${m.score_string||m.score||'—'}</td>`;
+    tbody.appendChild(tr);
   }
+  table.appendChild(tbody); eventsTableWrap.appendChild(table);
 }
 
-/* render payload */
+/* Render full payload */
 async function renderPayload(payload, jsonUrl, p1, p2){
   resultsWrap.style.display = 'block';
   jsonLinkWrap.innerHTML = `<a href="${jsonUrl}" target="_blank" class="small-muted">Voir JSON</a>`;
-  // choose player objects
   const p1payload = payload.player1 || payload.player || {};
   const p2payload = payload.player2 || payload.opponent || {};
-  // merge with catalog where possible
   const leftCatalog = playersById[p1] || {};
   const rightCatalog = playersById[p2] || {};
-  const left = Object.assign({}, leftCatalog, p1payload, { id: p1 });
-  const right = Object.assign({}, rightCatalog, p2payload, { id: p2 });
+  const left = Object.assign({}, leftCatalog, p1payload, { id: p1, full_name: p1payload.full_name || leftCatalog.full_name || p1payload.name || leftCatalog.name || '' });
+  const right = Object.assign({}, rightCatalog, p2payload, { id: p2, full_name: p2payload.full_name || rightCatalog.full_name || p2payload.name || rightCatalog.name || '' });
   leftNameEl.textContent = left.full_name || left.name || p1;
   rightNameEl.textContent = right.full_name || right.name || p2;
-  // apply palette
   applyPaletteForPlayers(p1, p2, payload);
-  // images
+  // images (ensure manifest loaded earlier)
   await renderPlayerImage(leftAvatar, left);
   await renderPlayerImage(rightAvatar, right);
   // info boxes
@@ -503,12 +485,11 @@ async function renderPayload(payload, jsonUrl, p1, p2){
     ['Backhand', right.backhand || '—']
   ];
   for(const r of rightRows){ const d=document.createElement('div'); d.className='info-row'; d.innerHTML=`<div class="muted-sm">${r[0]}</div><div style="font-weight:700">${r[1]}</div>`; rightInfo.appendChild(d); }
-
-  // aggregates -> shared stats
+  // aggregates
   const aggLeft = (payload.aggregates && payload.aggregates.player1) ? payload.aggregates.player1 : (payload.player1 || {});
   const aggRight = (payload.aggregates && payload.aggregates.player2) ? payload.aggregates.player2 : (payload.player2 || {});
   aggLeft.id = left.id; aggRight.id = right.id;
-  // build rows
+  // shared stats rows
   sharedStats.innerHTML = '';
   const rows = [
     {label:'H2H (W/L)', left: aggLeft.h2h_wins !== undefined ? `${aggLeft.h2h_wins}/${aggLeft.h2h_losses||0}` : '—', right: aggRight.h2h_wins !== undefined ? `${aggRight.h2h_wins}/${aggRight.h2h_losses||0}` : '—'},
@@ -529,7 +510,7 @@ async function renderPayload(payload, jsonUrl, p1, p2){
     const pct = (nL + nR) ? Math.round(100 * nL / (nL + nR)) : 0;
     barIn.style.width = pct + '%'; barOut.appendChild(barIn); sharedStats.appendChild(barOut);
   }
-  // chart: compute wins numeric
+  // chart numbers
   let leftWins = (aggLeft && aggLeft.h2h_wins) ? aggLeft.h2h_wins : 0;
   let rightWins = (aggRight && aggRight.h2h_wins) ? aggRight.h2h_wins : 0;
   if(leftWins + rightWins === 0 && Array.isArray(payload.matches)){
@@ -538,60 +519,56 @@ async function renderPayload(payload, jsonUrl, p1, p2){
       if(w === left.id.toString().toUpperCase()) leftWins++; else if(w === right.id.toString().toUpperCase()) rightWins++;
     }
   }
-  // update circular bar (r = 112 used above)
   const radius = 112;
   const circumference = 2 * Math.PI * radius;
   const leftFraction = (leftWins + rightWins) ? leftWins / (leftWins + rightWins) : 0.5;
   const offset = circumference * (1 - leftFraction);
   chartBar.style.strokeDasharray = `${circumference}`;
   chartBar.style.strokeDashoffset = `${offset}`;
-  // ensure the stroke color follows CSS var
   chartBar.style.stroke = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
-  // label
   chartText.textContent = `${leftWins} — ${rightWins}`;
-  // events table
+  // events
   renderEvents(payload.matches || []);
   showStatus(`Chargé: ${payload.matches ? payload.matches.length : 0} matches`, 4500);
 }
 
-/* render events table */
-function renderEvents(matches){
-  eventsTableWrap.innerHTML = '';
-  if(!Array.isArray(matches) || matches.length === 0){ eventsTableWrap.innerHTML = '<div class="small-muted">Aucun match H2H</div>'; return; }
-  const table = document.createElement('table');
-  const thead = document.createElement('thead'); thead.innerHTML = '<tr><th>Year</th><th>Winner</th><th>Event</th><th>Round</th><th>Surface</th><th>Score</th></tr>'; table.appendChild(thead);
-  const tbody = document.createElement('tbody');
-  const sorted = matches.slice().sort((a,b)=> (b.event_year||'').toString().localeCompare((a.event_year||'').toString()));
-  for(const m of sorted){
-    const tr = document.createElement('tr');
-    const year = m.event_year || (m.match_date ? (new Date(m.match_date)).getFullYear() : '');
-    tr.innerHTML = `<td>${year}</td><td>${m.winner_player_name||m.winner||'—'}</td><td>${m.tourney_name||m.tournament||'—'}</td><td>${m.round||'—'}</td><td>${m.surface||'—'}</td><td>${m.score_string||m.score||'—'}</td>`;
-    tbody.appendChild(tr);
-  }
-  table.appendChild(tbody); eventsTableWrap.appendChild(table);
-}
+/* Display click: reload with ?p1=ID&p2=ID */
+displayBtn.addEventListener('click', ()=>{
+  const v1 = p1Input.dataset.selectedId || p1Input.value.trim();
+  const v2 = p2Input.dataset.selectedId || p2Input.value.trim();
+  if(!v1 || !v2){ showStatus('Indique deux joueurs (sélection ou ID).', 4000, true); return; }
+  const id1 = resolveIdFromInput(p1Input);
+  const id2 = resolveIdFromInput(p2Input);
+  if(!id1 || !id2){ showStatus('Impossible de résoudre un des joueurs en ID. Choisis dans la liste ou saisis un ID.', 5000, true); return; }
+  const url = new URL(location.href); url.searchParams.set('p1', id1); url.searchParams.set('p2', id2); window.location.href = url.toString();
+});
 
-/* fetch & render H2H (used on page load when ?p1&p2 or when user reloads) */
-async function fetchAndRenderFromUrlParams(){
-  const urlP1 = qs('p1'); const urlP2 = qs('p2');
-  if(!urlP1 || !urlP2) return;
-  showStatus('Chargement du H2H...', 12000);
-  const res = await fetchH2HJson(urlP1, urlP2);
-  if(!res){ showStatus('Aucun JSON H2H trouvé (vérifie /data/h2h).', 7000, true); return; }
-  await loadImageManifestOnce(prefer); // prefetch manifest for images
-  await renderPayload(res.json, res.url, urlP1, urlP2);
-  hideStatus();
-}
+/* Clear & swap */
+clearBtn.addEventListener('click', ()=>{ p1Input.value=''; p2Input.value=''; delete p1Input.dataset.selectedId; delete p2Input.dataset.selectedId; resultsWrap.style.display='none'; showStatus('Sélection effacée', 1200); });
+swapBtn.addEventListener('click', ()=>{ const a=p1Input.value, aid=p1Input.dataset.selectedId; p1Input.value=p2Input.value; p1Input.dataset.selectedId=p2Input.dataset.selectedId||''; p2Input.value=a; p2Input.dataset.selectedId=aid||''; });
 
-/* init */
-(async function init(){
+/* On load: catalog -> determine manifest preference -> load manifest -> fetch h2h -> render */
+window.addEventListener('DOMContentLoaded', async ()=>{
   await loadCatalog();
-  const p1 = qs('p1'); const p2 = qs('p2');
-  if(p1 && playersById[p1]){ p1Input.value = playersById[p1].name || p1; p1Input.dataset.selectedId = p1; }
-  if(p2 && playersById[p2]){ p2Input.value = playersById[p2].name || p2; p2Input.dataset.selectedId = p2; }
-  if(p1 && p2){ await fetchAndRenderFromUrlParams(); }
-  else { showStatus('Saisis deux joueurs (nom) puis clique Display H2H. Le catalogue est chargé automatiquement.', 5000); }
-})();
+  const url = new URL(location.href);
+  const urlP1 = url.searchParams.get('p1');
+  const urlP2 = url.searchParams.get('p2');
+  if(urlP1 && playersById[urlP1]){ p1Input.value = playersById[urlP1].name || urlP1; p1Input.dataset.selectedId = urlP1; }
+  if(urlP2 && playersById[urlP2]){ p2Input.value = playersById[urlP2].name || urlP2; p2Input.dataset.selectedId = urlP2; }
+  if(urlP1 && urlP2){
+    // determine manifest preference (WTA first if any WTA)
+    const prefer = preferManifestForPair(urlP1, urlP2);
+    await loadImageManifestOnce(prefer); // prioritized manifest load
+    const res = await fetchH2HJson(urlP1, urlP2);
+    if(!res){ showStatus('Aucun JSON H2H trouvé (vérifie /data/h2h).', 7000, true); return; }
+    await renderPayload(res.json, res.url, urlP1, urlP2);
+  } else {
+    showStatus('Saisis deux joueurs (nom) puis clique Display H2H. Le catalogue est chargé automatiquement.', 5000);
+  }
+});
+
+/* Robust H2H fetch wrapper (reuse) */
+async function fetchH2HJson(p1, p2){ return await (async function(p1,p2){ const combos=[[p1,p2],[p2,p1],[p1.toLowerCase(),p2.toLowerCase()],[p2.toLowerCase(),p1.toLowerCase()]]; const trials=[]; for(const base of H2H_BASES){ for(const [a,b] of combos){ trials.push(base+`${a}_${b}.json`, base+`${a}-${b}.json`, base+`${a}${b}.json`); } } for(const url of trials){ try{ const r = await fetch(url, {cache:'no-cache', mode:'cors'}); if(!r || !r.ok) continue; const json = await r.json(); return {json, url}; }catch(e){ continue; } } return null; })(p1,p2); }
 
 </script>
 </body>
