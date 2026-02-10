@@ -56,7 +56,6 @@
   .input-row{display:flex;gap:8px;align-items:center;margin-top:12px}
   input[type="text"]{padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#fff;min-width:360px}
   button.primary{padding:10px 14px;border-radius:10px;border:none;background:var(--accent-strong);color:white;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(31,122,236,0.12)}
-  button.primary.disabled{opacity:0.4;pointer-events:none}
   button.primary.wta{background:var(--accent-strong-wta);box-shadow:0 8px 24px rgba(139,92,246,0.12)}
   button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted);padding:8px 10px;border-radius:8px;cursor:pointer}
 
@@ -82,6 +81,7 @@
   .country-text{margin-top:14px;padding:16px;border-radius:12px;background:rgba(0,0,0,0.5);backdrop-filter:blur(6px);color:#fff;border:1px solid rgba(255,255,255,0.04)}
   .country-text h3{margin:0 0 6px 0}
   .country-text p{margin:6px 0;font-style:italic;color:#f0f6ff}
+  .country-text .para-subtitle{font-weight:700;margin-top:8px;margin-bottom:4px}
 
   .toast{position:fixed;right:18px;bottom:18px;background:rgba(0,0,0,0.7);color:#fff;padding:10px 14px;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,0.6);display:none;z-index:220}
 
@@ -104,7 +104,7 @@
       </div>
 
       <div class="card" style="padding:8px 10px">
-        <div class="segment" role="tablist" aria-label="difficulty">
+        <div id="difficultySegment" class="segment" role="tablist" aria-label="difficulty">
           <button class="seg-btn active" data-top="20" id="d20">Top 20</button>
           <button class="seg-btn" data-top="100" id="d100">Top 100</button>
           <button class="seg-btn" data-top="300" id="d300">Top 300</button>
@@ -117,8 +117,7 @@
       </div>
 
       <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
-        <button id="startBtn" class="primary">Start Game (10 tries)</button>
-        <button id="resetBtn" class="ghost">Reset</button>
+        <div class="chip">Mode auto-starts on change</div>
       </div>
     </div>
 
@@ -143,7 +142,7 @@
             <ul id="suggestionsList" class="suggestions-list" style="display:none"></ul>
           </div>
         </div>
-        <button id="guessBtn" class="primary disabled">Guess</button>
+        <button id="guessBtn" class="primary">Guess</button>
       </div>
 
       <table id="guessesTable" aria-live="polite" style="margin-top:14px">
@@ -161,11 +160,10 @@
   <div id="modal" class="modal" role="dialog" aria-modal="true" aria-hidden="true">
     <div class="modal-card">
       <div class="big-check" id="modalIcon"><svg width="56" height="56" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" stroke="rgba(22,163,74,0.35)" stroke-width="2" fill="transparent"/><path d="M6 12.2l3.1 3.1L18 6.4" stroke="#16a34a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-      <h2 id="modalTitle">You won!</h2>
-      <p id="modalText" style="color:var(--muted)">Great job — details below.</p>
+      <h2 id="modalTitle">Round result</h2>
+      <p id="modalText" style="color:var(--muted)">Details below.</p>
       <div id="modalDetails" style="margin-top:12px;color:#e8f4ea"></div>
       <div style="margin-top:18px;display:flex;gap:12px;justify-content:center">
-        <button id="playAgainBtn" class="primary">Play again</button>
         <button id="closeModalBtn" class="ghost">Close</button>
       </div>
     </div>
@@ -203,6 +201,9 @@ let dailyList = [];  // array of candidate objects (up to 8)
 /* runtime state */
 let gameStarted = false;
 
+/* guessed names this round (excluded from suggestions) */
+let guessedNames = new Set();
+
 /* ---------------------------
    Utilities
 ---------------------------- */
@@ -211,7 +212,7 @@ function parseRank(v){ if(v===undefined||v===null||v===''||v==='-') return Infin
 function tryParseDate(s){ if(!s) return null; s=s.trim(); const d=new Date(s); if(!isNaN(d)) return d; const clean=s.replace(/\s+/g,' ').split(' ')[0]; const d2=new Date(clean); return isNaN(d2)?null:d2; }
 function calcAgeFromBirthDate(birthDate){ const d=tryParseDate(birthDate); if(!d) return null; const today=new Date(); let age=today.getFullYear()-d.getFullYear(); const m=today.getMonth()-d.getMonth(); if(m<0||(m===0 && today.getDate()<d.getDate())) age--; return age; }
 function haversineKm(lat1,lon1,lat2,lon2){ const toRad=v=>v*Math.PI/180; const R=6371; const dLat=toRad(lat2-lat1); const dLon=toRad(lon2-lon1); const a=Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2; const c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)); return R*c; }
-function showToast(msg, t=2500){ const el=document.getElementById('toast'); el.textContent=msg; el.style.display='block'; setTimeout(()=>{ el.style.display='none'; },t); }
+function showToast(msg, t=2000){ const el=document.getElementById('toast'); el.textContent=msg; el.style.display='block'; setTimeout(()=>{ el.style.display='none'; },t); }
 
 /* scoring */
 function scoreForGuessNumber(guessNumber){
@@ -263,7 +264,7 @@ async function loadCountryTexts(){
 }
 
 /* ---------------------------
-   Typeahead (always from full players catalog)
+   Typeahead (always from full players catalog), excludes guessedNames
 ---------------------------- */
 const guessInput = document.getElementById('guessInput');
 const suggestionsList = document.getElementById('suggestionsList');
@@ -295,12 +296,12 @@ function showSuggestions(list){
 function updateSuggestions(){
   const v = guessInput.value.trim().toLowerCase();
   if(v.length < 2){ showSuggestions([]); return; }
-  // ALWAYS use full players catalog for suggestions
   const poolFull = players;
-  // prefer same tour in suggestions (so suggestions are more relevant)
   const byTour = poolFull.filter(p => (String(p.source || (p._raw_row && p._raw_row._source) || '').toUpperCase()) === currentTour);
   let pool = byTour.filter(p => p.full_name && p.full_name.toLowerCase().includes(v));
   if(pool.length === 0) pool = poolFull.filter(p => p.full_name && p.full_name.toLowerCase().includes(v));
+  // exclude names already guessed this round
+  pool = pool.filter(p => !guessedNames.has((p.full_name || '').trim()));
   pool.sort((a,b)=>{
     const va=a.full_name.toLowerCase(), vb=b.full_name.toLowerCase();
     const sa=va.startsWith(v)?0:1, sb=vb.startsWith(v)?0:1;
@@ -339,8 +340,7 @@ guessInput.addEventListener('keydown', (e)=>{
         const picked = currentSuggestions[currentSuggestionIndex];
         guessInput.value = picked.full_name;
         suggestionsList.style.display = 'none';
-        // only handle guess if game started
-        if(gameStarted){ handleGuessSafe(picked.full_name); } else { showToast('Start a round first'); }
+        if(gameStarted){ handleGuessSafe(picked.full_name); } else { showToast('Round will start automatically when settings change'); }
         return;
       }
     }
@@ -348,14 +348,12 @@ guessInput.addEventListener('keydown', (e)=>{
 });
 
 /* ---------------------------
-   Find player by name (always search full catalog)
+   Find player by name (full catalog)
 ---------------------------- */
 function findPlayerByName(name){
   if(!name) return null;
   const cleaned = normName(name.trim());
-  // pool = full players catalog
   const pool = players;
-  // exact normalized
   let match = pool.find(p => p.full_name && normName(p.full_name) === cleaned);
   if(match) return match;
   match = pool.find(p => p.player_id && String(p.player_id).toLowerCase() === name.trim().toLowerCase());
@@ -414,7 +412,9 @@ function pickTargetFromDailyMap(tour, levelTopN, cotdOn){
 }
 
 /* ---------------------------
-   Comparison & rendering (unchanged semantics)
+   Comparison & rendering
+   NOTE: ageDirection and heightDirection are inverted compared to previous
+         (fixed per user's request). Rank direction left unchanged.
 ---------------------------- */
 function makeArrowSvg(direction){
   if(direction === 'equal') return `<svg class="icon" viewBox="0 0 24 24" fill="none"><path d="M5 12h14" stroke="#94a3b8" stroke-width="1.6" stroke-linecap="round"/></svg>`;
@@ -427,15 +427,18 @@ function comparePlayers(guess, target){
   const res = {};
   res.nameMatch = guess.full_name.trim().toLowerCase() === target.full_name.trim().toLowerCase();
 
+  // AGE: inverted direction (user requested)
   if(guess.age != null && target.age != null){
     res.ageGuess = guess.age; res.ageTarget = target.age;
-    res.ageDirection = (guess.age === target.age) ? 'equal' : (guess.age > target.age ? 'up' : 'down');
+    // previously 'up' when guess > target; user wanted reversed behaviour -> invert
+    res.ageDirection = (guess.age === target.age) ? 'equal' : (guess.age > target.age ? 'down' : 'up');
   } else { res.ageGuess = guess.age; res.ageTarget = target.age; res.ageDirection = null; }
 
+  // RANK: keep current semantics (up when numeric guess > target number — this matches earlier request)
   const gRank = guess.rank, tRank = target.rank;
   if(isFinite(gRank) && isFinite(tRank)){
     res.rankGuess = gRank; res.rankTarget = tRank;
-    res.rankDirection = (gRank === tRank) ? 'equal' : (gRank > tRank ? 'up' : 'down'); // up = guessed numeric > target numeric (worse)
+    res.rankDirection = (gRank === tRank) ? 'equal' : (gRank > tRank ? 'up' : 'down');
   } else { res.rankGuess = isFinite(gRank) ? gRank : null; res.rankTarget = isFinite(tRank) ? tRank : null; res.rankDirection = null; }
 
   res.sameCountry = (guess.represented_country && target.represented_country && guess.represented_country === target.represented_country);
@@ -449,9 +452,10 @@ function comparePlayers(guess, target){
   }
   res.birthDistanceKm = dist;
 
+  // HEIGHT: invert direction as requested (same approach as age)
   if(guess.height_cm != null && target.height_cm != null){
     res.heightGuess = guess.height_cm; res.heightTarget = target.height_cm;
-    res.heightDirection = (guess.height_cm === target.height_cm) ? 'equal' : (guess.height_cm > target.height_cm ? 'up' : 'down');
+    res.heightDirection = (guess.height_cm === target.height_cm) ? 'equal' : (guess.height_cm > target.height_cm ? 'down' : 'up');
   } else { res.heightGuess = guess.height_cm; res.heightTarget = target.height_cm; res.heightDirection = null; }
 
   res.rightMatch = (guess.right_handed === target.right_handed);
@@ -503,15 +507,15 @@ function appendGuessRow(guessPlayer, comparison){
 }
 
 /* ---------------------------
-   Guess handling
+   Guess handling (adds to guessedNames and clears input)
 ---------------------------- */
 function handleGuessSafe(name){
   try{ handleGuess(name); } catch(err){ showToast('An error occurred.'); console && console.error && console.error(err); }
 }
 
 function handleGuess(name){
-  if(!gameStarted){ showToast('Start a round first'); return; }
-  if(remaining <= 0){ showToast('No tries left — start a new round'); return; }
+  if(!gameStarted){ showToast('Round not active yet'); return; }
+  if(remaining <= 0){ showToast('No tries left — new round will start'); return; }
   const guessPlayer = findPlayerByName(name);
   if(!guessPlayer){
     const suggestions = players.filter(p => p.full_name && p.full_name.toLowerCase().includes((name||'').toLowerCase())).slice(0,8);
@@ -519,6 +523,10 @@ function handleGuess(name){
     showToast('Name not found — suggestions opened');
     return;
   }
+
+  // add to guessed names (exclude from suggestions until next round)
+  guessedNames.add((guessPlayer.full_name || '').trim());
+
   remaining--;
   document.getElementById('remaining').textContent = remaining;
 
@@ -526,17 +534,23 @@ function handleGuess(name){
   guesses.push({player: guessPlayer, comparison});
   appendGuessRow(guessPlayer, comparison);
 
+  // clear input and hide suggestions immediately
+  guessInput.value = '';
+  suggestionsList.style.display = 'none';
+
   if(comparison.nameMatch){
     const points = scoreForGuessNumber(guesses.length);
     score += points; document.getElementById('score').textContent = score;
     revealAnswer(true, points);
-    endRound();
+    // auto-restart after short delay
+    setTimeout(()=> startGame(), 1200);
     return;
   }
 
   if(remaining <= 0){
     revealAnswer(false, 0);
-    endRound();
+    // auto-restart after short delay
+    setTimeout(()=> startGame(), 1200);
   }
 }
 
@@ -546,57 +560,44 @@ function revealAnswer(won, gainedPoints){
   const title = document.getElementById('modalTitle');
   const text = document.getElementById('modalText');
   const details = document.getElementById('modalDetails');
-  if(won){ title.textContent = 'You won!'; text.textContent = `You earned ${gainedPoints} points this round.`; } else { title.textContent = 'Round over'; text.textContent = 'No points this time — try again.'; }
+  if(won){ title.textContent = 'You won!'; text.textContent = `You earned ${gainedPoints} points this round.`; } else { title.textContent = 'Round over'; text.textContent = 'No points this time — new round will start.'; }
 
   const targetHtml = `<div style="text-align:left;margin-top:12px"><h3 style="margin:0 0 6px 0;color:#fff">${target.full_name} <span style="color:var(--muted);font-size:0.9rem">(${target.source || ''})</span></h3><ul style="color:var(--muted);padding-left:18px"><li>Country: ${(target.represented_country) ? `<strong style="color:#fff">${target.represented_country}</strong>` : '—'}</li><li>Birth: ${(target.birthplace || '—')} (${target.birth_date || '—'})</li><li>Age: ${(target.age!=null ? target.age : '—')}</li><li>Career best: ${(isFinite(target.rank) ? target.rank : '—')}</li><li>Height: ${(target.height_cm!=null ? target.height_cm + ' cm' : '—')}</li></ul></div>`;
   details.innerHTML = targetHtml;
   modal.classList.add('show');
   modal.setAttribute('aria-hidden','false');
+
+  document.getElementById('closeModalBtn').onclick = function(){ modal.classList.remove('show'); modal.setAttribute('aria-hidden','true'); };
 }
 
 /* ---------------------------
-   End round (stop game, disable guess)
----------------------------- */
-function endRound(){
-  gameStarted = false;
-  // disable guess button
-  const guessBtn = document.getElementById('guessBtn');
-  guessBtn.classList.add('disabled');
-  guessBtn.classList.remove('active');
-  guessBtn.disabled = true;
-  document.getElementById('startBtn').textContent = 'Start Game (10 tries)';
-  // update selected country display (if COTD is off we hide country code)
-  updateSelectedCountryDisplay();
-  // display country text only when COTD ON (renderCountryText handles visibility)
-  renderCountryText();
-}
-
-/* ---------------------------
-   Country text rendering
+   Country text rendering (paragraphs may be strings or objects with subtitle/text)
 ---------------------------- */
 function renderCountryText(){
   const panel = document.getElementById('countryText');
   if(!cotdEnabled || !fixedCountry || !countryTexts || !countryTexts[fixedCountry]){ panel.style.display = 'none'; panel.innerHTML = ''; return; }
   const info = countryTexts[fixedCountry];
-  // render with italics by default; paragraphs in info.paragraphs may contain HTML
   let html = '';
   if(info.title) html += `<h3>${info.title}</h3>`;
   if(info.subtitle) html += `<div style="color:var(--muted);margin-bottom:8px">${info.subtitle}</div>`;
   if(Array.isArray(info.paragraphs)){
     info.paragraphs.forEach(p => {
-      // trust provided HTML for formatting (<em>, <strong>, <p>, etc.)
-      html += `<div style="font-style:italic">${p}</div>`;
+      if(typeof p === 'string'){
+        html += `<div style="font-style:italic">${p}</div>`;
+      } else if(typeof p === 'object'){
+        if(p.subtitle) html += `<div class="para-subtitle">${p.subtitle}</div>`;
+        if(p.text) html += `<div style="font-style:italic">${p.text}</div>`;
+      }
     });
   } else if(info.paragraph){
     html += `<div style="font-style:italic">${info.paragraph}</div>`;
   }
   panel.innerHTML = html;
   panel.style.display = 'block';
-  // ensure readability: when flag background is shown, card uses backdrop blur (CSS earlier)
 }
 
 /* ---------------------------
-   COTD banner + background
+   COTD banner + background (uses dailyMap[<tour>_by_country] first)
 ---------------------------- */
 const flagBgEl = document.getElementById('flagBg'), flagOverlayEl = document.getElementById('flagOverlay'), cotdBanner = document.getElementById('cotdBanner'), cotdFlag = document.getElementById('cotdFlag'), cotdName = document.getElementById('cotdName');
 
@@ -606,11 +607,23 @@ function setFlagBackground(url){
 }
 
 function renderCotdBanner(){
-  if(!cotdEnabled){ cotdBanner.style.display='none'; setFlagBackground(null); return; }
+  if(!cotdEnabled){
+    cotdBanner.style.display='none';
+    setFlagBackground(null);
+    updateDifficultyVisibility();
+    return;
+  }
+
   cotdBanner.style.display='flex';
-  const cc = fixedCountry || '—';
+
+  // Priority: use dailyMap[tour_by_country] if present, else fallback to fixedCountry
+  const key = `${currentTour}_by_country`;
+  const dailyCandidate = (dailyMap && dailyMap[key]) ? dailyMap[key] : null;
+  const cc = dailyCandidate && dailyCandidate.represented_country ? dailyCandidate.represented_country : (fixedCountry || '—');
+
   cotdName.textContent = cc;
   cotdFlag.innerHTML = '';
+
   if(cc && cc !== '—'){
     fetch(`https://restcountries.com/v3.1/alpha/${cc}`).then(r=>r.ok?r.json():null).then(data=>{
       if(data && data[0] && data[0].flags && (data[0].flags.svg || data[0].flags.png)){
@@ -618,6 +631,22 @@ function renderCotdBanner(){
       } else { cotdFlag.textContent = cc; setFlagBackground(null); }
     }).catch(()=>{ cotdFlag.textContent = cc; setFlagBackground(null); });
   } else { cotdFlag.textContent = '—'; setFlagBackground(null); }
+
+  // hide difficulty while in COTD mode
+  updateDifficultyVisibility();
+}
+
+/* ---------------------------
+   Update difficulty visibility depending on COTD
+---------------------------- */
+function updateDifficultyVisibility(){
+  const seg = document.getElementById('difficultySegment');
+  if(!seg) return;
+  if(cotdEnabled){
+    seg.style.display = 'none';
+  } else {
+    seg.style.display = '';
+  }
 }
 
 /* ---------------------------
@@ -630,18 +659,17 @@ function applyTourTheme(){
     root.style.setProperty('--accent-b', 'rgba(139,92,246,0.12)');
     root.style.setProperty('--accent-strong', getComputedStyle(root).getPropertyValue('--accent-strong-wta')||'#8b5cf6');
     document.getElementById('btnWTA').classList.add('active','wta'); document.getElementById('btnATP').classList.remove('active','atp');
-    document.getElementById('startBtn').classList.add('wta');
   } else {
     root.style.setProperty('--accent-b', 'rgba(0,0,0,0)');
     root.style.setProperty('--accent-a', 'rgba(31,122,236,0.12)');
     root.style.setProperty('--accent-strong', '#1f7aec');
     document.getElementById('btnATP').classList.add('active','atp'); document.getElementById('btnWTA').classList.remove('active','wta');
-    document.getElementById('startBtn').classList.remove('wta');
   }
 }
 
 /* ---------------------------
    Wiring & Init
+   - automatic start on load and on any setting change
 ---------------------------- */
 document.addEventListener('DOMContentLoaded', async ()=>{
   try{
@@ -651,41 +679,48 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     await loadDailyGuessIfAvailable();
     await loadCountryTexts();
 
-    // default COTD OFF (user requested)
+    // ensure difficulty visibility reflects COTD default
+    updateDifficultyVisibility();
     renderCotdBanner();
     applyTourTheme();
+    renderCountryText();
 
-    // initial UI state
-    document.getElementById('guessBtn').classList.add('disabled');
-    document.getElementById('guessBtn').disabled = true;
-    document.getElementById('startBtn').disabled = false;
+    // wire events -> on any change, (re)start the round automatically
+    document.getElementById('btnATP').addEventListener('click', ()=>{ if(currentTour !== 'ATP'){ currentTour='ATP'; document.getElementById('tourLabel').textContent=currentTour; applyTourTheme(); startGame(); } });
+    document.getElementById('btnWTA').addEventListener('click', ()=>{ if(currentTour !== 'WTA'){ currentTour='WTA'; document.getElementById('tourLabel').textContent=currentTour; applyTourTheme(); startGame(); } });
 
-    // wire events
+    document.querySelectorAll('.seg-btn').forEach(btn=>{
+      btn.addEventListener('click', (e)=>{
+        const newTop = Number(e.currentTarget.dataset.top);
+        if(newTop !== levelTopN){
+          document.querySelectorAll('.seg-btn').forEach(b=>b.classList.remove('active'));
+          e.currentTarget.classList.add('active');
+          levelTopN = newTop;
+          document.getElementById('levelLabel').textContent = `Top ${levelTopN}`;
+          startGame();
+        }
+      });
+    });
+
+    document.getElementById('cotdToggle').addEventListener('click', ()=>{
+      cotdEnabled = !cotdEnabled;
+      document.getElementById('cotdToggle').textContent = cotdEnabled ? 'ON' : 'OFF';
+      renderCotdBanner();
+      renderCountryText();
+      startGame();
+    });
+
+    // Guess handling
     document.getElementById('guessBtn').addEventListener('click', ()=>{
       const name = guessInput.value;
       if(!name) { showToast('Type a name before guessing'); return; }
       handleGuessSafe(name);
-      guessInput.value='';
-      suggestionsList.style.display='none';
+      guessInput.value = '';
+      suggestionsList.style.display = 'none';
     });
 
-    document.getElementById('guessInput').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); document.getElementById('guessBtn').click(); }});
-    document.getElementById('startBtn').addEventListener('click', ()=>{ if(!gameStarted) startGame(); else { showToast('Ending round...'); revealAnswer(false,0); endRound(); } });
-
-    document.getElementById('resetBtn').addEventListener('click', ()=>{ clearGuessesTable(); guesses=[]; score=0; remaining=MAX_TRIES; gameStarted=false; document.getElementById('remaining').textContent=remaining; document.getElementById('score').textContent=score; document.getElementById('startBtn').textContent='Start Game (10 tries)'; document.getElementById('guessBtn').classList.add('disabled'); document.getElementById('guessBtn').disabled=true; updateSelectedCountryDisplay(); renderCountryText(); });
-
-    document.getElementById('btnATP').addEventListener('click', ()=>{ if(currentTour !== 'ATP' && gameStarted){ revealAnswer(false,0); endRound(); showToast('Mode changed — previous round ended'); } currentTour='ATP'; document.getElementById('tourLabel').textContent=currentTour; applyTourTheme(); });
-    document.getElementById('btnWTA').addEventListener('click', ()=>{ if(currentTour !== 'WTA' && gameStarted){ revealAnswer(false,0); endRound(); showToast('Mode changed — previous round ended'); } currentTour='WTA'; document.getElementById('tourLabel').textContent=currentTour; applyTourTheme(); });
-
-    document.querySelectorAll('.seg-btn').forEach(btn=>{ btn.addEventListener('click', (e)=>{ if(Number(e.currentTarget.dataset.top) !== levelTopN && gameStarted){ revealAnswer(false,0); endRound(); showToast('Level changed — previous round ended'); } document.querySelectorAll('.seg-btn').forEach(b=>b.classList.remove('active')); e.currentTarget.classList.add('active'); levelTopN=Number(e.currentTarget.dataset.top); document.getElementById('levelLabel').textContent=`Top ${levelTopN}`; }); });
-
-    document.getElementById('cotdToggle').addEventListener('click', ()=>{ cotdEnabled = !cotdEnabled; document.getElementById('cotdToggle').textContent = cotdEnabled ? 'ON' : 'OFF'; renderCotdBanner(); renderCountryText(); updateSelectedCountryDisplay(); });
-
-    document.getElementById('closeModalBtn').addEventListener('click', ()=>{ const modal=document.getElementById('modal'); modal.classList.remove('show'); modal.setAttribute('aria-hidden','true'); });
-    document.getElementById('playAgainBtn').addEventListener('click', ()=>{ const modal=document.getElementById('modal'); modal.classList.remove('show'); modal.setAttribute('aria-hidden','true'); startGame(); });
-
-    // enable start
-    document.getElementById('startBtn').disabled = false;
+    // initial auto-start
+    startGame();
   }catch(err){
     console && console.error && console.error(err);
     showToast('Initialization error');
@@ -693,41 +728,35 @@ document.addEventListener('DOMContentLoaded', async ()=>{
 });
 
 /* ---------------------------
-   Update selectedCountry display
-   - If COTD ON => show fixedCountry (if any)
-   - If COTD OFF and gameStarted => show target.represented_country
-   - Otherwise show '—' (do not show fixedCountry when COTD is OFF)
+   Update selectedCountry display:
+   - show country code only when COTD is ON
 ---------------------------- */
 function updateSelectedCountryDisplay(){
   const el = document.getElementById('selectedCountry');
   if(cotdEnabled){
     el.textContent = (fixedCountry || (target && target.represented_country) || '—');
   } else {
-    // do not display fixedCountry when COTD is OFF
-    if(gameStarted && target && target.represented_country){
-      el.textContent = target.represented_country;
-    } else {
-      el.textContent = '—';
-    }
+    el.textContent = '—';
   }
 }
 
 /* ---------------------------
-   Start Game
-   - If dailyList exists: target chosen from dailyMap for the exact combination
-   - If COTD ON: pick by_country for the tour
-   - Else pick top20/top100/top300 for the tour
-   - If no daily candidate: fallback to random pool
-   - activate guess button and mark gameStarted = true
+   Start Game (automatic)
+   - chooses the target (dailyMap if present) for the exact combo (tour+level) or by_country if COTD ON
+   - resets remaining and guesses, keeps score
+   - clears table and updates display
+   - clears guessedNames set
 ---------------------------- */
 function startGame(){
-  remaining = MAX_TRIES; guesses = []; // reset guesses, but keep score
+  remaining = MAX_TRIES;
+  guesses = [];
+  guessedNames.clear();          // clear exclusions at new round
   document.getElementById('remaining').textContent = remaining;
   document.getElementById('score').textContent = score;
   document.getElementById('levelLabel').textContent = `Top ${levelTopN}`;
   document.getElementById('tourLabel').textContent = currentTour;
 
-  // Decide target using dailyMap if available
+  // pick candidate from dailyMap if present
   let usedDailyCandidate = false;
   if(dailyList && dailyList.length){
     const candidate = pickTargetFromDailyMap(currentTour, levelTopN, cotdEnabled);
@@ -736,7 +765,6 @@ function startGame(){
       usedDailyCandidate = true;
       if(candidate.represented_country) fixedCountry = candidate.represented_country;
     } else {
-      // fallback: pick any candidate from dailyList for same tour
       const pool = dailyList.filter(p => (String(p.source||'').toUpperCase()) === currentTour);
       if(pool.length){
         const pick = pool[Math.floor(Math.random()*pool.length)];
@@ -754,14 +782,7 @@ function startGame(){
     if(pick.country) fixedCountry = pick.country;
   }
 
-  // Mark game started
   gameStarted = true;
-  // enable guess button
-  const guessBtn = document.getElementById('guessBtn');
-  guessBtn.classList.remove('disabled');
-  guessBtn.disabled = false;
-  // change start button to "End Round"
-  document.getElementById('startBtn').textContent = 'End Round';
   updateSelectedCountryDisplay();
   renderCotdBanner();
   renderCountryText();

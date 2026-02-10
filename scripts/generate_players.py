@@ -32,8 +32,8 @@ def main(matches_dir, out_dir, modules, limit_players=None):
     ensure_dir(idx_dir); ensure_dir(players_dir)
 
     # Try to import modules
-    mod_meta = import_module_safe('generate_player_meta') if 'meta' in modules else None
-    mod_maps = import_module_safe('generate_maps') if 'maps' in modules else None
+    mod_meta = import_module_safe('generate_player_meta_wta') if 'meta' in modules else None
+    mod_maps = import_module_safe('generate_maps_wta') if 'maps' in modules else None
 
     # If meta requested but not importable -> error (meta module is foundational)
     if 'meta' in modules and mod_meta is None:
@@ -53,7 +53,7 @@ def main(matches_dir, out_dir, modules, limit_players=None):
             sys.exit(2)
 
     # Load players_index from index/players_index.json (produced by module meta) if exists
-    players_index_path = os.path.join(idx_dir, "players_index.json")
+    players_index_path = os.path.join(idx_dir, "players_wta_index.json")
     players = []
     if os.path.exists(players_index_path):
         with open(players_index_path, 'r', encoding='utf8') as f:
@@ -115,7 +115,7 @@ def main(matches_dir, out_dir, modules, limit_players=None):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Minimal orchestrator for WTA player data generation (module runner)")
     ap.add_argument("--matches-dir", required=True, help="Directory containing matches CSV files")
-    ap.add_argument("--out-dir", default="./dist", help="Output directory for generated artifacts")
+    ap.add_argument("--out-dir", default="./docs", help="Output directory for generated artifacts")
     ap.add_argument("--modules", default="meta,maps", help="Comma-separated modules to run: meta,maps,...")
     ap.add_argument("--limit-players", type=int, default=None, help="Limit number of players to process (testing)")
     args = ap.parse_args()
