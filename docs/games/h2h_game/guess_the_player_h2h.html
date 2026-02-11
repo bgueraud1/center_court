@@ -3,564 +3,787 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Guess The Player — H2H Game</title>
+<title>Guess The Player</title>
+
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
 
 <style>
   :root{
-    --bg: #fafafa;
-    --card: #ffffff;
-    --muted: #6b7280;
-    --accent: #1f7aec;
-    --accent-600: #165fc6;
-    --shadow: 0 8px 30px rgba(16,24,40,0.06);
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-    color: #0f1724;
+    --bg1: #071226; --bg2: #081428;
+    --accent-a: rgba(31,122,236,0.06);
+    --accent-b: rgba(139,92,246,0.06);
+    --accent-strong: #1f7aec;
+    --accent-strong-wta: #8b5cf6;
+    --muted:#94a3b8; --success:#16a34a; --danger:#ef4444;
+    font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    color-scheme: dark;
   }
-  html,body { height:100%; margin:0; background:var(--bg); -webkit-font-smoothing:antialiased; }
-  .container { max-width:980px; margin:26px auto; padding:18px; }
-  .card { background:var(--card); padding:18px; border-radius:12px; box-shadow:var(--shadow); }
-  h1 { margin:0; font-size:1.4rem; }
-  p.lead { margin:6px 0 0 0; color:var(--muted); font-size:0.95rem; }
 
-  .controls { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-top:12px; }
-  .control { min-width:160px; }
-  label { display:block; font-size:0.90rem; font-weight:600; color:#122033; margin-bottom:6px; }
-  select, input[type="text"], input[type="number"], button {
-    padding:8px 10px; border-radius:10px; border:1px solid #e6edf7; font-size:14px; background:white;
-  }
-  button.primary { background:var(--accent); color:white; border:none; cursor:pointer; padding:9px 12px; border-radius:10px; box-shadow:0 6px 18px rgba(31,122,236,0.12); }
-  button.ghost { background:transparent; border:1px solid #e6edf7; color:#123; cursor:pointer; padding:8px 10px; border-radius:10px; }
+  html,body{height:100%;margin:0;background:
+    radial-gradient(1000px 600px at 10% 10%, var(--accent-a), transparent 10%),
+    radial-gradient(800px 500px at 90% 90%, var(--accent-b), transparent 10%),
+    linear-gradient(180deg, var(--bg1) 0%, var(--bg2) 100%);
+    -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;}
 
-  .meta { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
-  .chip { background:#f1f5f9; padding:8px 12px; border-radius:999px; font-weight:600; color:#26314a; font-size:0.9rem; }
+  #flagBg { position: fixed; left:0; top:0; right:0; bottom:0; background-position:center; background-size:cover; opacity:0; filter:blur(18px) contrast(0.9) saturate(0.95); transition:opacity .35s ease, transform .35s ease; z-index:0; pointer-events:none; }
+  #flagOverlay { position: fixed; left:0; top:0; right:0; bottom:0; background:linear-gradient(180deg, rgba(2,6,23,0.66), rgba(2,6,23,0.76)); opacity:0; transition:opacity .35s ease; z-index:1; pointer-events:none; }
 
-  .game-grid { display:flex; gap:18px; margin-top:18px; align-items:flex-start; }
-  .left { flex:1 1 520px; min-width:280px; }
-  .right { width:360px; min-width:260px; }
+  .wrap{max-width:1100px;margin:28px auto;padding:20px;border-radius:14px;position:relative;z-index:2;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));box-shadow: 0 8px 40px rgba(2,6,23,0.6); border: 1px solid rgba(255,255,255,0.03);}
 
-  .panel { background:#fbfdff; border-radius:10px; padding:12px; border:1px solid #edf4ff; }
-  .small { font-size:0.92rem; color:var(--muted); }
+  header{display:flex;align-items:center;gap:16px}
+  h1{margin:0;font-weight:800;color: #eef2ff; font-size:1.25rem}
+  .sub{color:var(--muted);font-size:0.9rem}
 
-  .input-row { display:flex; gap:8px; margin-top:8px; align-items:center; }
-  input.big { flex:1; padding:10px 12px; font-size:14px; border-radius:10px; border:1px solid #e6edf7; }
+  .controls{display:flex;gap:16px;flex-wrap:wrap;margin-top:18px;align-items:center}
+  .card{background:transparent;padding:12px;border-radius:12px}
+  .segment{display:flex;background:transparent;border-radius:10px;padding:4px;gap:6px}
+  .seg-btn{padding:8px 12px;border-radius:8px;border:none;color:var(--muted);cursor:pointer;font-weight:600;background:transparent;transition:all .18s ease}
+  .seg-btn.active{color:white; box-shadow:0 6px 18px rgba(2,6,23,0.6); transform:translateY(-2px)}
 
-  table { width:100%; border-collapse:collapse; margin-top:12px; font-size:14px; }
-  th, td { padding:10px 8px; border-bottom:1px solid #eef3fb; text-align:left; vertical-align:middle; }
-  thead th { color:#344154; font-weight:700; font-size:13px; }
-  tbody tr.correct { background:#e8fff0; }
+  .tour-toggle{display:flex;gap:6px}
+  .tour-btn{min-width:72px;padding:8px 12px;border-radius:999px;border:1px solid rgba(255,255,255,0.03);cursor:pointer;font-weight:700;background:transparent;color:var(--muted)}
+  .tour-btn.active.atp{background:linear-gradient(180deg, rgba(31,122,236,0.14), rgba(31,122,236,0.06)); color: #cfe8ff}
+  .tour-btn.active.wta{background:linear-gradient(180deg, rgba(139,92,246,0.14), rgba(139,92,246,0.06)); color: #efe6ff}
 
-  .h2h-area { margin-top:12px; }
-  .h2h-card { background:white; border-radius:8px; padding:10px; border:1px solid #eef4ff; }
+  .cotd-banner{display:flex;align-items:center;gap:12px;padding:12px;border-radius:10px}
+  .cotd-flag{width:72px;height:48px;border-radius:8px;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center}
 
-  .status { margin-top:10px; color:var(--muted); }
+  .game-meta{display:flex;gap:12px;flex-wrap:wrap;margin-top:18px}
+  .chip{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));padding:8px 12px;border-radius:999px;color:var(--muted);font-weight:600;border:1px solid rgba(255,255,255,0.02)}
+  .chip strong {color:#fff}
 
-  .reveal { margin-top:12px; padding:12px; border-radius:10px; background:#f8fff4; border:1px solid #e3f6df; color:#0d6b2b; font-weight:700; }
+  .input-row{display:flex;gap:8px;align-items:center;margin-top:12px}
+  input[type="text"]{padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#fff;min-width:360px}
+  button.primary{padding:10px 14px;border-radius:10px;border:none;background:var(--accent-strong);color:white;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(31,122,236,0.12)}
+  button.primary.wta{background:var(--accent-strong-wta);box-shadow:0 8px 24px rgba(139,92,246,0.12)}
+  button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted);padding:8px 10px;border-radius:8px;cursor:pointer}
 
-  .muted-note { color:var(--muted); font-size:0.92rem; margin-top:8px; }
+  .suggestions{position:relative}
+  .suggestions-list{position:absolute;left:0;top:44px;width:100%;max-height:220px;overflow:auto;background:linear-gradient(180deg,#0b1220,#071025);border-radius:8px;border:1px solid rgba(255,255,255,0.04);z-index:80;box-shadow:0 10px 40px rgba(2,6,23,0.6)}
+  .suggestions-list li{list-style:none;padding:8px 10px;color:#e6eef8;cursor:pointer;border-bottom:1px dashed rgba(255,255,255,0.02)}
+  .suggestions-list li:hover, .suggestions-list li.highlight{ background: rgba(255,255,255,0.02); color: #fff; }
 
-  @media (max-width:880px){
-    .game-grid { flex-direction:column; }
-    .right { width:100%; }
-  }
+  table{width:100%;border-collapse:collapse;margin-top:14px;color:#e6eef8}
+  th,td{padding:12px;text-align:left;border-bottom:1px dashed rgba(255,255,255,0.03);font-size:0.95rem}
+  thead th{color:var(--muted);font-weight:700}
+  tr.good td{background:linear-gradient(90deg, rgba(22,163,74,0.06), transparent)}
+  .country-good{background:linear-gradient(90deg, rgba(22,163,74,0.06), transparent); color: var(--success); font-weight:700; padding:6px 8px; border-radius:8px; display:inline-block}
+  .country-bad{background:linear-gradient(90deg, rgba(239,68,68,0.06), transparent); color: var(--danger); font-weight:700; padding:6px 8px; border-radius:8px; display:inline-block}
+
+  .icon {vertical-align:middle;width:18px;height:18px;display:inline-block}
+  .tick {width:18px;height:18px;vertical-align:middle}
+
+  .modal {position:fixed;left:0;top:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg, rgba(2,6,23,0.6), rgba(2,6,23,0.8));z-index:200;opacity:0;pointer-events:none;transition:opacity .18s ease}
+  .modal.show{opacity:1;pointer-events:auto}
+  .modal-card{background:linear-gradient(180deg, rgba(11,17,32,0.98), rgba(8,12,23,0.96));padding:26px;border-radius:16px;max-width:680px;width:94%;box-shadow:0 30px 80px rgba(2,6,23,0.8);border:1px solid rgba(255,255,255,0.03);text-align:center}
+
+  .country-text{margin-top:14px;padding:16px;border-radius:12px;background:rgba(0,0,0,0.5);backdrop-filter:blur(6px);color:#fff;border:1px solid rgba(255,255,255,0.04)}
+  .country-text h3{margin:0 0 6px 0}
+  .country-text p{margin:6px 0;font-style:italic;color:#f0f6ff}
+  .country-text .para-subtitle{font-weight:700;margin-top:8px;margin-bottom:4px}
+
+  .toast{position:fixed;right:18px;bottom:18px;background:rgba(0,0,0,0.7);color:#fff;padding:10px 14px;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,0.6);display:none;z-index:220}
+
+  @media (max-width:880px){ input[type="text"]{min-width:200px} .chip{font-size:0.85rem} th,td{padding:8px;font-size:0.9rem} }
 </style>
 </head>
 <body>
-  <div class="container">
-    <div class="card">
-      <h1>Guess The Player — H2H</h1>
-      <p class="lead">Guess the hidden player. Enter a name (autocomplete available), then submit — the H2H between your guess and the hidden player will be displayed according to the difficulty level.</p>
+  <div id="flagBg" aria-hidden="true"></div>
+  <div id="flagOverlay" aria-hidden="true"></div>
 
-      <div class="controls" aria-hidden="false">
-        <div class="control">
-          <label for="modeSelect">Mode</label>
-          <select id="modeSelect" aria-label="Mode">
-            <option value="atp">ATP</option>
-            <option value="wta">WTA</option>
-          </select>
-        </div>
+  <div class="wrap">
+    <header>
+      <div><h1>Guess the Player</h1><div class="sub">Compare age, career best rank, birthplace distance and height.</div></div>
+    </header>
 
-        <div class="control">
-          <label for="levelSelect">Level</label>
-          <select id="levelSelect" aria-label="Level">
-            <option value="easy">Easy</option>
-            <option value="medium">Medium</option>
-            <option value="hard">Hard</option>
-          </select>
-        </div>
+    <div class="controls" style="margin-top:18px">
+      <div class="card tour-toggle" style="padding:10px 12px">
+        <button id="btnATP" class="tour-btn active atp" data-tour="ATP">ATP</button>
+        <button id="btnWTA" class="tour-btn wta" data-tour="WTA">WTA</button>
+      </div>
 
-        <div class="control">
-          <label for="maxGuesses">Max guesses</label>
-          <input id="maxGuesses" type="number" min="1" max="30" value="8" />
-        </div>
-
-        <div style="margin-left:auto; align-self:end">
-          <button id="loadBtn" class="primary">Load target</button>
-          <button id="revealBtn" class="ghost" title="Reveal target (for testing)">Reveal</button>
+      <div class="card" style="padding:8px 10px">
+        <div id="difficultySegment" class="segment" role="tablist" aria-label="difficulty">
+          <button class="seg-btn active" data-top="20" id="d20">Top 20</button>
+          <button class="seg-btn" data-top="100" id="d100">Top 100</button>
+          <button class="seg-btn" data-top="300" id="d300">Top 300</button>
         </div>
       </div>
 
-      <div class="meta" aria-hidden="false">
-        <div class="chip" id="levelChip">Level: —</div>
-        <div class="chip" id="remainingChip">Guesses: —</div>
-        <div class="chip" id="scoreChip">Score: 0</div>
+      <div class="card" style="padding:8px 10px;display:flex;gap:10px;align-items:center">
+        <label style="color:var(--muted);font-weight:700;margin:0 6px 0 0">Country of the Day</label>
+        <button id="cotdToggle" class="ghost">OFF</button>
+      </div>
+
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+        <div class="chip">Mode auto-starts on change</div>
       </div>
     </div>
 
-    <div class="game-grid">
-      <div class="left">
-        <div class="panel">
-          <div class="small">Type a player name (autocomplete uses <code>/tools/players_catalog.json</code>)</div>
-          <div class="input-row">
-            <input id="guessInput" class="big" list="playersList" placeholder="e.g. Novak Djokovic" autocomplete="off" />
-            <datalist id="playersList"></datalist>
-            <button id="guessBtn" class="primary">Submit</button>
+    <div id="cotdBanner" class="card cotd-banner" style="margin-top:14px;display:none">
+      <div class="cotd-flag" id="cotdFlag"></div>
+      <div><div class="cotd-title" id="cotdName">Country of the Day</div><div style="color:var(--muted);font-size:0.9rem" id="cotdSub">Players for this round are selected from this country when available.</div></div>
+    </div>
+
+    <div class="game-meta" style="margin-top:18px">
+      <div class="chip">Level: <strong id="levelLabel">Top 20</strong></div>
+      <div class="chip">Tour: <strong id="tourLabel">ATP</strong></div>
+      <div class="chip">Country: <strong id="selectedCountry">—</strong></div>
+      <div class="chip">Remaining: <strong id="remaining">10</strong></div>
+      <div class="chip">Score: <strong id="score">0</strong></div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <div class="input-row">
+        <div style="flex:1;position:relative">
+          <div class="suggestions" style="width:100%">
+            <input id="guessInput" type="text" placeholder="Type a player name..." autocomplete="off" />
+            <ul id="suggestionsList" class="suggestions-list" style="display:none"></ul>
           </div>
-
-          <div id="status" class="status">Target not loaded.</div>
-
-          <div id="h2hArea" class="h2h-area" aria-live="polite"></div>
         </div>
-
-        <div class="panel" style="margin-top:12px">
-          <div class="small">Guess history</div>
-          <table>
-            <thead><tr><th>#</th><th>Guessed</th><th>Result</th><th>Note</th></tr></thead>
-            <tbody id="guessesTbody"></tbody>
-          </table>
-        </div>
+        <button id="guessBtn" class="primary">Guess</button>
       </div>
 
-      <div class="right">
-        <div class="panel">
-          <h3 style="margin:0 0 8px 0">Target (hidden)</h3>
-          <div class="small">The target is chosen from <code>/selected_players.json</code> according to your selected mode & level.</div>
-          <div style="margin-top:12px">
-            <div class="chip" id="targetMeta">—</div>
-          </div>
+      <div style="margin-top:10px;color:var(--muted);font-size:0.95rem">
+        <span id="preloadStatus">H2H preload: idle</span>
+      </div>
 
-          <div style="margin-top:12px">
-            <button id="resetBtn" class="ghost">Reset page</button>
-            <button id="revealAnswerBtn" class="ghost" style="margin-left:8px">Show target</button>
-          </div>
-        </div>
+      <table id="guessesTable" aria-live="polite" style="margin-top:14px">
+        <thead>
+          <tr><th>#</th><th>Guessed name</th><th>Age</th><th>Career best</th><th>Country</th><th>Birthplace (km)</th><th>Height (cm)</th><th>Right-handed</th><th>Two-handed BH</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
 
-        <div class="panel" style="margin-top:12px">
-          <div class="small">Notes</div>
-          <div class="muted-note">By default: ATP / easy. Change mode/level to reload the page with the new target. H2H files are expected under <code>/data/h2h/{id}_{id}.json</code>.</div>
-        </div>
+      <div id="countryText" class="country-text" style="display:none"></div>
+    </div>
+  </div>
+
+  <div id="modal" class="modal" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="modal-card">
+      <div class="big-check" id="modalIcon"><svg width="56" height="56" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" stroke="rgba(22,163,74,0.35)" stroke-width="2" fill="transparent"/><path d="M6 12.2l3.1 3.1L18 6.4" stroke="#16a34a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      <h2 id="modalTitle">Round result</h2>
+      <p id="modalText" style="color:var(--muted)">Details below.</p>
+      <div id="modalDetails" style="margin-top:12px;color:#e8f4ea"></div>
+      <div style="margin-top:18px;display:flex;gap:12px;justify-content:center">
+        <button id="closeModalBtn" class="ghost">Close</button>
       </div>
     </div>
   </div>
 
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
 <script>
-/*
-  H2H Game (English)
-  - Loads /selected_players.json
-  - Loads /tools/players_catalog.json (structure: { ..., players: [ { full_name, player_id, ... }, ... ] })
-  - Default: mode=atp, level=easy (query params supported)
-  - Autocomplete comes from players_catalog.json
-  - Guesses use player_id from catalog to fetch /data/h2h/{guessId}_{targetId}.json or reversed
-  - Renders according to level:
-      easy   -> aggregated wins
-      medium -> aggregated + per-surface counts
-      hard   -> full match list
-  - No debug logs printed to UI
-*/
+/* ---------------------------
+  Configuration & globals
+---------------------------- */
+const PLAYERS_CATALOG_JSON = '/tools/players_catalog.json';
+const GEOCODES_JSON = '/tools/geocodes_combined.json';
+const DAILY_GUESS_PATH = '/tools/daily_guess.json';
+const H2H_BASE = '/data/h2h/'; // expects files like /data/h2h/A0E2_B1234.json
+const INDEX_CANDIDATES = [
+  `${H2H_BASE}index.json`,
+  `${H2H_BASE}indexes.json`,
+  `${H2H_BASE}index_by_player/`, // we'll try index_by_player/{id}.json
+  `${H2H_BASE}` // fallback we'll try {id}_index.json
+];
 
-(async function(){
-  // DOM elements
-  const modeSelect = document.getElementById('modeSelect');
-  const levelSelect = document.getElementById('levelSelect');
-  const loadBtn = document.getElementById('loadBtn');
-  const revealBtn = document.getElementById('revealBtn');
-  const guessBtn = document.getElementById('guessBtn');
-  const guessInput = document.getElementById('guessInput');
-  const playersListEl = document.getElementById('playersList');
-  const statusEl = document.getElementById('status');
-  const h2hArea = document.getElementById('h2hArea');
-  const guessesTbody = document.getElementById('guessesTbody');
-  const levelChip = document.getElementById('levelChip');
-  const remainingChip = document.getElementById('remainingChip');
-  const scoreChip = document.getElementById('scoreChip');
-  const targetMeta = document.getElementById('targetMeta');
-  const resetBtn = document.getElementById('resetBtn');
-  const revealAnswerBtn = document.getElementById('revealAnswerBtn');
+let players = [];            // full catalog array (from players_catalog.json)
+let geocodes = {};          // optional geocodes mapping
+let dailyGuessData = null;  // optional daily
+let countryTexts = {};
+let dailyMap = {};
+let dailyList = [];
 
-  // state
-  let selectedPlayers = null;
-  let catalog = []; // normalized players array {full_name, player_id, ...}
-  let target = null; // chosen target object from selected_players.json
-  let h2hCache = {}; // key "idA_idB" -> json
-  let remaining = 8;
-  let score = 0;
+let target = null;
+let currentTour = 'ATP';
+let levelTopN = 20;
+let cotdEnabled = false;
+let fixedCountry = null;
+let guesses = [];
+let guessedNames = new Set();
+let remaining = 10;
+let score = 0;
+let gameStarted = false;
 
-  function getQueryParams(){
-    const q = new URLSearchParams(location.search);
-    return { mode: q.get('mode') || 'atp', level: q.get('level') || 'easy' };
-  }
-  function setQueryParams(mode, level){
-    const q = new URLSearchParams({ mode, level });
-    location.search = q.toString();
-  }
+let h2hCache = {}; // key "idA_idB" -> json object
+let h2hFoundCount = 0;
 
-  // initialize selects from URL
-  const qp = getQueryParams();
-  modeSelect.value = qp.mode;
-  levelSelect.value = qp.level;
+/* ---------------------------
+  UTILITIES
+---------------------------- */
+function showToast(msg, t=2000){
+  const el = document.getElementById('toast'); el.textContent = msg; el.style.display='block';
+  setTimeout(()=> el.style.display='none', t);
+}
+function normName(s){ if(!s) return ''; return s.normalize ? s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase() : s.toLowerCase(); }
+function tryParseDate(s){ if(!s) return null; const d = new Date(s); if(!isNaN(d)) return d; const clean = s.replace(/\s+/g,' ').split(' ')[0]; const d2 = new Date(clean); return isNaN(d2) ? null : d2; }
+function calcAge(s){ const d = tryParseDate(s); if(!d) return null; const t = new Date(); let a = t.getFullYear()-d.getFullYear(); const m = t.getMonth() - d.getMonth(); if(m<0 || (m===0 && t.getDate()<d.getDate())) a--; return a; }
+function parseRank(v){ if(v===undefined||v===null||v===''||v==='-') return Infinity; const n = Number(String(v).replace(/[^\d.-]/g,'')); return isNaN(n)?Infinity:n; }
+function escapeHtml(s){ if(s===undefined||s===null) return ''; return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m]); }
 
-  // when user changes mode/level, reload page with params
-  modeSelect.addEventListener('change', ()=> setQueryParams(modeSelect.value, levelSelect.value));
-  levelSelect.addEventListener('change', ()=> setQueryParams(modeSelect.value, levelSelect.value));
-
-  // utility: safe fetch json
-  async function fetchJson(path){
-    const r = await fetch(path, { cache: 'no-cache' });
-    if(!r.ok) throw new Error('Fetch failed ' + path);
+/* safe fetch json */
+async function fetchJson(path){
+  try{
+    const r = await fetch(path, {cache:'no-cache'});
+    if(!r.ok) return null;
     return await r.json();
-  }
+  }catch(e){ return null; }
+}
 
-  // load selected_players.json
-  async function loadSelectedPlayers(){
-    const data = await fetchJson('/selected_players.json');
-    selectedPlayers = data;
-  }
-
-  // load players catalog and normalize
-  async function loadPlayersCatalog(){
-    try {
-      const raw = await fetchJson('/tools/players_catalog.json');
-      // expected shape: { ..., players: [ {...}, ... ] }
-      if(Array.isArray(raw.players)) {
-        catalog = raw.players.map(p => ({
-          player_id: String(p.player_id || p.playerId || p.id || '').trim(),
-          full_name: String(p.full_name || p.fullName || p.name || '').trim(),
-          represented_country: p.represented_country || p.representedCountry || p.country || null,
-          raw: p
-        })).filter(x => x.player_id && x.full_name);
-      } else if(Array.isArray(raw)){
-        // fallback: file is an array
-        catalog = raw.map(p => ({
-          player_id: String(p.player_id || p.id || '').trim(),
-          full_name: String(p.full_name || p.name || '').trim(),
-          represented_country: p.represented_country || p.country || null,
-          raw: p
-        })).filter(x => x.player_id && x.full_name);
-      } else {
-        catalog = [];
+/* ---------------------------
+  Load required JSONs (catalog, geocodes, daily)
+---------------------------- */
+async function loadCatalog(){
+  const obj = await fetchJson(PLAYERS_CATALOG_JSON);
+  if(!obj || !Array.isArray(obj.players)) return false;
+  players = obj.players.map(p => {
+    const copy = Object.assign({}, p);
+    copy.age = (typeof copy.age === 'undefined' || copy.age === null) ? calcAge(copy.birth_date) : copy.age;
+    copy.rank = (typeof copy.rank !== 'undefined' && copy.rank !== null) ? parseRank(copy.rank) : Infinity;
+    copy.height_cm = (typeof copy.height_cm === 'undefined' || copy.height_cm === null) ? null : Number(copy.height_cm);
+    copy.right_handed = (typeof copy.right_handed === 'undefined') ? (copy.plays ? String(copy.plays).toLowerCase().includes('right') : null) : copy.right_handed;
+    copy.two_handed = (typeof copy.two_handed === 'undefined') ? (copy.backhand ? String(copy.backhand).toLowerCase().includes('two') : null) : copy.two_handed;
+    return copy;
+  });
+  return true;
+}
+async function loadGeocodes(){ const g = await fetchJson(GEOCODES_JSON); if(!g) { geocodes = {}; return false } geocodes = g.geocode || g; return true; }
+async function loadDaily(){ const d = await fetchJson(DAILY_GUESS_PATH); if(!d) { dailyGuessData=null; dailyMap={}; dailyList=[]; return null; } dailyGuessData = d; buildDailyMaps(); return true; }
+function buildDailyMaps(){
+  dailyMap = {};
+  dailyList = [];
+  if(!dailyGuessData) return;
+  // try generic structure: dailyGuessData.ATP.top20.chosen etc (adapt to common shapes)
+  const tours = ['ATP','WTA'];
+  const slots = ['top20','top100','top300','by_country'];
+  tours.forEach(t => {
+    slots.forEach(s => {
+      const v = (dailyGuessData[t] && dailyGuessData[t][s] && dailyGuessData[t][s].chosen) ? dailyGuessData[t][s].chosen : null;
+      if(v) {
+        dailyMap[`${t}_${s}`] = v;
+        // add unique to dailyList
+        const exist = dailyList.find(x => (x.player_id && v.player_id && String(x.player_id) === String(v.player_id)) || (x.full_name && v.full_name && x.full_name.trim().toLowerCase() === v.full_name.trim().toLowerCase()));
+        if(!exist) dailyList.push(v);
       }
-    } catch(e){
-      catalog = [];
-    }
-    buildDatalist();
-  }
+    });
+  });
+  // try by_country countries
+  const atpc = dailyGuessData.ATP && dailyGuessData.ATP.by_country && dailyGuessData.ATP.by_country.country;
+  const wtac = dailyGuessData.WTA && dailyGuessData.WTA.by_country && dailyGuessData.WTA.by_country.country;
+  fixedCountry = atpc || wtac || null;
+}
 
-  function buildDatalist(){
-    playersListEl.innerHTML = '';
-    // dedupe
-    const seen = new Set();
-    const names = [];
-    for(const p of catalog){
-      const n = p.full_name;
-      if(n && !seen.has(n)){
-        seen.add(n);
-        names.push(n);
+/* ---------------------------
+  Autocomplete suggestions
+---------------------------- */
+const guessInput = document.getElementById('guessInput');
+const suggestionsList = document.getElementById('suggestionsList');
+let suggestionPool = [];
+let suggestionIndex = -1;
+
+function updateSuggestions(){
+  const q = (guessInput.value || '').trim().toLowerCase();
+  if(q.length < 2){ suggestionsList.style.display='none'; suggestionPool = []; return; }
+  // prefer same tour
+  let pool = players.filter(p => String((p.source || (p._raw_row && p._raw_row._source) || '')).toUpperCase() === currentTour).filter(p => p.full_name && p.full_name.toLowerCase().includes(q));
+  if(pool.length === 0) pool = players.filter(p => p.full_name && p.full_name.toLowerCase().includes(q));
+  pool = pool.filter(p => !guessedNames.has((p.full_name || '').trim())).slice(0, 60);
+  suggestionPool = pool;
+  renderSuggestions(pool);
+}
+
+function renderSuggestions(list){
+  suggestionsList.innerHTML = '';
+  suggestionIndex = -1;
+  if(!list || !list.length){ suggestionsList.style.display='none'; return; }
+  const max = Math.min(12, list.length);
+  for(let i=0;i<max;i++){
+    const pl = list[i];
+    const li = document.createElement('li');
+    li.textContent = `${pl.full_name}${pl.represented_country ? ' — ' + pl.represented_country : ''}`;
+    li.dataset.idx = i;
+    li.onclick = () => { guessInput.value = pl.full_name; suggestionsList.style.display='none'; guessInput.focus(); };
+    li.onmouseover = () => { Array.from(suggestionsList.children).forEach(n=>n.classList.remove('highlight')); li.classList.add('highlight'); suggestionIndex = i; };
+    suggestionsList.appendChild(li);
+  }
+  suggestionsList.style.display='block';
+}
+
+guessInput.addEventListener('input', updateSuggestions);
+guessInput.addEventListener('focus', updateSuggestions);
+document.addEventListener('click', (e) => { if(!document.querySelector('.suggestions')?.contains(e.target)) suggestionsList.style.display='none'; });
+
+guessInput.addEventListener('keydown', (e) => {
+  if(suggestionsList.style.display === 'block'){
+    const items = suggestionsList.children;
+    if(e.key === 'ArrowDown'){ e.preventDefault(); suggestionIndex = Math.min(suggestionIndex+1, items.length-1); highlightSuggestion(); }
+    else if(e.key === 'ArrowUp'){ e.preventDefault(); suggestionIndex = Math.max(suggestionIndex-1, 0); highlightSuggestion(); }
+    else if(e.key === 'Enter'){ if(suggestionIndex >= 0){ e.preventDefault(); const sel = suggestionPool[suggestionIndex]; if(sel){ guessInput.value = sel.full_name; suggestionsList.style.display='none'; handleGuessSafe(sel.full_name); } } }
+  }
+});
+function highlightSuggestion(){
+  const items = suggestionsList.children;
+  for(let i=0;i<items.length;i++) items[i].classList.toggle('highlight', i === suggestionIndex);
+}
+
+/* ---------------------------
+  Find player in catalog by name
+---------------------------- */
+function findPlayerByName(name){
+  if(!name) return null;
+  const q = normName(name.trim());
+  let p = players.find(x => x.player_id && String(x.player_id).toLowerCase() === name.trim().toLowerCase());
+  if(p) return p;
+  p = players.find(x => x.full_name && normName(x.full_name) === q);
+  if(p) return p;
+  p = players.find(x => x.full_name && normName(x.full_name).startsWith(q));
+  if(p) return p;
+  p = players.find(x => x.full_name && normName(x.full_name).includes(q));
+  return p || null;
+}
+
+/* ---------------------------
+  H2H fetching and preloading
+  Strategy:
+   1) try server-side index files:
+        /data/h2h/index.json
+        /data/h2h/index_by_player/{id}.json
+        /data/h2h/{id}_index.json
+   2) if found, load the opponent ids listed there
+   3) else, fallback to scanning players catalog and attempt both filename orders for each player (throttled)
+  Implementation notes:
+   - concurrencyLimit controls parallel fetches
+   - the function updates #preloadStatus with progress
+---------------------------- */
+
+async function tryFetchIndexForTarget(targetId){
+  // try canonical index paths
+  const candidates = [
+    `${H2H_BASE}index.json`,
+    `${H2H_BASE}indexes.json`,
+    `${H2H_BASE}index_by_player/${encodeURIComponent(targetId)}.json`,
+    `${H2H_BASE}${encodeURIComponent(targetId)}_index.json`,
+    `${H2H_BASE}index_${encodeURIComponent(targetId)}.json`
+  ];
+  for(const path of candidates){
+    try{
+      const j = await fetchJson(path);
+      if(j){
+        // Expect either array of opponent ids or mapping; normalize to array of ids
+        if(Array.isArray(j)) return j.map(x => String(x));
+        if(j.opponents && Array.isArray(j.opponents)) return j.opponents.map(x => String(x));
+        // if mapping with keys of filenames, extract opponent ids
+        if(typeof j === 'object'){
+          const ids = [];
+          // case: { "A0E2_XXXX.json": {...}, ... }
+          Object.keys(j).forEach(k => {
+            const k2 = k.replace(/\.json$/i,'');
+            const parts = k2.split('_');
+            const opp = parts[0]===targetId ? parts[1] : (parts[1]===targetId ? parts[0] : null);
+            if(opp) ids.push(opp);
+          });
+          if(ids.length) return [...new Set(ids)];
+        }
       }
-    }
-    names.sort((a,b)=> a.localeCompare(b));
-    for(const name of names){
-      const opt = document.createElement('option');
-      opt.value = name;
-      playersListEl.appendChild(opt);
-    }
+    }catch(e){}
   }
+  return null;
+}
 
-  // find player id by name (exact or substring)
-  function findIdByName(name){
-    if(!name) return null;
-    const q = name.trim().toLowerCase();
-    let found = catalog.find(p => p.full_name.toLowerCase() === q);
-    if(found) return found.player_id;
-    found = catalog.find(p => p.full_name.toLowerCase().includes(q));
-    return found ? found.player_id : null;
-  }
+// fetch single h2h file trying both orders; return json or null
+async function fetchH2HTryBoth(targetId, oppId){
+  const k1 = `${targetId}_${oppId}.json`;
+  const k2 = `${oppId}_${targetId}.json`;
+  const p1 = `${H2H_BASE}${k1}`;
+  const p2 = `${H2H_BASE}${k2}`;
+  // check cache keys
+  const cacheKey1 = `${targetId}_${oppId}`, cacheKey2 = `${oppId}_${targetId}`;
+  if(h2hCache[cacheKey1]) return h2hCache[cacheKey1];
+  if(h2hCache[cacheKey2]) return h2hCache[cacheKey2];
+  // try both
+  try{
+    let r = await fetch(p1, {cache:'no-cache'});
+    if(r.ok){ const j = await r.json(); h2hCache[cacheKey1] = j; h2hFoundCount++; return j; }
+  }catch(e){}
+  try{
+    let r2 = await fetch(p2, {cache:'no-cache'});
+    if(r2.ok){ const j = await r2.json(); h2hCache[cacheKey2] = j; h2hFoundCount++; return j; }
+  }catch(e){}
+  return null;
+}
 
-  // pick target from selected_players.json based on mode+level
-  function pickTarget(mode, level){
-    if(!selectedPlayers) return null;
-    const arr = selectedPlayers[mode] || [];
-    const item = arr.find(x => x.level === level);
-    return item ? item.player : null;
-  }
-
-  // preload H2H for target against other selected players (only the 5 other selected players)
-  async function preloadH2HForTarget(targetId){
-    if(!selectedPlayers) return;
-    const all = [];
-    (selectedPlayers.atp || []).forEach(x => { if(x.player && x.player.player_id) all.push(String(x.player.player_id)); });
-    (selectedPlayers.wta || []).forEach(x => { if(x.player && x.player.player_id) all.push(String(x.player.player_id)); });
-    const uniq = Array.from(new Set(all)).filter(id => id !== targetId);
-    for(const opp of uniq){
-      try{ await fetchH2H(targetId, opp, true); } catch(e){ /* ignore */ }
-    }
-  }
-
-  // fetch H2H trying both orderings, cache result
-  async function fetchH2H(idA, idB, cacheOnly=false){
-    const k1 = `${idA}_${idB}`, k2 = `${idB}_${idA}`;
-    if(h2hCache[k1]) return h2hCache[k1];
-    if(h2hCache[k2]) return h2hCache[k2];
-    const p1 = `/data/h2h/${k1}.json`, p2 = `/data/h2h/${k2}.json`;
-    for(const p of [p1,p2]){
+// batch fetch opponents list with concurrency limit
+async function batchFetchOpponents(targetId, oppIds, concurrency = 12){
+  const total = oppIds.length;
+  let done = 0;
+  document.getElementById('preloadStatus').textContent = `H2H preload: 0/${total} (found 0)`;
+  const q = [...oppIds];
+  async function worker(){
+    while(q.length){
+      const opp = q.shift();
       try{
-        const r = await fetch(p);
-        if(!r.ok) continue;
-        const j = await r.json();
-        const key = p.includes(k1) ? k1 : k2;
-        h2hCache[key] = j;
-        return j;
+        await fetchH2HTryBoth(targetId, opp);
       }catch(e){}
+      done++;
+      document.getElementById('preloadStatus').textContent = `H2H preload: ${done}/${total} (found ${h2hFoundCount})`;
+      // tiny pause to be gentle
+      await new Promise(r => setTimeout(r, 20));
     }
-    if(cacheOnly) throw new Error('not found');
-    throw new Error('H2H not found');
+  }
+  const workers = [];
+  for(let i=0;i<concurrency;i++) workers.push(worker());
+  await Promise.all(workers);
+  document.getElementById('preloadStatus').textContent = `H2H preload done — found ${h2hFoundCount} file(s) for ${targetId}`;
+  return;
+}
+
+async function preloadAllH2HForTarget(targetId){
+  h2hFoundCount = 0;
+  // reset cache progress UI
+  document.getElementById('preloadStatus').textContent = 'H2H preload: discovering...';
+
+  // 1) index
+  const indexOpps = await tryFetchIndexForTarget(targetId);
+  if(indexOpps && indexOpps.length){
+    // normalize
+    const opps = indexOpps.map(x => String(x)).filter(x => x && x !== targetId);
+    document.getElementById('preloadStatus').textContent = `H2H preload: index found — ${opps.length} opponents`;
+    await batchFetchOpponents(targetId, opps, 14);
+    return;
   }
 
-  // rendering helpers
-  function renderEasy(h2h){
-    if(!h2h) return `<div class="h2h-card">No H2H data available.</div>`;
-    const p1 = (h2h.aggregates && h2h.aggregates.player1) || {};
-    const p2 = (h2h.aggregates && h2h.aggregates.player2) || {};
-    const n1 = (h2h.player1 && h2h.player1.full_name) || '';
-    const n2 = (h2h.player2 && h2h.player2.full_name) || '';
-    const total = (h2h.meta && h2h.meta.total_matches) || ((p1.h2h_wins||0)+(p2.h2h_wins||0));
-    return `<div class="h2h-card">
-      <div style="font-weight:700;margin-bottom:6px">Head-to-head</div>
-      <div>${escapeHtml(n1)}: <strong>${p1.h2h_wins||0}</strong></div>
-      <div>${escapeHtml(n2)}: <strong>${p2.h2h_wins||0}</strong></div>
-      <div class="small muted-note" style="margin-top:8px">Total matches: ${total}</div>
-    </div>`;
+  // 2) fallback: if dailyList contains many opponents, use dailyList first
+  const dailyOpps = dailyList.map(p => String(p.player_id)).filter(x => x && x !== targetId);
+  if(dailyOpps.length){
+    document.getElementById('preloadStatus').textContent = `H2H preload: using daily candidates (${dailyOpps.length})`;
+    await batchFetchOpponents(targetId, dailyOpps, 12);
+    // continue to scanning catalog for completeness (but warn)
   }
 
-  function renderMedium(h2h){
-    if(!h2h) return renderEasy(null);
-    const matches = Array.isArray(h2h.matches) ? h2h.matches : [];
-    const grouped = {};
-    matches.forEach(m => {
-      const s = (m.surface || 'Unknown');
-      if(!grouped[s]) grouped[s]=[];
-      grouped[s].push(m);
-    });
-    let html = renderEasy(h2h);
-    html += `<div class="h2h-card" style="margin-top:8px"><div style="font-weight:700;margin-bottom:6px">By surface</div>`;
-    if(Object.keys(grouped).length===0) html += `<div class="small muted-note">No detailed matches available.</div>`;
-    for(const s of Object.keys(grouped)){
-      const wins1 = grouped[s].filter(m => m.player_id_winner === (h2h.player1 && h2h.player1.id)).length;
-      const wins2 = grouped[s].filter(m => m.player_id_winner === (h2h.player2 && h2h.player2.id)).length;
-      html += `<div style="margin-left:8px;margin-top:6px"><strong>${escapeHtml(s)}</strong>: ${wins1} - ${wins2} (${grouped[s].length})</div>`;
-    }
-    html += `</div>`;
-    return html;
-  }
+  // 3) final fallback: scan catalog (this may be large). We attempt all player IDs from catalog excluding target.
+  const oppIds = players.map(p => String(p.player_id)).filter(id => id && id !== targetId);
+  document.getElementById('preloadStatus').textContent = `H2H preload: scanning catalog (${oppIds.length}) — this may take a while`;
+  // to avoid flooding networks, we chunk into smaller batches and allow user to see progress.
+  // use concurrency param lower for catalog
+  await batchFetchOpponents(targetId, oppIds, 10);
+}
 
-  function renderHard(h2h){
-    if(!h2h) return renderEasy(null);
-    const matches = Array.isArray(h2h.matches) ? h2h.matches.slice().sort((a,b)=> (a.match_date||'').localeCompare(b.match_date||'')) : [];
-    if(matches.length===0) return `<div class="h2h-card">No match details available.</div>`;
-    let html = `<div class="h2h-card"><div style="font-weight:700;margin-bottom:8px">Matches (${matches.length})</div><div style="max-height:320px;overflow:auto">`;
-    html += `<table style="width:100%"><thead><tr><th>Date</th><th>Tournament</th><th>Surface</th><th>Round</th><th>Score</th></tr></thead><tbody>`;
-    matches.forEach(m=>{
-      html += `<tr>
-        <td>${escapeHtml(m.match_date||m.start_date||'')}</td>
-        <td>${escapeHtml((m.tourney_name||m.event_id||'') + ' ' + (m.event_year||''))}</td>
-        <td>${escapeHtml(m.surface||'')}</td>
-        <td>${escapeHtml(m.round||'')}</td>
-        <td>${escapeHtml(m.score_string||'')}</td>
-      </tr>`;
-    });
-    html += `</tbody></table></div></div>`;
-    return html;
-  }
+/* ---------------------------
+  Guess logic & UI update
+---------------------------- */
+function clearGuessesTable(){ document.querySelector('#guessesTable tbody').innerHTML = ''; }
+function appendGuessRow(guessPlayer, comparison){
+  const tbody = document.querySelector('#guessesTable tbody');
+  const tr = document.createElement('tr');
+  const idx = guesses.length;
+  if(comparison.nameMatch) tr.classList.add('good');
 
-  function addGuessRow(idx, guessedName, resultText, noteHtml, correct){
-    const tr = document.createElement('tr');
-    if(correct) tr.classList.add('correct');
-    tr.innerHTML = `<td style="width:48px">${idx}</td><td>${escapeHtml(guessedName)}</td><td>${escapeHtml(resultText)}</td><td>${noteHtml||''}</td>`;
-    guessesTbody.prepend(tr);
-  }
+  const tdIndex = document.createElement('td'); tdIndex.textContent = idx;
+  const tdName = document.createElement('td'); tdName.textContent = guessPlayer.full_name;
 
-  function escapeHtml(s){
-    if(s===undefined || s===null) return '';
-    return String(s).replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m]; });
-  }
+  const tdAge = document.createElement('td');
+  let ageHtml = (comparison.ageGuess!=null ? `${comparison.ageGuess}` : '—');
+  if(comparison.ageDirection) ageHtml += ' ' + arrowFor(comparison.ageDirection);
+  tdAge.innerHTML = ageHtml;
 
-  // whether guess matches target
-  function isCorrect(guessId){
-    return target && String(guessId) === String(target.player_id);
-  }
+  const tdRank = document.createElement('td');
+  let rankHtml = (comparison.rankGuess!=null && isFinite(comparison.rankGuess) ? `${comparison.rankGuess}` : '—');
+  if(comparison.rankDirection) rankHtml += ' ' + arrowFor(comparison.rankDirection);
+  tdRank.innerHTML = rankHtml;
 
-  // submission handler
-  async function submitGuess(){
-    const name = (guessInput.value || '').trim();
-    if(!name) return;
-    const guessId = findIdByName(name);
-    if(!guessId){
-      addGuessRow(guessesTbody.children.length+1, name, 'Not in catalog', '<span class="small muted-note">Name not found in players_catalog.json</span>', false);
-      guessInput.value = '';
-      remaining = Math.max(0, remaining-1);
-      updateChips();
-      if(remaining <= 0) revealTarget(false);
+  const tdCountry = document.createElement('td');
+  if(comparison.sameCountry) tdCountry.innerHTML = `<span class="country-good">${escapeHtml(guessPlayer.represented_country || '—')} ✓</span>`;
+  else tdCountry.innerHTML = `<span class="country-bad">${escapeHtml(guessPlayer.represented_country || '—')}</span>`;
+
+  const tdBirth = document.createElement('td');
+  tdBirth.innerHTML = (comparison.birthDistanceKm!=null ? `<strong style="font-weight:800">${comparison.birthDistanceKm} km</strong>` : 'unknown');
+
+  const tdHeight = document.createElement('td');
+  let htm = (comparison.heightGuess!=null ? `${comparison.heightGuess} cm` : '—');
+  if(comparison.heightDirection) htm += ' ' + arrowFor(comparison.heightDirection);
+  tdHeight.innerHTML = htm;
+
+  const tdRight = document.createElement('td');
+  tdRight.innerHTML = (guessPlayer.right_handed === null ? '—' : (guessPlayer.right_handed ? 'Yes' : 'No')) + (comparison.rightMatch ? ` ${tickSvg(true)}` : '');
+
+  const tdTwo = document.createElement('td');
+  tdTwo.innerHTML = (guessPlayer.two_handed === null ? 'N/A' : (guessPlayer.two_handed ? 'Yes' : 'No')) + (comparison.twoHanded === null ? '' : (comparison.twoHanded ? ` ${tickSvg(true)}` : ` ${tickSvg(false)}`));
+
+  [tdIndex,tdName,tdAge,tdRank,tdCountry,tdBirth,tdHeight,tdRight,tdTwo].forEach(td=>tr.appendChild(td));
+  tbody.prepend(tr);
+}
+
+function arrowFor(dir){
+  if(dir === 'equal') return '—';
+  if(dir === 'up') return '↑';
+  return '↓';
+}
+function tickSvg(ok){ return ok ? '✔︎' : '✖︎'; }
+
+function comparePlayers(guess, target){
+  const res = {};
+  res.nameMatch = guess.full_name.trim().toLowerCase() === target.full_name.trim().toLowerCase();
+
+  // AGE: invert direction (as user asked earlier)
+  if(guess.age != null && target.age != null){
+    res.ageGuess = guess.age; res.ageTarget = target.age;
+    res.ageDirection = (guess.age === target.age) ? 'equal' : (guess.age > target.age ? 'down' : 'up');
+  } else { res.ageGuess = guess.age; res.ageTarget = target.age; res.ageDirection = null; }
+
+  // RANK: keep standard semantics
+  const gRank = guess.rank, tRank = target.rank;
+  if(isFinite(gRank) && isFinite(tRank)){
+    res.rankGuess = gRank; res.rankTarget = tRank;
+    res.rankDirection = (gRank === tRank) ? 'equal' : (gRank > tRank ? 'up' : 'down');
+  } else { res.rankGuess = isFinite(gRank) ? gRank : null; res.rankTarget = isFinite(tRank) ? tRank : null; res.rankDirection = null; }
+
+  res.sameCountry = (guess.represented_country && target.represented_country && guess.represented_country === target.represented_country);
+
+  let dist = null;
+  if(guess.birthplace && target.birthplace){
+    const gCoord = geocodes[guess.birthplace] || geocodes[String(guess.birthplace).trim()] || null;
+    const tCoord = geocodes[target.birthplace] || geocodes[String(target.birthplace).trim()] || null;
+    if(gCoord && tCoord && gCoord.length>=2 && tCoord.length>=2) dist = Math.round(haversineKm(gCoord[0],gCoord[1],tCoord[0],tCoord[1]));
+  }
+  res.birthDistanceKm = dist;
+
+  // HEIGHT: invert direction
+  if(guess.height_cm != null && target.height_cm != null){
+    res.heightGuess = guess.height_cm; res.heightTarget = target.height_cm;
+    res.heightDirection = (guess.height_cm === target.height_cm) ? 'equal' : (guess.height_cm > target.height_cm ? 'down' : 'up');
+  } else { res.heightGuess = guess.height_cm; res.heightTarget = target.height_cm; res.heightDirection = null; }
+
+  res.rightMatch = (guess.right_handed === target.right_handed);
+  res.twoHanded = (guess.two_handed === null || target.two_handed === null) ? null : (guess.two_handed === target.two_handed);
+
+  return res;
+}
+
+function haversineKm(lat1,lon1,lat2,lon2){ const toRad=v=>v*Math.PI/180; const R=6371; const dLat=toRad(lat2-lat1); const dLon=toRad(lon2-lon1); const a=Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2; const c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)); return R*c; }
+
+/* ---------------------------
+  Guess handling
+---------------------------- */
+function handleGuessSafe(name){ try{ handleGuess(name); }catch(err){ showToast('Error'); console && console.error && console.error(err); } }
+
+async function handleGuess(name){
+  if(!gameStarted){ showToast('Round not active'); return; }
+  if(remaining <= 0){ showToast('No tries left'); return; }
+  const guessPlayer = findPlayerByName(name);
+  if(!guessPlayer){
+    showToast('Name not found in catalog');
+    return;
+  }
+  // mark guessed
+  guessedNames.add((guessPlayer.full_name||'').trim());
+  remaining--; document.getElementById('remaining').textContent = remaining;
+
+  // ensure H2H for guess-target is available (either cached or fetch)
+  const data = h2hCache[`${target.player_id}_${guessPlayer.player_id}`] || h2hCache[`${guessPlayer.player_id}_${target.player_id}`];
+  if(!data){
+    // try fetching specifically for this pair (fast attempt)
+    const found = await fetchH2HTryBoth(target.player_id, guessPlayer.player_id);
+    if(!found){
+      appendGuessRow(guessPlayer, { nameMatch:false, ageGuess:guessPlayer.age, ageDirection:null, rankGuess: guessPlayer.rank, rankDirection:null, sameCountry: guessPlayer.represented_country===target.represented_country, birthDistanceKm: null, heightGuess: guessPlayer.height_cm, heightDirection:null, rightMatch: (guessPlayer.right_handed===target.right_handed), twoHanded: null });
+      showToast('No H2H record for this pair');
+      if(remaining <= 0) { revealRound(false); setTimeout(startRound, 900); }
       return;
     }
+  }
+  // at this point we have the h2h JSON in cache; but we still display comparison (not only h2h)
+  const comparison = comparePlayers(guessPlayer, target);
+  guesses.push({player: guessPlayer, comparison});
+  appendGuessRow(guessPlayer, comparison);
 
-    // decrement remaining and update UI
-    remaining = Math.max(0, remaining-1);
-    updateChips();
+  if(comparison.nameMatch){
+    const points = scoreForGuessNumber(guesses.length);
+    score += points; document.getElementById('score').textContent = score;
+    revealRound(true, points);
+    setTimeout(startRound, 1200);
+    return;
+  }
 
-    // fetch H2H
-    let h2h = null;
-    try {
-      h2h = await fetchH2H(guessId, target.player_id);
-    } catch(e) {
-      addGuessRow(guessesTbody.children.length+1, name, 'No H2H', '<span class="small muted-note">Missing H2H file in /data/h2h/</span>', false);
-      guessInput.value = '';
-      if(remaining <= 0) revealTarget(false);
-      return;
+  if(remaining <= 0){
+    revealRound(false, 0);
+    setTimeout(startRound, 1200);
+  }
+}
+
+/* scoring helper */
+function scoreForGuessNumber(n){
+  if(n<=1) return 100;
+  if(n<=3) return 85;
+  if(n<=6) return 40;
+  return 10;
+}
+
+/* reveal modal */
+function revealRound(won, points){
+  const modal = document.getElementById('modal');
+  const title = document.getElementById('modalTitle');
+  const text = document.getElementById('modalText');
+  const details = document.getElementById('modalDetails');
+  if(won){ title.textContent = 'You won!'; text.textContent = `You earned ${points} points.`; } else { title.textContent = 'Round over'; text.textContent = 'Better luck next time.'; }
+  const p = target || {};
+  const targetHtml = `<div style="text-align:left;margin-top:12px"><h3 style="margin:0 0 6px 0;color:#fff">${escapeHtml(p.full_name || '—')}</h3><ul style="color:var(--muted);padding-left:18px"><li>Country: ${(p.represented_country)?'<strong style="color:#fff">'+escapeHtml(p.represented_country)+'</strong>':'—'}</li><li>Birth: ${(p.birthplace||'—')} ${p.birth_date? '('+escapeHtml(p.birth_date)+')':''}</li><li>Age: ${(p.age!=null?p.age:'—')}</li><li>Career best: ${(isFinite(p.rank)?p.rank:'—')}</li><li>Height: ${(p.height_cm!=null? p.height_cm + ' cm' : '—')}</li></ul></div>`;
+  details.innerHTML = targetHtml;
+  modal.classList.add('show'); modal.setAttribute('aria-hidden','false');
+  document.getElementById('closeModalBtn').onclick = () => { modal.classList.remove('show'); modal.setAttribute('aria-hidden','true'); };
+}
+
+/* ---------------------------
+  Round start logic & preloading H2H
+---------------------------- */
+async function startRound(){
+  // reset
+  remaining = 10;
+  guesses = [];
+  guessedNames.clear();
+  document.getElementById('remaining').textContent = remaining;
+  document.getElementById('score').textContent = score;
+  clearGuessesTable();
+  document.getElementById('preloadStatus').textContent = 'H2H preload: starting...';
+
+  // pick target:
+  // prefer daily candidate if present
+  let usedDaily = false;
+  if(dailyList && dailyList.length){
+    const cand = (cotdEnabled && dailyMap[`${currentTour}_by_country`]) ? dailyMap[`${currentTour}_by_country`] : (dailyMap[`${currentTour}_top20`] || dailyMap[`${currentTour}_top100`] || dailyMap[`${currentTour}_top300`]);
+    if(cand){
+      target = enrichCandidate(cand);
+      usedDaily = true;
     }
-
-    // render according to level
-    let html = '';
-    if(levelSelect.value === 'easy') html = renderEasy(h2h);
-    else if(levelSelect.value === 'medium') html = renderMedium(h2h);
-    else html = renderHard(h2h);
-    h2hArea.innerHTML = html;
-
-    const correct = isCorrect(guessId);
-    addGuessRow(guessesTbody.children.length+1, name, correct ? 'Correct' : 'No', correct ? '<span class="reveal">You found the target</span>' : '', correct);
-
-    guessInput.value = '';
-
-    if(correct) {
-      revealTarget(true);
-      return;
-    }
-    if(remaining <= 0) revealTarget(false);
   }
 
-  // reveal target details
-  function revealTarget(won){
-    const p = target || {};
-    let html = `<div style="font-weight:700">${escapeHtml(p.full_name || '—')}</div>`;
-    html += `<div class="small muted-note" style="margin-top:6px">ID: ${escapeHtml(p.player_id || '—')}</div>`;
-    if(p.represented_country) html += `<div style="margin-top:8px">Country: ${escapeHtml(p.represented_country)}</div>`;
-    if(p.birthplace) html += `<div>Birthplace: ${escapeHtml(p.birthplace)} ${p.birth_date ? '('+escapeHtml(p.birth_date)+')' : ''}</div>`;
-    if(p.parsed_rank || p.rank) html += `<div>Best ranking: ${escapeHtml(p.parsed_rank || p.rank)}</div>`;
-    targetMeta.innerHTML = html;
-    statusEl.innerHTML = won ? `<div class="reveal">You won — target revealed</div>` : `<div class="reveal">Game over — target revealed</div>`;
-    guessInput.disabled = true;
-    guessBtn.disabled = true;
+  if(!usedDaily){
+    // fallback to random according to tour and level
+    const pick = pickRandomTarget(currentTour, levelTopN, fixedCountry);
+    target = pick.chosen;
+    if(pick.country) fixedCountry = pick.country;
   }
 
-  function updateChips(){
-    document.getElementById('levelChip').textContent = 'Level: ' + levelSelect.value;
-    document.getElementById('remainingChip').textContent = 'Guesses: ' + remaining;
-    document.getElementById('scoreChip').textContent = 'Score: ' + score;
+  if(!target){
+    showToast('No target available');
+    return;
   }
 
-  // find id by name (exact first, then substring)
-  function findIdByName(name){
-    if(!name) return null;
-    const q = name.trim().toLowerCase();
-    let found = catalog.find(p => p.full_name.toLowerCase() === q);
-    if(found) return found.player_id;
-    found = catalog.find(p => p.full_name.toLowerCase().includes(q));
-    return found ? found.player_id : null;
+  gameStarted = true;
+  document.getElementById('tourLabel').textContent = currentTour;
+  document.getElementById('levelLabel').textContent = `Top ${levelTopN}`;
+  document.getElementById('selectedCountry').textContent = cotdEnabled ? (fixedCountry || '—') : '—';
+  document.getElementById('preloadStatus').textContent = 'H2H preload: discovering...';
+
+  // preload H2H files relevant to target
+  await preloadAllH2HForTarget(String(target.player_id));
+  // update UI
+  document.getElementById('preloadStatus').textContent = `H2H preload finished — ${h2hFoundCount} files found for ${target.player_id}`;
+}
+
+/* enrich a candidate (from daily) using players catalog */
+function enrichCandidate(candidate){
+  if(!candidate) return null;
+  const byId = players.find(p => p.player_id && candidate.player_id && String(p.player_id) === String(candidate.player_id));
+  if(byId) return byId;
+  const byName = players.find(p => p.full_name && candidate.full_name && p.full_name.trim().toLowerCase() === candidate.full_name.trim().toLowerCase());
+  if(byName) return byName;
+  // synthesize minimal object
+  return {
+    full_name: candidate.full_name || candidate.player_id || 'Unknown',
+    player_id: candidate.player_id || null,
+    represented_country: candidate.represented_country || null,
+    rank: (typeof candidate.rank !== 'undefined' && candidate.rank !== null) ? parseRank(candidate.rank) : Infinity,
+    height_cm: candidate.height_cm || null,
+    birth_date: candidate.birth_date || null,
+    birthplace: candidate.birthplace || null,
+    source: candidate.source || 'DAILY',
+    age: calcAge(candidate.birth_date),
+    right_handed: null,
+    two_handed: null
+  };
+}
+
+/* pick random target fallback */
+function pickRandomTarget(tour, topN, fixedByCountry){
+  let pool = players.filter(p => p.player_id && p.represented_country && p.rank <= topN && (String((p.source||'')).toUpperCase() === tour));
+  if(pool.length === 0) pool = players.filter(p => p.player_id && p.represented_country && (String((p.source||'')).toUpperCase() === tour));
+  if(pool.length === 0) pool = players.filter(p => p.player_id && p.represented_country);
+  if(pool.length === 0) return {chosen:null, country:null};
+  if(fixedByCountry){
+    const cpool = pool.filter(p => p.represented_country === fixedByCountry);
+    if(cpool.length) return {chosen: cpool[Math.floor(Math.random()*cpool.length)], country: fixedByCountry};
   }
+  const countries = [...new Set(pool.map(p => p.represented_country))];
+  const country = countries[Math.floor(Math.random()*countries.length)];
+  const countryPlayers = pool.filter(p => p.represented_country === country);
+  const chosen = countryPlayers.length ? countryPlayers[Math.floor(Math.random()*countryPlayers.length)] : pool[Math.floor(Math.random()*pool.length)];
+  return {chosen, country};
+}
 
-  // page-level init
-  async function init(){
-    // load catalog & selected players
-    try {
-      await Promise.all([ loadPlayersCatalog(), loadSelectedPlayers() ]);
-    } catch(e){
-      statusEl.textContent = 'Error loading required JSON files.';
-      statusEl.classList.add('error');
-      return;
-    }
-    // set initial remaining
-    remaining = Number(document.getElementById('maxGuesses').value) || 8;
-    updateChips();
+/* ---------------------------
+  Initialize: load catalog, geocodes, daily, country texts, wire UI
+---------------------------- */
+document.addEventListener('DOMContentLoaded', async () => {
+  // wire UI buttons & segments
+  document.getElementById('btnATP').addEventListener('click', ()=> { if(currentTour!=='ATP'){ currentTour='ATP'; applyTourTheme(); startRound(); }});
+  document.getElementById('btnWTA').addEventListener('click', ()=> { if(currentTour!=='WTA'){ currentTour='WTA'; applyTourTheme(); startRound(); }});
+  Array.from(document.querySelectorAll('.seg-btn')).forEach(btn => btn.addEventListener('click', (e) => {
+    const top = Number(e.currentTarget.dataset.top);
+    if(top !== levelTopN){ document.querySelectorAll('.seg-btn').forEach(b=>b.classList.remove('active')); e.currentTarget.classList.add('active'); levelTopN = top; document.getElementById('levelLabel').textContent = `Top ${levelTopN}`; startRound(); }
+  }));
+  document.getElementById('cotdToggle').addEventListener('click', ()=> { cotdEnabled = !cotdEnabled; document.getElementById('cotdToggle').textContent = cotdEnabled ? 'ON' : 'OFF'; renderCotdBanner(); startRound(); });
 
-    // wire UI
-    loadBtn.addEventListener('click', async () => {
-      // load target from selected_players.json
-      const mode = modeSelect.value;
-      const level = levelSelect.value;
-      const chosen = pickTarget(mode, level);
-      if(!chosen){
-        statusEl.textContent = `No target defined for ${mode.toUpperCase()} / ${level}.`;
-        return;
+  document.getElementById('guessBtn').addEventListener('click', ()=> { const v = guessInput.value.trim(); if(!v) return showToast('Type a name'); handleGuessSafe(v); guessInput.value=''; suggestionsList.style.display='none'; });
+  document.getElementById('closeModalBtn').addEventListener('click', ()=> { document.getElementById('modal').classList.remove('show'); });
+
+  // load base JSONs
+  const ok = await loadCatalog();
+  if(!ok){ alert('players_catalog.json missing or malformed'); return; }
+  await loadGeocodes();
+  await loadDaily();
+  // autopopulate some UI
+  document.getElementById('tourLabel').textContent = currentTour;
+  document.getElementById('levelLabel').textContent = `Top ${levelTopN}`;
+
+  // apply initial theme for tour
+  applyTourTheme();
+
+  // start round automatically
+  startRound();
+});
+
+/* minimal tour theme function */
+function applyTourTheme(){
+  const root = document.documentElement;
+  if(currentTour === 'WTA'){ root.style.setProperty('--accent-strong', '#8b5cf6'); document.getElementById('btnWTA').classList.add('active','wta'); document.getElementById('btnATP').classList.remove('active','atp'); }
+  else { root.style.setProperty('--accent-strong', '#1f7aec'); document.getElementById('btnATP').classList.add('active','atp'); document.getElementById('btnWTA').classList.remove('active','wta'); }
+}
+
+/* render COTD banner (basic) */
+function renderCotdBanner(){
+  const banner = document.getElementById('cotdBanner');
+  if(!cotdEnabled){ banner.style.display='none'; return; }
+  banner.style.display='flex';
+  const key = `${currentTour}_by_country`;
+  const dailyCandidate = dailyMap[key];
+  const cc = (dailyCandidate && dailyCandidate.represented_country) ? dailyCandidate.represented_country : (fixedCountry || '—');
+  document.getElementById('cotdName').textContent = cc;
+  // try to fetch flag from restcountries, but silently fail
+  if(cc && cc !== '—'){
+    fetch(`https://restcountries.com/v3.1/alpha/${cc}`).then(r=>r.ok?r.json():null).then(data=>{
+      if(data && data[0] && data[0].flags && (data[0].flags.svg || data[0].flags.png)){
+        const img=document.createElement('img'); img.src = data[0].flags.svg || data[0].flags.png; img.alt = data[0].name && data[0].name.common ? data[0].name.common : cc; img.style.width='100%'; img.style.height='100%'; img.style.objectFit='cover';
+        const flagEl = document.getElementById('cotdFlag'); flagEl.innerHTML=''; flagEl.appendChild(img);
+        document.getElementById('flagBg').style.backgroundImage = `url('${img.src}')`; document.getElementById('flagBg').style.opacity = 1; document.getElementById('flagOverlay').style.opacity = 1;
       }
-      target = chosen;
-      statusEl.textContent = 'Target loaded — make your guesses.';
-      // preload H2H for target against other selected players
-      try { await preloadH2HForTarget(String(target.player_id)); } catch(e){}
-      // reset history & enable inputs
-      guessesTbody.innerHTML = '';
-      h2hArea.innerHTML = '';
-      guessInput.disabled = false;
-      guessBtn.disabled = false;
-      remaining = Number(document.getElementById('maxGuesses').value) || 8;
-      updateChips();
-      targetMeta.textContent = 'Target ready (hidden)';
-      guessInput.focus();
-    });
-
-    // submit guess handlers
-    guessBtn.addEventListener('click', submitGuess);
-    guessInput.addEventListener('keydown', (e) => { if(e.key === 'Enter') { e.preventDefault(); submitGuess(); } });
-
-    // reveal and reset
-    revealBtn.addEventListener('click', ()=> { if(target) alert(`DEBUG TARGET: ${target.full_name} [${target.player_id}]`); });
-    revealAnswerBtn.addEventListener('click', ()=> revealTarget(false));
-    resetBtn.addEventListener('click', ()=> location.reload());
-
-    // auto-load the default target so ATP/easy is ready out of the box
-    loadBtn.click();
+    }).catch(()=>{});
   }
+}
 
-  async function loadPlayersCatalog(){
-    try {
-      const obj = await fetchJson('/tools/players_catalog.json');
-      if(Array.isArray(obj.players)){
-        catalog = obj.players.map(p => ({
-          player_id: String(p.player_id || p.playerId || p.id || '').trim(),
-          full_name: String(p.full_name || p.fullName || p.name || '').trim(),
-          represented_country: p.represented_country || p.country || null,
-          raw: p
-        })).filter(x => x.player_id && x.full_name);
-      } else {
-        catalog = [];
-      }
-    } catch(e) {
-      catalog = [];
-    }
-    buildDatalist();
-  }
-
-  async function loadSelectedPlayers(){
-    const obj = await fetchJson('/selected_players.json');
-    selectedPlayers = obj;
-  }
-
-  function pickTarget(mode, level){
-    if(!selectedPlayers) return null;
-    const arr = selectedPlayers[mode] || [];
-    const found = arr.find(x => x.level === level);
-    return found ? found.player : null;
-  }
-
-  // start
-  await init();
-})();
+/* ---------------------------
+  End of script
+---------------------------- */
 </script>
 </body>
 </html>
