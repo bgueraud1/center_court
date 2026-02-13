@@ -1,24 +1,232 @@
 <!doctype html>
-<html>
+<html lang="fr">
 <head>
-  <meta charset="utf-8">
-  <title>Liste joueurs ATP - Center Court</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta charset="utf-8" />
+  <title>Liste joueuses WTA - Center Court</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
-    body { font-family: Arial, Helvetica, sans-serif; margin: 18px; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { padding: 6px 8px; border: 1px solid #ddd; text-align:left; }
-    a { color: #006; text-decoration: none; }
+    :root{
+      --bg: #0f0b12;
+      --card: #fff;
+      --muted: #6b6b7a;
+      --accent: #7b3fbf;
+      --accent-2: #9b59b6;
+      --glass: rgba(255,255,255,0.04);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:18px;
+      font-family: Inter, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: linear-gradient(180deg, #0b0710 0%, #140c1a 100%);
+      color: #f7f7fb;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+    }
+
+    .container{
+      max-width: 980px;
+      margin: 0 auto;
+      background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+      border-radius: 12px;
+      padding: 18px;
+      box-shadow: 0 6px 30px rgba(11,7,16,0.6);
+      border: 1px solid rgba(255,255,255,0.03);
+    }
+
+    header{
+      display:flex;
+      gap:12px;
+      align-items:center;
+      justify-content:space-between;
+      margin-bottom:14px;
+    }
+    h1{
+      font-size:20px;
+      margin:0;
+      letter-spacing:0.2px;
+      color: #fff;
+      display:flex;
+      gap:10px;
+      align-items:center;
+    }
+    .logo{
+      width:44px;
+      height:44px;
+      background: linear-gradient(135deg,#8e44ad,#5b2c6f);
+      border-radius:10px;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      font-weight:700;
+      color:#fff;
+      box-shadow: 0 4px 14px rgba(155,89,182,0.16);
+    }
+
+    .controls{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+
+    .input, select{
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      padding: 8px 10px;
+      border-radius:8px;
+      color:#fff;
+      min-width:180px;
+      outline:none;
+      transition: box-shadow .15s, transform .05s;
+    }
+    .input:focus, select:focus{
+      box-shadow:0 6px 18px rgba(139, 80, 175, 0.18);
+      border-color: var(--accent);
+      transform: translateY(-1px);
+    }
+
+    .toolbar{
+      display:flex;
+      gap:8px;
+      align-items:center;
+    }
+
+    #players-root{
+      margin-top:10px;
+      overflow:auto;
+    }
+
+    table{
+      width:100%;
+      border-collapse:separate;
+      border-spacing:0;
+      min-width:620px;
+      font-size:14px;
+    }
+
+    thead th{
+      text-align:left;
+      padding:12px 12px;
+      position:sticky;
+      top:0;
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      color:#f1e9ff;
+      font-weight:600;
+      font-size:13px;
+      letter-spacing:0.2px;
+      cursor:pointer;
+      user-select:none;
+      border-bottom:1px solid rgba(255,255,255,0.04);
+    }
+
+    thead th .sort-ind {
+      margin-left:8px;
+      opacity:0.8;
+      font-size:12px;
+      color: #dcd1f2;
+    }
+
+    tbody td{
+      padding:10px 12px;
+      border-bottom: 0;
+      color: #f7f7fb;
+      vertical-align:middle;
+      white-space:nowrap;
+    }
+
+    .player-cell{
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+
+    .flag{
+      width:22px;
+      height:16px;
+      display:inline-block;
+      border-radius:2px;
+      box-shadow: 0 1px 0 rgba(0,0,0,0.25);
+      object-fit:cover;
+      flex-shrink:0;
+      border: 1px solid rgba(255,255,255,0.05);
+      background: rgba(255,255,255,0.02);
+    }
+
+    a.player-link{
+      color:#fff;
+      text-decoration:none;
+      font-weight:600;
+      transition: color .12s;
+    }
+    a.player-link:hover{ color: var(--accent-2); text-decoration:underline; }
+
+    .meta{
+      color: var(--muted);
+      font-size:12px;
+    }
+
+    /* clickable header hover */
+    thead th:hover{ background: rgba(255,255,255,0.02); }
+
+    /* zebra purple shades will be injected inline via JS by row style attribute */
+
+    /* small responsive tweak */
+    @media (max-width:680px){
+      thead th:nth-child(3), tbody td:nth-child(3){ display:none; } /* hide matches on small */
+      .controls{ width:100%; justify-content:space-between; }
+    }
+
+    /* Loading / error */
+    #loading{
+      color: var(--muted);
+      padding:18px;
+      font-style:italic;
+    }
+
+    /* subtle footer */
+    footer{
+      margin-top:12px;
+      color: var(--muted);
+      font-size:13px;
+      text-align:right;
+    }
   </style>
 </head>
 <body>
-  <h1>WTA Players</h1>
-  <div id="loading">Loading players list…</div>
-  <div id="players-root" style="display:none;">
-    <table id="players-table">
-      <thead><tr><th>Player</th><th>Country</th><th>Matches</th></tr></thead>
-      <tbody></tbody>
-    </table>
+  <div class="container" aria-live="polite">
+    <header>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div class="logo">CC</div>
+        <h1>WTA Players</h1>
+      </div>
+
+      <div class="controls">
+        <div class="toolbar" role="search" aria-label="Recherche et filtre">
+          <input id="search-input" class="input" type="search" placeholder="Rechercher une joueuse par nom…" aria-label="Recherche par nom">
+          <select id="country-filter" class="input" aria-label="Filtrer par pays">
+            <option value="">Tous les pays</option>
+          </select>
+        </div>
+      </div>
+    </header>
+
+    <div id="loading">Chargement de la liste des joueuses…</div>
+
+    <div id="players-root" style="display:none;">
+      <table id="players-table" role="table" aria-describedby="table-desc">
+        <caption id="table-desc" style="display:none">Tableau des joueuses WTA</caption>
+        <thead>
+          <tr>
+            <th data-key="name" scope="col" title="Trier par nom">Joueuse <span class="sort-ind" id="sort-name"></span></th>
+            <th data-key="country" scope="col" title="Trier par pays">Pays <span class="sort-ind" id="sort-country"></span></th>
+            <th data-key="matches_count" scope="col" title="Trier par nombre de matchs">Matches <span class="sort-ind" id="sort-matches"></span></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <footer>Center Court — Liste stylée</footer>
   </div>
 
 <script>
@@ -26,30 +234,209 @@
   const loading = document.getElementById('loading');
   const root = document.getElementById('players-root');
   const tbody = document.querySelector('#players-table tbody');
+  const searchInput = document.getElementById('search-input');
+  const countryFilter = document.getElementById('country-filter');
+  const headers = document.querySelectorAll('thead th');
 
-  try{
-    const idx = await fetch('/index/players_wta_index.json').then(r=>r.json());
-    const players = idx.players || [];
-    // sort optionally by name
-    players.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
-    for(const p of players){
-      const slug = p.slug || ((p.player_id||'').toLowerCase() + '-' + (p.name||'').toLowerCase().replace(/\s+/g,'-'));
+  // random purple palette (many violet nuances)
+  const PURPLES = [
+    '#f3e8ff', '#ead9ff', '#dfc7ff', '#d2b3ff', '#c79fff',
+    '#be8cff', '#b27aff', '#a06cff', '#8f5bf0', '#7b4bdc',
+    '#6b3ca9', '#5a2f7f', '#4a1f5a'
+  ];
+
+  // Shuffle an array (Fisher-Yates)
+  function shuffle(a){
+    const arr = a.slice();
+    for(let i=arr.length-1;i>0;i--){
+      const j = Math.floor(Math.random()*(i+1));
+      [arr[i],arr[j]]=[arr[j],arr[i]];
+    }
+    return arr;
+  }
+
+  // Build a randomized palette for this page load.
+  const rowShades = shuffle(PURPLES);
+
+  // Small IOC -> ISO2 mapping to fetch SVG flags.
+  // This list covers common IOC codes; extend if needed.
+  const IOC_TO_ISO2 = {
+    'GBR':'gb','CAN':'ca','RSA':'za','FRA':'fr','USA':'us','ESP':'es',
+    'GER':'de','SUI':'ch','ITA':'it','NED':'nl','AUS':'au','NZL':'nz',
+    'JPN':'jp','CHN':'cn','KOR':'kr','RUS':'ru','ARG':'ar','BRA':'br',
+    'MEX':'mx','SWE':'se','DEN':'dk','NOR':'no','BEL':'be','CZE':'cz',
+    'POL':'pl','HUN':'hu','GRE':'gr','POR':'pt','IRL':'ie','TUR':'tr'
+  };
+
+  // Build players and UI state
+  let players = [];
+  let filtered = [];
+  let currentSort = { key: 'name', dir: 'asc' };
+
+  // Utility: get flag SVG URL given IOC code (attempts mapping)
+  function flagUrlFromIOC(ioc){
+    if(!ioc) return '';
+    const code = (IOC_TO_ISO2[ioc] || ioc.toLowerCase());
+    // countryflagsapi.com returns svg by alpha-2 code, fallback uses the given code lowercase
+    return `https://countryflagsapi.com/svg/${code}`;
+  }
+
+  // Render rows from filtered[] applying currentSort order
+  function renderRows(){
+    tbody.innerHTML = '';
+    // stable sort according to currentSort
+    const arr = filtered.slice();
+    arr.sort((a,b)=>{
+      const key = currentSort.key;
+      const dir = currentSort.dir === 'asc' ? 1 : -1;
+      const va = a[key] ?? '';
+      const vb = b[key] ?? '';
+      // numeric sort for matches_count
+      if(key === 'matches_count'){
+        return dir * ((Number(va)||0) - (Number(vb)||0));
+      }
+      return dir * String(va).localeCompare(String(vb), undefined, {numeric:true, sensitivity:'base'});
+    });
+
+    // create rows with purple shades cycling through randomized palette
+    for(let i=0;i<arr.length;i++){
+      const p = arr[i];
       const tr = document.createElement('tr');
+
+      // choose shade: ensure consecutive different by using palette length >=2 and modulo
+      const shade = rowShades[i % rowShades.length];
+      // make darker text on light shades by setting RGBA overlay to blend
+      tr.style.background = `linear-gradient(90deg, ${shade}10, ${shade}06)`; // very subtle
+      tr.style.backgroundColor = shade;
+      tr.style.color = '#1a0830'; // dark text for contrast on light purples
+      tr.style.borderRadius = '6px';
+      tr.style.transition = 'transform .08s';
+      tr.onmouseover = () => tr.style.transform = 'translateY(-3px)';
+      tr.onmouseout = () => tr.style.transform = '';
+
+      // Player cell with flag and link
+      const td1 = document.createElement('td');
+      const playerWrap = document.createElement('div');
+      playerWrap.className = 'player-cell';
+
+      const flagImg = document.createElement('img');
+      flagImg.className = 'flag';
+      const flagUrl = flagUrlFromIOC(p.country);
+      if(flagUrl){
+        flagImg.src = flagUrl;
+      } else {
+        // fallback transparent pixel if unknown
+        flagImg.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="16"></svg>';
+      }
+      flagImg.alt = p.country || '';
+      flagImg.onerror = function(){ this.style.display='none'; };
+
       const link = document.createElement('a');
-      link.href = '/players/' + slug;
+      link.className = 'player-link';
+      // keep same path behavior: either p.page_href if provided else /players/slug
+      const slug = p.slug || ((p.player_id||'').toLowerCase() + '-' + (p.name||'').toLowerCase().replace(/\s+/g,'-'));
+      link.href = p.page_href ? ('/' + p.page_href.replace(/^\//,'') ) : ('/players/' + slug);
       link.textContent = p.name || p.player_id;
-      const td1 = document.createElement('td'); td1.appendChild(link);
-      const td2 = document.createElement('td'); td2.textContent = p.country || '';
-      const td3 = document.createElement('td'); td3.textContent = p.matches_count || '';
-      tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3);
+
+      playerWrap.appendChild(flagImg);
+      playerWrap.appendChild(link);
+      td1.appendChild(playerWrap);
+
+      // Country cell
+      const td2 = document.createElement('td');
+      td2.textContent = p.country || '';
+      td2.className = 'meta';
+
+      // Matches count cell
+      const td3 = document.createElement('td');
+      td3.textContent = p.matches_count ?? '';
+      td3.className = 'meta';
+
+      tr.appendChild(td1);
+      tr.appendChild(td2);
+      tr.appendChild(td3);
       tbody.appendChild(tr);
     }
+  }
+
+  // Apply search & filter to produce filtered[]
+  function applyFilters(){
+    const q = (searchInput.value || '').trim().toLowerCase();
+    const country = (countryFilter.value || '').trim().toUpperCase();
+    filtered = players.filter(p=>{
+      const matchesQ = q === '' || (p.name && p.name.toLowerCase().includes(q)) || (p.player_id && p.player_id.includes(q));
+      const matchesCountry = country === '' || (p.country && p.country.toUpperCase() === country);
+      return matchesQ && matchesCountry;
+    });
+    renderRows();
+  }
+
+  // Populate country dropdown from players unique countries
+  function populateCountryFilter(list){
+    const set = new Set();
+    for(const p of list) if(p.country) set.add(p.country.toUpperCase());
+    const arr = Array.from(set).sort((a,b)=>a.localeCompare(b));
+    for(const c of arr){
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c;
+      countryFilter.appendChild(opt);
+    }
+  }
+
+  // Sorting UI handlers: click on header toggles sort direction
+  headers.forEach(th=>{
+    th.addEventListener('click', ()=>{
+      const key = th.dataset.key;
+      if(!key) return;
+      if(currentSort.key === key){
+        currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+      } else {
+        currentSort.key = key;
+        currentSort.dir = 'asc';
+      }
+      // update indicator
+      updateSortIndicators();
+      renderRows();
+    });
+  });
+
+  function updateSortIndicators(){
+    document.getElementById('sort-name').textContent = currentSort.key === 'name' ? (currentSort.dir==='asc'?'▲':'▼') : '';
+    document.getElementById('sort-country').textContent = currentSort.key === 'country' ? (currentSort.dir==='asc'?'▲':'▼') : '';
+    document.getElementById('sort-matches').textContent = currentSort.key === 'matches_count' ? (currentSort.dir==='asc'?'▲':'▼') : '';
+  }
+
+  // Debounce helper
+  function debounce(fn, wait=180){
+    let t;
+    return function(...args){
+      clearTimeout(t);
+      t = setTimeout(()=>fn.apply(this,args), wait);
+    };
+  }
+
+  // Wire search and filter
+  searchInput.addEventListener('input', debounce(()=>applyFilters(), 160));
+  countryFilter.addEventListener('change', ()=>applyFilters());
+
+  // Fetch JSON index and build initial table
+  try{
+    const idx = await fetch('/index/players_wta_index.json').then(r=>r.json());
+    players = idx.players || [];
+    // ensure stable default sort by name ascending (like original)
+    players.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+    populateCountryFilter(players);
+    filtered = players.slice();
     loading.style.display = 'none';
     root.style.display = 'block';
+    updateSortIndicators();
+    renderRows();
   }catch(e){
-    loading.textContent = 'Error while loading players.';
+    loading.textContent = 'Erreur lors du chargement des joueuses.';
     console.error(e);
   }
+
 })();
 </script>
 </body>
