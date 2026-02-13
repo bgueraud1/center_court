@@ -7,16 +7,14 @@
   <style>
     :root{
       --bg: #0f0b12;
-      --card: #fff;
       --muted: #6b6b7a;
       --accent: #7b3fbf;
       --accent-2: #9b59b6;
-      --glass: rgba(255,255,255,0.04);
     }
     *{box-sizing:border-box}
     body{
       margin:18px;
-      font-family: Inter, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-family: Inter, "Segoe UI", Roboto, Arial, sans-serif;
       background: linear-gradient(180deg, #0b0710 0%, #140c1a 100%);
       color: #f7f7fb;
       -webkit-font-smoothing:antialiased;
@@ -26,7 +24,7 @@
     .container{
       max-width: 980px;
       margin: 0 auto;
-      background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
       border-radius: 12px;
       padding: 18px;
       box-shadow: 0 6px 30px rgba(11,7,16,0.6);
@@ -43,8 +41,7 @@
     h1{
       font-size:20px;
       margin:0;
-      letter-spacing:0.2px;
-      color: #fff;
+      color:#fff;
       display:flex;
       gap:10px;
       align-items:center;
@@ -62,6 +59,21 @@
       box-shadow: 0 4px 14px rgba(155,89,182,0.16);
     }
 
+    .centercourt-btn{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:8px 10px;
+      border-radius:8px;
+      background: linear-gradient(90deg,#7b3fbf,#9b59b6);
+      color:#fff;
+      text-decoration:none;
+      font-weight:600;
+      font-size:13px;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+    .centercourt-btn small{ font-weight:700; }
+
     .controls{
       display:flex;
       gap:10px;
@@ -70,7 +82,7 @@
     }
 
     .input, select{
-      background: rgba(255,255,255,0.03);
+      background: rgba(255,255,255,0.02);
       border: 1px solid rgba(255,255,255,0.06);
       padding: 8px 10px;
       border-radius:8px;
@@ -83,6 +95,13 @@
       box-shadow:0 6px 18px rgba(139, 80, 175, 0.18);
       border-color: var(--accent);
       transform: translateY(-1px);
+    }
+
+    /* specific select style for better contrast */
+    select#country-filter{
+      background: #000;
+      color: #fff;
+      border-color: rgba(255,255,255,0.06);
     }
 
     .toolbar{
@@ -121,7 +140,7 @@
 
     thead th .sort-ind {
       margin-left:8px;
-      opacity:0.8;
+      opacity:0.9;
       font-size:12px;
       color: #dcd1f2;
     }
@@ -129,7 +148,6 @@
     tbody td{
       padding:10px 12px;
       border-bottom: 0;
-      color: #f7f7fb;
       vertical-align:middle;
       white-space:nowrap;
     }
@@ -145,30 +163,19 @@
       height:16px;
       display:inline-block;
       border-radius:2px;
-      box-shadow: 0 1px 0 rgba(0,0,0,0.25);
       object-fit:cover;
       flex-shrink:0;
-      border: 1px solid rgba(255,255,255,0.05);
-      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(0,0,0,0.06);
+      background: rgba(255,255,255,0.6);
     }
 
-    a.player-link{
-      color:#fff;
-      text-decoration:none;
-      font-weight:600;
-      transition: color .12s;
-    }
-    a.player-link:hover{ color: var(--accent-2); text-decoration:underline; }
+    /* IMPORTANT: make the main text black for readability on light purples */
+    .row-text, .row-meta { color: #0b0b0b; font-weight:600; }
+    .row-meta { font-weight:500; font-size:13px; color: #111; }
 
-    .meta{
-      color: var(--muted);
-      font-size:12px;
-    }
-
-    /* clickable header hover */
-    thead th:hover{ background: rgba(255,255,255,0.02); }
-
-    /* zebra purple shades will be injected inline via JS by row style attribute */
+    /* clickable row */
+    tr.clickable{ cursor:pointer; }
+    tr.clickable:focus { outline: 3px solid rgba(123,63,191,0.18); }
 
     /* small responsive tweak */
     @media (max-width:680px){
@@ -183,7 +190,6 @@
       font-style:italic;
     }
 
-    /* subtle footer */
     footer{
       margin-top:12px;
       color: var(--muted);
@@ -196,7 +202,10 @@
   <div class="container" aria-live="polite">
     <header>
       <div style="display:flex;align-items:center;gap:12px;">
-        <div class="logo">CC</div>
+        <a class="centercourt-btn" href="https://www.center-court.net/" target="_blank" rel="noopener noreferrer" title="Center Court — ouvrir">
+          <span style="display:inline-block;width:28px;height:28px;border-radius:6px;background:#fff;color:#7b3fbf;display:flex;align-items:center;justify-content:center;font-weight:800;">CC</span>
+          <small>Center Court</small>
+        </a>
         <h1>WTA Players</h1>
       </div>
 
@@ -238,14 +247,13 @@
   const countryFilter = document.getElementById('country-filter');
   const headers = document.querySelectorAll('thead th');
 
-  // random purple palette (many violet nuances)
+  // palette of light-to-mid violets (enough items so consecutive are different)
   const PURPLES = [
     '#f3e8ff', '#ead9ff', '#dfc7ff', '#d2b3ff', '#c79fff',
     '#be8cff', '#b27aff', '#a06cff', '#8f5bf0', '#7b4bdc',
     '#6b3ca9', '#5a2f7f', '#4a1f5a'
   ];
 
-  // Shuffle an array (Fisher-Yates)
   function shuffle(a){
     const arr = a.slice();
     for(let i=arr.length-1;i>0;i--){
@@ -254,67 +262,71 @@
     }
     return arr;
   }
-
-  // Build a randomized palette for this page load.
   const rowShades = shuffle(PURPLES);
 
-  // Small IOC -> ISO2 mapping to fetch SVG flags.
-  // This list covers common IOC codes; extend if needed.
+  // Extended IOC -> ISO2 map (add entries as needed)
   const IOC_TO_ISO2 = {
     'GBR':'gb','CAN':'ca','RSA':'za','FRA':'fr','USA':'us','ESP':'es',
     'GER':'de','SUI':'ch','ITA':'it','NED':'nl','AUS':'au','NZL':'nz',
     'JPN':'jp','CHN':'cn','KOR':'kr','RUS':'ru','ARG':'ar','BRA':'br',
     'MEX':'mx','SWE':'se','DEN':'dk','NOR':'no','BEL':'be','CZE':'cz',
-    'POL':'pl','HUN':'hu','GRE':'gr','POR':'pt','IRL':'ie','TUR':'tr'
+    'POL':'pl','HUN':'hu','GRE':'gr','POR':'pt','IRL':'ie','TUR':'tr',
+    'RSA':'za','ROU':'ro','SVK':'sk','UKR':'ua','BLR':'by','ISL':'is',
+    'IND':'in','TPE':'tw','HKG':'hk','MAS':'my','KAZ':'kz','UZB':'uz',
+    'CRO':'hr','SLO':'si','LAT':'lv','LIT':'lt','EST':'ee','ISR':'il',
+    'EGY':'eg','MAR':'ma','TUN':'tn','ALG':'dz','SAU':'sa','UAE':'ae',
+    'VIE':'vn','THA':'th','PHI':'ph','COL':'co','CHI':'cl','PER':'pe'
   };
 
-  // Build players and UI state
   let players = [];
   let filtered = [];
   let currentSort = { key: 'name', dir: 'asc' };
 
-  // Utility: get flag SVG URL given IOC code (attempts mapping)
+  // Given IOC code, return an svg url (flagcdn expects alpha2 lowercase)
   function flagUrlFromIOC(ioc){
     if(!ioc) return '';
-    const code = (IOC_TO_ISO2[ioc] || ioc.toLowerCase());
-    // countryflagsapi.com returns svg by alpha-2 code, fallback uses the given code lowercase
-    return `https://countryflagsapi.com/svg/${code}`;
+    const up = (ioc||'').toUpperCase();
+    const iso2 = (IOC_TO_ISO2[up] || up.slice(0,2).toLowerCase());
+    // flagcdn svg endpoint (lowercase)
+    return `https://flagcdn.com/${iso2}.svg`;
   }
 
-  // Render rows from filtered[] applying currentSort order
   function renderRows(){
     tbody.innerHTML = '';
-    // stable sort according to currentSort
     const arr = filtered.slice();
     arr.sort((a,b)=>{
       const key = currentSort.key;
       const dir = currentSort.dir === 'asc' ? 1 : -1;
       const va = a[key] ?? '';
       const vb = b[key] ?? '';
-      // numeric sort for matches_count
       if(key === 'matches_count'){
         return dir * ((Number(va)||0) - (Number(vb)||0));
       }
       return dir * String(va).localeCompare(String(vb), undefined, {numeric:true, sensitivity:'base'});
     });
 
-    // create rows with purple shades cycling through randomized palette
     for(let i=0;i<arr.length;i++){
       const p = arr[i];
       const tr = document.createElement('tr');
+      tr.className = 'clickable';
+      tr.tabIndex = 0;
+      tr.setAttribute('role','button');
 
-      // choose shade: ensure consecutive different by using palette length >=2 and modulo
+      // ensure consecutive rows never have same shade: use i % len mapping
       const shade = rowShades[i % rowShades.length];
-      // make darker text on light shades by setting RGBA overlay to blend
-      tr.style.background = `linear-gradient(90deg, ${shade}10, ${shade}06)`; // very subtle
       tr.style.backgroundColor = shade;
-      tr.style.color = '#1a0830'; // dark text for contrast on light purples
       tr.style.borderRadius = '6px';
-      tr.style.transition = 'transform .08s';
-      tr.onmouseover = () => tr.style.transform = 'translateY(-3px)';
-      tr.onmouseout = () => tr.style.transform = '';
+      tr.style.margin = '6px 0';
+      tr.style.display = 'table-row';
 
-      // Player cell with flag and link
+      // destination URL (respect p.page_href if present)
+      const slug = p.slug || ((p.player_id||'').toLowerCase() + '-' + (p.name||'').toLowerCase().replace(/\s+/g,'-'));
+      const dest = p.page_href ? ('/' + p.page_href.replace(/^\//,'')) : ('/players/' + slug);
+
+      tr.addEventListener('click', ()=> window.location.href = dest);
+      tr.addEventListener('keydown', (ev)=> { if(ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); window.location.href = dest; } });
+
+      // td1: flag + name (plain text, not link)
       const td1 = document.createElement('td');
       const playerWrap = document.createElement('div');
       playerWrap.className = 'player-cell';
@@ -325,32 +337,28 @@
       if(flagUrl){
         flagImg.src = flagUrl;
       } else {
-        // fallback transparent pixel if unknown
         flagImg.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="16"></svg>';
       }
       flagImg.alt = p.country || '';
       flagImg.onerror = function(){ this.style.display='none'; };
 
-      const link = document.createElement('a');
-      link.className = 'player-link';
-      // keep same path behavior: either p.page_href if provided else /players/slug
-      const slug = p.slug || ((p.player_id||'').toLowerCase() + '-' + (p.name||'').toLowerCase().replace(/\s+/g,'-'));
-      link.href = p.page_href ? ('/' + p.page_href.replace(/^\//,'') ) : ('/players/' + slug);
-      link.textContent = p.name || p.player_id;
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'row-text';
+      nameSpan.textContent = p.name || p.player_id;
 
       playerWrap.appendChild(flagImg);
-      playerWrap.appendChild(link);
+      playerWrap.appendChild(nameSpan);
       td1.appendChild(playerWrap);
 
-      // Country cell
+      // td2: country
       const td2 = document.createElement('td');
+      td2.className = 'row-meta';
       td2.textContent = p.country || '';
-      td2.className = 'meta';
 
-      // Matches count cell
+      // td3: matches_count
       const td3 = document.createElement('td');
+      td3.className = 'row-meta';
       td3.textContent = p.matches_count ?? '';
-      td3.className = 'meta';
 
       tr.appendChild(td1);
       tr.appendChild(td2);
@@ -359,7 +367,6 @@
     }
   }
 
-  // Apply search & filter to produce filtered[]
   function applyFilters(){
     const q = (searchInput.value || '').trim().toLowerCase();
     const country = (countryFilter.value || '').trim().toUpperCase();
@@ -371,7 +378,6 @@
     renderRows();
   }
 
-  // Populate country dropdown from players unique countries
   function populateCountryFilter(list){
     const set = new Set();
     for(const p of list) if(p.country) set.add(p.country.toUpperCase());
@@ -384,7 +390,6 @@
     }
   }
 
-  // Sorting UI handlers: click on header toggles sort direction
   headers.forEach(th=>{
     th.addEventListener('click', ()=>{
       const key = th.dataset.key;
@@ -395,7 +400,6 @@
         currentSort.key = key;
         currentSort.dir = 'asc';
       }
-      // update indicator
       updateSortIndicators();
       renderRows();
     });
@@ -407,8 +411,7 @@
     document.getElementById('sort-matches').textContent = currentSort.key === 'matches_count' ? (currentSort.dir==='asc'?'▲':'▼') : '';
   }
 
-  // Debounce helper
-  function debounce(fn, wait=180){
+  function debounce(fn, wait=160){
     let t;
     return function(...args){
       clearTimeout(t);
@@ -416,15 +419,12 @@
     };
   }
 
-  // Wire search and filter
-  searchInput.addEventListener('input', debounce(()=>applyFilters(), 160));
+  searchInput.addEventListener('input', debounce(()=>applyFilters(), 140));
   countryFilter.addEventListener('change', ()=>applyFilters());
 
-  // Fetch JSON index and build initial table
   try{
     const idx = await fetch('/index/players_wta_index.json').then(r=>r.json());
     players = idx.players || [];
-    // ensure stable default sort by name ascending (like original)
     players.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
     populateCountryFilter(players);
     filtered = players.slice();
