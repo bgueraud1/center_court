@@ -1,24 +1,239 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>Liste joueurs ATP - Center Court</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta charset="utf-8" />
+  <title>ATP Players - Center Court</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
-    body { font-family: Arial, Helvetica, sans-serif; margin: 18px; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { padding: 6px 8px; border: 1px solid #ddd; text-align:left; }
-    a { color: #006; text-decoration: none; }
+    :root{
+      --bg: #071225;
+      --muted: #9aa0aa;
+      --accent: #2b7be4;
+      --accent-2: #4aa3ff;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:18px;
+      font-family: Inter, "Segoe UI", Roboto, Arial, sans-serif;
+      background: linear-gradient(180deg, #061322 0%, #0b2338 100%);
+      color: #ecf6ff;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+    }
+
+    .container{
+      max-width: 980px;
+      margin: 0 auto;
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      border-radius: 12px;
+      padding: 18px;
+      box-shadow: 0 8px 36px rgba(3,10,26,0.6);
+      border: 1px solid rgba(255,255,255,0.03);
+    }
+
+    header{
+      display:flex;
+      gap:12px;
+      align-items:center;
+      justify-content:space-between;
+      margin-bottom:14px;
+    }
+    h1{
+      font-size:20px;
+      margin:0;
+      color:#fff;
+      display:flex;
+      gap:10px;
+      align-items:center;
+    }
+
+    .centercourt-btn{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:8px 10px;
+      border-radius:8px;
+      background: linear-gradient(90deg,#3a6edb,#2b7be4);
+      color:#fff;
+      text-decoration:none;
+      font-weight:600;
+      font-size:13px;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+    .centercourt-btn span.logo-cc{
+      display:inline-block;
+      width:28px;
+      height:28px;
+      border-radius:6px;
+      background:#fff;
+      color:#2b7be4;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-weight:800;
+    }
+
+    .controls{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+
+    .input, select{
+      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.06);
+      padding: 8px 10px;
+      border-radius:8px;
+      color:#fff;
+      min-width:180px;
+      outline:none;
+      transition: box-shadow .15s, transform .05s;
+    }
+    .input:focus, select:focus{
+      box-shadow:0 6px 18px rgba(43,123,228,0.18);
+      border-color: var(--accent);
+      transform: translateY(-1px);
+    }
+
+    /* ensure country dropdown is black with white text */
+    select#country-filter{
+      background: #000;
+      color: #fff;
+      border-color: rgba(255,255,255,0.06);
+    }
+
+    .toolbar{
+      display:flex;
+      gap:8px;
+      align-items:center;
+    }
+
+    #players-root{
+      margin-top:10px;
+      overflow:auto;
+    }
+
+    table{
+      width:100%;
+      border-collapse:separate;
+      border-spacing:0;
+      min-width:620px;
+      font-size:14px;
+    }
+
+    thead th{
+      text-align:left;
+      padding:12px 12px;
+      position:sticky;
+      top:0;
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      color:#eaf4ff;
+      font-weight:700;
+      font-size:13px;
+      letter-spacing:0.2px;
+      cursor:pointer;
+      user-select:none;
+      border-bottom:1px solid rgba(255,255,255,0.04);
+    }
+
+    thead th .sort-ind {
+      margin-left:8px;
+      opacity:0.9;
+      font-size:12px;
+      color: #cfe7ff;
+    }
+
+    tbody td{
+      padding:10px 12px;
+      border-bottom: 0;
+      vertical-align:middle;
+      white-space:nowrap;
+    }
+
+    .player-cell{
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+
+    .flag{
+      width:22px;
+      height:16px;
+      display:inline-block;
+      border-radius:2px;
+      object-fit:cover;
+      flex-shrink:0;
+      border: 1px solid rgba(0,0,0,0.06);
+      background: rgba(255,255,255,0.85);
+    }
+
+    /* Use dark/black text on the light-blue row backgrounds for readability */
+    .row-text, .row-meta { color: #041027; font-weight:600; }
+    .row-meta { font-weight:500; font-size:13px; color: #041027; }
+
+    /* clickable row */
+    tr.clickable{ cursor:pointer; }
+    tr.clickable:focus { outline: 3px solid rgba(43,123,228,0.18); }
+
+    /* small responsive tweak */
+    @media (max-width:680px){
+      thead th:nth-child(3), tbody td:nth-child(3){ display:none; } /* hide matches on small */
+      .controls{ width:100%; justify-content:space-between; }
+    }
+
+    #loading{
+      color: var(--muted);
+      padding:18px;
+      font-style:italic;
+    }
+
+    footer{
+      margin-top:12px;
+      color: var(--muted);
+      font-size:13px;
+      text-align:right;
+    }
   </style>
 </head>
 <body>
-  <h1>Joueurs ATP</h1>
-  <div id="loading">Chargement de la liste des joueurs…</div>
-  <div id="players-root" style="display:none;">
-    <table id="players-table">
-      <thead><tr><th>Player</th><th>Country</th><th>Matches</th></tr></thead>
-      <tbody></tbody>
-    </table>
+  <div class="container" aria-live="polite">
+    <header>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <a class="centercourt-btn" href="https://www.center-court.net/" target="_blank" rel="noopener noreferrer" title="Center Court — open">
+          <span class="logo-cc">CC</span>
+          <span>Center Court</span>
+        </a>
+        <h1>ATP Players</h1>
+      </div>
+
+      <div class="controls">
+        <div class="toolbar" role="search" aria-label="Search and filter">
+          <input id="search-input" class="input" type="search" placeholder="Search player by name…" aria-label="Search by name">
+          <select id="country-filter" class="input" aria-label="Filter by country">
+            <option value="">All countries</option>
+          </select>
+        </div>
+      </div>
+    </header>
+
+    <div id="loading">Loading players list…</div>
+
+    <div id="players-root" style="display:none;">
+      <table id="players-table" role="table" aria-describedby="table-desc">
+        <caption id="table-desc" style="display:none">ATP players table</caption>
+        <thead>
+          <tr>
+            <th data-key="name" scope="col" title="Sort by name">Player <span class="sort-ind" id="sort-name"></span></th>
+            <th data-key="country" scope="col" title="Sort by country">Country <span class="sort-ind" id="sort-country"></span></th>
+            <th data-key="matches_count" scope="col" title="Sort by matches">Matches <span class="sort-ind" id="sort-matches"></span></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <footer>Center Court</footer>
   </div>
 
 <script>
@@ -26,30 +241,226 @@
   const loading = document.getElementById('loading');
   const root = document.getElementById('players-root');
   const tbody = document.querySelector('#players-table tbody');
+  const searchInput = document.getElementById('search-input');
+  const countryFilter = document.getElementById('country-filter');
+  const headers = document.querySelectorAll('thead th');
+
+  // blue palette (many shades). Enough items so consecutive rows never share same shade.
+  const BLUES = [
+    '#eaf6ff', '#d7efff', '#c3e7ff', '#aee0ff', '#9ad8ff',
+    '#85d0ff', '#6fc8ff', '#59c0ff', '#3fb8ff', '#2baef5',
+    '#2596da', '#1f7fbf', '#135c9a'
+  ];
+
+  function shuffle(a){
+    const arr = a.slice();
+    for(let i=arr.length-1;i>0;i--){
+      const j = Math.floor(Math.random()*(i+1));
+      [arr[i],arr[j]]=[arr[j],arr[i]];
+    }
+    return arr;
+  }
+  const rowShades = shuffle(BLUES);
+
+  // IOC -> ISO2 mapping (extend as needed)
+  const IOC_TO_ISO2 = {
+  'AFG':'af','ALB':'al','ALG':'dz','AND':'ad','ANG':'ao','ANT':'ag',
+  'ARG':'ar','ARM':'am','ARU':'aw','AUS':'au','AUT':'at','AZE':'az',
+  'BAH':'bs','BAN':'bd','BAR':'bb','BDI':'bi','BEL':'be','BEN':'bj',
+  'BER':'bm','BHU':'bt','BIH':'ba','BIZ':'bz','BLR':'by','BOL':'bo',
+  'BOT':'bw','BRA':'br','BRN':'bh','BRU':'bn','BUL':'bg','BUR':'bf',
+  'CAF':'cf','CAM':'kh','CAN':'ca','CAY':'ky','CGO':'cg','CHA':'td',
+  'CHI':'cl','CHN':'cn','CIV':'ci','CMR':'cm','COD':'cd','COK':'ck',
+  'COL':'co','COM':'km','CPV':'cv','CRC':'cr','CRO':'hr','CUB':'cu',
+  'CYP':'cy','CZE':'cz','DEN':'dk','DJI':'dj','DMA':'dm','DOM':'do',
+  'ECU':'ec','EGY':'eg','ERI':'er','ESA':'sv','ESP':'es','EST':'ee',
+  'ETH':'et','FIJ':'fj','FIN':'fi','FRA':'fr','FSM':'fm','GAB':'ga',
+  'GAM':'gm','GBR':'gb','GBS':'gw','GEO':'ge','GEQ':'gq','GER':'de',
+  'GHA':'gh','GRE':'gr','GRN':'gd','GUA':'gt','GUI':'gn','GUM':'gu',
+  'GUY':'gy','HAI':'ht','HKG':'hk','HON':'hn','HUN':'hu','INA':'id',
+  'IND':'in','IRI':'ir','IRL':'ie','IRQ':'iq','ISL':'is','ISR':'il',
+  'ISV':'vi','ITA':'it','IVB':'vg','JAM':'jm','JOR':'jo','JPN':'jp',
+  'KAZ':'kz','KEN':'ke','KGZ':'kg','KIR':'ki','KOR':'kr','KOS':'xk',
+  'KSA':'sa','KUW':'kw','LAO':'la','LAT':'lv','LBA':'ly','LBR':'lr',
+  'LCA':'lc','LES':'ls','LIB':'lb','LIE':'li','LTU':'lt','LUX':'lu',
+  'MAD':'mg','MAR':'ma','MAS':'my','MAW':'mw','MDA':'md','MDV':'mv',
+  'MEX':'mx','MGL':'mn','MHL':'mh','MKD':'mk','MLI':'ml','MLT':'mt',
+  'MNE':'me','MON':'mc','MOZ':'mz','MRI':'mu','MTN':'mr','MYA':'mm',
+  'NAM':'na','NCA':'ni','NED':'nl','NEP':'np','NGR':'ng','NIG':'ne',
+  'NOR':'no','NRU':'nr','NZL':'nz','OMA':'om','PAK':'pk','PAN':'pa',
+  'PAR':'py','PER':'pe','PHI':'ph','PLE':'ps','PLW':'pw','PNG':'pg',
+  'POL':'pl','POR':'pt','PRK':'kp','PUR':'pr','QAT':'qa','ROU':'ro',
+  'RSA':'za','RUS':'ru','RWA':'rw','SAM':'ws','SEN':'sn','SEY':'sc',
+  'SGP':'sg','SKN':'kn','SLE':'sl','SLO':'si','SMR':'sm','SOL':'sb',
+  'SOM':'so','SRB':'rs','SRI':'lk','SSD':'ss','STP':'st','SUD':'sd',
+  'SUI':'ch','SUR':'sr','SVK':'sk','SWE':'se','SWZ':'sz','SYR':'sy',
+  'TAN':'tz','TGA':'to','THA':'th','TJK':'tj','TKM':'tm','TLS':'tl',
+  'TOG':'tg','TPE':'tw','TTO':'tt','TUN':'tn','TUR':'tr','TUV':'tv',
+  'UAE':'ae','UGA':'ug','UKR':'ua','URU':'uy','USA':'us','UZB':'uz',
+  'VAN':'vu','VEN':'ve','VIE':'vn','VIN':'vc','YEM':'ye','ZAM':'zm',
+  'ZIM':'zw'
+};
+
+
+  let players = [];
+  let filtered = [];
+  let currentSort = { key: 'name', dir: 'asc' };
+
+  // Use flagcdn with alpha-2 code
+  function flagUrlFromIOC(ioc){
+    if(!ioc) return '';
+    const up = (ioc||'').toUpperCase();
+    const iso2 = (IOC_TO_ISO2[up] || up.slice(0,2).toLowerCase());
+    return `https://flagcdn.com/${iso2}.svg`;
+  }
+
+  function renderRows(){
+    tbody.innerHTML = '';
+    const arr = filtered.slice();
+    arr.sort((a,b)=>{
+      const key = currentSort.key;
+      const dir = currentSort.dir === 'asc' ? 1 : -1;
+      const va = a[key] ?? '';
+      const vb = b[key] ?? '';
+      if(key === 'matches_count'){
+        return dir * ((Number(va)||0) - (Number(vb)||0));
+      }
+      return dir * String(va).localeCompare(String(vb), undefined, {numeric:true, sensitivity:'base'});
+    });
+
+    for(let i=0;i<arr.length;i++){
+      const p = arr[i];
+      const tr = document.createElement('tr');
+      tr.className = 'clickable';
+      tr.tabIndex = 0;
+      tr.setAttribute('role','button');
+
+      // choose shade such that consecutive rows differ (palette length >= 2)
+      const shade = rowShades[i % rowShades.length];
+      tr.style.backgroundColor = shade;
+      tr.style.borderRadius = '6px';
+      tr.style.margin = '6px 0';
+      tr.style.display = 'table-row';
+
+      // destination URL (respect p.page_href if present)
+      const slug = p.slug || ((p.player_id||'').toLowerCase() + '-' + (p.name||'').toLowerCase().replace(/\s+/g,'-'));
+      const dest = p.page_href ? ('/' + p.page_href.replace(/^\//,'')) : ('/players_atp/' + slug);
+
+      tr.addEventListener('click', ()=> window.location.href = dest);
+      tr.addEventListener('keydown', (ev)=> { if(ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); window.location.href = dest; } });
+
+      // td1: flag + name
+      const td1 = document.createElement('td');
+      const playerWrap = document.createElement('div');
+      playerWrap.className = 'player-cell';
+
+      const flagImg = document.createElement('img');
+      flagImg.className = 'flag';
+      const flagUrl = flagUrlFromIOC(p.country);
+      if(flagUrl){
+        flagImg.src = flagUrl;
+      } else {
+        flagImg.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="16"></svg>';
+      }
+      flagImg.alt = p.country || '';
+      flagImg.onerror = function(){ this.style.display='none'; };
+
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'row-text';
+      nameSpan.textContent = p.name || p.player_id;
+
+      playerWrap.appendChild(flagImg);
+      playerWrap.appendChild(nameSpan);
+      td1.appendChild(playerWrap);
+
+      // td2: country
+      const td2 = document.createElement('td');
+      td2.className = 'row-meta';
+      td2.textContent = p.country || '';
+
+      // td3: matches_count
+      const td3 = document.createElement('td');
+      td3.className = 'row-meta';
+      td3.textContent = p.matches_count ?? '';
+
+      tr.appendChild(td1);
+      tr.appendChild(td2);
+      tr.appendChild(td3);
+      tbody.appendChild(tr);
+    }
+  }
+
+  function applyFilters(){
+    const q = (searchInput.value || '').trim().toLowerCase();
+    const country = (countryFilter.value || '').trim().toUpperCase();
+    filtered = players.filter(p=>{
+      const matchesQ = q === '' || (p.name && p.name.toLowerCase().includes(q)) || (p.player_id && p.player_id.includes(q));
+      const matchesCountry = country === '' || (p.country && p.country.toUpperCase() === country);
+      return matchesQ && matchesCountry;
+    });
+    renderRows();
+  }
+
+  function populateCountryFilter(list){
+    const set = new Set();
+    for(const p of list) if(p.country) set.add(p.country.toUpperCase());
+    const arr = Array.from(set).sort((a,b)=>a.localeCompare(b));
+    for(const c of arr){
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c;
+      countryFilter.appendChild(opt);
+    }
+  }
+
+  headers.forEach(th=>{
+    th.addEventListener('click', ()=>{
+      const key = th.dataset.key;
+      if(!key) return;
+      if(currentSort.key === key){
+        currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+      } else {
+        currentSort.key = key;
+        currentSort.dir = 'asc';
+      }
+      updateSortIndicators();
+      renderRows();
+    });
+  });
+
+  function updateSortIndicators(){
+    document.getElementById('sort-name').textContent = currentSort.key === 'name' ? (currentSort.dir==='asc'?'▲':'▼') : '';
+    document.getElementById('sort-country').textContent = currentSort.key === 'country' ? (currentSort.dir==='asc'?'▲':'▼') : '';
+    document.getElementById('sort-matches').textContent = currentSort.key === 'matches_count' ? (currentSort.dir==='asc'?'▲':'▼') : '';
+  }
+
+  function debounce(fn, wait=160){
+    let t;
+    return function(...args){
+      clearTimeout(t);
+      t = setTimeout(()=>fn.apply(this,args), wait);
+    };
+  }
+
+  searchInput.addEventListener('input', debounce(()=>applyFilters(), 140));
+  countryFilter.addEventListener('change', ()=>applyFilters());
 
   try{
     const idx = await fetch('/index/players_index.json').then(r=>r.json());
-    const players = idx.players || [];
-    // sort optionally by name
+    players = idx.players || [];
+    // default sort by name to mimic original behavior
     players.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
-    for(const p of players){
-      const slug = p.slug || ((p.player_id||'').toLowerCase() + '-' + (p.name||'').toLowerCase().replace(/\s+/g,'-'));
-      const tr = document.createElement('tr');
-      const link = document.createElement('a');
-      link.href = '/players_atp/' + slug;
-      link.textContent = p.name || p.player_id;
-      const td1 = document.createElement('td'); td1.appendChild(link);
-      const td2 = document.createElement('td'); td2.textContent = p.country || '';
-      const td3 = document.createElement('td'); td3.textContent = p.matches_count || '';
-      tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3);
-      tbody.appendChild(tr);
-    }
+    populateCountryFilter(players);
+    filtered = players.slice();
     loading.style.display = 'none';
     root.style.display = 'block';
+    updateSortIndicators();
+    renderRows();
   }catch(e){
-    loading.textContent = 'Erreur lors du chargement de la liste des joueurs.';
+    loading.textContent = 'Error loading players list.';
     console.error(e);
   }
+
 })();
 </script>
 </body>
