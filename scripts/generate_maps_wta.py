@@ -2,15 +2,15 @@
 # -*- coding: utf-8 -*-
 """
 generate_maps.py - Module: generation des cartes (geo aggregates)
+
+Fixed: ensure player IDs are normalized (remove trailing .0), comparisons use normalized ids,
+and output filenames never contain the ".0" suffix.
+
 Usage:
   python generate_maps.py --matches-dir /path/to/matches --out-dir ./dist --host-event-map ./host_event_map.json --limit-players 200
+
 Sorties:
   - <out_dir>/players/{PLAYER_ID}.maps.json
-Notes:
- - Produit deux objets principaux dans le JSON de sortie:
-    map_opponent_stats : { 'FRA': {wins, losses, matches, win_rate, sample_matches:[..]}, ... }
-    map_host_stats     : { 'FRA': {wins, losses, matches, titles, win_rate, sample_matches:[..]}, ... }
- - Lecture robuste des CSV, gestion des colonnes manquantes, fallback par nom si nécessaire.
 """
 from __future__ import annotations
 import argparse
@@ -18,23 +18,76 @@ import os
 import json
 import glob
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import datetime
-from pathlib import Path
 from typing import Optional, Dict, Any, List
 import pandas as pd
 import numbers
-from collections import Counter, defaultdict
 
 
 # ----------------- Helpers -----------------
 def safe_mkdir(path: str):
     os.makedirs(path, exist_ok=True)
 
-def normalize_player_id(pid: Optional[str]) -> str:
+
+def sanitize_filename(name: Optional[str]) -> str:
+    if name is None:
+        return ''
+    s = str(name)
+    # keep only allowed chars (letters, digits, dot, underscore, dash)
+    s = re.sub(r'[^A-Za-z0-9._-]', '_', s)
+    return s
+
+
+def normalize_player_id(pid: Optional[Any]) -> str:
+    """
+    Robust normalization of player ids so that values like 331809.0 become '331809'.
+    - If pid is a float and integer-valued -> 'int' string
+    - If pid is numeric-like string with trailing .0 -> 'int' string
+    - Otherwise -> stripped upper-case string
+    """
     if pid is None:
         return ''
-    return str(pid).strip().upper()
+    try:
+        # pandas NA / nan
+        if isinstance(pid, float) and pd.isna(pid):
+            return ''
+    except Exception:
+        pass
+
+    # If it's an actual numeric integral type
+    if isinstance(pid, numbers.Integral):
+        return str(int(pid))
+
+    # If it's a float and integral-valued
+    if isinstance(pid, float):
+        try:
+            if pid.is_integer():
+                return str(int(pid))
+            return str(pid)
+        except Exception:
+            return str(pid)
+
+    s = str(pid).strip()
+    if not s:
+        return ''
+
+    # common case: '331809.0' or '12345.000' -> convert to int string
+    m = re.match(r'^([+-]?\d+)\.0+$', s)
+    if m:
+        return m.group(1)
+
+    # try parse float and convert if integer-valued
+    try:
+        f = float(s)
+        if f.is_integer():
+            return str(int(f))
+    except Exception:
+        pass
+
+    # fallback: uppercase trimmed string
+    return s.upper()
+
 
 def parse_date_only(val: Optional[str]) -> str:
     if val is None:
@@ -71,45 +124,26 @@ IOC_TO_ISO3 = {
     "CRO":"HRV", "URU":"URY", "PAR":"PRY", "NGR":"NGA",
     "DEN":"DNK", "GBR":"GBR", "USA":"USA", "ARG":"ARG",
     "ESP":"ESP", "FRA":"FRA", "ITA":"ITA", "BRA":"BRA",
-    # extend as needed...
 }
 
-# common ISO2 -> ISO3 map (partial; pandas may contain 2-letter codes)
 ISO2_TO_ISO3_COMMON = {
     "DE":"DEU", "CH":"CHE", "NL":"NLD", "ES":"ESP", "FR":"FRA",
     "IT":"ITA", "GB":"GBR", "US":"USA", "AR":"ARG", "BR":"BRA",
-    # extend if needed
 }
 
+
 def to_iso3(code: Optional[str]) -> str:
-    """
-    Normalize a country code (IOC / ISO2 / ISO3 / name-like) into ISO3 (3-letter) or ''
-    Behaviour:
-      - If code matches IOC_TO_ISO3 mapping => return mapped ISO3 (this is checked first)
-      - If code looks like ISO3 (3 letters) and is alpha => accept it
-      - If code looks like ISO2 (2 letters) => map via ISO2_TO_ISO3_COMMON
-      - Try to strip non-alpha and re-evaluate
-      - Otherwise return ''
-    """
     if not code:
         return ''
     s = str(code).strip().upper()
     if not s:
         return ''
-
-    # 1) direct mapping (IOC or known alias) - checked first so "GER" -> "DEU"
     if s in IOC_TO_ISO3:
         return IOC_TO_ISO3[s]
-
-    # 2) common ISO2 -> ISO3 fallback
     if len(s) == 2 and s.isalpha():
         return ISO2_TO_ISO3_COMMON.get(s, '')
-
-    # 3) if it's already an ISO3-like code (3 alpha characters), accept it
     if len(s) == 3 and s.isalpha():
         return s
-
-    # 4) strip non-letters and re-evaluate (handles "GER\n", "DEU " etc)
     s2 = re.sub(r'[^A-Z]', '', s)
     if s2 in IOC_TO_ISO3:
         return IOC_TO_ISO3[s2]
@@ -117,38 +151,27 @@ def to_iso3(code: Optional[str]) -> str:
         return ISO2_TO_ISO3_COMMON.get(s2, '')
     if len(s2) == 3 and s2.isalpha():
         return s2
-
-    # final fallback: unknown
     return ''
 
 
-
 def normalize_event_token(val: Optional[Any]) -> str:
-    """
-    Normalize event identifiers / years read by pandas.
-    - If numeric (int or float with .0), return the integer representation as string ('311').
-    - Otherwise return stripped string.
-    """
     if val is None:
         return ''
-    # handle pd.NA / nan
     try:
         if isinstance(val, float) and pd.isna(val):
             return ''
     except Exception:
         pass
-    # integral numeric types
     if isinstance(val, numbers.Integral):
         return str(int(val))
-    # floats that are integer-valued (e.g. 311.0)
     try:
         fv = float(val)
         if fv.is_integer():
             return str(int(fv))
     except Exception:
         pass
-    # final fallback: string strip
     return str(val).strip()
+
 
 def read_matches_from_dir(matches_dir: str) -> pd.DataFrame:
     pattern = os.path.join(matches_dir, "*.csv")
@@ -167,17 +190,18 @@ def read_matches_from_dir(matches_dir: str) -> pd.DataFrame:
     matches = pd.concat(frames, ignore_index=True, sort=False)
     return matches
 
+
 def load_host_event_map(path: Optional[str]) -> Dict[str, Dict[str, str]]:
     if not path:
         return {}
     try:
         with open(path, 'r', encoding='utf-8') as f:
             d = json.load(f)
-            # expecting mapping { event_id: { year: ISO_CODE, ... }, ... }
             return d if isinstance(d, dict) else {}
     except Exception as e:
-        print(f"[generate_maps] Could not load host_event_map_wta.json at {path}: {e}")
+        print(f"[generate_maps] Could not load host_event_map at {path}: {e}")
         return {}
+
 
 # ----------------- Core builder -----------------
 
@@ -185,50 +209,44 @@ def build_maps_for_player(matches_df: pd.DataFrame,
                           player_id: str,
                           sample_limit: int = 6,
                           host_event_map: Optional[Dict[str, Dict[str, str]]] = None) -> Optional[Dict[str, Any]]:
-    """
-    Build maps (country aggregates) for one player given full matches_df.
-    Returns a dict suitable for JSON dumping (or None if player_id invalid).
-    """
     pid = normalize_player_id(player_id)
     if not pid:
         return None
 
-    # determine rows where this player participates
-    # be defensive: columns may be absent
     winner_col = 'player_id_winner'
     loser_col = 'player_id_loser'
     frames = []
+
+    # use normalized comparison on the columns to handle values like 331809.0
     if winner_col in matches_df.columns:
         try:
-            mask_w = matches_df[winner_col].astype(str).str.strip().str.upper() == pid
+            mask_w = matches_df[winner_col].map(normalize_player_id) == pid
             if mask_w.any():
                 frames.append(matches_df.loc[mask_w])
         except Exception:
             pass
     if loser_col in matches_df.columns:
         try:
-            mask_l = matches_df[loser_col].astype(str).str.strip().str.upper() == pid
+            mask_l = matches_df[loser_col].map(normalize_player_id) == pid
             if mask_l.any():
                 frames.append(matches_df.loc[mask_l])
         except Exception:
             pass
 
-    # if nothing from exact id, fallback to substring/name heuristics (defensive)
+    # fallback substring on normalized id columns
     if not frames:
-        # try substring on id columns
         mask_any = pd.Series(False, index=matches_df.index)
         for cid in (winner_col, loser_col):
             if cid in matches_df.columns:
                 try:
-                    mask_any = mask_any | matches_df[cid].astype(str).str.upper().str.contains(pid, na=False)
+                    norm_col = matches_df[cid].map(normalize_player_id)
+                    mask_any = mask_any | norm_col.str.contains(re.escape(pid), na=False)
                 except Exception:
                     pass
-        # try name columns if we have any occurrence of pid like 'N. DJOKOVIC' may not help; skip name fallback here
         if mask_any.any():
             frames.append(matches_df.loc[mask_any])
 
     if not frames:
-        # nothing found => return empty map structure
         return {
             'meta': {'player_id': pid, 'player_name': '', 'matches': 0, 'generated_at': datetime.utcnow().isoformat() + 'Z', 'version': 'v1'},
             'map_opponent_stats': {},
@@ -237,7 +255,7 @@ def build_maps_for_player(matches_df: pd.DataFrame,
 
     df = pd.concat(frames, ignore_index=True, sort=False)
 
-    # pick canonical player name if possible
+    # canonical player name
     name_candidates = []
     for col in ('player_winner','player_loser','winner_player_name','loser_player_name'):
         if col in df.columns:
@@ -246,12 +264,9 @@ def build_maps_for_player(matches_df: pd.DataFrame,
     if name_candidates:
         player_name = Counter(name_candidates).most_common(1)[0][0]
 
-    # We'll produce a normalized list of matches with minimal fields used by maps
     matches_out: List[Dict[str, Any]] = []
-    title_round_tokens = set(['W','WIN','F'])  # which rounds count as a title
 
     for idx, row in df.iterrows():
-        # determine if player won this row
         is_win = None
         try:
             if 'player_id_winner' in row.index and normalize_player_id(row.get('player_id_winner')) == pid:
@@ -259,7 +274,6 @@ def build_maps_for_player(matches_df: pd.DataFrame,
             elif 'player_id_loser' in row.index and normalize_player_id(row.get('player_id_loser')) == pid:
                 is_win = False
             else:
-                # fallback by comparing winner/loser name fields against most frequent name if available
                 if player_name:
                     pname = player_name.strip().lower()
                     if 'player_winner' in row.index and pname in str(row.get('player_winner','')).lower():
@@ -269,11 +283,9 @@ def build_maps_for_player(matches_df: pd.DataFrame,
         except Exception:
             is_win = None
 
-        # opponent country detection
         opp_country = ''
         try:
             if is_win is True:
-                # opponent is loser
                 for col in ('loser_country','country_loser_1','loser_country_1','country_loser1'):
                     if col in row.index and str(row.get(col, '')).strip():
                         opp_country = str(row.get(col, '')).strip().upper()
@@ -283,30 +295,23 @@ def build_maps_for_player(matches_df: pd.DataFrame,
                     if col in row.index and str(row.get(col, '')).strip():
                         opp_country = str(row.get(col, '')).strip().upper()
                         break
-            # if still empty, try general columns
             if not opp_country:
                 for col in ('country_winner','country_loser','winner_country','loser_country'):
                     if col in row.index and str(row.get(col, '')).strip():
-                        # choose the other player's country if possible
                         val = str(row.get(col, '')).strip().upper()
-                        # determine whether 'col' refers to opponent or not
-                        # simple heuristic: if col contains 'winner' and player is loser, then it's opponent
                         if ('winner' in col and is_win is False) or ('loser' in col and is_win is True):
                             opp_country = val
                             break
         except Exception:
             opp_country = ''
 
-        # host country detection (explicit host columns -> event map -> winner/loser fallback)
         host_country = ''
         try:
-            # 1) direct host columns if any
             for col in ('host_country','event_country','country_event','host_country_code'):
                 if col in row.index and str(row.get(col, '')).strip():
                     host_country = str(row.get(col, '')).strip().upper()
                     break
 
-            # 2) use event_id + event_year mapping if available (prefer this)
             if not host_country:
                 raw_event_id = row.get('event_id') if 'event_id' in row.index else None
                 raw_event_year = row.get('event_year') if 'event_year' in row.index else None
@@ -315,14 +320,12 @@ def build_maps_for_player(matches_df: pd.DataFrame,
                 if event_id and host_event_map:
                     ev_map = host_event_map.get(event_id) or host_event_map.get(str(event_id))
                     if isinstance(ev_map, dict):
-                        # prefer exact year match, then default, then any value
                         host_iso = None
                         if event_year:
                             host_iso = ev_map.get(event_year)
                         if not host_iso:
                             host_iso = ev_map.get('default')
                         if not host_iso:
-                            # fallback to any available value in the mapping
                             for v in ev_map.values():
                                 if v:
                                     host_iso = v
@@ -330,7 +333,6 @@ def build_maps_for_player(matches_df: pd.DataFrame,
                         if host_iso:
                             host_country = str(host_iso).strip().upper()
 
-            # 3) last resort: use winner/loser country as best-effort (only if still empty)
             if not host_country:
                 for col in ('country_winner','winner_country','country_loser','loser_country'):
                     if col in row.index and str(row.get(col, '')).strip():
@@ -339,21 +341,15 @@ def build_maps_for_player(matches_df: pd.DataFrame,
         except Exception:
             host_country = ''
 
-        # normalize event fields for storage
         stored_event_id = normalize_event_token(row.get('event_id') if 'event_id' in row.index else None)
         stored_event_year = normalize_event_token(row.get('event_year') if 'event_year' in row.index else None)
 
-                # normalise les codes pour stockage/aggregation
         opp_iso3 = to_iso3(opp_country)
         host_iso3 = to_iso3(host_country)
 
-
-
-                # determine opponent name (if available in row)
         opp_name = ''
         try:
             if is_win is True:
-                # opponent is loser
                 for col in ('player_loser','loser_player_name','loser_name'):
                     if col in row.index and str(row.get(col, '')).strip():
                         opp_name = str(row.get(col, '')).strip()
@@ -363,7 +359,6 @@ def build_maps_for_player(matches_df: pd.DataFrame,
                     if col in row.index and str(row.get(col, '')).strip():
                         opp_name = str(row.get(col, '')).strip()
                         break
-            # fallback: try generic player name columns
             if not opp_name:
                 for col in ('winner_player_name','loser_player_name','player_winner','player_loser'):
                     if col in row.index and str(row.get(col, '')).strip():
@@ -374,14 +369,12 @@ def build_maps_for_player(matches_df: pd.DataFrame,
         except Exception:
             opp_name = ''
 
-
         match_entry = {
             'match_id': str(row.get('match_id') or ''),
             'event_id': stored_event_id,
             'event_year': stored_event_year,
             'match_date': parse_date_only(row.get('start_date') or row.get('match_date') or ''),
             'tourney_name': str(row.get('tourney_name') or '')[:250],
-            # keep original fields for sample/debug but we will aggregate on ISO3 keys
             'opponent_country': opp_country,
             'opponent_country_iso3': opp_iso3,
             'host_country': host_country,
@@ -393,18 +386,13 @@ def build_maps_for_player(matches_df: pd.DataFrame,
 
         matches_out.append(match_entry)
 
-
-    # Build aggregates
     opp_map: Dict[str, Dict[str, Any]] = {}
     host_map: Dict[str, Dict[str, Any]] = {}
 
-    # helper counters to compute top opponent and top tournament per country
-    opp_name_matches = defaultdict(Counter)   # opp_name_matches[country_iso3][opponent_name] = count
-    opp_name_wins = defaultdict(Counter)      # opp_name_wins[country_iso3][opponent_name] = wins
-
-    host_tourney_matches = defaultdict(Counter)  # host_tourney_matches[host_iso3][tourney_name] = count
-    host_tourney_wins = defaultdict(Counter)     # host_tourney_wins[host_iso3][tourney_name] = wins
-
+    opp_name_matches = defaultdict(Counter)
+    opp_name_wins = defaultdict(Counter)
+    host_tourney_matches = defaultdict(Counter)
+    host_tourney_wins = defaultdict(Counter)
 
     for m in matches_out:
         oc = (m.get('opponent_country_iso3') or '').strip().upper()
@@ -416,15 +404,14 @@ def build_maps_for_player(matches_df: pd.DataFrame,
                 o['losses'] += 1
             o['matches'] += 1
             if len(o['sample_matches']) < sample_limit:
-                # include the original readable host/opponent and event info in sample
                 o['sample_matches'].append({
                     'match_id': m.get('match_id'),
                     'event_id': m.get('event_id'),
                     'event_year': m.get('event_year'),
                     'tourney_name': m.get('tourney_name'),
                     'match_date': m.get('match_date'),
-                    'opponent_country': m.get('opponent_country'),          # original code
-                    'opponent_country_iso3': m.get('opponent_country_iso3'),# iso3
+                    'opponent_country': m.get('opponent_country'),
+                    'opponent_country_iso3': m.get('opponent_country_iso3'),
                     'host_country': m.get('host_country'),
                     'host_country_iso3': m.get('host_country_iso3'),
                     'is_win': bool(m.get('is_win')) if m.get('is_win') is not None else None,
@@ -432,7 +419,6 @@ def build_maps_for_player(matches_df: pd.DataFrame,
                 })
             opp_map[oc] = o
 
-            # --- mettre à jour les compteurs par nom d'adversaire pour ce pays (top opponent)
         opp_name = (m.get('opponent_name') or '').strip()
         try:
             if opp_name:
@@ -440,9 +426,7 @@ def build_maps_for_player(matches_df: pd.DataFrame,
                 if m.get('is_win') is True:
                     opp_name_wins[oc][opp_name] += 1
         except Exception:
-            # sécurité : si quelque chose casse, ne pas stopper la génération
             pass
-
 
         hc = (m.get('host_country_iso3') or '').strip().upper()
         if hc:
@@ -467,7 +451,6 @@ def build_maps_for_player(matches_df: pd.DataFrame,
                     'score': m.get('score')
                 })
             host_map[hc] = h
-                    # update host tourney counters (for top tournament)
             try:
                 if hc:
                     tname = (m.get('tourney_name') or '').strip()
@@ -478,9 +461,6 @@ def build_maps_for_player(matches_df: pd.DataFrame,
             except Exception:
                 pass
 
-
-
-    # Titles: detect unique event_id+year where player won final/title
     title_event_ids = set()
     for m in matches_out:
         try:
@@ -488,10 +468,8 @@ def build_maps_for_player(matches_df: pd.DataFrame,
                 key = f"{m.get('event_id')}_{m.get('event_year')}"
                 title_event_ids.add(key)
         except Exception:
-            # our minimal matches_out likely doesn't have 'round'; so try to detect titles using score=='' + indicator -- skip if not available
             pass
 
-    # Another attempt: if CSV contains a 'round' column we didn't copy to matches_out, try to inspect original df rows
     if 'round' in df.columns:
         for idx, row in df.iterrows():
             try:
@@ -501,7 +479,6 @@ def build_maps_for_player(matches_df: pd.DataFrame,
             except Exception:
                 pass
 
-    # Map titles to host country via host_event_map if possible (increment country titles)
     for tkey in title_event_ids:
         parts = tkey.split('_', 1)
         ev_id = parts[0] if parts else ''
@@ -511,7 +488,6 @@ def build_maps_for_player(matches_df: pd.DataFrame,
             ev_map = host_event_map.get(ev_id) or host_event_map.get(str(ev_id))
             if isinstance(ev_map, dict):
                 host_iso = ev_map.get(ev_year) or ev_map.get('default')
-                # fallback to any available value
                 if not host_iso:
                     for v in ev_map.values():
                         if v:
@@ -524,11 +500,6 @@ def build_maps_for_player(matches_df: pd.DataFrame,
                     host_map[host_iso] = {'wins': 0, 'losses': 0, 'matches': 0, 'titles': 0, 'sample_matches': []}
                 host_map[host_iso]['titles'] = host_map[host_iso].get('titles', 0) + 1
 
-
-
-
-
-    # compute top opponent per opponent country
     top_opponent_per_country = {}
     for c, counter in opp_name_matches.items():
         if not counter:
@@ -537,7 +508,6 @@ def build_maps_for_player(matches_df: pd.DataFrame,
         wins_cnt = int(opp_name_wins[c].get(name, 0))
         top_opponent_per_country[c] = {'name': name, 'wins': wins_cnt, 'matches': int(matches_cnt)}
 
-    # compute top tournament per host country
     top_tourney_per_country = {}
     for c, counter in host_tourney_matches.items():
         if not counter:
@@ -546,7 +516,6 @@ def build_maps_for_player(matches_df: pd.DataFrame,
         wins_cnt = int(host_tourney_wins[c].get(tname, 0))
         top_tourney_per_country[c] = {'tourney_name': tname, 'wins': wins_cnt, 'matches': int(matches_cnt)}
 
-    # compute win_rate fields
     map_opponent_stats: Dict[str, Any] = {}
     for c, s in opp_map.items():
         matches_n = int(s.get('matches', 0))
@@ -557,11 +526,9 @@ def build_maps_for_player(matches_df: pd.DataFrame,
             'losses': int(s.get('losses', 0)),
             'matches': matches_n,
             'win_rate': win_rate,
-            # do not remove sample_matches from file (kept), but hover won't show it
             'sample_matches': s.get('sample_matches', []),
-            'top_opponent': top_opponent_per_country.get(c)  # may be None
+            'top_opponent': top_opponent_per_country.get(c)
         }
-
 
     map_host_stats: Dict[str, Any] = {}
     for c, s in host_map.items():
@@ -578,8 +545,6 @@ def build_maps_for_player(matches_df: pd.DataFrame,
             'top_tourney': top_tourney_per_country.get(c)
         }
 
-
-    # final result (outside loops)
     result = {
         'meta': {
             'player_id': pid,
@@ -588,14 +553,13 @@ def build_maps_for_player(matches_df: pd.DataFrame,
             'generated_at': datetime.utcnow().isoformat() + 'Z',
             'version': 'v1'
         },
-        # canonical keys (nouveau format)
         'map_opponent_stats': map_opponent_stats,
         'map_host_stats': map_host_stats,
-        # compatibility avec anciens noms (certaines pages clientes attendent opponent_countries / host_countries)
         'opponent_countries': map_opponent_stats,
         'host_countries': map_host_stats
     }
     return result
+
 
 # ----------------- CLI Main -----------------
 
@@ -607,7 +571,6 @@ def main(matches_dir: str, out_dir: str, host_event_map_path: Optional[str] = No
 
     host_event_map = load_host_event_map(host_event_map_path)
 
-    # discover player ids from winner/loser columns
     player_ids = set()
     if 'player_id_winner' in matches.columns:
         player_ids.update([normalize_player_id(x) for x in matches['player_id_winner'].dropna().unique()])
@@ -628,7 +591,8 @@ def main(matches_dir: str, out_dir: str, host_event_map_path: Optional[str] = No
         try:
             print(f"[generate_maps] [{i}/{len(player_ids)}] building maps for {pid} ...")
             maps_obj = build_maps_for_player(matches, pid, sample_limit=6, host_event_map=host_event_map)
-            out_path = os.path.join(players_dir, f"{pid}.maps.json")
+            safe_pid = sanitize_filename(pid)
+            out_path = os.path.join(players_dir, f"{safe_pid}.maps.json")
             with open(out_path, 'w', encoding='utf8') as f:
                 json.dump(maps_obj, f, ensure_ascii=False, indent=2)
         except Exception as e:
