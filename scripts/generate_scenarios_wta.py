@@ -3,25 +3,15 @@
 """
 generate_scenarios.py - Module 3: generate scenario datasets per player
 
+Fixed: ensure player IDs don't end with ".0" and filenames never contain the trailing decimal.
+
 Usage:
   python generate_scenarios.py --matches-dir /path/to/matches --out-dir ./dist --limit-players 200
 
 Produces JSON per player at: <out_dir>/players/<PLAYER>.scenarios.json
 
 Output schema (high level):
-{
-  "meta": {...},
-  "scenarios": {
-    "non_gs": { "wins_in_2_sets": {"count":N,"denominator":D}, ... },
-    "gs": { "wins_after_losing_first_two_sets": {"count":N,"denominator":D}, ... },
-    "retirements": {
-       "count": total_retirements,
-       "by_set": { "2": 12, "3": 5, ... },
-       "examples": [ {match...}, ... ]
-    },
-    "samples": { "<scenario_key>": [ {...}, ... ] }
-  }
-}
+{ ... }
 """
 import argparse
 import os
@@ -58,10 +48,54 @@ def str_safe(v):
 def safe_mkdir(path):
     os.makedirs(path, exist_ok=True)
 
+
 def normalize_player_id(pid):
+    """
+    Normalize player id to a stable string:
+      - Remove trailing .0 for floats/strings like "331809.0" -> "331809"
+      - If float is integer-valued, convert to int first
+      - Strip and upper-case non-numeric ids
+    """
     if pid is None:
         return ''
-    return str(pid).strip().upper()
+    try:
+        # If it's already a float and integer-valued
+        if isinstance(pid, float):
+            if pid.is_integer():
+                return str(int(pid))
+            return str(pid)
+        s = str(pid).strip()
+        # If looks like numeric with .0 (e.g. "331809.0"), convert to int string
+        m = re.match(r'^([+-]?\d+)\.0+$', s)
+        if m:
+            return m.group(1)
+        # try parse float and convert if integer
+        try:
+            f = float(s)
+            if f.is_integer():
+                return str(int(f))
+        except Exception:
+            pass
+        # fallback: return trimmed string (uppercase for consistency)
+        return s.upper()
+    except Exception:
+        try:
+            return str(pid)
+        except Exception:
+            return ''
+
+
+def sanitize_filename(name):
+    """
+    Make a filename-safe string from normalized player id. Keep digits, letters, dash, underscore and dot.
+    """
+    if name is None:
+        return ''
+    s = str(name)
+    # keep only allowed chars
+    s = re.sub(r'[^A-Za-z0-9._-]', '_', s)
+    return s
+
 
 def parse_date(val):
     try:
@@ -70,6 +104,7 @@ def parse_date(val):
         return pd.to_datetime(val, errors='coerce').date().isoformat()
     except Exception:
         return ''
+
 
 def read_matches_from_dir(matches_dir):
     pattern = os.path.join(matches_dir, "*.csv")
@@ -86,6 +121,7 @@ def read_matches_from_dir(matches_dir):
     return pd.concat(frames, ignore_index=True, sort=False)
 
 # ---------- Core per-match helpers ----------
+
 def parse_set_scores(row):
     """Return list of (left,right,raw) for set1..set5 present in row."""
     arr = []
@@ -104,6 +140,7 @@ def parse_set_scores(row):
                     arr.append((raw, '', raw))
     return arr
 
+
 def player_won_row(row, player_id):
     """True if row indicates player_id is winner, False if loser, None if unknown."""
     pid = normalize_player_id(player_id)
@@ -116,74 +153,50 @@ def player_won_row(row, player_id):
         wn = (row.get('winner_player_name') or '').strip()
         ln = (row.get('loser_player_name') or '').strip()
         if wn and ln:
-            # if player's name appears exactly in winner_player_name we assume winner
-            # else if equals loser_player_name assume loser
-            # else unknown
-            # This is a weak fallback but rarely needed
-            # normalized minimal compare
             try:
                 if isinstance(pid, str) and pid and '.' in pid:
-                    # pid like "J. DOE" maybe matching initials - skip fallback
                     return None
             except Exception:
                 pass
     return None
+
 
 def _parse_int_safe(s):
     try:
         if s is None: return None
         s2 = str(s).strip()
         if s2 == '': return None
-        # remove parentheses or tiebreak suffix e.g. "7(7)" -> "7"
         m = re.match(r'^\s*(\d+)', s2)
         if m:
             return int(m.group(1))
-        # last resort extract digits
         d = re.sub(r'[^0-9]', '', s2)
         if d == '': return None
         return int(d)
     except Exception:
         return None
 
+
 def is_complete_set_score(left_str, right_str):
-    """
-    Decide whether a set score represents a *complete* set.
-    Rules (heuristic, robust):
-      - both sides parse to integers
-      - winner_games >= 6 and (winner_games - loser_games >= 2 OR winner_games == 7)
-      - this accepts 6-4, 7-6, 8-6 etc.
-    """
     a = _parse_int_safe(left_str)
     b = _parse_int_safe(right_str)
     if a is None or b is None:
         return False
-    # identify winner and loser in set
     if a == b:
         return False
     winner = a if a > b else b
     loser = b if a > b else a
-    # winner must have at least 6
     if winner < 6:
         return False
-    # if winner is 7, accept (tie-break or 7-5)
     if winner == 7:
         return True
-    # accept winner>=6 and diff >= 2 (covers 6-4,8-6,9-7,...)
     if (winner - loser) >= 2:
         return True
     return False
 
 
 # ---------- Helpers used by the new profile-by-set builder ----------
+
 def parse_time_to_seconds(v):
-    """
-    Accepts:
-      - 'HH:MM:SS' or 'MM:SS' strings,
-      - numeric seconds as int/float,
-      - pandas Timestamp/Timedelta,
-      - empty/NaN -> None
-    Returns seconds as int or None.
-    """
     try:
         if v is None:
             return None
@@ -192,23 +205,21 @@ def parse_time_to_seconds(v):
         s = str(v).strip()
         if s == '':
             return None
-        # try HH:MM:SS or MM:SS
         if ':' in s:
             parts = s.split(':')
             parts = [p.strip() for p in parts if p.strip()!='']
-            # right-align: if len==3 -> h:m:s, if len==2 -> m:s
             if len(parts) == 3:
                 h,m,se = parts
                 return int(h)*3600 + int(m)*60 + int(float(se))
             if len(parts) == 2:
                 m,se = parts
                 return int(m)*60 + int(float(se))
-        # try numeric string (seconds)
         if re.match(r'^\d+(\.\d+)?$', s):
             return int(float(s))
     except Exception:
         pass
     return None
+
 
 def safe_div(numer, denom):
     try:
@@ -219,7 +230,8 @@ def safe_div(numer, denom):
         return None
 
 
-# ---------- Helpers used by scenarios builder ----------
+# ---------- Helpers used by scenarios builder (duplicate defs kept intentionally) ----------
+
 def parse_time_to_seconds(v):
     try:
         if v is None:
@@ -244,6 +256,7 @@ def parse_time_to_seconds(v):
         pass
     return None
 
+
 def safe_div(n, d):
     try:
         if d is None or d == 0:
@@ -252,26 +265,38 @@ def safe_div(n, d):
     except Exception:
         return None
 
+
 # ---------- New/Fixed build function ----------
+
 def build_scenarios_for_player(matches_df, player_id, sample_limit=6):
     """
-    Builds:
-      - legacy-like non_gs metrics (for backward compatibility with the UI)
-      - new profile_by_set aggregations (sets 1..3)
-      - retirements summary
+    Builds scenarios for a single player. Uses normalize_player_id for comparisons so a CSV float 331809.0
+    will match the normalized id "331809".
     """
     pid = normalize_player_id(player_id)
     if not pid:
         return None
 
-    # select player's matches
-    cond_w = ('player_id_winner' in matches_df.columns) and (matches_df['player_id_winner'].astype(str).str.strip().str.upper() == pid)
-    cond_l = ('player_id_loser' in matches_df.columns) and (matches_df['player_id_loser'].astype(str).str.strip().str.upper() == pid)
+    # select player's matches by normalizing the id columns before comparison
     frames = []
+    cond_w = False
+    cond_l = False
+    if 'player_id_winner' in matches_df.columns:
+        try:
+            cond_w = matches_df['player_id_winner'].map(normalize_player_id) == pid
+        except Exception:
+            cond_w = False
+    if 'player_id_loser' in matches_df.columns:
+        try:
+            cond_l = matches_df['player_id_loser'].map(normalize_player_id) == pid
+        except Exception:
+            cond_l = False
+
     if cond_w is not False and hasattr(cond_w, 'any') and cond_w.any():
         frames.append(matches_df[cond_w])
     if cond_l is not False and hasattr(cond_l, 'any') and cond_l.any():
         frames.append(matches_df[cond_l])
+
     if not frames:
         return {'meta': {'player_id': pid, 'player_name': '', 'generated_at': datetime.utcnow().isoformat()+'Z', 'version': 'v2-profile-by-set', 'matches': 0},
                 'non_gs': {}, 'profile_by_set': {}, 'retirements': {'count':0,'by_set':{},'examples':[]}}
@@ -283,15 +308,10 @@ def build_scenarios_for_player(matches_df, player_id, sample_limit=6):
     for i in (1,2,3):
         sets_acc[i] = {
             'sum_set_time_sec': 0, 'count_set_time': 0,
-            # breaks suffered = opponent breakptsconv
             'sum_breaks_suffered': 0.0, 'count_breaks_suffered': 0,
-            # breaks obtained = player's breakptsconv
             'sum_breaks_obtained': 0.0, 'count_breaks_obtained': 0,
-            # first serve: numerator = ptsplayed1stserv (played), denominator = totservplayed
             'sum_firstserve_played': 0.0, 'sum_firstserve_total': 0.0,
-            # first-serve won: numerator = ptswon1stserv, denominator = ptsplayed1stserv
             'sum_firstserve_won': 0.0, 'sum_firstserve_won_total': 0.0,
-            # aces and double faults
             'sum_aces': 0.0, 'count_aces': 0,
             'sum_doublefaults': 0.0, 'count_doublefaults': 0,
             'matches_with_set': 0
@@ -332,7 +352,6 @@ def build_scenarios_for_player(matches_df, player_id, sample_limit=6):
         # parse sets present (up to 5)
         parsed_sets = []
         complete_sets_count = 0
-        # helper to read winner/loser int score columns
         for i in range(1,6):
             ws_col = f"winner_score_set{i}"
             ls_col = f"loser_score_set{i}"
@@ -356,7 +375,6 @@ def build_scenarios_for_player(matches_df, player_id, sample_limit=6):
         # compute winner_sets/loser_sets in row (row refers to winner/loser sides)
         winner_sets = sum(1 for a,b in parsed_sets[:5] if a is not None and b is not None and a > b)
         loser_sets  = sum(1 for a,b in parsed_sets[:5] if a is not None and b is not None and a < b)
-        # map to player perspective if possible
         if player_is_winner is True:
             player_set_wins = winner_sets
             opp_set_wins = loser_sets
@@ -368,29 +386,12 @@ def build_scenarios_for_player(matches_df, player_id, sample_limit=6):
             opp_set_wins = None
 
         # retirement detection (as before): if player didn't reach 2 and there is set data or explicit RET
-                # retirement detection: WTA is best-of-3 => req_to_win = 2
         req_to_win = 2
 
-        # explicit retire markers
         explicit_ret = False
         match_msg = str_safe(r.get('match_message') or r.get('match_status') or '')
         if isinstance(match_msg, str) and 'ret' in match_msg.strip().lower():
             explicit_ret = True
-
-        # compute winner/loser sets from parsed_sets (these are counts for row-winner)
-        winner_sets = sum(1 for a,b in parsed_sets[:5] if a is not None and b is not None and a > b)
-        loser_sets  = sum(1 for a,b in parsed_sets[:5] if a is not None and b is not None and a < b)
-
-        # map to player perspective if possible
-        if player_is_winner is True:
-            player_set_wins = winner_sets
-            opp_set_wins = loser_sets
-        elif player_is_winner is False:
-            player_set_wins = loser_sets
-            opp_set_wins = winner_sets
-        else:
-            player_set_wins = None
-            opp_set_wins = None
 
         # If either side already reached req_to_win, match is finished -> NOT a retirement
         match_finished = (winner_sets >= req_to_win) or (loser_sets >= req_to_win)
@@ -399,34 +400,25 @@ def build_scenarios_for_player(matches_df, player_id, sample_limit=6):
         retire_set_number = None
 
         if not match_finished:
-            # Only consider retire if explicit marker OR some evidence the match stopped before a winner reached 2 sets.
-            # Evidence = at least one set recorded and either: an incomplete (raw) set present OR explicit RET flag.
             if explicit_ret:
                 is_retire = True
             else:
-                # check for incomplete set presence (raw set field present but not parsable as complete)
                 found_incomplete = False
                 for i in range(1,6):
                     a,b = parsed_sets[i-1]
                     gen = f"set{i}_score"
-                    # raw present?
                     if gen in r.index and str_safe(r.get(gen)).strip() != '':
-                        # if parsed set is incomplete (a or b None) then it's an incomplete set => retirement here
                         if a is None or b is None:
                             found_incomplete = True
                             retire_set_number = i
                             break
-                # also consider: if there are complete sets but neither side reached req_to_win and there's no raw incomplete set,
-                # then retirement likely happened *after* the last complete set -> mark next set index
                 if not found_incomplete:
                     if complete_sets_count > 0:
                         is_retire = True
                         retire_set_number = complete_sets_count + 1
                     else:
-                        # no set info and no explicit flag => don't call it a retirement (insufficient evidence)
                         is_retire = False
 
-        # Ensure retire_set_number in 1..3 (WTA has no set 4/5)
         if is_retire and retire_set_number is not None:
             try:
                 retire_set_number = int(retire_set_number)
@@ -436,7 +428,6 @@ def build_scenarios_for_player(matches_df, player_id, sample_limit=6):
                     retire_set_number = 3
             except Exception:
                 retire_set_number = 1
-
 
         if is_retire:
             retire_count += 1
@@ -452,7 +443,6 @@ def build_scenarios_for_player(matches_df, player_id, sample_limit=6):
 
         # collect per-set stats for sets 1..3
         for i in (1,2,3):
-            # decide prefixes: my_pref = 'winner' if player_is_winner True else 'loser'
             if player_is_winner is True:
                 my_pref = 'winner'; opp_pref = 'loser'
             elif player_is_winner is False:
@@ -460,7 +450,6 @@ def build_scenarios_for_player(matches_df, player_id, sample_limit=6):
             else:
                 my_pref = None; opp_pref = None
 
-            # set time
             st_col = f"settime_set{i}"
             st_sec = None
             if st_col in r.index:
@@ -469,7 +458,6 @@ def build_scenarios_for_player(matches_df, player_id, sample_limit=6):
                 sets_acc[i]['sum_set_time_sec'] += st_sec
                 sets_acc[i]['count_set_time'] += 1
 
-            # breaks suffered: opponent's breakptsconv_set{i}
             br_s_col = f"{opp_pref}_breakptsconv_set{i}" if opp_pref else None
             if br_s_col and br_s_col in r.index and str_safe(r.get(br_s_col)).strip() != '':
                 try:
@@ -479,8 +467,6 @@ def build_scenarios_for_player(matches_df, player_id, sample_limit=6):
                 except Exception:
                     pass
 
-
-            # breaks obtained: player's breakptsconv_set{i}
             br_g_col = f"{my_pref}_breakptsconv_set{i}" if my_pref else None
             if br_g_col and br_g_col in r.index and str_safe(r.get(br_g_col)).strip() != '':
                 try:
@@ -490,8 +476,6 @@ def build_scenarios_for_player(matches_df, player_id, sample_limit=6):
                 except Exception:
                     pass
 
-
-            # first serve: ptsplayed1stserv / totservplayed (player side)
             fs_played_col = f"{my_pref}_ptsplayed1stserv_set{i}" if my_pref else None
             fs_total_col  = f"{my_pref}_totservplayed_set{i}" if my_pref else None
             fs_played = None; fs_total = None
@@ -499,14 +483,10 @@ def build_scenarios_for_player(matches_df, player_id, sample_limit=6):
                 fs_played = _parse_int_safe(r.get(fs_played_col))
             if fs_total_col and fs_total_col in r.index:
                 fs_total = _parse_int_safe(r.get(fs_total_col))
-            # We accumulate sums to compute weighted ratio later: total_played / total_servplayed
             if fs_played is not None and fs_total is not None and fs_total > 0:
-                # accumulate totals for first-serve played / total (to compute weighted pct)
                 sets_acc[i]['sum_firstserve_played'] += (fs_played or 0)
                 sets_acc[i]['sum_firstserve_total'] += (fs_total or 0)
 
-
-            # first serve won: ptswon1stserv / ptsplayed1stserv
             fs_won_col = f"{my_pref}_ptswon1stserv_set{i}" if my_pref else None
             fs_won = None
             if fs_won_col and fs_won_col in r.index:
@@ -515,7 +495,6 @@ def build_scenarios_for_player(matches_df, player_id, sample_limit=6):
                 sets_acc[i]['sum_firstserve_won'] += fs_won
                 sets_acc[i]['sum_firstserve_won_total'] += fs_played
 
-            # aces
             ac_col = f"{my_pref}_aces_set{i}" if my_pref else None
             if ac_col and ac_col in r.index and str_safe(r.get(ac_col)).strip() != '':
                 try:
@@ -525,8 +504,6 @@ def build_scenarios_for_player(matches_df, player_id, sample_limit=6):
                 except Exception:
                     pass
 
-
-            # double faults
             df_col = f"{my_pref}_dblflt_set{i}" if my_pref else None
             if df_col and df_col in r.index and str_safe(r.get(df_col)).strip() != '':
                 try:
@@ -536,8 +513,6 @@ def build_scenarios_for_player(matches_df, player_id, sample_limit=6):
                 except Exception:
                     pass
 
-
-            # mark matches_with_set if present
             present = False
             if (f"winner_score_set{i}" in r.index and str_safe(r.get(f"winner_score_set{i}")).strip() != '') or \
                (f"loser_score_set{i}" in r.index and str_safe(r.get(f"loser_score_set{i}")).strip() != '') or \
@@ -548,13 +523,11 @@ def build_scenarios_for_player(matches_df, player_id, sample_limit=6):
                 sets_acc[i]['matches_with_set'] += 1
 
         # patterns (two-set and three-set)
-        # build per-set results from player's perspective
         per_set_results = []
         complete_count_for_pattern = 0
         for i in (1,2,3):
             a,b = parsed_sets[i-1]
             if a is not None and b is not None:
-                # a = winner games, b = loser games
                 if player_is_winner is True:
                     res = 'V' if a > b else 'P'
                 elif player_is_winner is False:
@@ -569,12 +542,8 @@ def build_scenarios_for_player(matches_df, player_id, sample_limit=6):
             pat = ''.join(per_set_results[:2])
             if pat in patterns:
                 patterns[pat] += 1
-            # legacy non_gs counts (partially keep previous keys)
-            # evaluate first-set lost/won logic for non-gs
-            # check first set win/loss
             a1,b1 = parsed_sets[0]
             if a1 is not None and b1 is not None:
-                # lost first?
                 if player_is_winner is True:
                     lost_first = (a1 <= b1)
                 elif player_is_winner is False:
@@ -583,7 +552,6 @@ def build_scenarios_for_player(matches_df, player_id, sample_limit=6):
                     lost_first = None
                 if lost_first is True:
                     den['non_gs_lost_first_set'] += 1
-                    # if player then wins the match (player_set_wins > opp_set_wins)
                     if player_set_wins is not None and player_set_wins > opp_set_wins:
                         non_gs['wins_after_losing_first_set']['count'] += 1
                 if lost_first is False:
@@ -591,7 +559,6 @@ def build_scenarios_for_player(matches_df, player_id, sample_limit=6):
                     if player_set_wins is not None and player_set_wins < opp_set_wins:
                         non_gs['losses_after_winning_first_set']['count'] += 1
 
-            # wins/losses in 2-set matches
             den['non_gs_matches_2_sets'] += 1
             if player_set_wins is not None and player_set_wins > opp_set_wins:
                 non_gs['wins_in_2_sets']['count'] += 1
@@ -603,7 +570,6 @@ def build_scenarios_for_player(matches_df, player_id, sample_limit=6):
             pat = ''.join(per_set_results[:3])
             if pat in patterns:
                 patterns[pat] += 1
-            # wins/losses in 3-set matches
             den['non_gs_matches_3_sets'] += 1
             if player_set_wins is not None and player_set_wins > opp_set_wins:
                 non_gs['wins_in_3_sets']['count'] += 1
@@ -625,7 +591,6 @@ def build_scenarios_for_player(matches_df, player_id, sample_limit=6):
         avg_breaks_suffered = round(s['sum_breaks_suffered']/s['count_breaks_suffered'],3) if s['count_breaks_suffered']>0 else None
         avg_breaks_obtained  = round(s['sum_breaks_obtained']/s['count_breaks_obtained'],3) if s['count_breaks_obtained']>0 else None
 
-        # first serve % : weighted sum of played / sum of totservplayed
         firstserve_pct = None
         if s['sum_firstserve_total'] and s['sum_firstserve_total'] > 0:
             firstserve_pct = round((s['sum_firstserve_played'] / s['sum_firstserve_total']) * 100.0, 2)
@@ -654,7 +619,6 @@ def build_scenarios_for_player(matches_df, player_id, sample_limit=6):
     for k in ('PVP','PVV','VPV','VPP'):
         patterns_out[k] = {'count': int(patterns[k]), 'denominator': int(matches_3_sets)}
 
-    # finalize legacy non_gs denominators
     non_gs_out = {}
     non_gs_out['wins_after_losing_first_set'] = {'count': int(non_gs['wins_after_losing_first_set']['count']), 'denominator': int(den['non_gs_lost_first_set'])}
     non_gs_out['losses_after_winning_first_set'] = {'count': int(non_gs['losses_after_winning_first_set']['count']), 'denominator': int(den['non_gs_won_first_set'])}
@@ -684,22 +648,28 @@ def main(matches_dir, out_dir, player_list=None, limit_players=None):
     if 'player_id_loser' in matches.columns:
         player_ids.update([normalize_player_id(x) for x in matches['player_id_loser'].dropna().unique()])
     player_ids = sorted([p for p in player_ids if p])
+
     if player_list:
-        player_ids = [p for p in player_ids if p in set(player_list)]
+        norm_plist = set(normalize_player_id(p) for p in player_list if p)
+        player_ids = [p for p in player_ids if p in norm_plist]
     if limit_players:
         player_ids = player_ids[:int(limit_players)]
     players_dir = os.path.join(out_dir, "players")
     safe_mkdir(players_dir)
     for i, pid in enumerate(player_ids, start=1):
+        if not pid:
+            continue
         print(f"[scenarios] [{i}/{len(player_ids)}] building scenarios for {pid}")
         try:
             obj = build_scenarios_for_player(matches, pid)
-            out_path = os.path.join(players_dir, f"{pid}.scenarios.json")
+            safe_pid = sanitize_filename(pid)
+            out_path = os.path.join(players_dir, f"{safe_pid}.scenarios.json")
             with open(out_path, 'w', encoding='utf8') as f:
                 json.dump(obj, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"[scenarios] ERROR building scenarios for {pid}: {e}")
     print("[scenarios] done. files in", players_dir)
+
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Generate scenarios")
