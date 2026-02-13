@@ -117,11 +117,11 @@
   </div>
 
 <script>
-/* Full head-to-head page with fallback when no H2H JSON exists.
-   - Loads players_catalog.json automatically for autocomplete.
-   - Loads prioritized image manifest (WTA-first when appropriate).
-   - If no H2H JSON is found for the pair, still displays both players and shows H2H = 0—0 and no matches.
-   - Display H2H reloads page with ?p1=ID&p2=ID
+/* headtohead — version per-player JSON
+   - charge players_catalog.json pour autocomplétion
+   - charge deux JSONs: /data/h2h_by_player/<PLAYER_ID>.json
+   - calcule H2H côté client en combinant matches des deux fichiers
+   - conserve manifest image logic (WTA-first)
 */
 
 /* CONFIG */
@@ -132,11 +132,11 @@ const PLAYERS_CATALOG_PATHS = [
   'https://www.center-court.net/tools/players_catalog.json'
 ];
 
-const H2H_BASES = [
-  '/data/h2h/',
-  './data/h2h/',
-  window.location.origin + '/data/h2h/',
-  'https://www.center-court.net/data/h2h/'
+const H2H_PLAYER_BASES = [
+  '/data/h2h_by_player/',
+  './data/h2h_by_player/',
+  window.location.origin + '/data/h2h_by_player/',
+  'https://www.center-court.net/data/h2h_by_player/'
 ];
 
 const MANIFEST_ATP = '/index/players_atp_images_manifest.json';
@@ -315,11 +315,11 @@ function findManifestEntry(manifest, pid, slug){
   return null;
 }
 
-/* Render player image */
+/* Render player image (uses manifest, fallback to cloudinary heuristics / alias) */
 async function renderPlayerImage(containerEl, playerRec){
   containerEl.innerHTML = '';
   const pid = (playerRec && (playerRec.id || playerRec.player_id || playerRec.playerId)) ? String(playerRec.id || playerRec.player_id || playerRec.playerId) : '';
-  const slug = (playerRec && (playerRec.slug || playerRec.player_slug || playerRec.name)) ? String(playerRec.slug || playerRec.player_slug || playerRec.name).toLowerCase() : '';
+  const slug = (playerRec && (playerRec.slug || playerRec.player_slug || playerRec.name || playerRec.full_name)) ? String(playerRec.slug || playerRec.player_slug || playerRec.name || playerRec.full_name).toLowerCase() : '';
   let manifest = imageManifest;
   if(!manifest) manifest = await loadImageManifestOnce(null);
   let entry = findManifestEntry(manifest, pid, slug);
@@ -329,7 +329,7 @@ async function renderPlayerImage(containerEl, playerRec){
       containerEl.appendChild(img); return;
     }
     if(entry.public_id && window.CLOUDINARY_CLOUD_NAME){
-      const public_id = entry.public_id.replace(/^\/+/,'');
+      const public_id = entry.public_id.replace(/^\/+/, '');
       const url = `https://res.cloudinary.com/${window.CLOUDINARY_CLOUD_NAME}/image/upload/c_fill,g_auto,h_800,w_800/f_auto,q_auto/v1/${public_id}`;
       const img = document.createElement('img'); img.src = url; img.alt = playerRec.full_name || playerRec.name || pid; img.loading='lazy';
       containerEl.appendChild(img); return;
@@ -401,51 +401,171 @@ function applyPaletteForPlayers(leftId, rightId, payload){
   }
 }
 
-/* Robust H2H fetch */
-async function fetchH2HJson(p1, p2){
-  const combos = [[p1,p2],[p2,p1],[p1.toLowerCase(),p2.toLowerCase()],[p2.toLowerCase(),p1.toLowerCase()]];
-  const trials = [];
-  for(const base of H2H_BASES){
-    for(const [a,b] of combos){
-      trials.push(base + `${a}_${b}.json`);
-      trials.push(base + `${a}-${b}.json`);
-      trials.push(base + `${a}${b}.json`);
+/* Helpers: attempt to fetch a player JSON from candidate base paths */
+async function fetchPlayerJson(pid){
+  if(!pid) return null;
+  const candidates = [];
+  const n = String(pid).trim();
+  candidates.push(`${n}.json`);
+  candidates.push(`${n.toLowerCase()}.json`);
+  candidates.push(`${n.toUpperCase()}.json`);
+  // try each base + candidate
+  for(const base of H2H_PLAYER_BASES){
+    for(const cand of candidates){
+      const url = base + cand;
+      try {
+        const r = await fetch(url, {cache:'no-cache', mode:'cors'});
+        if(!r || !r.ok) continue;
+        const json = await r.json();
+        return { json, url };
+      } catch(e){
+        continue;
+      }
     }
-  }
-  for(const url of trials){
-    try{
-      const r = await fetch(url, {cache:'no-cache', mode:'cors'});
-      if(!r || !r.ok) continue;
-      const json = await r.json();
-      return { json, url };
-    } catch(e){ continue; }
   }
   return null;
 }
 
-/* Render events table */
+/* Merge matches from two player JSONs to produce H2H list (dedupe) */
+function computeH2HFromPlayers(p1json, p2json, p1id, p2id){
+  // p1json.matches entries expected to contain: opponent_id, opponent_name, is_winner, match_id, event_id, event_year, score, match_date, match_link
+  // build map by unique key (prefer match_link, fallback event+id+date+score)
+  const keyFor = m => {
+    if(m.match_link) return `link:${m.match_link}`;
+    if(m.match_id && m.event_id) return `id:${m.event_id}#${m.match_id}`;
+    const d = m.match_date || m.event_year || '';
+    const s = (m.score || m.score_string || '').replace(/\s+/g,'').slice(0,80);
+    return `fallback:${d}|${s}|${m.opponent_name||''}`;
+  };
+
+  const combined = {}; // key -> normalized match
+  const p1name = (p1json && (p1json.player && (p1json.player.full_name || p1json.player.name) || p1json.player1 && (p1json.player1.full_name || p1json.player1.name))) || '';
+  const p2name = (p2json && (p2json.player && (p2json.player.full_name || p2json.player.name) || p2json.player2 && (p2json.player2.full_name || p2json.player2.name))) || '';
+
+  const pushMatch = (mRaw, sidePlayerId, sidePlayerName) => {
+    const k = keyFor(mRaw);
+    // normalize fields
+    const opponent_id = (mRaw.opponent_id || mRaw.player_id_loser || mRaw.player_id_winner || '').toString().toUpperCase();
+    const opponent_name = (mRaw.opponent_name || mRaw.winner_player_name || mRaw.loser_player_name || '').toString();
+    // determine winner/loser names and ids
+    // if mRaw has is_winner relative to sidePlayerId:
+    const isWinner = !!mRaw.is_winner;
+    let winner_name, loser_name, winner_id, loser_id;
+    if(isWinner){
+      winner_name = sidePlayerName || sidePlayerId;
+      loser_name = opponent_name || (opponent_id || '');
+      winner_id = sidePlayerId;
+      loser_id = opponent_id;
+    } else {
+      winner_name = opponent_name || (opponent_id || '');
+      loser_name = sidePlayerName || sidePlayerId;
+      winner_id = opponent_id;
+      loser_id = sidePlayerId;
+    }
+    // keep surface, event, date, score
+    const normalized = {
+      key: k,
+      match_link: mRaw.match_link || mRaw.match_link || '',
+      match_id: mRaw.match_id || '',
+      event_id: mRaw.event_id || '',
+      event_year: mRaw.event_year || '',
+      tourney_name: mRaw.tourney_name || mRaw.tourney || '',
+      round: mRaw.round || '',
+      surface: mRaw.surface || '',
+      score_string: mRaw.score || mRaw.score_string || '',
+      match_date: mRaw.match_date || '',
+      winner_player_name: winner_name,
+      loser_player_name: loser_name,
+      player_id_winner: (winner_id || '').toString().toUpperCase(),
+      player_id_loser: (loser_id || '').toString().toUpperCase()
+    };
+    // store (or merge if exists preferring complete fields)
+    if(!combined[k]){
+      combined[k] = normalized;
+    } else {
+      // prefer entries with match_link or a non-empty score_string
+      const cur = combined[k];
+      if(!cur.match_link && normalized.match_link) combined[k] = normalized;
+      else if((!cur.score_string || cur.score_string.length<3) && normalized.score_string) combined[k] = normalized;
+    }
+  };
+
+  // scan p1 matches
+  if(p1json && Array.isArray(p1json.matches)){
+    for(const m of p1json.matches){
+      const oppId = (m.opponent_id || '').toString().toUpperCase();
+      const condId = (p2id && oppId && oppId === p2id.toString().toUpperCase());
+      const condName = (p2name && m.opponent_name && m.opponent_name.toLowerCase().includes(p2name.toLowerCase()));
+      if(condId || condName){
+        pushMatch(m, p1id, p1name);
+      }
+    }
+  }
+
+  // scan p2 matches
+  if(p2json && Array.isArray(p2json.matches)){
+    for(const m of p2json.matches){
+      const oppId = (m.opponent_id || '').toString().toUpperCase();
+      const condId = (p1id && oppId && oppId === p1id.toString().toUpperCase());
+      const condName = (p1name && m.opponent_name && m.opponent_name.toLowerCase().includes(p1name.toLowerCase()));
+      if(condId || condName){
+        pushMatch(m, p2id, p2name);
+      }
+    }
+  }
+
+  // convert combined -> array and compute p1/p2 wins
+  const arr = Object.values(combined).sort((a,b)=>{
+    // sort by event_year or match_date desc
+    const ya = a.event_year || (a.match_date ? a.match_date.slice(0,4) : '') || '';
+    const yb = b.event_year || (b.match_date ? b.match_date.slice(0,4) : '') || '';
+    if(ya !== yb) return yb.localeCompare(ya);
+    return (b.match_date||'').localeCompare(a.match_date||'');
+  });
+
+  let p1wins = 0, p2wins = 0;
+  for(const m of arr){
+    const winnerId = (m.player_id_winner || '').toString().toUpperCase();
+    const loserId = (m.player_id_loser || '').toString().toUpperCase();
+    if(p1id && winnerId === p1id.toString().toUpperCase()) p1wins++;
+    else if(p2id && winnerId === p2id.toString().toUpperCase()) p2wins++;
+    else {
+      // fallback by comparing names
+      const wn = (m.winner_player_name || '').toLowerCase();
+      if(p1name && wn.includes(p1name.toLowerCase())) p1wins++;
+      else if(p2name && wn.includes(p2name.toLowerCase())) p2wins++;
+    }
+  }
+
+  return { matches: arr, p1wins, p2wins };
+}
+
+/* Render events table (kept) */
 function renderEvents(matches){
   eventsTableWrap.innerHTML = '';
   if(!Array.isArray(matches) || matches.length === 0){ eventsTableWrap.innerHTML = '<div class="small-muted">Aucun match H2H</div>'; return; }
   const table = document.createElement('table');
   const thead = document.createElement('thead'); thead.innerHTML = '<tr><th>Year</th><th>Winner</th><th>Event</th><th>Round</th><th>Surface</th><th>Score</th></tr>'; table.appendChild(thead);
   const tbody = document.createElement('tbody');
-  const sorted = matches.slice().sort((a,b)=> (b.event_year||'').toString().localeCompare((a.event_year||'').toString()));
-  for(const m of sorted){
+  for(const m of matches){
     const tr = document.createElement('tr');
     const year = m.event_year || (m.match_date ? (new Date(m.match_date)).getFullYear() : '');
-    tr.innerHTML = `<td>${year}</td><td>${m.winner_player_name||m.winner||'—'}</td><td>${m.tourney_name||m.tournament||'—'}</td><td>${m.round||'—'}</td><td>${m.surface||'—'}</td><td>${m.score_string||m.score||'—'}</td>`;
+    tr.innerHTML = `<td>${year}</td><td>${m.winner_player_name||'—'}</td><td>${m.tourney_name||'—'}</td><td>${m.round||'—'}</td><td>${m.surface||'—'}</td><td>${m.score_string||'—'}</td>`;
     tbody.appendChild(tr);
   }
   table.appendChild(tbody); eventsTableWrap.appendChild(table);
 }
 
-/* Render payload (used both for found JSON and fallback) */
+/* Render final payload to UI (expects pair-like payload shape) */
 async function renderPayload(payload, jsonUrl, p1, p2){
   resultsWrap.style.display = 'block';
-  jsonLinkWrap.innerHTML = jsonUrl ? `<a href="${jsonUrl}" target="_blank" class="small-muted">Voir JSON</a>` : '<span class="small-muted">No H2H JSON (fallback)</span>';
+  jsonLinkWrap.innerHTML = jsonUrl ? `<a href="${jsonUrl}" target="_blank" class="small-muted">Voir source</a>` : '<span class="small-muted">No H2H JSON (fallback)</span>';
+
+  // payload may be of two kinds:
+  // - prebuilt pair payload (player1/player2, matches)
+  // - aggregated object we build from player files (we'll expect player1/player2 and matches)
   const p1payload = payload.player1 || payload.player || {};
-  const p2payload = payload.player2 || payload.opponent || {};
+  const p2payload = payload.player2 || payload.player || {};
   const leftCatalog = playersById[p1] || {};
   const rightCatalog = playersById[p2] || {};
   const left = Object.assign({}, leftCatalog, p1payload, { id: p1, full_name: p1payload.full_name || leftCatalog.full_name || p1payload.name || leftCatalog.name || '' });
@@ -453,9 +573,11 @@ async function renderPayload(payload, jsonUrl, p1, p2){
   leftNameEl.textContent = left.full_name || left.name || p1;
   rightNameEl.textContent = right.full_name || right.name || p2;
   applyPaletteForPlayers(p1, p2, payload);
-  // images (ensure manifest loaded earlier)
+
+  // images
   await renderPlayerImage(leftAvatar, left);
   await renderPlayerImage(rightAvatar, right);
+
   // info boxes
   leftInfo.innerHTML = ''; rightInfo.innerHTML = '';
   const leftRows = [
@@ -474,18 +596,45 @@ async function renderPayload(payload, jsonUrl, p1, p2){
     ['Backhand', right.backhand || '—']
   ];
   for(const r of rightRows){ const d=document.createElement('div'); d.className='info-row'; d.innerHTML=`<div class="muted-sm">${r[0]}</div><div style="font-weight:700">${r[1]}</div>`; rightInfo.appendChild(d); }
-  // aggregates
-  const aggLeft = (payload.aggregates && payload.aggregates.player1) ? payload.aggregates.player1 : (payload.player1 || {});
-  const aggRight = (payload.aggregates && payload.aggregates.player2) ? payload.aggregates.player2 : (payload.player2 || {});
-  aggLeft.id = left.id; aggRight.id = right.id;
-  // shared stats rows
+
+  // compute aggregates used in UI: H2H counts (may be in payload.aggregates if prebuilt)
+  const aggLeft = (payload.aggregates && payload.aggregates.player1) ? payload.aggregates.player1 : {};
+  const aggRight = (payload.aggregates && payload.aggregates.player2) ? payload.aggregates.player2 : {};
+
+  // If aggregates missing, fallback to compute from payload.matches
+  let matches = payload.matches || [];
+  if(!Array.isArray(matches)) matches = [];
+
+  // If no precomputed h2h in aggregates, try deducing from matches
+  let leftH2H = (aggLeft.h2h_wins !== undefined) ? (aggLeft.h2h_wins || 0) : null;
+  let rightH2H = (aggRight.h2h_wins !== undefined) ? (aggRight.h2h_wins || 0) : null;
+  if(leftH2H === null || rightH2H === null){
+    leftH2H = 0; rightH2H = 0;
+    for(const m of matches){
+      const winner = (m.player_id_winner || '').toString().toUpperCase();
+      if(p1 && winner === p1.toString().toUpperCase()) leftH2H++;
+      else if(p2 && winner === p2.toString().toUpperCase()) rightH2H++;
+      else {
+        const wn = (m.winner_player_name || '').toLowerCase();
+        if(left.full_name && wn.includes(left.full_name.toLowerCase())) leftH2H++;
+        else if(right.full_name && wn.includes(right.full_name.toLowerCase())) rightH2H++;
+      }
+    }
+  }
+
+  // shared stats (attempt to show career W/L from aggregates or player raw)
   sharedStats.innerHTML = '';
+  const careerLeft = (payload.player && payload.player.career_summary) ? payload.player.career_summary : (aggLeft.career_wins !== undefined ? {wins: aggLeft.career_wins, losses: aggLeft.career_losses} : {});
+  const careerRight = (payload.player && payload.player.career_summary) ? payload.player.career_summary : (aggRight.career_wins !== undefined ? {wins: aggRight.career_wins, losses: aggRight.career_losses} : {});
+
   const rows = [
-    {label:'H2H (W/L)', left: aggLeft.h2h_wins !== undefined ? `${aggLeft.h2h_wins}/${aggLeft.h2h_losses||0}` : '—', right: aggRight.h2h_wins !== undefined ? `${aggRight.h2h_wins}/${aggRight.h2h_losses||0}` : '—'},
-    {label:'Career W/L', left: aggLeft.career_wins !== undefined ? `${aggLeft.career_wins}/${aggLeft.career_losses||0}` : '—', right: aggRight.career_wins !== undefined ? `${aggRight.career_wins}/${aggRight.career_losses||0}` : '—'},
+    {label:'H2H (W/L)', left: `${leftH2H}/${rightH2H===0?0: (rightH2H?0:0)}`, right: `${rightH2H}/${leftH2H===0?0:(leftH2H?0:0)}`},
+    {label:'Career W/L', left: (careerLeft && careerLeft.wins!==undefined) ? `${careerLeft.wins}/${careerLeft.losses||0}` : '—', right: (careerRight && careerRight.wins!==undefined) ? `${careerRight.wins}/${careerRight.losses||0}` : '—'},
     {label:'Career titles', left: aggLeft.titles || aggLeft.career_titles || '—', right: aggRight.titles || aggRight.career_titles || '—'},
     {label:'Career prize', left: aggLeft.prize_money || '—', right: aggRight.prize_money || '—'}
   ];
+  // Note: the H2H display above uses leftH2H/rightH2H; we also set chart below
+
   for(const r of rows){
     const div = document.createElement('div'); div.className='stat-item';
     const leftDiv = document.createElement('div'); leftDiv.className='stat-left'; leftDiv.textContent = r.left;
@@ -499,15 +648,19 @@ async function renderPayload(payload, jsonUrl, p1, p2){
     const pct = (nL + nR) ? Math.round(100 * nL / (nL + nR)) : 0;
     barIn.style.width = pct + '%'; barOut.appendChild(barIn); sharedStats.appendChild(barOut);
   }
+
   // chart numbers
-  let leftWins = (aggLeft && aggLeft.h2h_wins) ? aggLeft.h2h_wins : 0;
-  let rightWins = (aggRight && aggRight.h2h_wins) ? aggRight.h2h_wins : 0;
-  if(leftWins + rightWins === 0 && Array.isArray(payload.matches)){
-    for(const m of payload.matches){
-      const w = (m.player_id_winner || m.player_winner || m.winner_player_name || m.winner || '').toString().toUpperCase();
-      if(w === left.id.toString().toUpperCase()) leftWins++; else if(w === right.id.toString().toUpperCase()) rightWins++;
+  let leftWins = leftH2H || 0;
+  let rightWins = rightH2H || 0;
+  // if still zero and matches present, recompute
+  if(leftWins + rightWins === 0 && Array.isArray(matches) && matches.length>0){
+    for(const m of matches){
+      const winner = (m.player_id_winner || '').toString().toUpperCase();
+      if(p1 && winner === p1.toString().toUpperCase()) leftWins++;
+      else if(p2 && winner === p2.toString().toUpperCase()) rightWins++;
     }
   }
+
   const radius = 112;
   const circumference = 2 * Math.PI * radius;
   const leftFraction = (leftWins + rightWins) ? leftWins / (leftWins + rightWins) : 0.5;
@@ -516,14 +669,14 @@ async function renderPayload(payload, jsonUrl, p1, p2){
   chartBar.style.strokeDashoffset = `${offset}`;
   chartBar.style.stroke = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
   chartText.textContent = `${leftWins} — ${rightWins}`;
+
   // events
-  renderEvents(payload.matches || []);
-  showStatus(`Chargé: ${payload.matches ? payload.matches.length : 0} matches`, 4500);
+  renderEvents(matches || []);
+  showStatus(`Chargé: ${matches ? matches.length : 0} matches H2H`, 4500);
 }
 
-/* If no H2H JSON found, show players and set H2H to 0-0 */
+/* If no information available, show fallback 0-0 */
 async function renderFallbackNoH2H(p1, p2){
-  // prepare fallback payload
   const leftCatalog = playersById[p1] || { id: p1, full_name: p1 };
   const rightCatalog = playersById[p2] || { id: p2, full_name: p2 };
   const payload = {
@@ -553,7 +706,7 @@ displayBtn.addEventListener('click', ()=>{
 clearBtn.addEventListener('click', ()=>{ p1Input.value=''; p2Input.value=''; delete p1Input.dataset.selectedId; delete p2Input.dataset.selectedId; resultsWrap.style.display='none'; showStatus('Sélection effacée', 1200); });
 swapBtn.addEventListener('click', ()=>{ const a=p1Input.value, aid=p1Input.dataset.selectedId; p1Input.value=p2Input.value; p1Input.dataset.selectedId=p2Input.dataset.selectedId||''; p2Input.value=a; p2Input.dataset.selectedId=aid||''; });
 
-/* On load: load catalog, set inputs (if present), load prioritized manifest, fetch H2H if possible or fallback */
+/* On load: load catalog, set inputs (if present), load prioritized manifest, fetch per-player JSONs and compute H2H */
 window.addEventListener('DOMContentLoaded', async ()=>{
   await loadCatalog();
   const url = new URL(location.href);
@@ -561,44 +714,59 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   const urlP2 = url.searchParams.get('p2');
   if(urlP1 && playersById[urlP1]){ p1Input.value = playersById[urlP1].name || urlP1; p1Input.dataset.selectedId = urlP1; }
   if(urlP2 && playersById[urlP2]){ p2Input.value = playersById[urlP2].name || urlP2; p2Input.dataset.selectedId = urlP2; }
+
   if(urlP1 && urlP2){
-    // prefer WTA manifest if any WTA player
     const prefer = preferManifestForPair(urlP1, urlP2);
     await loadImageManifestOnce(prefer);
-    const res = await fetchH2HJson(urlP1, urlP2);
-    if(!res){
-      // fallback: show players and H2H 0-0, no matches
+
+    // try to fetch both player JSONs (concurrently)
+    const [p1Res, p2Res] = await Promise.all([ fetchPlayerJson(urlP1), fetchPlayerJson(urlP2) ]);
+    // Cases:
+    // - both found -> combine and compute H2H
+    // - one found -> try to compute matches by scanning the one found's matches for opponent = other id
+    // - none found -> fallback 0-0
+    if(!p1Res && !p2Res){
+      // no per-player JSONs, fallback
       await renderFallbackNoH2H(urlP1, urlP2);
       return;
     }
-    await renderPayload(res.json, res.url, urlP1, urlP2);
+
+    // build player payload objects
+    const p1json = p1Res ? p1Res.json : null;
+    const p2json = p2Res ? p2Res.json : null;
+    const p1url = p1Res ? p1Res.url : null;
+    const p2url = p2Res ? p2Res.url : null;
+
+    // compute H2H from available data
+    const computed = computeH2HFromPlayers(p1json, p2json, urlP1, urlP2);
+    const matches = computed.matches || [];
+    const p1wins = computed.p1wins || 0;
+    const p2wins = computed.p2wins || 0;
+
+    // create a synthetic payload in the same shape that renderPayload expects
+    const player1_obj = (p1json && p1json.player) ? p1json.player : (playersById[urlP1] || { id: urlP1, full_name: (p1json && p1json.player && p1json.player.full_name) || urlP1 });
+    const player2_obj = (p2json && p2json.player) ? p2json.player : (playersById[urlP2] || { id: urlP2, full_name: (p2json && p2json.player && p2json.player.full_name) || urlP2 });
+
+    const payload = {
+      meta: { generated_at: new Date().toISOString(), pair: [urlP1, urlP2], total_matches: matches.length },
+      player1: player1_obj,
+      player2: player2_obj,
+      aggregates: {
+        player1: { h2h_wins: p1wins, h2h_losses: p2wins, career_wins: (p1json && p1json.player && p1json.player.career_summary && p1json.player.career_summary.wins) || (player1_obj && player1_obj.career_summary && player1_obj.career_summary.wins) || 0, prize_money: player1_obj.prize_money || '' },
+        player2: { h2h_wins: p2wins, h2h_losses: p1wins, career_wins: (p2json && p2json.player && p2json.player.career_summary && p2json.player.career_summary.wins) || (player2_obj && player2_obj.career_summary && player2_obj.career_summary.wins) || 0, prize_money: player2_obj.prize_money || '' },
+        total_matches: matches.length
+      },
+      matches: matches
+    };
+
+    // supply a JSON link string that points to the two source files (if present)
+    const jsonUrl = (p1url && p2url) ? `${p1url} + ${p2url}` : (p1url || p2url || null);
+
+    await renderPayload(payload, jsonUrl, urlP1, urlP2);
   } else {
     showStatus('Saisis deux joueurs (nom) puis clique Display H2H. Le catalogue est chargé automatiquement.', 5000);
   }
 });
-
-/* fetch H2H wrapper reused */
-async function fetchH2HJson(p1, p2){
-  const combos = [[p1,p2],[p2,p1],[p1.toLowerCase(),p2.toLowerCase()],[p2.toLowerCase(),p1.toLowerCase()]];
-  const trials = [];
-  for(const base of H2H_BASES){
-    for(const [a,b] of combos){
-      trials.push(base + `${a}_${b}.json`);
-      trials.push(base + `${a}-${b}.json`);
-      trials.push(base + `${a}${b}.json`);
-    }
-  }
-  for(const url of trials){
-    try{
-      const r = await fetch(url, {cache:'no-cache', mode:'cors'});
-      if(!r || !r.ok) continue;
-      const json = await r.json();
-      return { json, url };
-    } catch(e){ continue; }
-  }
-  return null;
-}
-
 </script>
 </body>
 </html>
