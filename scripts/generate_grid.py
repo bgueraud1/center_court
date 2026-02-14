@@ -451,9 +451,9 @@ def generate_grid_for_circuit(agg_path, players_csv, out_path, circuit_label):
 if __name__ == '__main__':
     random.seed()  # use a different seed each run (system time)
     # ATP
-    # atp_out = generate_grid_for_circuit(AGG_ATP, ATP_CSV, OUT_DIR / 'fill_the_grid_ATP_from_aggregates.json', 'ATP')
-    # if atp_out: print("Wrote ATP grid to", atp_out)
+    atp_out = generate_grid_for_circuit(AGG_ATP, ATP_CSV, OUT_DIR / 'fill_the_grid_ATP.json', 'ATP')
+    if atp_out: print("Wrote ATP grid to", atp_out)
     # WTA
-    wta_out = generate_grid_for_circuit(AGG_WTA, WTA_CSV, OUT_DIR / 'fill_the_grid_WTA_from_aggregates.json', 'WTA')
+    wta_out = generate_grid_for_circuit(AGG_WTA, WTA_CSV, OUT_DIR / 'fill_the_grid_WTA.json', 'WTA')
     if wta_out: print("Wrote WTA grid to", wta_out)
     print("Done.")
