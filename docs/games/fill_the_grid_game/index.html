@@ -3,13 +3,9 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Fill the Grid — Jeu</title>
+<title>Fill the Grid — Jeu (corrigé)</title>
 <style>
-  :root{
-    --bg: #000;
-    --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Arial;
-    --cell-radius: 8px;
-  }
+  :root{--bg:#000;--font:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial;--cell-radius:8px}
   html,body{height:100%;margin:0;background:var(--bg);color:#eee;font-family:var(--font);-webkit-font-smoothing:antialiased}
   .app{max-width:1100px;margin:28px auto;padding:20px}
   .topbar{display:flex;gap:12px;align-items:center;margin-bottom:18px}
@@ -19,9 +15,11 @@
   .btn.primary{background:linear-gradient(90deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));border-color:#666}
   .game-wrap{display:grid;gap:16px}
   .board-wrap{padding:14px;border-radius:14px}
+
   /* THEMES */
   .theme-wta{--cell-light:#EBDFFF;--cell-dark:#6a2d8a;--cell-mid:#CDA9F0;--grid-line:#6A2D8A;--good-text:#033d15;--bad:#ff3b3b}
   .theme-atp{--cell-light:#D8F0FF;--cell-dark:#165a99;--cell-mid:#88C9FF;--grid-line:#165a99;--good-text:#003847;--bad:#ff3b3b}
+
   /* grid */
   .grid{display:grid;gap:0;background:transparent}
   .grid-header-cell{background:var(--cell-mid);color:var(--cell-dark);padding:10px;font-weight:700;border:1px solid var(--grid-line);text-align:center;min-width:140px;box-sizing:border-box;border-radius:6px}
@@ -36,7 +34,6 @@
   .wrong-icon{color:var(--bad);font-size:28px;filter:drop-shadow(0 2px 8px rgba(0,0,0,0.6))}
   .cell-locked{pointer-events:none;box-shadow: inset 0 0 0 2px rgba(255,255,255,0.02)}
   .cond-small{font-size:13px;opacity:0.95}
-  /* modal */
   .input-panel{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);background:#0b0b0b;border-radius:12px;padding:14px;min-width:360px;box-shadow:0 12px 40px rgba(0,0,0,0.8);z-index:2000;border:1px solid rgba(255,255,255,0.03)}
   .input-row{display:flex;gap:8px;align-items:center}
   .text-input{flex:1;padding:10px 12px;border-radius:8px;background:#0f0f10;color:#fff;border:1px solid #222;font-size:15px}
@@ -71,7 +68,7 @@
   <div class="input-panel" role="dialog" aria-modal="true" aria-labelledby="panelTitle">
     <div id="panelTitle" class="panel-title" style="color:#ddd;font-weight:700;margin-bottom:8px">Fill cell</div>
     <div class="input-row">
-      <input id="playerInput" class="text-input" placeholder="Type player's name..." autocomplete="off" />
+      <input id="playerInput" class="text-input" placeholder="Tape le nom du joueur..." autocomplete="off" />
       <button class="btn" id="btnSubmit">Submit</button>
       <button class="btn" id="btnCancel">Cancel</button>
     </div>
@@ -93,11 +90,10 @@
 </div>
 
 <script>
-/*
-  Corrected Fill the Grid page:
-  - fixes: clicking opens modal, autocomplete works, validates by player_id against candidates_sample
-  - label fixes: IOC -> country names, positive_h2h opponent IDs -> player names
-  - paths: adjust PATHS constants if needed
+/* Fixes:
+   - robust extraction of opponent id for positive_h2h (no more "Positive")
+   - attach data-r/data-c on cell DOM nodes and use querySelector to lock cell (fix wrong cell update)
+   - other small robustness improvements
 */
 
 (() => {
@@ -107,16 +103,9 @@
     PLAYERS: '/tools/players_catalog.json'
   };
 
-  // Country mapping (common IOC codes); fallback => show code
-  const COUNTRY_NAMES = {
-    'RUS':'Russia','FRA':'France','ESP':'Spain','GBR':'United Kingdom','USA':'United States',
-    'ITA':'Italy','GER':'Germany','AUS':'Australia','CAN':'Canada','JPN':'Japan','CHN':'China',
-    'NED':'Netherlands','SUI':'Switzerland','ARG':'Argentina','SWE':'Sweden','CRO':'Croatia',
-    'NZL':'New Zealand','IND':'India','BRA':'Brazil','MEX':'Mexico'
-    // add others as needed
-  };
+  // small country map (extend as needed)
+  const COUNTRY_NAMES = {'RUS':'Russia','FRA':'France','ESP':'Spain','GBR':'United Kingdom','USA':'United States','ITA':'Italy','GER':'Germany','AUS':'Australia','CAN':'Canada','JPN':'Japan','CHN':'China','NED':'Netherlands','SUI':'Switzerland','ARG':'Argentina','SWE':'Sweden','CRO':'Croatia','NZL':'New Zealand','IND':'India','BRA':'Brazil','MEX':'Mexico'};
 
-  // UI elements
   const app = document.getElementById('app');
   const boardWrap = document.getElementById('boardWrap');
   const btnToggle = document.getElementById('btnToggle');
@@ -136,9 +125,9 @@
   let gridData = null;
   let playersCatalog = null;
   let idToPlayer = {};
-  let nameIndex = []; // {label, id}
-  let cellState = {}; // 'r-c' -> {locked, id, name}
-  let activeCell = null; // {r,c,cellData,domNode}
+  let nameIndex = [];
+  let cellState = {};
+  let activeCell = null;
 
   async function fetchJson(path){
     const r = await fetch(path);
@@ -146,12 +135,11 @@
     return r.json();
   }
 
-  // Load players catalog and grid, prepare indexes
   async function init(){
     try {
       playersCatalog = await fetchJson(PATHS.PLAYERS);
-    } catch (e){
-      console.error('Failed to load players_catalog:', e);
+    } catch (e) {
+      console.warn('players_catalog failed:', e);
       playersCatalog = null;
     }
     buildPlayerIndex();
@@ -164,34 +152,61 @@
     nameIndex = [];
     if (!playersCatalog || !Array.isArray(playersCatalog.players)) return;
     for (const p of playersCatalog.players){
-      idToPlayer[p.player_id] = p;
-      nameIndex.push({label: p.full_name, id: p.player_id});
+      idToPlayer[String(p.player_id)] = p;
+      nameIndex.push({label: p.full_name, id: String(p.player_id)});
     }
   }
 
-  // normalize grid JSON shapes and preprocess labels (country names, h2h opponent names)
+  // robust opponent id extractor: checks fields then regex for digits (>=3)
+  function extractOpponentId(cond){
+    if (!cond) return null;
+    if (cond.opponent_id) return String(cond.opponent_id);
+    if (cond.opponent) return String(cond.opponent);
+    if (cond.opponent_name) return String(cond.opponent_name);
+    if (cond.raw && (cond.raw.opponent_id || cond.raw.opponent)) {
+      return String(cond.raw.opponent_id || cond.raw.opponent);
+    }
+    // fallback: find first numeric token >=3 digits in label
+    if (cond.label) {
+      const m = cond.label.match(/\b(\d{3,})\b/);
+      if (m) return m[1];
+    }
+    // also try value field
+    if (cond.value && typeof cond.value === 'string') {
+      const m2 = cond.value.match(/\b(\d{3,})\b/);
+      if (m2) return m2[1];
+    }
+    return null;
+  }
+
   function preprocessGrid(raw){
-    // accept both shapes: { grid: {rows,cols,cells} } or directly {rows,cols,cells}
     let g = raw.grid ? raw.grid : raw;
-    // replace country codes with names for display
-    for (const list of ['rows','cols']){
-      if (!g[list]) continue;
-      for (const cond of g[list]){
+    if (!g) return g;
+    // normalize labels: country codes -> names ; positive_h2h id -> player name
+    const lists = ['rows','cols'];
+    for (const listName of lists){
+      if (!g[listName]) continue;
+      for (const cond of g[listName]){
+        // country codes
         if (cond.type === 'country'){
           const code = (cond.value || cond.label || '').toString().toUpperCase();
-          const name = COUNTRY_NAMES[code] || code;
-          cond.label = name;
+          cond.label = COUNTRY_NAMES[code] || code;
         }
+        // positive h2h: resolve opponent id to name
         if (cond.type === 'positive_h2h'){
-          // label may contain id or opponent_id
-          const oppId = cond.opponent_id || (cond.label && cond.label.match(/\b([A-Za-z0-9_]+)\b/) ? cond.label.match(/\b([A-Za-z0-9_]+)\b/)[1] : null);
-          if (oppId && idToPlayer[oppId]){
+          const oppId = extractOpponentId(cond);
+          if (oppId && idToPlayer[oppId]) {
             cond.label = `Positive H2H vs ${idToPlayer[oppId].full_name}`;
-          } else if (oppId){
+            // ensure we keep the opponent id in a normalized field for later validation
+            cond.opponent_id = oppId;
+          } else if (oppId) {
             cond.label = `Positive H2H vs ${oppId}`;
+            cond.opponent_id = oppId;
+          } else {
+            // fallback (shouldn't happen) keep label but ensure not "Positive"
+            cond.label = cond.label || 'Positive H2H';
           }
         }
-        // sanitize some result_at_tourney labels if needed: keep as-is
       }
     }
     return g;
@@ -208,7 +223,7 @@
       gridData = preprocessGrid(raw);
       initCellState();
       renderBoard();
-    } catch (e){
+    } catch (e) {
       console.error('Failed to load grid JSON:', e);
       boardWrap.innerHTML = `<div style="color:#f88">Erreur chargement grille: ${e.message}</div>`;
     }
@@ -230,15 +245,12 @@
     btnReset.addEventListener('click', onReset);
     btnCancel.addEventListener('click', closeModal);
     btnSubmit.addEventListener('click', onSubmit);
-    playerInput.addEventListener('input', onInput);
+    playerInput.addEventListener('input', onInputChanged);
     playerInput.addEventListener('keydown', onInputKeyDown);
     scoreClose.addEventListener('click', () => scoreOverlay.style.display='none');
-    window.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && inputModal.style.display !== 'none') closeModal();
-    });
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && inputModal.style.display !== 'none') closeModal(); });
   }
 
-  /* ---------- Rendering ---------- */
   function renderBoard(){
     if (!gridData) { boardWrap.innerHTML=''; return; }
     const rows = gridData.rows;
@@ -246,11 +258,10 @@
     const cells = gridData.cells;
     const gridEl = document.createElement('div');
     gridEl.className = 'grid';
-    // set grid columns: first col header then N columns
-    gridEl.style.display = 'grid';
+    gridEl.style.display='grid';
     gridEl.style.gridTemplateColumns = `minmax(160px,1fr) ${cols.map(()=>`minmax(140px,1fr)`).join(' ')}`;
 
-    // top-left spacer
+    // spacer top-left
     const spacer = document.createElement('div');
     spacer.className = 'grid-header-cell';
     spacer.textContent = '';
@@ -264,7 +275,7 @@
       gridEl.appendChild(ch);
     }
 
-    // rows and cells
+    // rows
     for (let i=0;i<rows.length;i++){
       const rh = document.createElement('div');
       rh.className = 'row-header';
@@ -273,24 +284,21 @@
       for (let j=0;j<cols.length;j++){
         const cellDiv = document.createElement('div');
         cellDiv.className = 'grid-cell';
+        cellDiv.dataset.r = String(i);
+        cellDiv.dataset.c = String(j);
         const cellData = (cells && cells[i] && cells[i][j]) ? cells[i][j] : null;
-        // build cell content
         if (!cellData || !Array.isArray(cellData.candidates_sample) || cellData.candidates_sample.length === 0){
           cellDiv.classList.add('disabled');
           cellDiv.innerHTML = `<div class="cell-empty">—</div><div style="position:absolute;bottom:6px;right:6px;font-size:11px;color:rgba(0,0,0,0.35)">0</div>`;
         } else {
           cellDiv.innerHTML = `<div class="cell-empty">Click to enter</div><div style="position:absolute;bottom:6px;right:6px;font-size:11px;color:rgba(0,0,0,0.4)">${cellData.count ?? cellData.candidates_sample.length}</div>`;
-          // closure capture: attach listener with proper references
-          ((r, c, cellDatum, node) => {
-            node.addEventListener('click', () => onCellClick(r, c, node, cellDatum));
-          })(i, j, cellData, cellDiv);
+          // attach listener
+          ((r,c,datum,node)=>{ node.addEventListener('click', ()=> onCellClick(r,c,node,datum)); })(i,j,cellData,cellDiv);
         }
-        // overlay wrong
         const wrongOverlay = document.createElement('div');
-        wrongOverlay.className = 'wrong-overlay';
+        wrongOverlay.className='wrong-overlay';
         wrongOverlay.innerHTML = `<div class="wrong-box"><div class="wrong-icon">✖</div></div>`;
         cellDiv.appendChild(wrongOverlay);
-
         gridEl.appendChild(cellDiv);
       }
     }
@@ -299,16 +307,15 @@
     boardWrap.appendChild(gridEl);
   }
 
-  /* ---------- Interaction ---------- */
   function onCellClick(r,c,node,cellData){
     const key = `${r}-${c}`;
     if (cellState[key] && cellState[key].locked) return;
-    if (!cellData || !Array.isArray(cellData.candidates_sample) || cellData.candidates_sample.length === 0){
+    if (!cellData || !Array.isArray(cellData.candidates_sample) || cellData.candidates_sample.length===0){
       flash(node);
       return;
     }
-    activeCell = {r,c,cellData,domNode:node, key};
-    openModalForCell(activeCell);
+    activeCell = { r, c, cellData, domNode: node, key };
+    openModal(activeCell);
   }
 
   function flash(node){
@@ -317,49 +324,44 @@
     setTimeout(()=> node.style.transform='scale(1)', 120);
   }
 
-  function openModalForCell(cell){
-    playerInput.value = '';
-    autocompleteList.innerHTML = '';
-    inputModal.style.display = 'block';
-    document.querySelector('.input-panel').style.display = 'block';
+  function openModal(cell){
+    playerInput.value='';
+    autocompleteList.innerHTML='';
+    inputModal.style.display='block';
+    document.querySelector('.input-panel').style.display='block';
     playerInput.focus();
     const count = cell.cellData.candidates_sample.length;
-    cellHint.textContent = `Candidates: ${count}. Type to search players...`;
-    // store candidates set of ids for quick check
+    cellHint.textContent = `Candidates: ${count}. Tape un nom...`;
     inputModal._candidatesSet = new Set(cell.cellData.candidates_sample.map(String));
   }
 
   function closeModal(){
-    inputModal.style.display = 'none';
-    document.querySelector('.input-panel').style.display = 'none';
+    inputModal.style.display='none';
+    document.querySelector('.input-panel').style.display='none';
     activeCell = null;
-    playerInput.value = '';
-    autocompleteList.innerHTML = '';
+    playerInput.value='';
+    autocompleteList.innerHTML='';
     inputModal._candidatesSet = null;
   }
 
-  // Autocomplete simple and fast: prefix then includes
   let acIndex = -1;
-  function onInput(e){
+  function onInputChanged(e){
     const q = playerInput.value.trim().toLowerCase();
-    autocompleteList.innerHTML = '';
-    acIndex = -1;
+    autocompleteList.innerHTML=''; acIndex=-1;
     if (!q) return;
-    const starts = [];
-    const includes = [];
+    const starts=[]; const includes=[];
     for (let i=0;i<nameIndex.length;i++){
-      const n = nameIndex[i];
-      const s = n.label.toLowerCase();
+      const n = nameIndex[i]; const s = n.label.toLowerCase();
       if (s.startsWith(q)) starts.push(n);
       else if (s.includes(q)) includes.push(n);
-      if (starts.length >= 40) break;
+      if (starts.length>=40) break;
     }
     const results = starts.concat(includes).slice(0,60);
-    for (let r of results){
+    for (const r of results){
       const div = document.createElement('div');
-      div.className = 'autocomplete-item';
+      div.className='autocomplete-item';
       const country = idToPlayer[r.id] ? idToPlayer[r.id].represented_country : '';
-      div.textContent = `${r.label} ${country ? '('+country+')' : ''}`;
+      div.textContent = `${r.label}${country? ' ('+country+')':''}`;
       div.dataset.id = r.id;
       div.addEventListener('click', ()=> chooseItem(r.id));
       autocompleteList.appendChild(div);
@@ -368,33 +370,26 @@
 
   function onInputKeyDown(e){
     const items = Array.from(autocompleteList.querySelectorAll('.autocomplete-item'));
-    if (e.key === 'ArrowDown'){ e.preventDefault(); if (items.length===0) return; acIndex = Math.min(acIndex+1, items.length-1); updateActive(items); }
-    else if (e.key === 'ArrowUp'){ e.preventDefault(); if (items.length===0) return; acIndex = Math.max(acIndex-1, 0); updateActive(items); }
+    if (e.key === 'ArrowDown'){ e.preventDefault(); if(!items.length) return; acIndex=Math.min(acIndex+1, items.length-1); updateActive(items); }
+    else if (e.key === 'ArrowUp'){ e.preventDefault(); if(!items.length) return; acIndex=Math.max(acIndex-1,0); updateActive(items); }
     else if (e.key === 'Enter'){ e.preventDefault(); if (items.length>0 && acIndex>=0) chooseItem(items[acIndex].dataset.id); else onSubmit(); }
   }
-  function updateActive(items){
-    items.forEach((it,idx)=> it.classList.toggle('active', idx===acIndex));
-    if (acIndex>=0 && items[acIndex]) items[acIndex].scrollIntoView({block:'nearest'});
-  }
+
+  function updateActive(items){ items.forEach((it,idx)=> it.classList.toggle('active', idx===acIndex)); if(acIndex>=0 && items[acIndex]) items[acIndex].scrollIntoView({block:'nearest'}); }
 
   function chooseItem(playerId){
-    // set input value to name and immediately try to submit
     const p = idToPlayer[playerId];
     playerInput.value = p ? p.full_name : playerId;
-    // small delay to allow UI update
     setTimeout(()=> attemptSubmit(playerId, p ? p.full_name : playerId), 80);
   }
 
   function onSubmit(){
     const typed = playerInput.value.trim();
     if (!typed) { animateWrong(); return; }
-    // try exact name first
     const exact = nameIndex.find(n => n.label.toLowerCase() === typed.toLowerCase());
     if (exact) return attemptSubmit(exact.id, idToPlayer[exact.id] ? idToPlayer[exact.id].full_name : exact.id);
-    // partial match
     const partial = nameIndex.find(n => n.label.toLowerCase().includes(typed.toLowerCase()));
     if (partial) return attemptSubmit(partial.id, idToPlayer[partial.id] ? idToPlayer[partial.id].full_name : partial.id);
-    // else immediate wrong
     animateWrong();
   }
 
@@ -402,8 +397,7 @@
     if (!activeCell) return;
     const candidatesSet = inputModal._candidatesSet;
     if (candidatesSet && candidatesSet.has(String(playerId))){
-      // correct -> lock cell
-      lockCell(activeCell, playerId, playerName);
+      lockCell(activeCell.r, activeCell.c, playerId, playerName);
       closeModal();
       checkCompletion();
     } else {
@@ -420,24 +414,21 @@
     setTimeout(()=> wb.classList.remove('show'), 750);
   }
 
-  function lockCell(cell, pid, pname){
-    const key = cell.key;
+  // LOCK cell by querying element with data-r/data-c to ensure correctness
+  function lockCell(r, c, pid, pname){
+    const key = `${r}-${c}`;
     cellState[key] = { locked:true, id:pid, name:pname };
-    // update DOM
-    const grid = boardWrap.querySelector('.grid');
-    const cols = gridData.cols.length;
-    // compute child index: 1 + row*(cols+1) + (col+1)
-    const idx = 1 + (cell.r) * (cols + 1) + (cell.c + 1);
-    const node = grid.children[idx];
+    const sel = `.grid-cell[data-r="${r}"][data-c="${c}"]`;
+    const node = boardWrap.querySelector(sel);
     if (!node) return;
     node.classList.add('cell-locked');
-    node.innerHTML = `<div class="cell-value">${pname}</div><div style="position:absolute;bottom:6px;right:6px;font-size:11px;color:rgba(0,0,0,0.35)">${cell.cellData.count ?? cell.cellData.candidates_sample.length}</div>`;
+    node.innerHTML = `<div class="cell-value">${pname}</div><div style="position:absolute;bottom:6px;right:6px;font-size:11px;color:rgba(0,0,0,0.35)">${(gridData.cells[r][c].count ?? gridData.cells[r][c].candidates_sample.length)}</div>`;
     const ok = document.createElement('div'); ok.style.position='absolute'; ok.style.top='6px'; ok.style.left='6px'; ok.style.fontSize='14px'; ok.style.color='var(--good-text)'; ok.textContent='✔';
     node.appendChild(ok);
   }
 
   function checkCompletion(){
-    let total = 0, filled = 0;
+    let total=0, filled=0;
     for (let r=0;r<gridData.rows.length;r++){
       for (let c=0;c<gridData.cols.length;c++){
         const cell = gridData.cells[r][c];
@@ -446,13 +437,12 @@
         if (cellState[`${r}-${c}`] && cellState[`${r}-${c}`].locked) filled++;
       }
     }
-    if (total > 0 && filled === total){
+    if (total>0 && filled===total){
       const score = filled*10 + 10;
       showScore(score);
     }
   }
 
-  /* Give Up: reveal first candidate for each open cell, compute score */
   function onGiveUp(){
     let total=0, filled=0;
     for (let r=0;r<gridData.rows.length;r++){
@@ -462,18 +452,9 @@
         total++;
         const key = `${r}-${c}`;
         if (cellState[key] && cellState[key].locked){ filled++; continue; }
-        // reveal first candidate
         const pid = String(cell.candidates_sample[0]);
         const pname = idToPlayer[pid] ? idToPlayer[pid].full_name : pid;
-        // update DOM
-        const grid = boardWrap.querySelector('.grid');
-        const idx = 1 + (r) * (gridData.cols.length + 1) + (c + 1);
-        const node = grid.children[idx];
-        if (node){
-          node.classList.add('cell-locked');
-          node.innerHTML = `<div class="cell-value">${pname}</div><div style="position:absolute;bottom:6px;right:6px;font-size:11px;color:rgba(0,0,0,0.35)">${cell.count ?? cell.candidates_sample.length}</div>`;
-        }
-        cellState[key] = { locked:true, id:pid, name:pname };
+        lockCell(r,c,pid,pname);
         filled++;
       }
     }
@@ -481,45 +462,22 @@
     showScore(score);
   }
 
-  function onReset(){
-    initCellState();
-    renderBoard();
-  }
+  function onReset(){ initCellState(); renderBoard(); }
 
-  function showScore(s){
-    scoreValue.textContent = s;
-    scoreOverlay.style.display = 'block';
-  }
+  function showScore(s){ scoreValue.textContent = s; scoreOverlay.style.display='block'; }
 
-  // small helpers
-  function sleep(ms){ return new Promise(res => setTimeout(res, ms)); }
+  // autocomplete index
+  function buildNameIndex(){ nameIndex = []; if (!playersCatalog || !Array.isArray(playersCatalog.players)) return; for (const p of playersCatalog.players) nameIndex.push({label:p.full_name, id:String(p.player_id)}); }
 
-  // Build local nameIndex for autocomplete (simple but fast)
-  function buildNameIndex(){
-    nameIndex = [];
-    if (!playersCatalog || !Array.isArray(playersCatalog.players)) return;
-    for (const p of playersCatalog.players){
-      nameIndex.push({label: p.full_name, id: p.player_id});
-    }
-  }
-
-  // choose best starting point: buildNameIndex after players loaded
-  // initialize
+  // Init sequence
   (async () => {
     try {
-      // load players catalog first
-      try {
-        if (!playersCatalog) playersCatalog = await fetchJson(PATHS.PLAYERS);
-      } catch(e){
-        console.warn('players_catalog load failed: ', e);
-      }
+      try { if (!playersCatalog) playersCatalog = await fetchJson(PATHS.PLAYERS); } catch(e){ console.warn('players load failed', e); playersCatalog=null; }
       buildPlayerIndex();
       buildNameIndex();
       await loadGrid(mode);
       attachHandlers();
-    } catch (err) {
-      console.error('init failed', err);
-    }
+    } catch (err) { console.error('init failed', err); }
   })();
 
 })();
