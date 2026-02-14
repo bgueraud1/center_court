@@ -1,282 +1,56 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Fill The Grid — Game</title>
+<title>Fill the Grid — Jeu</title>
 <style>
   :root{
-    --bg: #000000;
-    --font: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    --bg: #000;
+    --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Arial;
     --cell-radius: 8px;
-    --gap: 10px;
   }
-  html,body{
-    height:100%;
-    margin:0;
-    background:var(--bg);
-    color: #eee;
-    font-family: var(--font);
-    -webkit-font-smoothing:antialiased;
-    -moz-osx-font-smoothing:grayscale;
-  }
-
-  .app {
-    max-width:1100px;
-    margin:28px auto;
-    padding:20px;
-    box-sizing:border-box;
-  }
-
-  .topbar {
-    display:flex;
-    gap:12px;
-    align-items:center;
-    margin-bottom:18px;
-  }
-  .title {
-    font-size:20px;
-    font-weight:700;
-    color:#fff;
-  }
-  .mode-toggle {
-    margin-left:auto;
-    display:flex;
-    gap:8px;
-  }
-  .btn {
-    background:transparent;
-    border:1px solid #444;
-    color:#ddd;
-    padding:8px 10px;
-    border-radius:8px;
-    cursor:pointer;
-    font-weight:600;
-  }
-  .btn.primary {
-    background:linear-gradient(90deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
-    border-color:#666;
-  }
-  .btn:active{ transform: translateY(1px); }
-
-  .controls {
-    display:flex;
-    gap:12px;
-    align-items:center;
-  }
-
-  /* Grid container */
-  .game-wrap {
-    display:grid;
-    grid-template-columns: 1fr;
-    gap:16px;
-  }
-
-  .board-wrap {
-    background: transparent;
-    padding:14px;
-    border-radius:14px;
-  }
-
-  /* Different theme variables for WTA vs ATP */
-  .theme-wta {
-    --cell-light: #EBDFFF;   /* light violet */
-    --cell-dark: #7B4DB0;    /* dark violet */
-    --cell-mid: #CDA9F0;     /* header medium */
-    --grid-line: #6A2D8A;    /* grid dark line */
-    --text-accent: #3a0f45;  /* dark green text for correct? no but used for header tint fallback */
-    --good-text: #033d15;    /* dark green for correct name */
-    --bad: #ff3b3b;
-  }
-  .theme-atp {
-    --cell-light: #D8F0FF;   /* light blue */
-    --cell-dark: #1F6FB8;    /* dark blue */
-    --cell-mid: #88C9FF;     /* header medium */
-    --grid-line: #165a99;    /* grid dark line */
-    --text-accent: #08324b;
-    --good-text: #003847;
-    --bad: #ff3b3b;
-  }
-
-  /* Board (grid) layout - header row + header column */
-  .grid {
-    display: grid;
-    gap: 0;
-    background: transparent;
-  }
-
-  .grid-header-cell {
-    background: var(--cell-mid);
-    color: var(--cell-dark);
-    padding:10px;
-    font-weight:700;
-    border: 1px solid var(--grid-line);
-    text-align:center;
-    min-width:140px;
-    box-sizing:border-box;
-  }
-
-  .grid-cell {
-    min-width:140px;
-    min-height:72px;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    padding:8px;
-    box-sizing:border-box;
-    border: 1px solid var(--grid-line);
-    cursor:pointer;
-    position:relative;
-    background: var(--cell-light);
-    color: #111;
-    font-weight:700;
-    border-radius:6px;
-    text-align:center;
-  }
-
-  .row-header {
-    background: var(--cell-mid);
-    color: var(--cell-dark);
-    font-weight:700;
-    padding:8px;
-    border: 1px solid var(--grid-line);
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    min-height:72px;
-    border-radius:6px;
-  }
-
-  .grid .disabled {
-    opacity:0.45;
-    cursor:not-allowed;
-  }
-
-  .cell-value {
-    font-size:15px;
-    line-height:1.05;
-    color: var(--good-text);
-  }
-  .cell-empty {
-    color: rgba(0,0,0,0.45);
-    font-weight:600;
-    font-size:13px;
-  }
-
-  /* red cross overlay for wrong attempt */
-  .wrong-overlay, .reveal-overlay {
-    position:absolute;
-    inset:0;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    pointer-events:none;
-  }
-  .wrong-box {
-    width:100%;
-    height:100%;
-    background: linear-gradient(90deg, rgba(255,0,0,0.06), rgba(255,0,0,0.02));
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    opacity:0;
-    transition:opacity .18s ease;
-    border-radius:6px;
-  }
-  .wrong-box.show { opacity:1; }
-  .wrong-icon {
-    color: var(--bad);
-    font-size:28px;
-    filter: drop-shadow(0 2px 8px rgba(0,0,0,0.6));
-  }
-
-  /* locked state */
-  .cell-locked {
-    pointer-events:none;
-    border-style:solid;
-    box-shadow: inset 0 0 0 2px rgba(255,255,255,0.02);
-  }
-
-  /* header captions smaller */
-  .cond-small { font-size:13px; opacity:0.95; }
-
-  /* input modal */
-  .input-panel {
-    position: fixed;
-    left:50%;
-    top:50%;
-    transform: translate(-50%,-50%);
-    background: #0b0b0b;
-    border-radius:12px;
-    padding:14px;
-    min-width:380px;
-    box-shadow: 0 12px 40px rgba(0,0,0,0.8);
-    z-index:2000;
-    border:1px solid rgba(255,255,255,0.03);
-  }
-  .input-row {
-    display:flex;
-    gap:8px;
-    align-items:center;
-  }
-  .text-input {
-    flex:1;
-    padding:10px 12px;
-    border-radius:8px;
-    background:#0f0f10;
-    color:#fff;
-    border:1px solid #222;
-    font-size:15px;
-  }
-  .panel-title { color:#ddd; font-weight:700; margin-bottom:8px; }
-
-  .autocomplete-list {
-    margin-top:8px;
-    max-height:240px;
-    overflow:auto;
-    border-radius:8px;
-    background:#0b0b0b;
-    border:1px solid #222;
-  }
-  .autocomplete-item {
-    padding:8px 10px;
-    cursor:pointer;
-    color:#ddd;
-  }
-  .autocomplete-item:hover, .autocomplete-item.active { background: rgba(255,255,255,0.02); }
-
-  .small-muted { color:#9a9a9a; font-size:13px; }
-
-  /* score modal */
-  .score-overlay {
-    position: fixed;
-    inset: 0;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    background: linear-gradient(0deg, rgba(0,0,0,0.55), rgba(0,0,0,0.55));
-    z-index:3000;
-  }
-  .score-card {
-    background: #0b0b0b;
-    padding:22px;
-    border-radius:12px;
-    color:#fff;
-    border:1px solid rgba(255,255,255,0.03);
-    min-width:320px;
-    text-align:center;
-  }
-
-  /* responsive */
-  @media (max-width:900px){
-    .grid-cell, .row-header, .grid-header-cell { min-width:110px; min-height:60px; font-size:13px; }
-    .input-panel { min-width: 300px; }
-  }
-
+  html,body{height:100%;margin:0;background:var(--bg);color:#eee;font-family:var(--font);-webkit-font-smoothing:antialiased}
+  .app{max-width:1100px;margin:28px auto;padding:20px}
+  .topbar{display:flex;gap:12px;align-items:center;margin-bottom:18px}
+  .title{font-size:20px;font-weight:700}
+  .controls{margin-left:auto;display:flex;gap:8px}
+  .btn{background:transparent;border:1px solid #444;color:#ddd;padding:8px 10px;border-radius:8px;cursor:pointer;font-weight:600}
+  .btn.primary{background:linear-gradient(90deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));border-color:#666}
+  .game-wrap{display:grid;gap:16px}
+  .board-wrap{padding:14px;border-radius:14px}
+  /* THEMES */
+  .theme-wta{--cell-light:#EBDFFF;--cell-dark:#6a2d8a;--cell-mid:#CDA9F0;--grid-line:#6A2D8A;--good-text:#033d15;--bad:#ff3b3b}
+  .theme-atp{--cell-light:#D8F0FF;--cell-dark:#165a99;--cell-mid:#88C9FF;--grid-line:#165a99;--good-text:#003847;--bad:#ff3b3b}
+  /* grid */
+  .grid{display:grid;gap:0;background:transparent}
+  .grid-header-cell{background:var(--cell-mid);color:var(--cell-dark);padding:10px;font-weight:700;border:1px solid var(--grid-line);text-align:center;min-width:140px;box-sizing:border-box;border-radius:6px}
+  .grid-cell{min-width:140px;min-height:72px;display:flex;align-items:center;justify-content:center;padding:8px;box-sizing:border-box;border:1px solid var(--grid-line);cursor:pointer;position:relative;background:var(--cell-light);color:#111;font-weight:700;border-radius:6px}
+  .row-header{background:var(--cell-mid);color:var(--cell-dark);font-weight:700;padding:8px;border:1px solid var(--grid-line);display:flex;align-items:center;justify-content:center;min-height:72px;border-radius:6px}
+  .grid .disabled{opacity:0.45;cursor:not-allowed}
+  .cell-value{font-size:15px;line-height:1.05;color:var(--good-text)}
+  .cell-empty{color:rgba(0,0,0,0.45);font-weight:600;font-size:13px}
+  .wrong-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+  .wrong-box{width:100%;height:100%;background:linear-gradient(90deg,rgba(255,0,0,0.06),rgba(255,0,0,0.02));display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s ease;border-radius:6px}
+  .wrong-box.show{opacity:1}
+  .wrong-icon{color:var(--bad);font-size:28px;filter:drop-shadow(0 2px 8px rgba(0,0,0,0.6))}
+  .cell-locked{pointer-events:none;box-shadow: inset 0 0 0 2px rgba(255,255,255,0.02)}
+  .cond-small{font-size:13px;opacity:0.95}
+  /* modal */
+  .input-panel{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);background:#0b0b0b;border-radius:12px;padding:14px;min-width:360px;box-shadow:0 12px 40px rgba(0,0,0,0.8);z-index:2000;border:1px solid rgba(255,255,255,0.03)}
+  .input-row{display:flex;gap:8px;align-items:center}
+  .text-input{flex:1;padding:10px 12px;border-radius:8px;background:#0f0f10;color:#fff;border:1px solid #222;font-size:15px}
+  .autocomplete-list{margin-top:8px;max-height:240px;overflow:auto;border-radius:8px;background:#0b0b0b;border:1px solid #222}
+  .autocomplete-item{padding:8px 10px;cursor:pointer;color:#ddd}
+  .autocomplete-item:hover,.autocomplete-item.active{background:rgba(255,255,255,0.02)}
+  .small-muted{color:#9a9a9a;font-size:13px}
+  .score-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(0deg,rgba(0,0,0,0.55),rgba(0,0,0,0.55));z-index:3000}
+  .score-card{background:#0b0b0b;padding:22px;border-radius:12px;color:#fff;border:1px solid rgba(255,255,255,0.03);min-width:320px;text-align:center}
+  @media (max-width:900px){.grid-cell,.row-header,.grid-header-cell{min-width:110px;min-height:60px;font-size:13px}.input-panel{min-width:300px}}
 </style>
 </head>
 <body>
-<div class="app theme-wta" id="app">
+<div id="app" class="app theme-wta">
   <div class="topbar">
     <div class="title">Fill the Grid</div>
     <div class="controls">
@@ -287,20 +61,15 @@
   </div>
 
   <div class="game-wrap">
-    <div class="board-wrap" id="boardWrap" aria-live="polite">
-      <!-- grid will be injected here -->
-    </div>
-
-    <div class="small-muted" id="infoLine">
-      Tip: click a cell to propose a player. Correct answers lock the cell in green. Wrong answers show a red cross briefly.
-    </div>
+    <div class="board-wrap" id="boardWrap" aria-live="polite"></div>
+    <div class="small-muted" id="infoLine">Clique sur une case pour proposer un joueur. Si c'est correct, la case se verrouille en vert. Sinon, tu verras une croix rouge.</div>
   </div>
 </div>
 
-<!-- input modal -->
+<!-- Modal -->
 <div id="inputModal" style="display:none;">
   <div class="input-panel" role="dialog" aria-modal="true" aria-labelledby="panelTitle">
-    <div class="panel-title" id="panelTitle">Fill cell</div>
+    <div id="panelTitle" class="panel-title" style="color:#ddd;font-weight:700;margin-bottom:8px">Fill cell</div>
     <div class="input-row">
       <input id="playerInput" class="text-input" placeholder="Type player's name..." autocomplete="off" />
       <button class="btn" id="btnSubmit">Submit</button>
@@ -312,10 +81,10 @@
   </div>
 </div>
 
-<!-- score overlay -->
+<!-- Score -->
 <div id="scoreOverlay" style="display:none;">
-  <div class="score-overlay" id="scoreOverlayInner">
-    <div class="score-card" id="scoreCard">
+  <div class="score-overlay">
+    <div class="score-card">
       <div style="font-size:20px;font-weight:700;" id="scoreTitle">Your score</div>
       <div style="margin-top:10px;font-size:28px;font-weight:800;color:var(--good-text)" id="scoreValue">0</div>
       <div style="margin-top:12px;"><button class="btn primary" id="scoreClose">Close</button></div>
@@ -324,18 +93,27 @@
 </div>
 
 <script>
-/* Fill The Grid frontend
-   - expects JSON files: docs/games/fill_the_grid_wta.json and docs/games/fill_the_grid_atp.json
-   - expects players catalog: tools/players_catalog.json
-   - toggles themes & validates submissions with candidates_sample arrays per cell
+/*
+  Corrected Fill the Grid page:
+  - fixes: clicking opens modal, autocomplete works, validates by player_id against candidates_sample
+  - label fixes: IOC -> country names, positive_h2h opponent IDs -> player names
+  - paths: adjust PATHS constants if needed
 */
 
 (() => {
-  // Configurable paths (adjust if your repo has different layout)
   const PATHS = {
-    WTA: '/games/fill_the_grid_WTA.json',
-    ATP: '/games/fill_the_grid_ATP.json',
+    WTA: '/docs/games/fill_the_grid_wta.json',
+    ATP: '/docs/games/fill_the_grid_atp.json',
     PLAYERS: '/tools/players_catalog.json'
+  };
+
+  // Country mapping (common IOC codes); fallback => show code
+  const COUNTRY_NAMES = {
+    'RUS':'Russia','FRA':'France','ESP':'Spain','GBR':'United Kingdom','USA':'United States',
+    'ITA':'Italy','GER':'Germany','AUS':'Australia','CAN':'Canada','JPN':'Japan','CHN':'China',
+    'NED':'Netherlands','SUI':'Switzerland','ARG':'Argentina','SWE':'Sweden','CRO':'Croatia',
+    'NZL':'New Zealand','IND':'India','BRA':'Brazil','MEX':'Mexico'
+    // add others as needed
   };
 
   // UI elements
@@ -353,35 +131,31 @@
   const scoreOverlay = document.getElementById('scoreOverlay');
   const scoreValue = document.getElementById('scoreValue');
   const scoreClose = document.getElementById('scoreClose');
-  const btnToggleNode = btnToggle;
 
-  // State
-  let mode = 'WTA'; // or 'ATP'
-  let gridData = null;   // loaded JSON for current mode
-  let playersCatalog = null; // full players array
-  let idToPlayer = {};  // map id -> player obj
-  let nameIndex = [];   // array of {label, player_id} for autocomplete
-  let cellState = {};   // map "r-c" -> {locked:boolean, value_id, value_name}
-  let activeCell = null; // {r, c, dataRef}
+  let mode = 'WTA';
+  let gridData = null;
+  let playersCatalog = null;
+  let idToPlayer = {};
+  let nameIndex = []; // {label, id}
+  let cellState = {}; // 'r-c' -> {locked, id, name}
+  let activeCell = null; // {r,c,cellData,domNode}
 
-  // Utility: safe fetch JSON
-  async function fetchJson(path) {
-    const res = await fetch(path);
-    if (!res.ok) throw new Error(`Failed to fetch ${path}: ${res.status}`);
-    return res.json();
+  async function fetchJson(path){
+    const r = await fetch(path);
+    if (!r.ok) throw new Error(`${path} ${r.status}`);
+    return r.json();
   }
 
-  // Initialize: load players catalog first (async)
-  async function init() {
+  // Load players catalog and grid, prepare indexes
+  async function init(){
     try {
       playersCatalog = await fetchJson(PATHS.PLAYERS);
-    } catch (e) {
-      console.error('Could not load players catalog:', e);
-      // try relative fallback
-      try { playersCatalog = await fetchJson('/tools/players_catalog.json'); } catch(_){ playersCatalog = null; }
+    } catch (e){
+      console.error('Failed to load players_catalog:', e);
+      playersCatalog = null;
     }
     buildPlayerIndex();
-    await loadGridForMode(mode);
+    await loadGrid(mode);
     attachHandlers();
   }
 
@@ -395,422 +169,358 @@
     }
   }
 
-  async function loadGridForMode(m){
+  // normalize grid JSON shapes and preprocess labels (country names, h2h opponent names)
+  function preprocessGrid(raw){
+    // accept both shapes: { grid: {rows,cols,cells} } or directly {rows,cols,cells}
+    let g = raw.grid ? raw.grid : raw;
+    // replace country codes with names for display
+    for (const list of ['rows','cols']){
+      if (!g[list]) continue;
+      for (const cond of g[list]){
+        if (cond.type === 'country'){
+          const code = (cond.value || cond.label || '').toString().toUpperCase();
+          const name = COUNTRY_NAMES[code] || code;
+          cond.label = name;
+        }
+        if (cond.type === 'positive_h2h'){
+          // label may contain id or opponent_id
+          const oppId = cond.opponent_id || (cond.label && cond.label.match(/\b([A-Za-z0-9_]+)\b/) ? cond.label.match(/\b([A-Za-z0-9_]+)\b/)[1] : null);
+          if (oppId && idToPlayer[oppId]){
+            cond.label = `Positive H2H vs ${idToPlayer[oppId].full_name}`;
+          } else if (oppId){
+            cond.label = `Positive H2H vs ${oppId}`;
+          }
+        }
+        // sanitize some result_at_tourney labels if needed: keep as-is
+      }
+    }
+    return g;
+  }
+
+  async function loadGrid(m){
     mode = m;
-    // set theme class
     app.classList.toggle('theme-wta', mode === 'WTA');
     app.classList.toggle('theme-atp', mode === 'ATP');
     btnToggle.textContent = mode === 'WTA' ? 'Switch to ATP' : 'Switch to WTA';
-    // load JSON
     const path = (mode === 'WTA' ? PATHS.WTA : PATHS.ATP);
     try {
-      let json = await fetchJson(path);
-      // support two shapes: { grid: { rows, cols, cells } } or { rows, cols, cells }
-      if (json.grid) json = json.grid ? { ...json.grid, circuit: json.circuit, generated_at: json.generated_at } : json;
-      // normalize: rows array, cols array, cells 2D
-      if (!json.rows && json.rows !== undefined && json.grid) {
-        json = json.grid;
-      }
-      gridData = json;
-      resetCellState();
+      const raw = await fetchJson(path);
+      gridData = preprocessGrid(raw);
+      initCellState();
       renderBoard();
-    } catch (e) {
-      console.error('Could not load grid JSON at', path, e);
-      boardWrap.innerHTML = `<div style="color:#f88">Failed to load grid: ${e.message}. Check paths.</div>`;
+    } catch (e){
+      console.error('Failed to load grid JSON:', e);
+      boardWrap.innerHTML = `<div style="color:#f88">Erreur chargement grille: ${e.message}</div>`;
     }
   }
 
-  function resetCellState(){
+  function initCellState(){
     cellState = {};
-    const rows = (gridData && gridData.rows) ? gridData.rows.length : (gridData && gridData.grid && gridData.grid.rows ? gridData.grid.rows.length : 3);
-    const cols = (gridData && gridData.cols) ? gridData.cols.length : (gridData && gridData.grid && gridData.grid.cols ? gridData.grid.cols.length : 3);
-    // initialize cellState for each r-c
     if (!gridData || !gridData.cells) return;
     for (let r=0;r<gridData.rows.length;r++){
       for (let c=0;c<gridData.cols.length;c++){
-        const key = `${r}-${c}`;
-        cellState[key] = { locked:false, value_id:null, value_name:null };
+        cellState[`${r}-${c}`] = { locked:false, id:null, name:null };
       }
     }
   }
 
   function attachHandlers(){
-    btnToggle.addEventListener('click', () => {
-      const newMode = (mode === 'WTA') ? 'ATP' : 'WTA';
-      loadGridForMode(newMode);
-    });
+    btnToggle.addEventListener('click', () => loadGrid(mode === 'WTA' ? 'ATP' : 'WTA'));
     btnGiveUp.addEventListener('click', onGiveUp);
     btnReset.addEventListener('click', onReset);
-    btnCancel.addEventListener('click', () => closeInputModal());
-    btnSubmit.addEventListener('click', onSubmitFromModal);
-    playerInput.addEventListener('input', onPlayerInputChange);
-    playerInput.addEventListener('keydown', onPlayerInputKeyDown);
-    scoreClose.addEventListener('click', () => { scoreOverlay.style.display='none'; });
-    // click outside modal to close
-    window.addEventListener('click', (e) => {
-      if (!inputModal.style.display) return;
-      const panel = document.querySelector('.input-panel');
-      if (panel && !panel.contains(e.target) && inputModal.style.display !== 'none') {
-        closeInputModal();
-      }
+    btnCancel.addEventListener('click', closeModal);
+    btnSubmit.addEventListener('click', onSubmit);
+    playerInput.addEventListener('input', onInput);
+    playerInput.addEventListener('keydown', onInputKeyDown);
+    scoreClose.addEventListener('click', () => scoreOverlay.style.display='none');
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && inputModal.style.display !== 'none') closeModal();
     });
   }
 
+  /* ---------- Rendering ---------- */
   function renderBoard(){
-    if (!gridData) {
-      boardWrap.innerHTML = `<div style="color:#f88">No grid loaded</div>`; return;
-    }
+    if (!gridData) { boardWrap.innerHTML=''; return; }
     const rows = gridData.rows;
     const cols = gridData.cols;
     const cells = gridData.cells;
-    // create grid container with headers (rows+cols); top-left empty cell
-    // compute CSS grid template
-    const nRows = rows.length + 1;
-    const nCols = cols.length + 1;
+    const gridEl = document.createElement('div');
+    gridEl.className = 'grid';
+    // set grid columns: first col header then N columns
+    gridEl.style.display = 'grid';
+    gridEl.style.gridTemplateColumns = `minmax(160px,1fr) ${cols.map(()=>`minmax(140px,1fr)`).join(' ')}`;
 
-    // build grid HTML table-like
-    const el = document.createElement('div');
-    el.className = 'grid';
-    // set CSS grid template dynamically (use grid-template-columns)
-    const colTemplate = Array.from({length: nCols}).map(()=>'auto').join(' ');
-    el.style.display = 'grid';
-    el.style.gridTemplateColumns = `minmax(160px,1fr) ${cols.map(()=>`minmax(140px,1fr)`).join(' ')}`;
-
-    // first top-left spacer
+    // top-left spacer
     const spacer = document.createElement('div');
     spacer.className = 'grid-header-cell';
-    spacer.style.fontWeight='800';
     spacer.textContent = '';
-    el.appendChild(spacer);
+    gridEl.appendChild(spacer);
 
-    // header columns
+    // column headers
     for (let j=0;j<cols.length;j++){
       const ch = document.createElement('div');
       ch.className = 'grid-header-cell';
       ch.innerHTML = `<div class="cond-small">${cols[j].label || cols[j].condition || ''}</div>`;
-      el.appendChild(ch);
+      gridEl.appendChild(ch);
     }
 
-    // rows: left header + cells
+    // rows and cells
     for (let i=0;i<rows.length;i++){
-      // row header
       const rh = document.createElement('div');
       rh.className = 'row-header';
       rh.innerHTML = `<div class="cond-small">${rows[i].label || rows[i].condition || ''}</div>`;
-      el.appendChild(rh);
-      // cells
+      gridEl.appendChild(rh);
       for (let j=0;j<cols.length;j++){
         const cellDiv = document.createElement('div');
         cellDiv.className = 'grid-cell';
-        const key = `${i}-${j}`;
-        // apply disabled if no candidates
         const cellData = (cells && cells[i] && cells[i][j]) ? cells[i][j] : null;
-        const count = cellData ? (cellData.count || (cellData.candidates_sample ? cellData.candidates_sample.length : 0)) : 0;
-        const top150 = cellData ? (cellData.count_top150 || 0) : 0;
-        // if zero candidates => disabled
+        // build cell content
         if (!cellData || !Array.isArray(cellData.candidates_sample) || cellData.candidates_sample.length === 0){
           cellDiv.classList.add('disabled');
           cellDiv.innerHTML = `<div class="cell-empty">—</div><div style="position:absolute;bottom:6px;right:6px;font-size:11px;color:rgba(0,0,0,0.35)">0</div>`;
         } else {
-          // show placeholder
-          cellDiv.innerHTML = `<div class="cell-empty">Click to enter</div><div style="position:absolute;bottom:6px;right:6px;font-size:11px;color:rgba(0,0,0,0.4)">${count}</div>`;
-          cellDiv.addEventListener('click', () => onCellClick(i,j,cellDiv,cellData));
+          cellDiv.innerHTML = `<div class="cell-empty">Click to enter</div><div style="position:absolute;bottom:6px;right:6px;font-size:11px;color:rgba(0,0,0,0.4)">${cellData.count ?? cellData.candidates_sample.length}</div>`;
+          // closure capture: attach listener with proper references
+          ((r, c, cellDatum, node) => {
+            node.addEventListener('click', () => onCellClick(r, c, node, cellDatum));
+          })(i, j, cellData, cellDiv);
         }
-        // overlay for wrong
+        // overlay wrong
         const wrongOverlay = document.createElement('div');
         wrongOverlay.className = 'wrong-overlay';
         wrongOverlay.innerHTML = `<div class="wrong-box"><div class="wrong-icon">✖</div></div>`;
         cellDiv.appendChild(wrongOverlay);
 
-        el.appendChild(cellDiv);
+        gridEl.appendChild(cellDiv);
       }
     }
 
-    // insert into boardWrap
     boardWrap.innerHTML = '';
-    boardWrap.appendChild(el);
-    // store references for later updates if needed
+    boardWrap.appendChild(gridEl);
   }
 
-  // When cell clicked -> open input modal for that cell
-  function onCellClick(r,c,cellDiv,cellData){
+  /* ---------- Interaction ---------- */
+  function onCellClick(r,c,node,cellData){
     const key = `${r}-${c}`;
     if (cellState[key] && cellState[key].locked) return;
-    if (!cellData || !Array.isArray(cellData.candidates_sample) || cellData.candidates_sample.length===0){
-      // cannot fill this cell
-      flashCellDisabled(cellDiv);
+    if (!cellData || !Array.isArray(cellData.candidates_sample) || cellData.candidates_sample.length === 0){
+      flash(node);
       return;
     }
-    activeCell = { r, c, cellDiv, cellData, key };
-    openInputModal(activeCell);
+    activeCell = {r,c,cellData,domNode:node, key};
+    openModalForCell(activeCell);
   }
 
-  function flashCellDisabled(cellDiv){
-    const old = cellDiv.style.transform;
-    cellDiv.style.transition = 'transform 0.08s';
-    cellDiv.style.transform = 'scale(0.98)';
-    setTimeout(()=>{ cellDiv.style.transform = old; }, 150);
+  function flash(node){
+    node.style.transition='transform 0.08s';
+    node.style.transform='scale(0.98)';
+    setTimeout(()=> node.style.transform='scale(1)', 120);
   }
 
-  function openInputModal(cellObj){
+  function openModalForCell(cell){
     playerInput.value = '';
     autocompleteList.innerHTML = '';
-    cellHint.textContent = `Candidates: ${cellObj.cellData.candidates_sample ? cellObj.cellData.candidates_sample.length : 0} known players.`;
-    // show modal
     inputModal.style.display = 'block';
     document.querySelector('.input-panel').style.display = 'block';
     playerInput.focus();
-    // for accessibility, set aria info
-    document.getElementById('panelTitle').textContent = `Fill: Row ${cellObj.r+1}, Col ${cellObj.c+1}`;
-    // store current candidate IDs for quick membership test
-    inputModal._candidatesSet = new Set((cellObj.cellData.candidates_sample || []).map(String));
-    // also enable keyboard navigation
-    buildAutocomplete('');
+    const count = cell.cellData.candidates_sample.length;
+    cellHint.textContent = `Candidates: ${count}. Type to search players...`;
+    // store candidates set of ids for quick check
+    inputModal._candidatesSet = new Set(cell.cellData.candidates_sample.map(String));
   }
 
-  function closeInputModal(){
+  function closeModal(){
     inputModal.style.display = 'none';
     document.querySelector('.input-panel').style.display = 'none';
     activeCell = null;
     playerInput.value = '';
     autocompleteList.innerHTML = '';
+    inputModal._candidatesSet = null;
   }
 
-  // Autocomplete: filter nameIndex for matches
-  let acActiveIndex = -1;
-  function buildAutocomplete(q){
+  // Autocomplete simple and fast: prefix then includes
+  let acIndex = -1;
+  function onInput(e){
+    const q = playerInput.value.trim().toLowerCase();
     autocompleteList.innerHTML = '';
-    acActiveIndex = -1;
-    if (!q || q.trim().length === 0){
-      // show top 20 popular / exact prefix? show empty
-      return;
-    }
-    const s = q.trim().toLowerCase();
-    // prioritize startsWith then includes
+    acIndex = -1;
+    if (!q) return;
     const starts = [];
     const includes = [];
     for (let i=0;i<nameIndex.length;i++){
-      const lab = nameIndex[i].label;
-      const lower = lab.toLowerCase();
-      if (lower.startsWith(s)) starts.push(nameIndex[i]);
-      else if (lower.includes(s)) includes.push(nameIndex[i]);
-      if (starts.length >= 30) break;
+      const n = nameIndex[i];
+      const s = n.label.toLowerCase();
+      if (s.startsWith(q)) starts.push(n);
+      else if (s.includes(q)) includes.push(n);
+      if (starts.length >= 40) break;
     }
     const results = starts.concat(includes).slice(0,60);
-    for (let i=0;i<results.length;i++){
-      const it = results[i];
+    for (let r of results){
       const div = document.createElement('div');
       div.className = 'autocomplete-item';
-      div.textContent = `${it.label} (${idToPlayer[it.id] ? idToPlayer[it.id].represented_country : ''})`;
-      div.dataset.playerId = it.id;
-      div.addEventListener('click', () => selectAutocompleteItem(it.id));
+      const country = idToPlayer[r.id] ? idToPlayer[r.id].represented_country : '';
+      div.textContent = `${r.label} ${country ? '('+country+')' : ''}`;
+      div.dataset.id = r.id;
+      div.addEventListener('click', ()=> chooseItem(r.id));
       autocompleteList.appendChild(div);
     }
   }
 
-  function onPlayerInputChange(e){
-    const q = playerInput.value;
-    buildAutocomplete(q);
-  }
-
-  function onPlayerInputKeyDown(e){
+  function onInputKeyDown(e){
     const items = Array.from(autocompleteList.querySelectorAll('.autocomplete-item'));
-    if (e.key === 'ArrowDown'){
-      e.preventDefault();
-      if (items.length === 0) return;
-      acActiveIndex = Math.min(acActiveIndex+1, items.length-1);
-      updateActiveItem(items);
-    } else if (e.key === 'ArrowUp'){
-      e.preventDefault();
-      if (items.length === 0) return;
-      acActiveIndex = Math.max(acActiveIndex-1, 0);
-      updateActiveItem(items);
-    } else if (e.key === 'Enter'){
-      e.preventDefault();
-      if (items.length > 0 && acActiveIndex >= 0 && acActiveIndex < items.length){
-        const id = items[acActiveIndex].dataset.playerId;
-        selectAutocompleteItem(id);
-      } else {
-        // fallback: try to match exact typed name
-        const typed = playerInput.value.trim();
-        const exact = nameIndex.find(n => n.label.toLowerCase() === typed.toLowerCase());
-        if (exact) selectAutocompleteItem(exact.id);
-        else tryValidateByName(typed);
-      }
-    }
+    if (e.key === 'ArrowDown'){ e.preventDefault(); if (items.length===0) return; acIndex = Math.min(acIndex+1, items.length-1); updateActive(items); }
+    else if (e.key === 'ArrowUp'){ e.preventDefault(); if (items.length===0) return; acIndex = Math.max(acIndex-1, 0); updateActive(items); }
+    else if (e.key === 'Enter'){ e.preventDefault(); if (items.length>0 && acIndex>=0) chooseItem(items[acIndex].dataset.id); else onSubmit(); }
+  }
+  function updateActive(items){
+    items.forEach((it,idx)=> it.classList.toggle('active', idx===acIndex));
+    if (acIndex>=0 && items[acIndex]) items[acIndex].scrollIntoView({block:'nearest'});
   }
 
-  function updateActiveItem(items){
-    items.forEach((it, idx) => {
-      it.classList.toggle('active', idx === acActiveIndex);
-      if (idx === acActiveIndex) it.scrollIntoView({block:'nearest'});
-    });
-  }
-
-  function selectAutocompleteItem(playerId){
-    // obtain full name
+  function chooseItem(playerId){
+    // set input value to name and immediately try to submit
     const p = idToPlayer[playerId];
-    const name = p ? p.full_name : playerId;
-    playerInput.value = name;
-    // attempt submit
-    setTimeout(()=> attemptSubmitSelected(playerId, name), 80);
+    playerInput.value = p ? p.full_name : playerId;
+    // small delay to allow UI update
+    setTimeout(()=> attemptSubmit(playerId, p ? p.full_name : playerId), 80);
   }
 
-  // If the typed name isn't in catalog, attempt to find best match by substring
-  function tryValidateByName(typed){
-    const q = typed.toLowerCase();
-    if (!q) return;
-    const found = nameIndex.find(n => n.label.toLowerCase() === q || n.label.toLowerCase().includes(q));
-    if (found) return selectAutocompleteItem(found.id);
-    // else show wrong animation immediately
-    animateWrongOnActiveCell();
-  }
-
-  function onSubmitFromModal(){
+  function onSubmit(){
     const typed = playerInput.value.trim();
-    if (!typed) return;
-    // find ID by exact match
+    if (!typed) { animateWrong(); return; }
+    // try exact name first
     const exact = nameIndex.find(n => n.label.toLowerCase() === typed.toLowerCase());
-    if (exact) return attemptSubmitSelected(exact.id, exact.label);
-    // try partial match
+    if (exact) return attemptSubmit(exact.id, idToPlayer[exact.id] ? idToPlayer[exact.id].full_name : exact.id);
+    // partial match
     const partial = nameIndex.find(n => n.label.toLowerCase().includes(typed.toLowerCase()));
-    if (partial) return attemptSubmitSelected(partial.id, partial.label);
+    if (partial) return attemptSubmit(partial.id, idToPlayer[partial.id] ? idToPlayer[partial.id].full_name : partial.id);
     // else immediate wrong
-    animateWrongOnActiveCell();
+    animateWrong();
   }
 
-  function attemptSubmitSelected(playerId, playerName){
+  function attemptSubmit(playerId, playerName){
     if (!activeCell) return;
-    const candSet = inputModal._candidatesSet;
-    // validate membership
-    if (candSet && candSet.has(String(playerId))){
-      // success
-      lockCellWithValue(activeCell, playerId, playerName);
-      closeInputModal();
-      checkAllFilled();
+    const candidatesSet = inputModal._candidatesSet;
+    if (candidatesSet && candidatesSet.has(String(playerId))){
+      // correct -> lock cell
+      lockCell(activeCell, playerId, playerName);
+      closeModal();
+      checkCompletion();
     } else {
-      animateWrongOnActiveCell();
+      animateWrong();
     }
   }
 
-  function animateWrongOnActiveCell(){
+  function animateWrong(){
     if (!activeCell) return;
-    const wrongBox = activeCell.cellDiv ? activeCell.cellDiv.querySelector('.wrong-box') : null;
-    // if we don't have a direct reference, find cell element from board by index
-    if (!wrongBox) {
-      // find DOM cell: compute index in grid
-      const grid = boardWrap.querySelector('.grid');
-      if (!grid) return;
-      // compute child index: header row + rows
-      const rowsLen = gridData.rows.length;
-      const colsLen = gridData.cols.length;
-      const idx = 1 + (activeCell.r) * (colsLen + 1) + (activeCell.c + 1);
-      const node = grid.children[idx];
-      if (!node) return;
-      const wb = node.querySelector('.wrong-box');
-      if (!wb) return;
-      wb.classList.add('show');
-      setTimeout(()=> wb.classList.remove('show'), 850);
-      return;
-    } else {
-      wrongBox.classList.add('show');
-      setTimeout(()=> wrongBox.classList.remove('show'), 850);
-    }
+    const node = activeCell.domNode;
+    const wb = node.querySelector('.wrong-box');
+    if (!wb) return;
+    wb.classList.add('show');
+    setTimeout(()=> wb.classList.remove('show'), 750);
   }
 
-  function lockCellWithValue(cellObj, playerId, playerName){
-    const key = cellObj.key;
-    cellState[key] = { locked:true, value_id: playerId, value_name: playerName };
-    // update DOM cell
+  function lockCell(cell, pid, pname){
+    const key = cell.key;
+    cellState[key] = { locked:true, id:pid, name:pname };
+    // update DOM
     const grid = boardWrap.querySelector('.grid');
-    const colsLen = gridData.cols.length;
-    const idx = 1 + (cellObj.r) * (colsLen + 1) + (cellObj.c + 1);
+    const cols = gridData.cols.length;
+    // compute child index: 1 + row*(cols+1) + (col+1)
+    const idx = 1 + (cell.r) * (cols + 1) + (cell.c + 1);
     const node = grid.children[idx];
     if (!node) return;
     node.classList.add('cell-locked');
-    node.innerHTML = `<div class="cell-value">${playerName}</div><div style="position:absolute;bottom:6px;right:6px;font-size:11px;color:rgba(0,0,0,0.35)">${cellObj.cellData.count || (cellObj.cellData.candidates_sample ? cellObj.cellData.candidates_sample.length : '')}</div>`;
-    // show small check mark
-    const ok = document.createElement('div');
-    ok.style.position='absolute';
-    ok.style.top='6px';
-    ok.style.left='6px';
-    ok.style.fontSize='14px';
-    ok.style.color='var(--good-text)';
-    ok.textContent = '✔';
+    node.innerHTML = `<div class="cell-value">${pname}</div><div style="position:absolute;bottom:6px;right:6px;font-size:11px;color:rgba(0,0,0,0.35)">${cell.cellData.count ?? cell.cellData.candidates_sample.length}</div>`;
+    const ok = document.createElement('div'); ok.style.position='absolute'; ok.style.top='6px'; ok.style.left='6px'; ok.style.fontSize='14px'; ok.style.color='var(--good-text)'; ok.textContent='✔';
     node.appendChild(ok);
   }
 
-  function checkAllFilled(){
-    // count locked cells that originally had candidates
-    let filled = 0;
-    let total = 0;
+  function checkCompletion(){
+    let total = 0, filled = 0;
     for (let r=0;r<gridData.rows.length;r++){
       for (let c=0;c<gridData.cols.length;c++){
         const cell = gridData.cells[r][c];
-        const key = `${r}-${c}`;
-        if (cell && Array.isArray(cell.candidates_sample) && cell.candidates_sample.length>0) {
-          total++;
-          if (cellState[key] && cellState[key].locked) filled++;
-        }
+        if (!cell || !Array.isArray(cell.candidates_sample) || cell.candidates_sample.length===0) continue;
+        total++;
+        if (cellState[`${r}-${c}`] && cellState[`${r}-${c}`].locked) filled++;
       }
     }
-    if (total>0 && filled === total){
-      // compute score
+    if (total > 0 && filled === total){
       const score = filled*10 + 10;
       showScore(score);
     }
   }
 
-  function showScore(score){
-    scoreValue.textContent = score;
-    scoreOverlay.style.display = 'block';
-  }
-
-  // Give up: reveal first known candidate for each cell and compute score from filled cells
+  /* Give Up: reveal first candidate for each open cell, compute score */
   function onGiveUp(){
-    // fill every cell with first candidate_sample if exists and not locked
-    let filled = 0;
-    let total = 0;
+    let total=0, filled=0;
     for (let r=0;r<gridData.rows.length;r++){
       for (let c=0;c<gridData.cols.length;c++){
         const cell = gridData.cells[r][c];
+        if (!cell || !Array.isArray(cell.candidates_sample) || cell.candidates_sample.length===0) continue;
+        total++;
         const key = `${r}-${c}`;
-        if (cell && Array.isArray(cell.candidates_sample) && cell.candidates_sample.length>0) {
-          total++;
-          if (!(cellState[key] && cellState[key].locked)){
-            // choose first candidate id
-            const pid = String(cell.candidates_sample[0]);
-            const pname = idToPlayer[pid] ? idToPlayer[pid].full_name : pid;
-            // update DOM
-            const grid = boardWrap.querySelector('.grid');
-            const colsLen = gridData.cols.length;
-            const idx = 1 + (r) * (colsLen + 1) + (c + 1);
-            const node = grid.children[idx];
-            if (node) {
-              node.classList.add('cell-locked');
-              node.innerHTML = `<div class="cell-value">${pname}</div><div style="position:absolute;bottom:6px;right:6px;font-size:11px;color:rgba(0,0,0,0.35)">${cell.count || cell.candidates_sample.length}</div>`;
-            }
-            cellState[key] = { locked:true, value_id: pid, value_name: pname };
-            filled++;
-          } else {
-            filled++;
-          }
+        if (cellState[key] && cellState[key].locked){ filled++; continue; }
+        // reveal first candidate
+        const pid = String(cell.candidates_sample[0]);
+        const pname = idToPlayer[pid] ? idToPlayer[pid].full_name : pid;
+        // update DOM
+        const grid = boardWrap.querySelector('.grid');
+        const idx = 1 + (r) * (gridData.cols.length + 1) + (c + 1);
+        const node = grid.children[idx];
+        if (node){
+          node.classList.add('cell-locked');
+          node.innerHTML = `<div class="cell-value">${pname}</div><div style="position:absolute;bottom:6px;right:6px;font-size:11px;color:rgba(0,0,0,0.35)">${cell.count ?? cell.candidates_sample.length}</div>`;
         }
+        cellState[key] = { locked:true, id:pid, name:pname };
+        filled++;
       }
     }
-    // score = filled*10 + 10 if filled==total and total>0
-    const score = (filled * 10) + ((total>0 && filled===total) ? 10 : 0);
+    const score = filled*10 + ((total>0 && filled===total) ? 10 : 0);
     showScore(score);
   }
 
-  // reset board state (unlock everything)
   function onReset(){
-    resetCellState();
+    initCellState();
     renderBoard();
   }
 
-  // start
-  init().catch(e => console.error('Init error', e));
+  function showScore(s){
+    scoreValue.textContent = s;
+    scoreOverlay.style.display = 'block';
+  }
+
+  // small helpers
+  function sleep(ms){ return new Promise(res => setTimeout(res, ms)); }
+
+  // Build local nameIndex for autocomplete (simple but fast)
+  function buildNameIndex(){
+    nameIndex = [];
+    if (!playersCatalog || !Array.isArray(playersCatalog.players)) return;
+    for (const p of playersCatalog.players){
+      nameIndex.push({label: p.full_name, id: p.player_id});
+    }
+  }
+
+  // choose best starting point: buildNameIndex after players loaded
+  // initialize
+  (async () => {
+    try {
+      // load players catalog first
+      try {
+        if (!playersCatalog) playersCatalog = await fetchJson(PATHS.PLAYERS);
+      } catch(e){
+        console.warn('players_catalog load failed: ', e);
+      }
+      buildPlayerIndex();
+      buildNameIndex();
+      await loadGrid(mode);
+      attachHandlers();
+    } catch (err) {
+      console.error('init failed', err);
+    }
+  })();
 
 })();
 </script>

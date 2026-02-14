@@ -47,7 +47,7 @@ CITY_MIN_PLAYERS = 10
 HEIGHT_THRESHOLDS = {'ATP': {'smaller':1.70, 'taller':2.00}, 'WTA': {'smaller':1.65, 'taller':1.83}}
 
 # acceptable event level keywords for inclusion
-EVENT_KEYWORDS = ('grand', 'slam', 'major', '1000', 'pm', 'premier', 'mandatory', 'masters', '500')
+EVENT_KEYWORDS = ('grand', 'g' ,'slam', 'major', '1000', 'pm', 'premier', 'mandatory', 'masters', '500', 'wta 500', 'wta500', 'atp500', 'atp 500')
 
 # round -> coarse score mapping
 ROUND_SCORE = {
@@ -67,6 +67,8 @@ def round_to_score(r):
     if r2 == 'Q': return 5
     if r2 == 'S': return 6
     if r2 == 'F': return 7
+    if r2 == 'QF': return 5
+    if r2 == 'SF': return 6
     if 'QUART' in r2: return 5
     if 'SEMI' in r2: return 6
     if 'FINAL' in r2: return 7
@@ -346,3 +348,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

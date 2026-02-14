@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-generate_grid_improved.py  Générateur amélioré de grille 3x3 à partir des fichiers aggregate_*_reduced.json,
-avec :
- - rééquilibrage pour préférer Winner/Finalist/SF vs QF,
- - encouragement à la diversité des deux "result_at_tourney",
- - historique (dernier 10) pour diminuer réutilisation trop fréquente,
- - génération stochastique (différente à chaque run).
-Modifications principales :
- - assouplissement de la contrainte "total == 0" (on pénalise au lieu de rejeter),
- - scoring qui prend en compte le nombre de cellules vides (zeros) et favorise
-   result kinds W/F/SF, tout en gardant diversité,
- - réduction de la pénalité quand on choisit deux résultats du même type.
+generate_grid_improved_strict.py
+
+Version stricte :
+ - AUCUNE cellule vide acceptée (chaque case doit contenir au moins 1 joueur).
+ - Favorise fortement W / F / SF (évite QF-only).
+ - Pour WTA : agrégation par tourney_name (même tournoi sur plusieurs années).
+ - Considère l'historique du tournoi pour les performances (fusion des années).
+ - Robustesse sur différents formats d'entrées.
 """
 import json, itertools, random, time, re
 from pathlib import Path
@@ -29,14 +26,14 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 GRID_SIZE = 3
 TOP_PREFERRED_RANK = 150
 
-# Sampling / search params (tweak if necessary)
-N_TRIES = 1200            # augmenter légèrement pour plus de chances
-TOP_K_COUNTRIES = 60
-TOP_K_RESULTS = 240      # augmenter pour ne pas tronquer des petits sets "winner" trop tôt
-TOP_K_OTHERS = 120
+# Sampling / search params (ajuster si besoin)
+N_TRIES = 2000
+TOP_K_COUNTRIES = 80
+TOP_K_RESULTS = 400   # laisser grand pour ne pas tronquer winners historiques
+TOP_K_OTHERS = 200
 
-# result kind priority multipliers (favor winners/finalists/semis)
-RESULT_KIND_PRIORITY = {'W': 4.0, 'F': 2.5, 'SF': 1.7, 'QF': 1.0}
+# augmenter fortement l'importance des winners/finalists/semis
+RESULT_KIND_PRIORITY = {'W': 6.0, 'F': 3.5, 'SF': 2.0, 'QF': 1.0}
 
 # ---------------- helpers ----------------
 def load_json(path):
@@ -74,40 +71,82 @@ def load_players_min(csv_path):
 def label_of(cond):
     return cond.get('label') or str(cond)
 
-# ---------------- pool builder (même logique) ----------------
-def build_pools(aggregate, players_info):
+# ---------------- pool builder with WTA tourney_name grouping ----------------
+def build_pools(aggregate, players_info, circuit_label=None):
+    # countries
     countries_pool = []
     for country, pids in aggregate.get('countries', {}).items():
         s = set(pids)
         if s:
             countries_pool.append({'type':'country','label': country, 'set': s})
 
+    # results: if WTA, group by tourney_name across event keys (historical aggregation)
     results_pool = []
-    for ek, ev in aggregate.get('tournaments', {}).items():
-        tn = ev.get('tourney_name') or ek
-        mapping = [('W', ev.get('winners', [])),
-                   ('F', ev.get('finalists', [])),
-                   ('SF', ev.get('semifinalists', [])),
-                   ('QF', ev.get('quarterfinalists', []))]
-        for rk, entries in mapping:
-            pids = [e.get('player_id') for e in entries if isinstance(e, dict) and e.get('player_id')]
-            # also accept if entries are strings/ids (robustness)
-            if not pids and isinstance(entries, list):
-                pids = [e for e in entries if isinstance(e, str)]
-            s = set([pid for pid in pids if pid])
-            if s:
-                label = {'W':'Winner at {}','F':'Finalist at {}','SF':'Semifinalist at {}','QF':'Quarterfinalist at {}'}[rk].format(tn)
-                results_pool.append({'type':'result_at_tourney','label':label,'set':s,'event_key':ek,'result_kind':rk,'tourney':tn})
 
+    if circuit_label == 'WTA':
+        # group by tourney_name (case-insensitive normalized)
+        by_name = {}
+        for ek, ev in aggregate.get('tournaments', {}).items():
+            tn = (ev.get('tourney_name') or ek or '').strip()
+            if not tn:
+                tn = ek
+            key = tn.strip().lower()
+            if key not in by_name:
+                by_name[key] = {'tourney_name': tn, 'winners': [], 'finalists': [], 'semifinalists': [], 'quarterfinalists': []}
+            # append entries robustly: entries might be lists of dict or list of ids
+            for kind, field in [('winners','winners'),('finalists','finalists'),('semifinalists','semifinalists'),('quarterfinalists','quarterfinalists')]:
+                entries = ev.get(field, [])
+                if not entries:
+                    continue
+                # normalize to list of ids
+                ids = []
+                if isinstance(entries, list):
+                    for e in entries:
+                        if isinstance(e, dict):
+                            pid = e.get('player_id') or e.get('id') or e.get('player') or None
+                            if pid: ids.append(pid)
+                        elif isinstance(e, str):
+                            ids.append(e)
+                by_name[key][kind].extend(ids)
+        # now create result pool entries aggregating sets across years
+        for key, info in by_name.items():
+            tn = info.get('tourney_name')
+            for rk, lst in [('W', info.get('winners',[])), ('F', info.get('finalists',[])), ('SF', info.get('semifinalists',[])), ('QF', info.get('quarterfinalists',[]))]:
+                s = set([pid for pid in lst if pid])
+                if s:
+                    label = {'W':'Winner at {}','F':'Finalist at {}','SF':'Semifinalist at {}','QF':'Quarterfinalist at {}'}[rk].format(tn)
+                    results_pool.append({'type':'result_at_tourney','label':label,'set':s,'event_key':key,'result_kind':rk,'tourney':tn})
+    else:
+        # default behaviour (ATP): keep event_key granularity (ids stable)
+        for ek, ev in aggregate.get('tournaments', {}).items():
+            tn = ev.get('tourney_name') or ek
+            mapping = [('W', ev.get('winners', [])),
+                       ('F', ev.get('finalists', [])),
+                       ('SF', ev.get('semifinalists', [])),
+                       ('QF', ev.get('quarterfinalists', []))]
+            for rk, entries in mapping:
+                # robust extraction
+                pids = []
+                if isinstance(entries, list):
+                    for e in entries:
+                        if isinstance(e, dict):
+                            pid = e.get('player_id') or e.get('id') or e.get('player')
+                            if pid: pids.append(pid)
+                        elif isinstance(e, str):
+                            pids.append(e)
+                s = set([pid for pid in pids if pid])
+                if s:
+                    label = {'W':'Winner at {}','F':'Finalist at {}','SF':'Semifinalist at {}','QF':'Quarterfinalist at {}'}[rk].format(tn)
+                    results_pool.append({'type':'result_at_tourney','label':label,'set':s,'event_key':ek,'result_kind':rk,'tourney':tn})
+
+    # others (ranks, heights, cities, lefties, etc.)
     others_pool = []
-    # ranks
     ranks = aggregate.get('ranks', {})
     rank_map = [('Rank #1','top_1'),('Rank #2','top_2'),('Rank #3','top_3'),('Rank #5','top_5'),('Rank #10','top_10'),('Rank #50','top_50')]
     for label, key in rank_map:
         pids = ranks.get(key, [])
         if pids:
             others_pool.append({'type':'rank_number','label': label, 'set': set(pids), 'value': int(re.search(r'\d+', label).group())})
-    # heights
     ht = aggregate.get('height', {})
     if ht:
         smaller = set(ht.get('smaller_than', []))
@@ -115,30 +154,28 @@ def build_pools(aggregate, players_info):
         thresholds = ht.get('thresholds', {})
         if smaller: others_pool.append({'type':'height_cmp','label': f"Shorter than {thresholds.get('smaller')}", 'set': smaller, 'op':'smaller', 'threshold': thresholds.get('smaller')})
         if taller:  others_pool.append({'type':'height_cmp','label': f"Taller than {thresholds.get('taller')}", 'set': taller, 'op':'taller', 'threshold': thresholds.get('taller')})
-    # born_cities
     for city,pids in aggregate.get('born_cities', {}).items():
         if pids:
             others_pool.append({'type':'born_city','label': f"Born in {city}", 'set': set(pids), 'value': city})
-    # lefties
     lefties = set(aggregate.get('lefties', []))
     if lefties: others_pool.append({'type':'plays_handed','label':'Left-handed','set':lefties,'value':'left'})
-    # one-handed backhand
     oneh = set(aggregate.get('one_handed_backhand', []))
     if oneh: others_pool.append({'type':'backhand_type','label':'one-handed backhand','set':oneh,'value':'one-handed'})
-    # positive_h2h grouped by top10 opponent
+
     pos = aggregate.get('positive_h2h_vs_top10', [])
     pos_by_top10 = defaultdict(set)
     for e in pos:
-        a = e.get('player_id') if isinstance(e, dict) else None
-        b = e.get('top10_id') if isinstance(e, dict) else None
-        if a and b: pos_by_top10[b].add(a)
+        if isinstance(e, dict):
+            a = e.get('player_id'); b = e.get('top10_id')
+            if a and b: pos_by_top10[b].add(a)
     for top10_id, s in pos_by_top10.items():
         others_pool.append({'type':'positive_h2h','label': f"Positive H2H vs {top10_id}", 'set': set(s), 'top10_id': top10_id})
 
-    # sort by size descending (richest first)
+    # sort
     countries_pool.sort(key=lambda x: len(x['set']), reverse=True)
     results_pool.sort(key=lambda x: len(x['set']), reverse=True)
     others_pool.sort(key=lambda x: len(x['set']), reverse=True)
+
     return countries_pool, results_pool, others_pool
 
 # ---------------- weighted sampling utilities ----------------
@@ -166,21 +203,21 @@ def weighted_choice_without_replacement(items, weights, k):
         weights2.pop(idx)
     return chosen
 
-# ---------------- scoring helpers ----------------
+# ---------------- intersection stats ----------------
 def intersection_stats(a_set, b_set, players_info):
     inter = a_set & b_set
     total = len(inter)
     top150 = sum(1 for pid in inter if players_info.get(pid,{}).get('best_rank') is not None and players_info[pid]['best_rank'] <= TOP_PREFERRED_RANK)
     return inter, total, top150
 
-# ---------------- randomized search (improved) ----------------
+# ---------------- randomized search (strict: no empty cell permitted) ----------------
 def find_grid_randomized(countries_pool, results_pool, others_pool, players_info, history_labels, n_tries=N_TRIES):
     recent_counts = Counter()
     for h in history_labels:
         for lbl in h:
             recent_counts[lbl] += 1
 
-    # trim pools
+    # trim pools (large but finite)
     cp = countries_pool[:TOP_K_COUNTRIES]
     rp = results_pool[:TOP_K_RESULTS]
     op = others_pool[:TOP_K_OTHERS]
@@ -188,13 +225,11 @@ def find_grid_randomized(countries_pool, results_pool, others_pool, players_info
     if len(cp) < 2 or len(rp) < 2 or len(op) < 2:
         return None
 
-    # base weight function: favors novelty and size, but for results apply result-kind priority
     def weight_for_label(lbl):
         return 1.0 / (1.0 + recent_counts.get(lbl, 0))
 
     cp_weights = [weight_for_label(label_of(c)) * max(1, len(c['set'])) for c in cp]
 
-    # for results apply result-kind priority (and normalize a bit)
     rp_weights = []
     for r in rp:
         base = weight_for_label(label_of(r)) * max(1, len(r['set']))
@@ -205,149 +240,123 @@ def find_grid_randomized(countries_pool, results_pool, others_pool, players_info
     op_weights = [weight_for_label(label_of(o)) * max(1, len(o['set'])) for o in op]
 
     best = None
-    best_score = (-1, -1, 0)  # (min_top150, min_total, -zeros_count)
+    best_score = (-1, -1)  # (min_top150, min_total)
 
     for t in range(n_tries):
-        # sample 2 countries weighted
+        # sample 2 distinct countries
         c_choice = weighted_choice_without_replacement(cp, cp_weights, 2)
         if len(c_choice) < 2: continue
 
-        # sample first result weighted
+        # sample 1st result weighted
         idx1 = weighted_index(rp_weights)
         if idx1 is None: continue
         r_first = rp[idx1]
 
-        # build second result weights penalizing same result_kind, but not zeroing them
-        rp_rem_weights = []
-        remaining_indices = []
-        for i, r in enumerate(rp):
-            if i == idx1:
-                continue
-            base = rp_weights[i]
-            same_kind = (r.get('result_kind') == r_first.get('result_kind'))
-            # less severe penalty than before: prefer diversity but allow same-kind
-            factor = 0.6 if same_kind else 1.0
-            rp_rem_weights.append(base * factor)
-            remaining_indices.append(i)
-
-        idx2_rel = weighted_index(rp_rem_weights)
-        if idx2_rel is None:
+        # sample second result from remaining but ensure at least one of r_first/r_second is W/F/SF
+        remaining_indices = [i for i in range(len(rp)) if i != idx1]
+        if not remaining_indices:
             continue
+        # compute weights penalizing same kind but not zero
+        rp_rem_weights = []
+        for i in remaining_indices:
+            r = rp[i]
+            same_kind = (r.get('result_kind') == r_first.get('result_kind'))
+            factor = 0.5 if same_kind else 1.0
+            rp_rem_weights.append(rp_weights[i] * factor)
+        idx2_rel = weighted_index(rp_rem_weights)
+        if idx2_rel is None: continue
         idx2 = remaining_indices[idx2_rel]
         r_second = rp[idx2]
+
+        # require at least one be W/F/SF to avoid QF-only choices
+        if (r_first.get('result_kind') not in ('W','F','SF')) and (r_second.get('result_kind') not in ('W','F','SF')):
+            # skip this pair
+            continue
 
         # sample 2 others
         o_choice = weighted_choice_without_replacement(op, op_weights, 2)
         if len(o_choice) < 2: continue
 
-        # shuffle to add variety in placements
+        # shuffle to vary placements
         random.shuffle(c_choice); random.shuffle(o_choice)
         rA, rB = r_first, r_second
         oA, oB = o_choice[0], o_choice[1]
         c1, c2 = c_choice[0], c_choice[1]
 
-        # build candidate layouts (both patterns and both assignments)
+        # try both layout patterns and both orderings (rows/cols assignment)
         candidate_layouts = []
         for (rX, rY) in ((rA, rB), (rB, rA)):
-            rows = [c1, c2, rX]; cols = [rY, oA, oB]
-            candidate_layouts.append((rows, cols, 'rows_countries'))
-            cols = [c1, c2, rX]; rows = [rY, oA, oB]
-            candidate_layouts.append((rows, cols, 'cols_countries'))
+            candidate_layouts.append(([c1, c2, rX], [rY, oA, oB], 'rows_countries'))
+            candidate_layouts.append(([rY, oA, oB], [c1, c2, rX], 'cols_countries'))
 
         for rows, cols, pattern in candidate_layouts:
-            # ensure label uniqueness across rows and cols
+            # labels must be distinct across rows/cols
             if set(label_of(x) for x in rows) & set(label_of(x) for x in cols):
                 continue
 
-            # compute intersections with a soft penalty for empty cells instead of outright rejection
             inters = {}
-            zeros_count = 0
             min_top150 = None
             min_total = None
-            ok = True
+            any_zero = False
+
             for i, rcond in enumerate(rows):
                 for j, ccond in enumerate(cols):
                     inter, total, top150 = intersection_stats(rcond['set'], ccond['set'], players_info)
-                    inters[f"{i}-{j}"] = {'inter': inter, 'total': total, 'top150': top150}
+                    # strict requirement: no empty cell allowed
                     if total == 0:
-                        zeros_count += 1
-                    if min_total is None or total < min_total:
-                        min_total = total
-                    if min_top150 is None or top150 < min_top150:
-                        min_top150 = top150
+                        any_zero = True
+                        break
+                    inters[f"{i}-{j}"] = {'inter': inter, 'total': total, 'top150': top150}
+                    if min_total is None or total < min_total: min_total = total
+                    if min_top150 is None or top150 < min_top150: min_top150 = top150
+                if any_zero:
+                    break
 
-            # scoring: prefer higher min_top150, then higher min_total, then fewer zeros
-            # fewer zeros is better -> use -zeros_count in tuple
-            score = (min_top150 if min_top150 is not None else 0,
-                     min_total if min_total is not None else 0,
-                     -zeros_count)
-            # tiny random epsilon to break ties and encourage variety
+            if any_zero:
+                continue  # discard this layout entirely (strict)
+
+            # scoring: prefer higher min_top150 then higher min_total
+            score = (min_top150 if min_top150 is not None else 0, min_total if min_total is not None else 0)
             eps = random.random() * 1e-6
-            score_with_eps = (score[0] + eps, score[1] + eps, score[2] + eps)
+            score_with_eps = (score[0] + eps, score[1] + eps)
 
             if score_with_eps > best_score:
                 best_score = score_with_eps
-                best = {'rows': rows, 'cols': cols, 'pattern': pattern, 'intersections': inters, 'zeros': zeros_count}
-                # early accept if grid is good enough (no empty cells and some top150)
-                if score[2] == 0 and score[0] >= 1:
+                best = {'rows': rows, 'cols': cols, 'pattern': pattern, 'intersections': inters}
+                # early exit: ideal grid found (at least one top150 in every cell)
+                if best_score[0] >= 1 and best_score[1] >= 1:
                     return best
 
     return best
 
-# ---------------- deterministic fallback with diversity-first ----------------
+# ---------------- deterministic fallback (strict) ----------------
 def deterministic_fallback(cp, rp, op, players_info):
     def test_combo(rows, cols):
-        # ensure labels distinct
         if set(label_of(x) for x in rows) & set(label_of(x) for x in cols):
             return None
         inters = {}
-        zeros_count = 0
         min_top150 = None; min_total = None
         for i, rcond in enumerate(rows):
             for j, ccond in enumerate(cols):
                 inter, total, top150 = intersection_stats(rcond['set'], ccond['set'], players_info)
-                inters[f"{i}-{j}"] = {'inter': inter, 'total': total, 'top150': top150}
                 if total == 0:
-                    zeros_count += 1
+                    return None  # strict: reject combos with any empty cell
+                inters[f"{i}-{j}"] = {'inter': inter, 'total': total, 'top150': top150}
                 if min_total is None or total < min_total: min_total = total
                 if min_top150 is None or top150 < min_top150: min_top150 = top150
-        # return structure and score tuple (min_top150, min_total, -zeros_count)
-        return {'rows': rows, 'cols': cols, 'intersections': inters, 'score': (min_top150, min_total, -zeros_count), 'zeros': zeros_count}
+        return {'rows': rows, 'cols': cols, 'intersections': inters, 'score': (min_top150, min_total)}
 
     best = None
-    best_score = (-1, -1, 0)
+    best_score = (-1, -1)
 
-    # first pass: prefer result kinds different
+    # Try combos but require that among the two results at least one is W/F/SF
     for (i1,i2) in itertools.combinations(range(len(cp)), 2):
         c1 = cp[i1]; c2 = cp[i2]
         for (j1,j2) in itertools.combinations(range(len(rp)), 2):
             rA = rp[j1]; rB = rp[j2]
-            # require different result kinds first
-            if rA.get('result_kind') == rB.get('result_kind'):
+            # require at least one be W/F/SF
+            if (rA.get('result_kind') not in ('W','F','SF')) and (rB.get('result_kind') not in ('W','F','SF')):
                 continue
-            for (k1,k2) in itertools.combinations(range(len(op)), 2):
-                oA = op[k1]; oB = op[k2]
-                for rX, rY in ((rA, rB),(rB, rA)):
-                    rows = [c1, c2, rX]; cols = [rY, oA, oB]
-                    res = test_combo(rows, cols)
-                    if res:
-                        sc = res['score']
-                        if sc > best_score:
-                            best_score = sc; best = res
-                    rows = [rY, oA, oB]; cols = [c1, c2, rX]
-                    res = test_combo(rows, cols)
-                    if res:
-                        sc = res['score']
-                        if sc > best_score:
-                            best_score = sc; best = res
-    if best:
-        return best
-
-    # second pass: allow same result kinds (if no grid found)
-    for (i1,i2) in itertools.combinations(range(len(cp)), 2):
-        c1 = cp[i1]; c2 = cp[i2]
-        for (j1,j2) in itertools.combinations(range(len(rp)), 2):
-            rA = rp[j1]; rB = rp[j2]
             for (k1,k2) in itertools.combinations(range(len(op)), 2):
                 oA = op[k1]; oB = op[k2]
                 for rX, rY in ((rA, rB),(rB, rA)):
@@ -377,6 +386,7 @@ def build_grid_output(best, players_info, max_sample=12):
             inter_set = set(info.get('inter', set()))
             ordered = sorted(list(inter_set), key=lambda pid: (players_info.get(pid,{}).get('best_rank') if players_info.get(pid,{}).get('best_rank') is not None else 99999, pid))
             sample = ordered[:max_sample]
+            # prefer top150 not used yet
             chosen = None
             for pid in ordered:
                 br = players_info.get(pid,{}).get('best_rank')
@@ -395,11 +405,10 @@ def build_grid_output(best, players_info, max_sample=12):
         'cols': [{'index': j, 'label': label_of(cols[j]), 'type': cols[j].get('type')} for j in range(GRID_SIZE)],
         'cells': grid_cells,
         'pattern': best.get('pattern', 'n/a'),
-        'zeros_in_intersections': best.get('zeros', 0)
     }
     return out
 
-# ---------------- history handling ----------------
+# ---------------- history ----------------
 def read_history():
     if not HISTORY_PATH.exists():
         return []
@@ -418,11 +427,13 @@ def generate_grid_for_circuit(agg_path, players_csv, out_path, circuit_label):
         print(f"[ERROR] missing aggregate: {agg_path}")
         return None
     players_info = load_players_min(players_csv)
-    countries_pool, results_pool, others_pool = build_pools(agg, players_info)
+    countries_pool, results_pool, others_pool = build_pools(agg, players_info, circuit_label=circuit_label)
 
-    # debug: print counts by result_kind to help diagnose "only QF" issues
+    # Debug: compte des kinds et nombre de tourneys distincts (utile pour WTA)
     kind_counts = Counter(r.get('result_kind') for r in results_pool)
-    print(f"[DEBUG] result kinds counts for {circuit_label}:", dict(kind_counts))
+    tourney_names = set(r.get('tourney') for r in results_pool if r.get('tourney'))
+    print(f"[DEBUG] circuit={circuit_label} result kinds counts: {dict(kind_counts)}")
+    print(f"[DEBUG] circuit={circuit_label} distinct tourney names in results_pool: {len(tourney_names)}")
 
     history = read_history()
     history_labels = [entry.get('labels', []) for entry in history]
@@ -430,18 +441,16 @@ def generate_grid_for_circuit(agg_path, players_csv, out_path, circuit_label):
     best = find_grid_randomized(countries_pool, results_pool, others_pool, players_info, history_labels, n_tries=N_TRIES)
 
     if not best:
-        print(f"[WARN] Could not find a grid in randomized search for {circuit_label} - trying deterministic fallback.")
-        # deterministic fallback (diversity-first)
-        best = deterministic_fallback(countries_pool[:40], results_pool[:80], others_pool[:80], players_info)
+        print(f"[WARN] randomized search failed for {circuit_label} - trying deterministic fallback.")
+        best = deterministic_fallback(countries_pool[:60], results_pool[:200], others_pool[:150], players_info)
 
     if not best:
-        print(f"[ERROR] No valid grid found for {circuit_label}.")
+        print(f"[ERROR] No valid grid found for {circuit_label} after strict search. (Aucune grille sans cellule vide.)")
         return None
 
     grid_obj = build_grid_output(best, players_info)
     save_json({'circuit': circuit_label, 'generated_at': time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), 'grid': grid_obj}, out_path)
 
-    # update history with the 6 used labels
     normalized_labels = [label_of(x) for x in (best.get('rows',[]) + best.get('cols',[]))]
     write_history_entry(normalized_labels)
 
@@ -449,8 +458,8 @@ def generate_grid_for_circuit(agg_path, players_csv, out_path, circuit_label):
 
 # ---------------- run ----------------
 if __name__ == '__main__':
-    random.seed()  # use a different seed each run (system time)
-    # ATP
+    random.seed()
+    # ATP (décommenter si nécessaire)
     atp_out = generate_grid_for_circuit(AGG_ATP, ATP_CSV, OUT_DIR / 'fill_the_grid_ATP.json', 'ATP')
     if atp_out: print("Wrote ATP grid to", atp_out)
     # WTA
