@@ -41,7 +41,7 @@ CITY_MIN_PLAYERS = 10
 HEIGHT_THRESHOLDS = {'ATP': {'smaller':1.70, 'taller':2.00}, 'WTA': {'smaller':1.65, 'taller':1.83}}
 
 # acceptable event level keywords for inclusion (we'll test both tourney_name and level)
-EVENT_KEYWORDS = ('grand', 'slam', 'major', '1000', 'pm', 'premier', 'mandatory', 'masters', '500', 'wta 500', 'wta500', 'atp500', 'atp 500')
+EVENT_KEYWORDS = ('grand', 'slam', 'major', '1000', 'pm', 'premier','p', 'mandatory', 'masters', '500', 'wta 500', 'wta500', 'atp500', 'atp 500', 'gp', 'cs')
 
 # Round score map
 ROUND_SCORE = {
