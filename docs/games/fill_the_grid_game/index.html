@@ -183,55 +183,87 @@
   }
 
   // extract opponent id robustly: prefer explicit fields, fallback to token that contains a digit (3+ chars)
-  function extractOpponentId(cond){
-    if (!cond) return null;
-    if (cond.opponent_id) return String(cond.opponent_id);
-    if (cond.opponent) return String(cond.opponent);
-    if (cond.opponent_name) return String(cond.opponent_name);
-    if (cond.raw) {
-      if (cond.raw.opponent_id) return String(cond.raw.opponent_id);
-      if (cond.raw.opponent) return String(cond.raw.opponent);
-    }
-    // fallback regex: token must be 3+ chars and contain at least one digit (prevents matching "Positive")
-    if (cond.label) {
-      const m = cond.label.match(/\b(?=[A-Za-z0-9_]*\d)[A-Za-z0-9_]{3,}\b/);
-      if (m) return m[0];
-    }
-    if (cond.value && typeof cond.value === 'string'){
-      const m2 = cond.value.match(/\b(?=[A-Za-z0-9_]*\d)[A-Za-z0-9_]{3,}\b/);
-      if (m2) return m2[0];
-    }
-    return null;
+  // REPLACE your old extractOpponentId + preprocessGrid with these
+
+function extractOpponentId(cond) {
+  // Robust: prefer explicit fields; then check tokens against idToPlayer map.
+  if (!cond) return null;
+
+  // 1) explicit known fields
+  const explicitCandidates = [];
+  if (cond.opponent_id) explicitCandidates.push(String(cond.opponent_id));
+  if (cond.opponent) explicitCandidates.push(String(cond.opponent));
+  if (cond.opponent_name) explicitCandidates.push(String(cond.opponent_name));
+  if (cond.raw) {
+    if (cond.raw.opponent_id) explicitCandidates.push(String(cond.raw.opponent_id));
+    if (cond.raw.opponent) explicitCandidates.push(String(cond.raw.opponent));
+  }
+  if (cond.value) explicitCandidates.push(String(cond.value));
+
+  for (const cand of explicitCandidates) {
+    if (!cand) continue;
+    if (idToPlayer[String(cand)]) return String(cand); // exact match in catalog
   }
 
-  // normalize labels: country codes -> country names, resolve positive_h2h opponent name when possible
-  function preprocessGrid(raw){
-    let g = raw.grid ? raw.grid : raw;
-    if (!g) return g;
-    ['rows','cols'].forEach(listName => {
-      if (!g[listName]) return;
-      g[listName].forEach(cond => {
-        if (cond.type === 'country'){
-          const code = (cond.value || cond.label || '').toString().toUpperCase();
-          cond.label = COUNTRY_NAMES[code] || code;
-        }
-        if (cond.type === 'positive_h2h'){
-          const oppId = extractOpponentId(cond);
-          if (oppId && idToPlayer[oppId]){
-            cond.opponent_id = oppId;
-            cond.label = `Positive H2H vs ${idToPlayer[oppId].full_name}`;
-          } else if (oppId){
-            cond.opponent_id = oppId;
-            cond.label = `Positive H2H vs ${oppId}`;
-          } else {
-            // safe fallback
-            cond.label = cond.label || 'Positive H2H';
-          }
-        }
-      });
-    });
-    return g;
+  // 2) tokenise the label and check each token EXACTLY against idToPlayer
+  if (cond.label && typeof cond.label === 'string') {
+    // split on anything that's not letter/number/underscore
+    const tokens = cond.label.split(/[^A-Za-z0-9_]+/).filter(Boolean);
+    for (const t of tokens) {
+      if (idToPlayer[String(t)]) return String(t);
+    }
   }
+
+  // 3) fallback: find any token of length >=3 that contains at least one digit,
+  // but only accept it if it exists in idToPlayer (defensive)
+  if (cond.label && typeof cond.label === 'string') {
+    const matches = cond.label.match(/\b[A-Za-z0-9_]{3,}\b/g);
+    if (matches) {
+      for (const m of matches) {
+        if (/\d/.test(m) && idToPlayer[String(m)]) return String(m);
+      }
+    }
+  }
+
+  return null;
+}
+
+function preprocessGrid(raw) {
+  // Keep original shape support
+  const g = raw.grid ? raw.grid : raw;
+  if (!g) return g;
+
+  ['rows', 'cols'].forEach(listName => {
+    if (!g[listName]) return;
+    g[listName].forEach(cond => {
+      // country codes -> friendly names (same as before)
+      if (cond.type === 'country') {
+        const code = (cond.value || cond.label || '').toString().toUpperCase();
+        cond.label = COUNTRY_NAMES[code] || code;
+      }
+
+      // positive_h2h: resolve opponent id -> name using players_catalog
+      if (cond.type === 'positive_h2h') {
+        const oppId = extractOpponentId(cond);
+        if (oppId && idToPlayer[oppId]) {
+          cond.opponent_id = oppId;
+          cond.label = `Positive H2H vs ${idToPlayer[oppId].full_name}`;
+        } else if (oppId) {
+          // oppId found but not present in catalog: show id (clearer than "Positive")
+          cond.opponent_id = oppId;
+          cond.label = `Positive H2H vs ${oppId}`;
+        } else {
+          // No id found — keep a safe fallback label
+          cond.label = cond.label || 'Positive H2H';
+        }
+      }
+
+      // (other condition types left untouched)
+    });
+  });
+
+  return g;
+}
 
   async function loadGrid(m){
     mode = m;
