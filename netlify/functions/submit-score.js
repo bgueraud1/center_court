@@ -1,11 +1,16 @@
 // netlify/functions/submit-score.js
 const AIRTABLE_BASE = process.env.AIRTABLE_BASE_ID;
 const AIRTABLE_PAT  = process.env.AIRTABLE_PAT;
-const TABLE_USERS = process.env.AIRTABLE_TABLE_USERS || 'Users';
-const TABLE_SCORES = process.env.AIRTABLE_TABLE_SCORES || 'Scores';
+const TABLE_USERS   = process.env.AIRTABLE_TABLE_USERS || 'Users';
+const TABLE_SCORES  = process.env.AIRTABLE_TABLE_SCORES  || 'Scores';
 
 exports.handler = async function (event) {
-  // lazy fetch implementation (use global fetch when present, otherwise dynamically import node-fetch)
+  // quick environment checks
+  if (!AIRTABLE_BASE || !AIRTABLE_PAT) {
+    return { statusCode: 500, body: JSON.stringify({ error: 'Missing AIRTABLE_BASE_ID or AIRTABLE_PAT in environment' }) };
+  }
+
+  // lazy fetch implementation
   let fetchImpl = globalThis.fetch;
   if (!fetchImpl) {
     try {
@@ -13,7 +18,7 @@ exports.handler = async function (event) {
       fetchImpl = nf.default || nf;
     } catch (e) {
       console.error('Could not load fetch implementation', e);
-      return { statusCode: 500, body: JSON.stringify({ error: 'Server fetch unavailable' }) };
+      return { statusCode: 500, body: JSON.stringify({ error: 'Server fetch unavailable', detail: String(e) }) };
     }
   }
 
@@ -49,17 +54,18 @@ exports.handler = async function (event) {
     const isAnon = !!anon_id;
     let pseudoToStore = pseudoIn || (isAnon ? `anon_${anon_id.slice(0,8)}` : null);
 
+    // Registered path: create/check user
     if (!isAnon) {
       if (!pseudoIn || !password_hash) {
         return { statusCode: 400, body: JSON.stringify({ error: 'Registered users must provide pseudo and password_hash' }) };
       }
       const filter = `?filterByFormula=({pseudo} = "${pseudoIn.replace(/"/g,'\\"')}")&maxRecords=1`;
       const r = await airtableFetch(TABLE_USERS + filter);
+      const txt = await r.text();
       if (!r.ok) {
-        const txt = await r.text();
-        return { statusCode: 500, body: JSON.stringify({ error: 'Airtable users lookup failed', detail: txt }) };
+        return { statusCode: 500, body: JSON.stringify({ error: 'Airtable users lookup failed', status: r.status, detail: txt }) };
       }
-      const ud = await r.json();
+      const ud = JSON.parse(txt);
       if (ud.records && ud.records.length > 0) {
         const user = ud.records[0];
         const existingHash = (user.fields && user.fields.password_hash) || '';
@@ -67,11 +73,12 @@ exports.handler = async function (event) {
           return { statusCode: 403, body: JSON.stringify({ error: 'Pseudo already taken with different password' }) };
         }
       } else {
+        // create user
         const createBody = { records: [{ fields: { pseudo: pseudoIn, password_hash } }] };
         const rc = await airtableFetch(TABLE_USERS, { method: 'POST', body: JSON.stringify(createBody) });
+        const txtc = await rc.text();
         if (!rc.ok) {
-          const txt = await rc.text();
-          return { statusCode: 500, body: JSON.stringify({ error: 'Airtable create user failed', detail: txt }) };
+          return { statusCode: 500, body: JSON.stringify({ error: 'Airtable create user failed', status: rc.status, detail: txtc }) };
         }
       }
       pseudoToStore = pseudoIn;
@@ -79,22 +86,24 @@ exports.handler = async function (event) {
       if (!anon_id || anon_id.length < 6) return { statusCode: 400, body: JSON.stringify({ error: 'Invalid anon_id' }) };
     }
 
+    // Prevent duplicate submission same day (UTC)
     const todayUTC = new Date().toISOString().slice(0,10);
     const identityClause = isAnon
       ? `{anon_id} = "${anon_id.replace(/"/g,'\\"')}"`
       : `{pseudo} = "${pseudoToStore.replace(/"/g,'\\"')}"`;
     const formula = `AND(DATETIME_FORMAT({created_at}, 'YYYY-MM-DD') = "${todayUTC}", {game_id} = "${cleanGame}", ${identityClause})`;
-
-    const rCheck = await airtableFetch(`${TABLE_SCORES}?maxRecords=1&filterByFormula=${encodeURIComponent(formula)}`);
+    const checkUrl = `${TABLE_SCORES}?maxRecords=1&filterByFormula=${encodeURIComponent(formula)}`;
+    const rCheck = await airtableFetch(checkUrl);
+    const txtCheck = await rCheck.text();
     if (!rCheck.ok) {
-      const txt = await rCheck.text();
-      return { statusCode: 500, body: JSON.stringify({ error: 'Airtable read failed', detail: txt }) };
+      return { statusCode: 500, body: JSON.stringify({ error: 'Airtable read failed', status: rCheck.status, detail: txtCheck }) };
     }
-    const existing = await rCheck.json();
+    const existing = JSON.parse(txtCheck);
     if (existing.records && existing.records.length > 0) {
       return { statusCode: 403, body: JSON.stringify({ error: 'Already submitted today for this game' }) };
     }
 
+    // Insert score
     const fields = {
       pseudo: pseudoToStore || 'anonymous',
       game_id: cleanGame,
@@ -106,15 +115,15 @@ exports.handler = async function (event) {
 
     const insertBody = { records: [{ fields }] };
     const rInsert = await airtableFetch(TABLE_SCORES, { method: 'POST', body: JSON.stringify(insertBody) });
+    const txtInsert = await rInsert.text();
     if (!rInsert.ok) {
-      const txt = await rInsert.text();
-      return { statusCode: 500, body: JSON.stringify({ error: 'Airtable insert failed', detail: txt }) };
+      return { statusCode: 500, body: JSON.stringify({ error: 'Airtable insert failed', status: rInsert.status, detail: txtInsert }) };
     }
-    const inserted = await rInsert.json();
+    const inserted = JSON.parse(txtInsert);
     return { statusCode: 200, body: JSON.stringify({ ok: true, record: inserted.records && inserted.records[0] }) };
 
   } catch (err) {
-    console.error(err);
+    console.error('submit-score error', err);
     return { statusCode: 500, body: JSON.stringify({ error: 'Server error', detail: String(err) }) };
   }
 };
