@@ -89,6 +89,8 @@
 </style>
 </head>
 <body>
+  <script src="/js/leaderboard-client.js"></script>
+
   <div id="flagBg" aria-hidden="true"></div>
   <div id="flagOverlay" aria-hidden="true"></div>
 
@@ -170,6 +172,9 @@
   </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <div data-lb-container data-game-id="guess_player" id="leaderboardWidget" style="margin-top:12px"></div>
+
 
 <script>
 /* ---------------------------
@@ -562,6 +567,38 @@ function revealAnswer(won, gainedPoints){
   const details = document.getElementById('modalDetails');
   if(won){ title.textContent = 'You won!'; text.textContent = `You earned ${gainedPoints} points this round.`; } else { title.textContent = 'Round over'; text.textContent = 'No points this time — new round will start.'; }
 
+  // après avoir mis à jour score et ouvert le modal
+// submit to leaderboard (non-bloquant)
+try {
+  const gameId = 'guess_player';
+  const pointsToSend = gainedPoints || 0;
+  // if user used local display name without logging in, pass it as displayName
+  const displayNameInput = document.querySelector('#someDisplayNameInput'); // optional, skip if not used
+  const displayName = displayNameInput ? displayNameInput.value.trim() : null;
+
+  window.LEADERBOARD.submitScore(gameId, pointsToSend, { meta: JSON.stringify({ won }), displayName })
+    .then(res => {
+      if (res && res.ok) {
+        // refresh leaderboard panel if present
+        const container = document.getElementById('leaderboardWidget');
+        if (container) window.LEADERBOARD.fetchLeaderboard((new Date()).toISOString().slice(0,10), gameId).then(d=>{
+          if (d && d.leaderboard) {
+            // update UI quickly by calling the panel refresh helper:
+            window.LEADERBOARD.createLeaderboardPanel(container); // re-create (cheap) or call refresh function directly if accessible
+          }
+        });
+      } else {
+        if (res && res.error === 'Already submitted today for this game' || res && res.error === 'already_submitted_local') {
+          // already sent today
+          console.log('Score already submitted today');
+        } else {
+          console.warn('Score submission failed', res);
+        }
+      }
+    });
+} catch(e) { console.error(e); }
+
+
   const targetHtml = `<div style="text-align:left;margin-top:12px"><h3 style="margin:0 0 6px 0;color:#fff">${target.full_name} <span style="color:var(--muted);font-size:0.9rem">(${target.source || ''})</span></h3><ul style="color:var(--muted);padding-left:18px"><li>Country: ${(target.represented_country) ? `<strong style="color:#fff">${target.represented_country}</strong>` : '—'}</li><li>Birth: ${(target.birthplace || '—')} (${target.birth_date || '—'})</li><li>Age: ${(target.age!=null ? target.age : '—')}</li><li>Career best: ${(isFinite(target.rank) ? target.rank : '—')}</li><li>Height: ${(target.height_cm!=null ? target.height_cm + ' cm' : '—')}</li></ul></div>`;
   details.innerHTML = targetHtml;
   modal.classList.add('show');
@@ -726,6 +763,13 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     showToast('Initialization error');
   }
 });
+
+// initialiser le panneau LB (après que DOM est prêt)
+const lbContainer = document.getElementById('leaderboardWidget');
+if (lbContainer && window.LEADERBOARD && window.LEADERBOARD.createLeaderboardPanel) {
+  lbContainer.dataset.gameId = 'guess_player';
+  window.LEADERBOARD.createLeaderboardPanel(lbContainer);
+}
 
 /* ---------------------------
    Update selectedCountry display:
