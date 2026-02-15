@@ -161,7 +161,7 @@ async function refreshLeaderboard(gameId, containerEl){
     return;
   }
   const rows = data.leaderboard.map((u,i) => `<div style="padding:6px;border-bottom:1px solid rgba(255,255,255,0.04)"><strong>#${i+1} ${u.pseudo}</strong> — ${u.total} pts</div>`).join('');
-  display.innerHTML = rows || '<div>Aucun score aujourd\\'hui</div>';
+  display.innerHTML = rows || '<div>No score today</div>';
 }
 
 /* export API */
