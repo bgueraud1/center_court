@@ -1,15 +1,11 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Fill the Grid — Game</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Fill the Grid — Game (fixed)</title>
 <style>
-  :root{
-    --bg:#000;
-    --font:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial;
-    --cell-radius:8px;
-  }
+  :root{--bg:#000;--font:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial;--cell-radius:8px}
   html,body{height:100%;margin:0;background:var(--bg);color:#eee;font-family:var(--font);-webkit-font-smoothing:antialiased}
   .app{max-width:1100px;margin:28px auto;padding:20px}
   .topbar{display:flex;gap:12px;align-items:center;margin-bottom:18px}
@@ -56,12 +52,11 @@
   .autocomplete-list{margin-top:8px;max-height:220px;overflow:auto;border-radius:8px;background:#0b0b0b;border:1px solid #222}
   .autocomplete-item{padding:8px 10px;cursor:pointer;color:#ddd}
   .autocomplete-item:hover,.autocomplete-item.active{background:rgba(255,255,255,0.02)}
-  .candidates-list{margin-top:8px;max-height:220px;overflow:auto;border-radius:8px;background:#071017;border:1px solid #222;padding:6px}
+  .candidates-list{margin-top:8px;max-height:220px;overflow:auto;border-radius:8px;background:#071017;border:1px solid #222;padding:6px;display:none}
   .candidate-item{padding:6px 8px;border-radius:6px;cursor:pointer;color:#ddd}
   .candidate-item:hover{background:rgba(255,255,255,0.02)}
   .small-muted{color:#9a9a9a;font-size:13px}
 
-  /* locked candidate item */
   .candidate-item.locked{opacity:0.7;cursor:default}
 
   /* score overlay */
@@ -84,7 +79,7 @@
 
   <div class="game-wrap">
     <div class="board-wrap" id="boardWrap" aria-live="polite"></div>
-    <div class="small-muted" id="infoLine">Click any cell to propose a player or to see candidate players. Correct answers lock the cell in green; wrong attempts show a brief red cross.</div>
+    <div class="small-muted" id="infoLine">Click a cell to propose a player (autocomplete). Candidate lists are hidden during play and shown only after the game ends or when you press Give Up.</div>
   </div>
 </div>
 
@@ -93,16 +88,16 @@
   <div class="input-panel" role="dialog" aria-modal="true" aria-labelledby="panelTitle">
     <div id="panelTitle" style="color:#ddd;font-weight:700;margin-bottom:8px">Fill cell</div>
     <div class="input-row">
-      <input id="playerInput" class="text-input" placeholder="Type player's name..." autocomplete="off" />
+      <input id="playerInput" class="text-input" placeholder="Type player's name..." autocomplete="off"/>
       <button class="btn" id="btnSubmit">Submit</button>
       <button class="btn" id="btnCancel">Cancel</button>
     </div>
 
-    <div class="small-muted" id="cellHint" style="margin-top:8px">Candidate players for this cell:</div>
+    <div class="small-muted" id="cellHint" style="margin-top:8px">Candidate players are hidden until the game ends or you press Give Up.</div>
 
     <div class="autocomplete-list" id="autocompleteList" role="listbox"></div>
 
-    <div class="candidates-list" id="candidatesList"></div>
+    <div class="candidates-list" id="candidatesList" aria-hidden="true"></div>
   </div>
 </div>
 
@@ -119,20 +114,17 @@
 
 <script>
 /*
-  - English UI
-  - Do NOT show candidate counts by default
-  - Clicking any cell (locked or not) opens modal showing:
-      * autocomplete input (submissions allowed on unlocked)
-      * list of candidate players for the cell (clickable to submit when unlocked)
-  - Give Up: does NOT fill cells; highlights correct (green locked) vs empty (red overlay).
-  - Scoring: first use of a player -> 10 points; each duplicate usage (same player used in multiple filled cells) -> 5 points (per extra use).
-    Bonus +10 if all fillable cells are filled.
-  - Make sure filled name writes into the correct cell using data-r/data-c selection.
-  - Keeps previous robust parsing for H2H and country names.
+  Fixes included:
+   - robust opponent id extraction (only tokens containing digits are matched)
+   - candidate lists are hidden while playing and only shown after gameOver (Give Up or all filled)
+   - modal still opens for autocomplete input while playing
+   - DOM selection robust via data-r/data-c
+   - no auto-fill on Give Up; Give Up highlights empty cells red and shows score
+   - scoring: duplicate penalty implemented (first use 10, extra uses 5)
 */
 
 (() => {
-  // Adjust paths if needed
+  // adjust paths to your repo if needed
   const PATHS = {
     WTA: '/games/fill_the_grid_WTA.json',
     ATP: '/games/fill_the_grid_ATP.json',
@@ -146,7 +138,7 @@
     'NZL':'New Zealand','IND':'India','BRA':'Brazil','MEX':'Mexico'
   };
 
-  // UI refs
+  // DOM
   const app = document.getElementById('app');
   const boardWrap = document.getElementById('boardWrap');
   const btnToggle = document.getElementById('btnToggle');
@@ -157,74 +149,82 @@
   const autocompleteList = document.getElementById('autocompleteList');
   const btnSubmit = document.getElementById('btnSubmit');
   const btnCancel = document.getElementById('btnCancel');
-  const candidatesListEl = document.getElementById('candidatesList');
+  const candidatesList = document.getElementById('candidatesList');
   const cellHint = document.getElementById('cellHint');
   const scoreOverlay = document.getElementById('scoreOverlay');
   const scoreValue = document.getElementById('scoreValue');
   const scoreClose = document.getElementById('scoreClose');
 
-  // State
+  // state
   let mode = 'WTA';
   let gridData = null;
   let playersCatalog = null;
   let idToPlayer = {};
-  let nameIndex = []; // {label,id}
-  let cellState = {}; // 'r-c' -> {locked:boolean, id, name}
-  let activeCell = null; // {r,c,cellData,domNode}
+  let nameIndex = [];
+  let cellState = {}; // map 'r-c' -> {locked,id,name}
+  let activeCell = null; // {r,c,cellData,domNode,key}
+  let gameOver = false;
 
-  async function fetchJson(path) {
+  async function fetchJson(path){
     const r = await fetch(path);
     if (!r.ok) throw new Error(`${path} ${r.status}`);
     return r.json();
   }
 
-  function buildPlayerIndex() {
+  function buildPlayerIndex(){
     idToPlayer = {};
     nameIndex = [];
     if (!playersCatalog || !Array.isArray(playersCatalog.players)) return;
-    for (const p of playersCatalog.players) {
+    for (const p of playersCatalog.players){
       const pid = String(p.player_id);
       idToPlayer[pid] = p;
       nameIndex.push({ label: p.full_name, id: pid });
     }
   }
 
-  function extractOpponentId(cond) {
+  // extract opponent id robustly: prefer explicit fields, fallback to token that contains a digit (3+ chars)
+  function extractOpponentId(cond){
     if (!cond) return null;
     if (cond.opponent_id) return String(cond.opponent_id);
     if (cond.opponent) return String(cond.opponent);
     if (cond.opponent_name) return String(cond.opponent_name);
-    if (cond.raw && (cond.raw.opponent_id || cond.raw.opponent)) return String(cond.raw.opponent_id || cond.raw.opponent);
-    if (cond.label) {
-      const m = cond.label.match(/\b([A-Za-z0-9_]{3,})\b/);
-      if (m) return m[1];
+    if (cond.raw) {
+      if (cond.raw.opponent_id) return String(cond.raw.opponent_id);
+      if (cond.raw.opponent) return String(cond.raw.opponent);
     }
-    if (cond.value && typeof cond.value === 'string') {
-      const m2 = cond.value.match(/\b([A-Za-z0-9_]{3,})\b/);
-      if (m2) return m2[1];
+    // fallback regex: token must be 3+ chars and contain at least one digit (prevents matching "Positive")
+    if (cond.label) {
+      const m = cond.label.match(/\b(?=[A-Za-z0-9_]*\d)[A-Za-z0-9_]{3,}\b/);
+      if (m) return m[0];
+    }
+    if (cond.value && typeof cond.value === 'string'){
+      const m2 = cond.value.match(/\b(?=[A-Za-z0-9_]*\d)[A-Za-z0-9_]{3,}\b/);
+      if (m2) return m2[0];
     }
     return null;
   }
 
-  function preprocessGrid(raw) {
+  // normalize labels: country codes -> country names, resolve positive_h2h opponent name when possible
+  function preprocessGrid(raw){
     let g = raw.grid ? raw.grid : raw;
     if (!g) return g;
     ['rows','cols'].forEach(listName => {
       if (!g[listName]) return;
       g[listName].forEach(cond => {
-        if (cond.type === 'country') {
+        if (cond.type === 'country'){
           const code = (cond.value || cond.label || '').toString().toUpperCase();
           cond.label = COUNTRY_NAMES[code] || code;
         }
-        if (cond.type === 'positive_h2h') {
+        if (cond.type === 'positive_h2h'){
           const oppId = extractOpponentId(cond);
-          if (oppId && idToPlayer[oppId]) {
+          if (oppId && idToPlayer[oppId]){
             cond.opponent_id = oppId;
             cond.label = `Positive H2H vs ${idToPlayer[oppId].full_name}`;
-          } else if (oppId) {
+          } else if (oppId){
             cond.opponent_id = oppId;
             cond.label = `Positive H2H vs ${oppId}`;
           } else {
+            // safe fallback
             cond.label = cond.label || 'Positive H2H';
           }
         }
@@ -233,7 +233,7 @@
     return g;
   }
 
-  async function loadGrid(m) {
+  async function loadGrid(m){
     mode = m;
     app.classList.toggle('theme-wta', mode === 'WTA');
     app.classList.toggle('theme-atp', mode === 'ATP');
@@ -242,15 +242,16 @@
     try {
       const raw = await fetchJson(path);
       gridData = preprocessGrid(raw);
+      gameOver = false;
       initCellState();
       renderBoard();
-    } catch (e) {
-      console.error('Grid load failed', e);
+    } catch (e){
+      console.error('Failed loading grid JSON', e);
       boardWrap.innerHTML = `<div style="color:#f88">Failed to load grid: ${e.message}</div>`;
     }
   }
 
-  function initCellState() {
+  function initCellState(){
     cellState = {};
     if (!gridData || !gridData.cells) return;
     for (let r=0;r<gridData.rows.length;r++){
@@ -260,8 +261,8 @@
     }
   }
 
-  function renderBoard() {
-    if (!gridData) { boardWrap.innerHTML = ''; return; }
+  function renderBoard(){
+    if (!gridData){ boardWrap.innerHTML = ''; return; }
     const rows = gridData.rows;
     const cols = gridData.cols;
     const cells = gridData.cells;
@@ -301,7 +302,6 @@
           cellDiv.classList.add('disabled');
           cellDiv.innerHTML = `<div class="cell-empty">—</div>`;
         } else {
-          // show placeholder text only (no candidate count)
           cellDiv.innerHTML = `<div class="cell-empty">Click to enter</div>`;
           ((r,c,datum,node)=>{ node.addEventListener('click', ()=> onCellClick(r,c,node,datum)); })(i,j,cellData,cellDiv);
         }
@@ -319,70 +319,70 @@
     boardWrap.appendChild(gridEl);
   }
 
-  // clicking a cell opens modal and shows list of candidates for that cell
+  // clicking cell opens modal with input only while playing; after gameOver shows candidates and disables input
   function onCellClick(r,c,node,cellData){
     const key = `${r}-${c}`;
-    // open modal always (for viewing candidates). If locked, submission will be disallowed but list shown.
     activeCell = { r, c, cellData, domNode: node, key };
     openModal(activeCell);
   }
 
-  function openModal(cell) {
+  function openModal(cell){
+    // prepare
     playerInput.value = '';
     autocompleteList.innerHTML = '';
-    candidatesListEl.innerHTML = '';
+    candidatesList.innerHTML = '';
     inputModal.style.display = 'block';
     document.querySelector('.input-panel').style.display = 'block';
-    playerInput.focus();
-
-    const cnt = cell.cellData && Array.isArray(cell.cellData.candidates_sample) ? cell.cellData.candidates_sample.length : 0;
-    cellHint.textContent = `Candidates: ${cnt} — (click a candidate to propose it for this cell)`;
-
-    // fill candidates list (resolve names)
-    const candIds = (cell.cellData && Array.isArray(cell.cellData.candidates_sample)) ? cell.cellData.candidates_sample : [];
-    for (const pid of candIds){
-      const id = String(pid);
-      const info = idToPlayer[id];
-      const display = info ? `${info.full_name} ${info.represented_country ? '('+info.represented_country+')' : ''}` : id;
-      const div = document.createElement('div');
-      div.className = 'candidate-item';
-      // if cell is already locked with this id, mark locked state
-      const locked = cellState[cell.key] && cellState[cell.key].locked;
-      if (locked) div.classList.add('locked');
-      div.textContent = display;
-      div.dataset.id = id;
-      // clicking candidate: if cell unlocked, attempt submit; if locked, do nothing except maybe highlight
-      div.addEventListener('click', (e) => {
-        if (locked) return;
-        attemptSubmit(id, info ? info.full_name : id);
-      });
-      candidatesListEl.appendChild(div);
+    // when gameOver true, show candidates list and disable input
+    if (gameOver){
+      playerInput.disabled = true;
+      autocompleteList.style.display = 'none';
+      candidatesList.style.display = 'block';
+      cellHint.textContent = 'Candidate players for this cell:';
+      // populate candidate list (resolve names)
+      const candIds = (cell.cellData && Array.isArray(cell.cellData.candidates_sample)) ? cell.cellData.candidates_sample : [];
+      for (const pid of candIds){
+        const id = String(pid);
+        const info = idToPlayer[id];
+        const display = info ? `${info.full_name}${info.represented_country ? ' ('+info.represented_country+')' : ''}` : id;
+        const div = document.createElement('div');
+        div.className = 'candidate-item';
+        // if the cell is locked with that id, mark locked
+        const locked = cellState[cell.key] && cellState[cell.key].locked;
+        if (locked) div.classList.add('locked');
+        div.textContent = display;
+        candidatesList.appendChild(div);
+      }
+    } else {
+      // playing: show autocomplete input only, hide candidates
+      playerInput.disabled = false;
+      autocompleteList.style.display = 'block';
+      candidatesList.style.display = 'none';
+      cellHint.textContent = 'Type player name to propose (autocomplete). Candidate list is hidden while playing.';
+      inputModal._candidatesSet = new Set((cell.cellData && Array.isArray(cell.cellData.candidates_sample)) ? cell.cellData.candidates_sample.map(String) : []);
+      playerInput.focus();
     }
-
-    // store candidate id set for validation
-    inputModal._candidatesSet = new Set(candIds.map(String));
   }
 
-  function closeModal() {
+  function closeModal(){
     inputModal.style.display = 'none';
     document.querySelector('.input-panel').style.display = 'none';
     activeCell = null;
     playerInput.value = '';
     autocompleteList.innerHTML = '';
-    candidatesListEl.innerHTML = '';
+    candidatesList.innerHTML = '';
     inputModal._candidatesSet = null;
   }
 
-  // AUTOCOMPLETE (search in players_catalog)
+  // Autocomplete
   let acIndex = -1;
-  function onInput(e) {
+  function onInput(e){
     const q = playerInput.value.trim().toLowerCase();
     autocompleteList.innerHTML = ''; acIndex = -1;
     if (!q) return;
     const starts = [], includes = [];
     for (let i=0;i<nameIndex.length;i++){
-      const n = nameIndex[i];
-      const s = n.label.toLowerCase();
+      const n = nameIndex[i], s = n.label.toLowerCase();
       if (s.startsWith(q)) starts.push(n);
       else if (s.includes(q)) includes.push(n);
       if (starts.length >= 40) break;
@@ -392,26 +392,26 @@
       const div = document.createElement('div');
       div.className = 'autocomplete-item';
       const info = idToPlayer[r.id];
-      const country = info ? (info.represented_country || '') : '';
-      div.textContent = `${r.label}${country ? ' ('+country+')' : ''}`;
+      div.textContent = `${r.label}${info && info.represented_country ? ' ('+info.represented_country+')' : ''}`;
       div.dataset.id = r.id;
       div.addEventListener('click', ()=> chooseItem(r.id));
       autocompleteList.appendChild(div);
     }
   }
-
   function onInputKeyDown(e){
     const items = Array.from(autocompleteList.querySelectorAll('.autocomplete-item'));
     if (e.key === 'ArrowDown'){ e.preventDefault(); if(items.length===0) return; acIndex = Math.min(acIndex+1, items.length-1); updateActive(items); }
-    else if (e.key === 'ArrowUp'){ e.preventDefault(); if(items.length===0) return; acIndex = Math.max(acIndex-1, 0); updateActive(items); }
+    else if (e.key === 'ArrowUp'){ e.preventDefault(); if(items.length===0) return; acIndex = Math.max(acIndex-1,0); updateActive(items); }
     else if (e.key === 'Enter'){ e.preventDefault(); if (items.length>0 && acIndex>=0) chooseItem(items[acIndex].dataset.id); else onSubmit(); }
   }
   function updateActive(items){ items.forEach((it,idx)=> it.classList.toggle('active', idx===acIndex)); if (acIndex>=0 && items[acIndex]) items[acIndex].scrollIntoView({block:'nearest'}); }
   function chooseItem(pid){ const p = idToPlayer[pid]; playerInput.value = p ? p.full_name : pid; setTimeout(()=> attemptSubmit(pid, p ? p.full_name : pid), 80); }
 
   function onSubmit(){
+    if (!activeCell) return;
+    if (gameOver) { /* input disabled during gameOver, but guard */ return; }
     const typed = playerInput.value.trim();
-    if (!typed) { animateWrong(); return; }
+    if (!typed) return animateWrong();
     const exact = nameIndex.find(n => n.label.toLowerCase() === typed.toLowerCase());
     if (exact) return attemptSubmit(exact.id, idToPlayer[exact.id] ? idToPlayer[exact.id].full_name : exact.id);
     const partial = nameIndex.find(n => n.label.toLowerCase().includes(typed.toLowerCase()));
@@ -419,19 +419,21 @@
     animateWrong();
   }
 
-  function attemptSubmit(playerId, playerName) {
+  function attemptSubmit(playerId, playerName){
     if (!activeCell) return;
-    const isLocked = cellState[activeCell.key] && cellState[activeCell.key].locked;
-    if (isLocked) {
-      // already locked; do nothing (but highlight maybe)
-      return;
-    }
+    const key = activeCell.key;
+    if (cellState[key] && cellState[key].locked) return; // already locked
     const candSet = inputModal._candidatesSet;
-    if (candSet && candSet.has(String(playerId))) {
-      // correct -> lock
+    if (candSet && candSet.has(String(playerId))){
       lockCell(activeCell.r, activeCell.c, playerId, playerName);
       closeModal();
-      checkCompletion();
+      // after locking, check if all filled -> set gameOver true and reveal candidates for future clicks
+      if (checkAllFillableFilled()){
+        gameOver = true;
+        // candidates will be visible on modal open because gameOver now true
+        const score = computeScore();
+        showScore(score);
+      }
     } else {
       animateWrong();
     }
@@ -446,8 +448,8 @@
     setTimeout(()=> wb.classList.remove('show'), 750);
   }
 
-  // lock cell: use selector by data-r/data-c to be robust
-  function lockCell(r, c, pid, pname) {
+  // lock cell by selecting element with data-r/data-c — robust and fixed
+  function lockCell(r, c, pid, pname){
     const key = `${r}-${c}`;
     cellState[key] = { locked:true, id: pid, name: pname };
     const sel = `.grid-cell[data-r="${r}"][data-c="${c}"]`;
@@ -459,50 +461,45 @@
     node.appendChild(ok);
   }
 
-  function checkCompletion() {
-    let total=0, filled=0;
+  function checkAllFillableFilled(){
+    let total = 0, filled = 0;
     for (let r=0;r<gridData.rows.length;r++){
       for (let c=0;c<gridData.cols.length;c++){
         const cell = gridData.cells[r][c];
-        if (!cell || !Array.isArray(cell.candidates_sample) || cell.candidates_sample.length===0) continue;
+        if (!cell || !Array.isArray(cell.candidates_sample) || cell.candidates_sample.length === 0) continue;
         total++;
         if (cellState[`${r}-${c}`] && cellState[`${r}-${c}`].locked) filled++;
       }
     }
-    if (total>0 && filled===total) {
-      const score = computeScore();
-      showScore(score);
-    }
+    return total>0 && filled === total;
   }
 
-  // Give Up: highlight correct vs empty, do NOT fill; compute score and show
+  // Give Up: mark empties red (overlay), set gameOver true, show score; do NOT auto-fill
   function onGiveUp(){
-    // remove any previous revealed-empty classes
-    const allCells = boardWrap.querySelectorAll('.grid-cell');
-    allCells.forEach(n => n.classList.remove('cell-revealed-empty'));
-    let total=0, filled=0;
+    // clear previous overlays
+    const all = boardWrap.querySelectorAll('.grid-cell');
+    all.forEach(n => n.classList.remove('cell-revealed-empty'));
+    let total = 0, filled = 0;
     for (let r=0;r<gridData.rows.length;r++){
       for (let c=0;c<gridData.cols.length;c++){
         const cell = gridData.cells[r][c];
-        if (!cell || !Array.isArray(cell.candidates_sample) || cell.candidates_sample.length===0) continue;
+        if (!cell || !Array.isArray(cell.candidates_sample) || cell.candidates_sample.length === 0) continue;
         total++;
         const key = `${r}-${c}`;
-        if (cellState[key] && cellState[key].locked) { filled++; continue; }
-        // mark as revealed empty (red overlay)
+        if (cellState[key] && cellState[key].locked){ filled++; continue; }
+        // mark as empty revealed (red overlay)
         const node = boardWrap.querySelector(`.grid-cell[data-r="${r}"][data-c="${c}"]`);
         if (node) node.classList.add('cell-revealed-empty');
       }
     }
+    gameOver = true;
     const score = computeScore();
     showScore(score);
   }
 
-  // Score computation with duplicate penalty:
-  // - first use of a player_id yields 10 points
-  // - each additional use of same player_id yields 5 points
-  // - bonus +10 if ALL fillable cells are filled
+  // scoring with duplicate penalty: first use 10, each extra use of same player +5; +10 bonus if all filled
   function computeScore(){
-    const usedCounts = {}; // pid -> count
+    const usedCounts = {};
     let totalFillable = 0;
     for (let r=0;r<gridData.rows.length;r++){
       for (let c=0;c<gridData.cols.length;c++){
@@ -510,25 +507,20 @@
         if (!cell || !Array.isArray(cell.candidates_sample) || cell.candidates_sample.length===0) continue;
         totalFillable++;
         const key = `${r}-${c}`;
-        if (cellState[key] && cellState[key].locked) {
+        if (cellState[key] && cellState[key].locked){
           const pid = String(cellState[key].id);
           usedCounts[pid] = (usedCounts[pid] || 0) + 1;
         }
       }
     }
-    // compute points
     let points = 0;
     for (const pid in usedCounts){
       const count = usedCounts[pid];
       if (count <= 0) continue;
-      // first occurrence = 10
-      points += 10;
-      if (count > 1) {
-        // each extra counts 5
-        points += (count - 1) * 5;
-      }
+      points += 10; // first
+      if (count > 1) points += (count - 1) * 5;
     }
-    // bonus if all filled
+    // bonus
     let filled = 0;
     for (let r=0;r<gridData.rows.length;r++){
       for (let c=0;c<gridData.cols.length;c++){
@@ -548,102 +540,40 @@
   }
 
   function onReset(){
+    gameOver = false;
     initCellState();
     renderBoard();
   }
 
-  // Load players catalog and name index
-  function buildNameIndex(){
-    nameIndex = [];
-    if (!playersCatalog || !Array.isArray(playersCatalog.players)) return;
-    for (const p of playersCatalog.players) nameIndex.push({ label: p.full_name, id: String(p.player_id) });
-  }
-
-  // Autocomplete wiring
-  function onPlayerInput(e){
-    const q = playerInput.value.trim().toLowerCase();
-    autocompleteList.innerHTML = ''; acIndex = -1;
-    if (!q) return;
-    const starts = [], includes = [];
-    for (let i=0;i<nameIndex.length;i++){
-      const n = nameIndex[i];
-      const s = n.label.toLowerCase();
-      if (s.startsWith(q)) starts.push(n);
-      else if (s.includes(q)) includes.push(n);
-      if (starts.length >= 40) break;
-    }
-    const results = starts.concat(includes).slice(0,60);
-    for (const r of results){
-      const div = document.createElement('div');
-      div.className = 'autocomplete-item';
-      const info = idToPlayer[r.id];
-      div.textContent = `${r.label}${info && info.represented_country ? ' ('+info.represented_country+')' : ''}`;
-      div.dataset.id = r.id;
-      div.addEventListener('click', ()=> chooseItem(r.id));
-      autocompleteList.appendChild(div);
-    }
-  }
-  function onPlayerKeyDown(e){
-    const items = Array.from(autocompleteList.querySelectorAll('.autocomplete-item'));
-    if (e.key === 'ArrowDown'){ e.preventDefault(); if(items.length===0) return; acIndex = Math.min(acIndex+1, items.length-1); updateActive(items); }
-    else if (e.key === 'ArrowUp'){ e.preventDefault(); if(items.length===0) return; acIndex = Math.max(acIndex-1, 0); updateActive(items); }
-    else if (e.key === 'Enter'){ e.preventDefault(); if (items.length>0 && acIndex>=0) chooseItem(items[acIndex].dataset.id); else onSubmit(); }
-  }
-  function updateActive(items){ items.forEach((it, idx)=> it.classList.toggle('active', idx===acIndex)); if (acIndex>=0 && items[acIndex]) items[acIndex].scrollIntoView({block:'nearest'}); }
-  function chooseItem(pid){ const p = idToPlayer[pid]; playerInput.value = p ? p.full_name : pid; setTimeout(()=> attemptSubmit(pid, p ? p.full_name : pid), 80); }
-
-  // Attempt submit from input
-  function onSubmit(){
-    const typed = playerInput.value.trim();
-    if (!typed) { animateWrong(); return; }
-    const exact = nameIndex.find(n => n.label.toLowerCase() === typed.toLowerCase());
-    if (exact) return attemptSubmit(exact.id, idToPlayer[exact.id] ? idToPlayer[exact.id].full_name : exact.id);
-    const partial = nameIndex.find(n => n.label.toLowerCase().includes(typed.toLowerCase()));
-    if (partial) return attemptSubmit(partial.id, idToPlayer[partial.id] ? idToPlayer[partial.id].full_name : partial.id);
-    animateWrong();
-  }
-
-  function attemptSubmit(playerId, playerName){
-    if (!activeCell) return;
-    const locked = cellState[activeCell.key] && cellState[activeCell.key].locked;
-    if (locked) return; // cannot change locked cell
-    const candSet = inputModal._candidatesSet;
-    if (candSet && candSet.has(String(playerId))) {
-      lockCell(activeCell.r, activeCell.c, playerId, playerName);
-      closeModal();
-    } else {
-      animateWrong();
-    }
-  }
-
-  // initialization
+  // init sequence: load players catalog, build indexes, load grid
   (async () => {
     try {
-      // load players catalog
       try {
         playersCatalog = await fetchJson(PATHS.PLAYERS);
-      } catch (e) {
-        console.warn('Failed to load players catalog:', e);
+      } catch (e){
+        console.warn('players catalog load failed:', e);
         playersCatalog = null;
       }
       buildPlayerIndex();
-      buildNameIndex();
+      nameIndex = [];
+      if (playersCatalog && Array.isArray(playersCatalog.players)){
+        for (const p of playersCatalog.players) nameIndex.push({ label: p.full_name, id: String(p.player_id) });
+      }
 
+      // load initial grid (WTA)
       await loadGrid(mode);
 
-      // wire events
+      // wire up events
       btnToggle.addEventListener('click', ()=> loadGrid(mode === 'WTA' ? 'ATP' : 'WTA'));
       btnGiveUp.addEventListener('click', onGiveUp);
       btnReset.addEventListener('click', onReset);
       btnCancel.addEventListener('click', closeModal);
       btnSubmit.addEventListener('click', onSubmit);
-      playerInput.addEventListener('input', onPlayerInput);
-      playerInput.addEventListener('keydown', onPlayerKeyDown);
-      scoreClose.addEventListener('click', ()=> scoreOverlay.style.display='none');
-
-      // allow clicking already-locked cells to view candidate list: handled naturally by onCellClick -> openModal
+      playerInput.addEventListener('input', onInput);
+      playerInput.addEventListener('keydown', onInputKeyDown);
+      scoreClose.addEventListener('click', ()=> scoreOverlay.style.display = 'none');
     } catch (err) {
-      console.error('Init error', err);
+      console.error('Init failed', err);
     }
   })();
 
