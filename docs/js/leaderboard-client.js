@@ -1,9 +1,8 @@
-<!-- /docs/js/leaderboard-client.js (include as module or normal script) -->
-<script>
-/* ---- tiny utils ---- */
+/* tiny utils */
 function uuidv4(){
-  // simple client UUID
-  return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=> (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c/4).toString(16));
+  return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=>
+    (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c/4).toString(16)
+  );
 }
 async function sha256Hex(msg){
   const enc = new TextEncoder();
@@ -12,12 +11,12 @@ async function sha256Hex(msg){
   return Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 
-/* ---- storage keys ---- */
+/* storage keys */
 const LB_USER_KEY = 'lb_user_v1';
 const LB_ANON_KEY = 'lb_anon_v1';
 const LB_LAST_SUB_PREFIX = 'lb_last_submit_'; // + gameId -> yyyy-mm-dd
 
-/* ---- anon id management ---- */
+/* anon id management */
 function getOrCreateAnonId(){
   let id = localStorage.getItem(LB_ANON_KEY);
   if (!id){
@@ -27,7 +26,7 @@ function getOrCreateAnonId(){
   return id;
 }
 
-/* ---- user management (local only) ---- */
+/* user management (local only) */
 async function signupOrLoginLocal(pseudo, password){
   const hash = await sha256Hex(password);
   const obj = { pseudo: String(pseudo).trim(), password_hash: hash };
@@ -43,7 +42,7 @@ function logoutLocal(){
   localStorage.removeItem(LB_USER_KEY);
 }
 
-/* ---- client-side duplicate-prevent (local only) ---- */
+/* duplicate-prevent (local only) */
 function hasSubmittedTodayLocally(gameId){
   const key = LB_LAST_SUB_PREFIX + gameId;
   const last = localStorage.getItem(key);
@@ -56,18 +55,12 @@ function markSubmittedTodayLocally(gameId){
   localStorage.setItem(key, today);
 }
 
-/* ---- submit function ----
-   - gameId: string
-   - points: number
-   - options.meta: optional string
-   - returns parsed JSON from server
-*/
+/* submit function */
 async function submitScore(gameId, points, options = {}){
   const user = getLocalUser();
   const anonId = getOrCreateAnonId();
   const meta = options.meta || '';
 
-  // local guard: already submitted today.
   if (hasSubmittedTodayLocally(gameId)) {
     return { ok:false, error:'already_submitted_local' };
   }
@@ -77,9 +70,7 @@ async function submitScore(gameId, points, options = {}){
     payload.pseudo = user.pseudo;
     payload.password_hash = user.password_hash;
   } else {
-    // anonymous path: include anon_id and optional pseudo for display
     payload.anon_id = anonId;
-    // if the player filled some display name in UI you can pass it in options.displayName
     if (options.displayName) payload.pseudo = options.displayName.slice(0,50);
   }
   if (meta) payload.meta = meta;
@@ -92,7 +83,6 @@ async function submitScore(gameId, points, options = {}){
     });
     const data = await r.json();
     if (r.ok && data && data.ok) {
-      // mark locally to prevent repeated submits from same browser
       markSubmittedTodayLocally(gameId);
     }
     return data;
@@ -102,7 +92,7 @@ async function submitScore(gameId, points, options = {}){
   }
 }
 
-/* ---- leaderboard fetcher (uses your existing function) ---- */
+/* leaderboard fetcher */
 async function fetchLeaderboard(dateISO, gameId, limit=30){
   const q = new URLSearchParams();
   if (dateISO) q.set('date', dateISO);
@@ -112,10 +102,7 @@ async function fetchLeaderboard(dateISO, gameId, limit=30){
   return r.ok ? r.json() : null;
 }
 
-/* ---- small UI helper to create panel inside a container element ----
-   containerEl: DOM element
-   data-game-id attribute should be set on container
-*/
+/* UI helper */
 function createLeaderboardPanel(containerEl){
   containerEl.innerHTML = `
     <div style="display:flex;gap:8px;align-items:center">
@@ -131,7 +118,6 @@ function createLeaderboardPanel(containerEl){
     </div>
     <div id="lb-list" style="margin-top:10px"></div>
   `;
-  // wire events
   containerEl.querySelector('#lb-login').onclick = async () => {
     const p = containerEl.querySelector('#lb-pseudo').value.trim();
     const pw = containerEl.querySelector('#lb-pass').value;
@@ -146,7 +132,6 @@ function createLeaderboardPanel(containerEl){
     refreshLeaderboard(gid, containerEl);
   };
   updateAuthUi(containerEl);
-  // fill initial LB
   refreshLeaderboard(containerEl.dataset.gameId, containerEl);
 }
 function updateAuthUi(containerEl){
@@ -176,10 +161,10 @@ async function refreshLeaderboard(gameId, containerEl){
     return;
   }
   const rows = data.leaderboard.map((u,i) => `<div style="padding:6px;border-bottom:1px solid rgba(255,255,255,0.04)"><strong>#${i+1} ${u.pseudo}</strong> — ${u.total} pts</div>`).join('');
-  display.innerHTML = rows || '<div>Aucun score aujourd\'hui</div>';
+  display.innerHTML = rows || '<div>Aucun score aujourd\\'hui</div>';
 }
 
-/* ---- export API ---- */
+/* export API */
 window.LEADERBOARD = {
   submitScore,
   fetchLeaderboard,
@@ -187,4 +172,3 @@ window.LEADERBOARD = {
   getLocalUser,
   getOrCreateAnonId
 };
-</script>
