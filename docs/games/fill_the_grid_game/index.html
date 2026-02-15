@@ -1,11 +1,15 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Fill the Grid — Jeu (corrigé)</title>
+<title>Fill the Grid — Game</title>
 <style>
-  :root{--bg:#000;--font:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial;--cell-radius:8px}
+  :root{
+    --bg:#000;
+    --font:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial;
+    --cell-radius:8px;
+  }
   html,body{height:100%;margin:0;background:var(--bg);color:#eee;font-family:var(--font);-webkit-font-smoothing:antialiased}
   .app{max-width:1100px;margin:28px auto;padding:20px}
   .topbar{display:flex;gap:12px;align-items:center;margin-bottom:18px}
@@ -34,16 +38,37 @@
   .wrong-icon{color:var(--bad);font-size:28px;filter:drop-shadow(0 2px 8px rgba(0,0,0,0.6))}
   .cell-locked{pointer-events:none;box-shadow: inset 0 0 0 2px rgba(255,255,255,0.02)}
   .cond-small{font-size:13px;opacity:0.95}
-  .input-panel{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);background:#0b0b0b;border-radius:12px;padding:14px;min-width:360px;box-shadow:0 12px 40px rgba(0,0,0,0.8);z-index:2000;border:1px solid rgba(255,255,255,0.03)}
+
+  /* Give Up reveal: red overlay for empty cells */
+  .cell-revealed-empty { position: relative; }
+  .cell-revealed-empty::after {
+    content: '';
+    position:absolute; inset:0; border-radius:6px;
+    background: linear-gradient(90deg, rgba(255,0,0,0.06), rgba(255,0,0,0.02));
+    box-shadow: 0 0 0 3px rgba(255,59,59,0.12) inset;
+    pointer-events:none;
+  }
+
+  /* input panel */
+  .input-panel{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);background:#0b0b0b;border-radius:12px;padding:14px;min-width:420px;box-shadow:0 12px 40px rgba(0,0,0,0.8);z-index:2000;border:1px solid rgba(255,255,255,0.03)}
   .input-row{display:flex;gap:8px;align-items:center}
   .text-input{flex:1;padding:10px 12px;border-radius:8px;background:#0f0f10;color:#fff;border:1px solid #222;font-size:15px}
-  .autocomplete-list{margin-top:8px;max-height:240px;overflow:auto;border-radius:8px;background:#0b0b0b;border:1px solid #222}
+  .autocomplete-list{margin-top:8px;max-height:220px;overflow:auto;border-radius:8px;background:#0b0b0b;border:1px solid #222}
   .autocomplete-item{padding:8px 10px;cursor:pointer;color:#ddd}
   .autocomplete-item:hover,.autocomplete-item.active{background:rgba(255,255,255,0.02)}
+  .candidates-list{margin-top:8px;max-height:220px;overflow:auto;border-radius:8px;background:#071017;border:1px solid #222;padding:6px}
+  .candidate-item{padding:6px 8px;border-radius:6px;cursor:pointer;color:#ddd}
+  .candidate-item:hover{background:rgba(255,255,255,0.02)}
   .small-muted{color:#9a9a9a;font-size:13px}
+
+  /* locked candidate item */
+  .candidate-item.locked{opacity:0.7;cursor:default}
+
+  /* score overlay */
   .score-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(0deg,rgba(0,0,0,0.55),rgba(0,0,0,0.55));z-index:3000}
   .score-card{background:#0b0b0b;padding:22px;border-radius:12px;color:#fff;border:1px solid rgba(255,255,255,0.03);min-width:320px;text-align:center}
-  @media (max-width:900px){.grid-cell,.row-header,.grid-header-cell{min-width:110px;min-height:60px;font-size:13px}.input-panel{min-width:300px}}
+
+  @media (max-width:900px){.input-panel{min-width:300px}.grid-cell,.row-header,.grid-header-cell{min-width:110px;min-height:60px;font-size:13px}}
 </style>
 </head>
 <body>
@@ -59,26 +84,29 @@
 
   <div class="game-wrap">
     <div class="board-wrap" id="boardWrap" aria-live="polite"></div>
-    <div class="small-muted" id="infoLine">Clique sur une case pour proposer un joueur. Si c'est correct, la case se verrouille en vert. Sinon, tu verras une croix rouge.</div>
+    <div class="small-muted" id="infoLine">Click any cell to propose a player or to see candidate players. Correct answers lock the cell in green; wrong attempts show a brief red cross.</div>
   </div>
 </div>
 
-<!-- Modal -->
+<!-- modal -->
 <div id="inputModal" style="display:none;">
   <div class="input-panel" role="dialog" aria-modal="true" aria-labelledby="panelTitle">
-    <div id="panelTitle" class="panel-title" style="color:#ddd;font-weight:700;margin-bottom:8px">Fill cell</div>
+    <div id="panelTitle" style="color:#ddd;font-weight:700;margin-bottom:8px">Fill cell</div>
     <div class="input-row">
-      <input id="playerInput" class="text-input" placeholder="Tape le nom du joueur..." autocomplete="off" />
+      <input id="playerInput" class="text-input" placeholder="Type player's name..." autocomplete="off" />
       <button class="btn" id="btnSubmit">Submit</button>
       <button class="btn" id="btnCancel">Cancel</button>
     </div>
+
+    <div class="small-muted" id="cellHint" style="margin-top:8px">Candidate players for this cell:</div>
+
     <div class="autocomplete-list" id="autocompleteList" role="listbox"></div>
-    <div style="height:8px"></div>
-    <div class="small-muted" id="cellHint"></div>
+
+    <div class="candidates-list" id="candidatesList"></div>
   </div>
 </div>
 
-<!-- Score -->
+<!-- score overlay -->
 <div id="scoreOverlay" style="display:none;">
   <div class="score-overlay">
     <div class="score-card">
@@ -90,22 +118,35 @@
 </div>
 
 <script>
-/* Fixes:
-   - robust extraction of opponent id for positive_h2h (no more "Positive")
-   - attach data-r/data-c on cell DOM nodes and use querySelector to lock cell (fix wrong cell update)
-   - other small robustness improvements
+/*
+  - English UI
+  - Do NOT show candidate counts by default
+  - Clicking any cell (locked or not) opens modal showing:
+      * autocomplete input (submissions allowed on unlocked)
+      * list of candidate players for the cell (clickable to submit when unlocked)
+  - Give Up: does NOT fill cells; highlights correct (green locked) vs empty (red overlay).
+  - Scoring: first use of a player -> 10 points; each duplicate usage (same player used in multiple filled cells) -> 5 points (per extra use).
+    Bonus +10 if all fillable cells are filled.
+  - Make sure filled name writes into the correct cell using data-r/data-c selection.
+  - Keeps previous robust parsing for H2H and country names.
 */
 
 (() => {
+  // Adjust paths if needed
   const PATHS = {
     WTA: '/games/fill_the_grid_WTA.json',
     ATP: '/games/fill_the_grid_ATP.json',
     PLAYERS: '/tools/players_catalog.json'
   };
 
-  // small country map (extend as needed)
-  const COUNTRY_NAMES = {'RUS':'Russia','FRA':'France','ESP':'Spain','GBR':'United Kingdom','USA':'United States','ITA':'Italy','GER':'Germany','AUS':'Australia','CAN':'Canada','JPN':'Japan','CHN':'China','NED':'Netherlands','SUI':'Switzerland','ARG':'Argentina','SWE':'Sweden','CRO':'Croatia','NZL':'New Zealand','IND':'India','BRA':'Brazil','MEX':'Mexico'};
+  const COUNTRY_NAMES = {
+    'RUS':'Russia','FRA':'France','ESP':'Spain','GBR':'United Kingdom','USA':'United States',
+    'ITA':'Italy','GER':'Germany','AUS':'Australia','CAN':'Canada','JPN':'Japan','CHN':'China',
+    'NED':'Netherlands','SUI':'Switzerland','ARG':'Argentina','SWE':'Sweden','CRO':'Croatia',
+    'NZL':'New Zealand','IND':'India','BRA':'Brazil','MEX':'Mexico'
+  };
 
+  // UI refs
   const app = document.getElementById('app');
   const boardWrap = document.getElementById('boardWrap');
   const btnToggle = document.getElementById('btnToggle');
@@ -116,120 +157,100 @@
   const autocompleteList = document.getElementById('autocompleteList');
   const btnSubmit = document.getElementById('btnSubmit');
   const btnCancel = document.getElementById('btnCancel');
+  const candidatesListEl = document.getElementById('candidatesList');
   const cellHint = document.getElementById('cellHint');
   const scoreOverlay = document.getElementById('scoreOverlay');
   const scoreValue = document.getElementById('scoreValue');
   const scoreClose = document.getElementById('scoreClose');
 
+  // State
   let mode = 'WTA';
   let gridData = null;
   let playersCatalog = null;
   let idToPlayer = {};
-  let nameIndex = [];
-  let cellState = {};
-  let activeCell = null;
+  let nameIndex = []; // {label,id}
+  let cellState = {}; // 'r-c' -> {locked:boolean, id, name}
+  let activeCell = null; // {r,c,cellData,domNode}
 
-  async function fetchJson(path){
+  async function fetchJson(path) {
     const r = await fetch(path);
     if (!r.ok) throw new Error(`${path} ${r.status}`);
     return r.json();
   }
 
-  async function init(){
-    try {
-      playersCatalog = await fetchJson(PATHS.PLAYERS);
-    } catch (e) {
-      console.warn('players_catalog failed:', e);
-      playersCatalog = null;
-    }
-    buildPlayerIndex();
-    await loadGrid(mode);
-    attachHandlers();
-  }
-
-  function buildPlayerIndex(){
+  function buildPlayerIndex() {
     idToPlayer = {};
     nameIndex = [];
     if (!playersCatalog || !Array.isArray(playersCatalog.players)) return;
-    for (const p of playersCatalog.players){
-      idToPlayer[String(p.player_id)] = p;
-      nameIndex.push({label: p.full_name, id: String(p.player_id)});
+    for (const p of playersCatalog.players) {
+      const pid = String(p.player_id);
+      idToPlayer[pid] = p;
+      nameIndex.push({ label: p.full_name, id: pid });
     }
   }
 
-  // robust opponent id extractor: checks fields then regex for digits (>=3)
-  function extractOpponentId(cond){
+  function extractOpponentId(cond) {
     if (!cond) return null;
     if (cond.opponent_id) return String(cond.opponent_id);
     if (cond.opponent) return String(cond.opponent);
     if (cond.opponent_name) return String(cond.opponent_name);
-    if (cond.raw && (cond.raw.opponent_id || cond.raw.opponent)) {
-      return String(cond.raw.opponent_id || cond.raw.opponent);
-    }
-    // fallback: find first numeric token >=3 digits in label
+    if (cond.raw && (cond.raw.opponent_id || cond.raw.opponent)) return String(cond.raw.opponent_id || cond.raw.opponent);
     if (cond.label) {
-      const m = cond.label.match(/\b(\d{3,})\b/);
+      const m = cond.label.match(/\b([A-Za-z0-9_]{3,})\b/);
       if (m) return m[1];
     }
-    // also try value field
     if (cond.value && typeof cond.value === 'string') {
-      const m2 = cond.value.match(/\b(\d{3,})\b/);
+      const m2 = cond.value.match(/\b([A-Za-z0-9_]{3,})\b/);
       if (m2) return m2[1];
     }
     return null;
   }
 
-  function preprocessGrid(raw){
+  function preprocessGrid(raw) {
     let g = raw.grid ? raw.grid : raw;
     if (!g) return g;
-    // normalize labels: country codes -> names ; positive_h2h id -> player name
-    const lists = ['rows','cols'];
-    for (const listName of lists){
-      if (!g[listName]) continue;
-      for (const cond of g[listName]){
-        // country codes
-        if (cond.type === 'country'){
+    ['rows','cols'].forEach(listName => {
+      if (!g[listName]) return;
+      g[listName].forEach(cond => {
+        if (cond.type === 'country') {
           const code = (cond.value || cond.label || '').toString().toUpperCase();
           cond.label = COUNTRY_NAMES[code] || code;
         }
-        // positive h2h: resolve opponent id to name
-        if (cond.type === 'positive_h2h'){
+        if (cond.type === 'positive_h2h') {
           const oppId = extractOpponentId(cond);
           if (oppId && idToPlayer[oppId]) {
+            cond.opponent_id = oppId;
             cond.label = `Positive H2H vs ${idToPlayer[oppId].full_name}`;
-            // ensure we keep the opponent id in a normalized field for later validation
-            cond.opponent_id = oppId;
           } else if (oppId) {
-            cond.label = `Positive H2H vs ${oppId}`;
             cond.opponent_id = oppId;
+            cond.label = `Positive H2H vs ${oppId}`;
           } else {
-            // fallback (shouldn't happen) keep label but ensure not "Positive"
             cond.label = cond.label || 'Positive H2H';
           }
         }
-      }
-    }
+      });
+    });
     return g;
   }
 
-  async function loadGrid(m){
+  async function loadGrid(m) {
     mode = m;
     app.classList.toggle('theme-wta', mode === 'WTA');
     app.classList.toggle('theme-atp', mode === 'ATP');
     btnToggle.textContent = mode === 'WTA' ? 'Switch to ATP' : 'Switch to WTA';
-    const path = (mode === 'WTA' ? PATHS.WTA : PATHS.ATP);
+    const path = mode === 'WTA' ? PATHS.WTA : PATHS.ATP;
     try {
       const raw = await fetchJson(path);
       gridData = preprocessGrid(raw);
       initCellState();
       renderBoard();
     } catch (e) {
-      console.error('Failed to load grid JSON:', e);
-      boardWrap.innerHTML = `<div style="color:#f88">Erreur chargement grille: ${e.message}</div>`;
+      console.error('Grid load failed', e);
+      boardWrap.innerHTML = `<div style="color:#f88">Failed to load grid: ${e.message}</div>`;
     }
   }
 
-  function initCellState(){
+  function initCellState() {
     cellState = {};
     if (!gridData || !gridData.cells) return;
     for (let r=0;r<gridData.rows.length;r++){
@@ -239,29 +260,17 @@
     }
   }
 
-  function attachHandlers(){
-    btnToggle.addEventListener('click', () => loadGrid(mode === 'WTA' ? 'ATP' : 'WTA'));
-    btnGiveUp.addEventListener('click', onGiveUp);
-    btnReset.addEventListener('click', onReset);
-    btnCancel.addEventListener('click', closeModal);
-    btnSubmit.addEventListener('click', onSubmit);
-    playerInput.addEventListener('input', onInputChanged);
-    playerInput.addEventListener('keydown', onInputKeyDown);
-    scoreClose.addEventListener('click', () => scoreOverlay.style.display='none');
-    window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && inputModal.style.display !== 'none') closeModal(); });
-  }
-
-  function renderBoard(){
-    if (!gridData) { boardWrap.innerHTML=''; return; }
+  function renderBoard() {
+    if (!gridData) { boardWrap.innerHTML = ''; return; }
     const rows = gridData.rows;
     const cols = gridData.cols;
     const cells = gridData.cells;
     const gridEl = document.createElement('div');
     gridEl.className = 'grid';
-    gridEl.style.display='grid';
+    gridEl.style.display = 'grid';
     gridEl.style.gridTemplateColumns = `minmax(160px,1fr) ${cols.map(()=>`minmax(140px,1fr)`).join(' ')}`;
 
-    // spacer top-left
+    // top-left spacer
     const spacer = document.createElement('div');
     spacer.className = 'grid-header-cell';
     spacer.textContent = '';
@@ -275,7 +284,7 @@
       gridEl.appendChild(ch);
     }
 
-    // rows
+    // rows + cells
     for (let i=0;i<rows.length;i++){
       const rh = document.createElement('div');
       rh.className = 'row-header';
@@ -287,18 +296,21 @@
         cellDiv.dataset.r = String(i);
         cellDiv.dataset.c = String(j);
         const cellData = (cells && cells[i] && cells[i][j]) ? cells[i][j] : null;
+
         if (!cellData || !Array.isArray(cellData.candidates_sample) || cellData.candidates_sample.length === 0){
           cellDiv.classList.add('disabled');
-          cellDiv.innerHTML = `<div class="cell-empty">—</div><div style="position:absolute;bottom:6px;right:6px;font-size:11px;color:rgba(0,0,0,0.35)">0</div>`;
+          cellDiv.innerHTML = `<div class="cell-empty">—</div>`;
         } else {
-          cellDiv.innerHTML = `<div class="cell-empty">Click to enter</div><div style="position:absolute;bottom:6px;right:6px;font-size:11px;color:rgba(0,0,0,0.4)">${cellData.count ?? cellData.candidates_sample.length}</div>`;
-          // attach listener
+          // show placeholder text only (no candidate count)
+          cellDiv.innerHTML = `<div class="cell-empty">Click to enter</div>`;
           ((r,c,datum,node)=>{ node.addEventListener('click', ()=> onCellClick(r,c,node,datum)); })(i,j,cellData,cellDiv);
         }
+        // wrong overlay
         const wrongOverlay = document.createElement('div');
-        wrongOverlay.className='wrong-overlay';
+        wrongOverlay.className = 'wrong-overlay';
         wrongOverlay.innerHTML = `<div class="wrong-box"><div class="wrong-icon">✖</div></div>`;
         cellDiv.appendChild(wrongOverlay);
+
         gridEl.appendChild(cellDiv);
       }
     }
@@ -307,61 +319,81 @@
     boardWrap.appendChild(gridEl);
   }
 
+  // clicking a cell opens modal and shows list of candidates for that cell
   function onCellClick(r,c,node,cellData){
     const key = `${r}-${c}`;
-    if (cellState[key] && cellState[key].locked) return;
-    if (!cellData || !Array.isArray(cellData.candidates_sample) || cellData.candidates_sample.length===0){
-      flash(node);
-      return;
-    }
+    // open modal always (for viewing candidates). If locked, submission will be disallowed but list shown.
     activeCell = { r, c, cellData, domNode: node, key };
     openModal(activeCell);
   }
 
-  function flash(node){
-    node.style.transition='transform 0.08s';
-    node.style.transform='scale(0.98)';
-    setTimeout(()=> node.style.transform='scale(1)', 120);
-  }
-
-  function openModal(cell){
-    playerInput.value='';
-    autocompleteList.innerHTML='';
-    inputModal.style.display='block';
-    document.querySelector('.input-panel').style.display='block';
+  function openModal(cell) {
+    playerInput.value = '';
+    autocompleteList.innerHTML = '';
+    candidatesListEl.innerHTML = '';
+    inputModal.style.display = 'block';
+    document.querySelector('.input-panel').style.display = 'block';
     playerInput.focus();
-    const count = cell.cellData.candidates_sample.length;
-    cellHint.textContent = `Candidates: ${count}. Tape un nom...`;
-    inputModal._candidatesSet = new Set(cell.cellData.candidates_sample.map(String));
+
+    const cnt = cell.cellData && Array.isArray(cell.cellData.candidates_sample) ? cell.cellData.candidates_sample.length : 0;
+    cellHint.textContent = `Candidates: ${cnt} — (click a candidate to propose it for this cell)`;
+
+    // fill candidates list (resolve names)
+    const candIds = (cell.cellData && Array.isArray(cell.cellData.candidates_sample)) ? cell.cellData.candidates_sample : [];
+    for (const pid of candIds){
+      const id = String(pid);
+      const info = idToPlayer[id];
+      const display = info ? `${info.full_name} ${info.represented_country ? '('+info.represented_country+')' : ''}` : id;
+      const div = document.createElement('div');
+      div.className = 'candidate-item';
+      // if cell is already locked with this id, mark locked state
+      const locked = cellState[cell.key] && cellState[cell.key].locked;
+      if (locked) div.classList.add('locked');
+      div.textContent = display;
+      div.dataset.id = id;
+      // clicking candidate: if cell unlocked, attempt submit; if locked, do nothing except maybe highlight
+      div.addEventListener('click', (e) => {
+        if (locked) return;
+        attemptSubmit(id, info ? info.full_name : id);
+      });
+      candidatesListEl.appendChild(div);
+    }
+
+    // store candidate id set for validation
+    inputModal._candidatesSet = new Set(candIds.map(String));
   }
 
-  function closeModal(){
-    inputModal.style.display='none';
-    document.querySelector('.input-panel').style.display='none';
+  function closeModal() {
+    inputModal.style.display = 'none';
+    document.querySelector('.input-panel').style.display = 'none';
     activeCell = null;
-    playerInput.value='';
-    autocompleteList.innerHTML='';
+    playerInput.value = '';
+    autocompleteList.innerHTML = '';
+    candidatesListEl.innerHTML = '';
     inputModal._candidatesSet = null;
   }
 
+  // AUTOCOMPLETE (search in players_catalog)
   let acIndex = -1;
-  function onInputChanged(e){
+  function onInput(e) {
     const q = playerInput.value.trim().toLowerCase();
-    autocompleteList.innerHTML=''; acIndex=-1;
+    autocompleteList.innerHTML = ''; acIndex = -1;
     if (!q) return;
-    const starts=[]; const includes=[];
+    const starts = [], includes = [];
     for (let i=0;i<nameIndex.length;i++){
-      const n = nameIndex[i]; const s = n.label.toLowerCase();
+      const n = nameIndex[i];
+      const s = n.label.toLowerCase();
       if (s.startsWith(q)) starts.push(n);
       else if (s.includes(q)) includes.push(n);
-      if (starts.length>=40) break;
+      if (starts.length >= 40) break;
     }
     const results = starts.concat(includes).slice(0,60);
     for (const r of results){
       const div = document.createElement('div');
-      div.className='autocomplete-item';
-      const country = idToPlayer[r.id] ? idToPlayer[r.id].represented_country : '';
-      div.textContent = `${r.label}${country? ' ('+country+')':''}`;
+      div.className = 'autocomplete-item';
+      const info = idToPlayer[r.id];
+      const country = info ? (info.represented_country || '') : '';
+      div.textContent = `${r.label}${country ? ' ('+country+')' : ''}`;
       div.dataset.id = r.id;
       div.addEventListener('click', ()=> chooseItem(r.id));
       autocompleteList.appendChild(div);
@@ -370,18 +402,12 @@
 
   function onInputKeyDown(e){
     const items = Array.from(autocompleteList.querySelectorAll('.autocomplete-item'));
-    if (e.key === 'ArrowDown'){ e.preventDefault(); if(!items.length) return; acIndex=Math.min(acIndex+1, items.length-1); updateActive(items); }
-    else if (e.key === 'ArrowUp'){ e.preventDefault(); if(!items.length) return; acIndex=Math.max(acIndex-1,0); updateActive(items); }
+    if (e.key === 'ArrowDown'){ e.preventDefault(); if(items.length===0) return; acIndex = Math.min(acIndex+1, items.length-1); updateActive(items); }
+    else if (e.key === 'ArrowUp'){ e.preventDefault(); if(items.length===0) return; acIndex = Math.max(acIndex-1, 0); updateActive(items); }
     else if (e.key === 'Enter'){ e.preventDefault(); if (items.length>0 && acIndex>=0) chooseItem(items[acIndex].dataset.id); else onSubmit(); }
   }
-
-  function updateActive(items){ items.forEach((it,idx)=> it.classList.toggle('active', idx===acIndex)); if(acIndex>=0 && items[acIndex]) items[acIndex].scrollIntoView({block:'nearest'}); }
-
-  function chooseItem(playerId){
-    const p = idToPlayer[playerId];
-    playerInput.value = p ? p.full_name : playerId;
-    setTimeout(()=> attemptSubmit(playerId, p ? p.full_name : playerId), 80);
-  }
+  function updateActive(items){ items.forEach((it,idx)=> it.classList.toggle('active', idx===acIndex)); if (acIndex>=0 && items[acIndex]) items[acIndex].scrollIntoView({block:'nearest'}); }
+  function chooseItem(pid){ const p = idToPlayer[pid]; playerInput.value = p ? p.full_name : pid; setTimeout(()=> attemptSubmit(pid, p ? p.full_name : pid), 80); }
 
   function onSubmit(){
     const typed = playerInput.value.trim();
@@ -393,10 +419,16 @@
     animateWrong();
   }
 
-  function attemptSubmit(playerId, playerName){
+  function attemptSubmit(playerId, playerName) {
     if (!activeCell) return;
-    const candidatesSet = inputModal._candidatesSet;
-    if (candidatesSet && candidatesSet.has(String(playerId))){
+    const isLocked = cellState[activeCell.key] && cellState[activeCell.key].locked;
+    if (isLocked) {
+      // already locked; do nothing (but highlight maybe)
+      return;
+    }
+    const candSet = inputModal._candidatesSet;
+    if (candSet && candSet.has(String(playerId))) {
+      // correct -> lock
       lockCell(activeCell.r, activeCell.c, playerId, playerName);
       closeModal();
       checkCompletion();
@@ -414,20 +446,20 @@
     setTimeout(()=> wb.classList.remove('show'), 750);
   }
 
-  // LOCK cell by querying element with data-r/data-c to ensure correctness
-  function lockCell(r, c, pid, pname){
+  // lock cell: use selector by data-r/data-c to be robust
+  function lockCell(r, c, pid, pname) {
     const key = `${r}-${c}`;
-    cellState[key] = { locked:true, id:pid, name:pname };
+    cellState[key] = { locked:true, id: pid, name: pname };
     const sel = `.grid-cell[data-r="${r}"][data-c="${c}"]`;
     const node = boardWrap.querySelector(sel);
     if (!node) return;
     node.classList.add('cell-locked');
-    node.innerHTML = `<div class="cell-value">${pname}</div><div style="position:absolute;bottom:6px;right:6px;font-size:11px;color:rgba(0,0,0,0.35)">${(gridData.cells[r][c].count ?? gridData.cells[r][c].candidates_sample.length)}</div>`;
+    node.innerHTML = `<div class="cell-value">${pname}</div>`;
     const ok = document.createElement('div'); ok.style.position='absolute'; ok.style.top='6px'; ok.style.left='6px'; ok.style.fontSize='14px'; ok.style.color='var(--good-text)'; ok.textContent='✔';
     node.appendChild(ok);
   }
 
-  function checkCompletion(){
+  function checkCompletion() {
     let total=0, filled=0;
     for (let r=0;r<gridData.rows.length;r++){
       for (let c=0;c<gridData.cols.length;c++){
@@ -437,13 +469,17 @@
         if (cellState[`${r}-${c}`] && cellState[`${r}-${c}`].locked) filled++;
       }
     }
-    if (total>0 && filled===total){
-      const score = filled*10 + 10;
+    if (total>0 && filled===total) {
+      const score = computeScore();
       showScore(score);
     }
   }
 
+  // Give Up: highlight correct vs empty, do NOT fill; compute score and show
   function onGiveUp(){
+    // remove any previous revealed-empty classes
+    const allCells = boardWrap.querySelectorAll('.grid-cell');
+    allCells.forEach(n => n.classList.remove('cell-revealed-empty'));
     let total=0, filled=0;
     for (let r=0;r<gridData.rows.length;r++){
       for (let c=0;c<gridData.cols.length;c++){
@@ -451,33 +487,164 @@
         if (!cell || !Array.isArray(cell.candidates_sample) || cell.candidates_sample.length===0) continue;
         total++;
         const key = `${r}-${c}`;
-        if (cellState[key] && cellState[key].locked){ filled++; continue; }
-        const pid = String(cell.candidates_sample[0]);
-        const pname = idToPlayer[pid] ? idToPlayer[pid].full_name : pid;
-        lockCell(r,c,pid,pname);
-        filled++;
+        if (cellState[key] && cellState[key].locked) { filled++; continue; }
+        // mark as revealed empty (red overlay)
+        const node = boardWrap.querySelector(`.grid-cell[data-r="${r}"][data-c="${c}"]`);
+        if (node) node.classList.add('cell-revealed-empty');
       }
     }
-    const score = filled*10 + ((total>0 && filled===total) ? 10 : 0);
+    const score = computeScore();
     showScore(score);
   }
 
-  function onReset(){ initCellState(); renderBoard(); }
+  // Score computation with duplicate penalty:
+  // - first use of a player_id yields 10 points
+  // - each additional use of same player_id yields 5 points
+  // - bonus +10 if ALL fillable cells are filled
+  function computeScore(){
+    const usedCounts = {}; // pid -> count
+    let totalFillable = 0;
+    for (let r=0;r<gridData.rows.length;r++){
+      for (let c=0;c<gridData.cols.length;c++){
+        const cell = gridData.cells[r][c];
+        if (!cell || !Array.isArray(cell.candidates_sample) || cell.candidates_sample.length===0) continue;
+        totalFillable++;
+        const key = `${r}-${c}`;
+        if (cellState[key] && cellState[key].locked) {
+          const pid = String(cellState[key].id);
+          usedCounts[pid] = (usedCounts[pid] || 0) + 1;
+        }
+      }
+    }
+    // compute points
+    let points = 0;
+    for (const pid in usedCounts){
+      const count = usedCounts[pid];
+      if (count <= 0) continue;
+      // first occurrence = 10
+      points += 10;
+      if (count > 1) {
+        // each extra counts 5
+        points += (count - 1) * 5;
+      }
+    }
+    // bonus if all filled
+    let filled = 0;
+    for (let r=0;r<gridData.rows.length;r++){
+      for (let c=0;c<gridData.cols.length;c++){
+        const cell = gridData.cells[r][c];
+        if (!cell || !Array.isArray(cell.candidates_sample) || cell.candidates_sample.length===0) continue;
+        const key = `${r}-${c}`;
+        if (cellState[key] && cellState[key].locked) filled++;
+      }
+    }
+    if (totalFillable > 0 && filled === totalFillable) points += 10;
+    return points;
+  }
 
-  function showScore(s){ scoreValue.textContent = s; scoreOverlay.style.display='block'; }
+  function showScore(s){
+    scoreValue.textContent = s;
+    scoreOverlay.style.display = 'block';
+  }
 
-  // autocomplete index
-  function buildNameIndex(){ nameIndex = []; if (!playersCatalog || !Array.isArray(playersCatalog.players)) return; for (const p of playersCatalog.players) nameIndex.push({label:p.full_name, id:String(p.player_id)}); }
+  function onReset(){
+    initCellState();
+    renderBoard();
+  }
 
-  // Init sequence
+  // Load players catalog and name index
+  function buildNameIndex(){
+    nameIndex = [];
+    if (!playersCatalog || !Array.isArray(playersCatalog.players)) return;
+    for (const p of playersCatalog.players) nameIndex.push({ label: p.full_name, id: String(p.player_id) });
+  }
+
+  // Autocomplete wiring
+  function onPlayerInput(e){
+    const q = playerInput.value.trim().toLowerCase();
+    autocompleteList.innerHTML = ''; acIndex = -1;
+    if (!q) return;
+    const starts = [], includes = [];
+    for (let i=0;i<nameIndex.length;i++){
+      const n = nameIndex[i];
+      const s = n.label.toLowerCase();
+      if (s.startsWith(q)) starts.push(n);
+      else if (s.includes(q)) includes.push(n);
+      if (starts.length >= 40) break;
+    }
+    const results = starts.concat(includes).slice(0,60);
+    for (const r of results){
+      const div = document.createElement('div');
+      div.className = 'autocomplete-item';
+      const info = idToPlayer[r.id];
+      div.textContent = `${r.label}${info && info.represented_country ? ' ('+info.represented_country+')' : ''}`;
+      div.dataset.id = r.id;
+      div.addEventListener('click', ()=> chooseItem(r.id));
+      autocompleteList.appendChild(div);
+    }
+  }
+  function onPlayerKeyDown(e){
+    const items = Array.from(autocompleteList.querySelectorAll('.autocomplete-item'));
+    if (e.key === 'ArrowDown'){ e.preventDefault(); if(items.length===0) return; acIndex = Math.min(acIndex+1, items.length-1); updateActive(items); }
+    else if (e.key === 'ArrowUp'){ e.preventDefault(); if(items.length===0) return; acIndex = Math.max(acIndex-1, 0); updateActive(items); }
+    else if (e.key === 'Enter'){ e.preventDefault(); if (items.length>0 && acIndex>=0) chooseItem(items[acIndex].dataset.id); else onSubmit(); }
+  }
+  function updateActive(items){ items.forEach((it, idx)=> it.classList.toggle('active', idx===acIndex)); if (acIndex>=0 && items[acIndex]) items[acIndex].scrollIntoView({block:'nearest'}); }
+  function chooseItem(pid){ const p = idToPlayer[pid]; playerInput.value = p ? p.full_name : pid; setTimeout(()=> attemptSubmit(pid, p ? p.full_name : pid), 80); }
+
+  // Attempt submit from input
+  function onSubmit(){
+    const typed = playerInput.value.trim();
+    if (!typed) { animateWrong(); return; }
+    const exact = nameIndex.find(n => n.label.toLowerCase() === typed.toLowerCase());
+    if (exact) return attemptSubmit(exact.id, idToPlayer[exact.id] ? idToPlayer[exact.id].full_name : exact.id);
+    const partial = nameIndex.find(n => n.label.toLowerCase().includes(typed.toLowerCase()));
+    if (partial) return attemptSubmit(partial.id, idToPlayer[partial.id] ? idToPlayer[partial.id].full_name : partial.id);
+    animateWrong();
+  }
+
+  function attemptSubmit(playerId, playerName){
+    if (!activeCell) return;
+    const locked = cellState[activeCell.key] && cellState[activeCell.key].locked;
+    if (locked) return; // cannot change locked cell
+    const candSet = inputModal._candidatesSet;
+    if (candSet && candSet.has(String(playerId))) {
+      lockCell(activeCell.r, activeCell.c, playerId, playerName);
+      closeModal();
+    } else {
+      animateWrong();
+    }
+  }
+
+  // initialization
   (async () => {
     try {
-      try { if (!playersCatalog) playersCatalog = await fetchJson(PATHS.PLAYERS); } catch(e){ console.warn('players load failed', e); playersCatalog=null; }
+      // load players catalog
+      try {
+        playersCatalog = await fetchJson(PATHS.PLAYERS);
+      } catch (e) {
+        console.warn('Failed to load players catalog:', e);
+        playersCatalog = null;
+      }
       buildPlayerIndex();
       buildNameIndex();
+
       await loadGrid(mode);
-      attachHandlers();
-    } catch (err) { console.error('init failed', err); }
+
+      // wire events
+      btnToggle.addEventListener('click', ()=> loadGrid(mode === 'WTA' ? 'ATP' : 'WTA'));
+      btnGiveUp.addEventListener('click', onGiveUp);
+      btnReset.addEventListener('click', onReset);
+      btnCancel.addEventListener('click', closeModal);
+      btnSubmit.addEventListener('click', onSubmit);
+      playerInput.addEventListener('input', onPlayerInput);
+      playerInput.addEventListener('keydown', onPlayerKeyDown);
+      scoreClose.addEventListener('click', ()=> scoreOverlay.style.display='none');
+
+      // allow clicking already-locked cells to view candidate list: handled naturally by onCellClick -> openModal
+    } catch (err) {
+      console.error('Init error', err);
+    }
   })();
 
 })();
