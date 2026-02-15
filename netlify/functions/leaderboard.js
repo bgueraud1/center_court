@@ -1,78 +1,69 @@
-// netlify/functions/leaderboard.js
-const AIRTABLE_BASE = process.env.AIRTABLE_BASE_ID;
-const AIRTABLE_PAT  = process.env.AIRTABLE_PAT;
-const TABLE_SCORES  = process.env.AIRTABLE_TABLE_SCORES || 'Scores';
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-exports.handler = async function(event) {
-  if (!AIRTABLE_BASE || !AIRTABLE_PAT) {
-    return { statusCode: 500, body: JSON.stringify({ error: 'Missing AIRTABLE_BASE_ID or AIRTABLE_PAT in environment' }) };
+exports.handler = async function (event) {
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    return { statusCode: 500, body: "Missing Supabase env variables" };
   }
 
-  let fetchImpl = globalThis.fetch;
-  if (!fetchImpl) {
-    try {
-      const nf = await import('node-fetch');
-      fetchImpl = nf.default || nf;
-    } catch (e) {
-      console.error('Could not load fetch implementation', e);
-      return { statusCode: 500, body: JSON.stringify({ error: 'Server fetch unavailable', detail: String(e) }) };
-    }
-  }
-
-  function airtableFetch(path, opts = {}) {
-    const url = `https://api.airtable.com/v0/${AIRTABLE_BASE}/${encodeURIComponent(path)}`;
-    const headers = Object.assign({}, opts.headers || {}, {
-      Authorization: `Bearer ${AIRTABLE_PAT}`,
-      'Content-Type': 'application/json'
-    });
-    return fetchImpl(url, Object.assign({}, opts, { headers }));
-  }
-
-  if (event.httpMethod !== 'GET') return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
+  const fetchImpl = global.fetch || (await import("node-fetch")).default;
 
   try {
-    const q = event.queryStringParameters || {};
-    const date = q.date || (new Date().toISOString().slice(0,10));
-    const game_id = q.game_id || null;
-    const limit = Number(q.limit || 50);
+    const { date, game_id, limit = 50 } =
+      event.queryStringParameters || {};
 
-    let formula = `DATETIME_FORMAT({created_at}, 'YYYY-MM-DD') = "${date}"`;
+    const targetDate =
+      date || new Date().toISOString().slice(0, 10);
+
+    const isoStart = `${targetDate}T00:00:00`;
+
+    let url =
+      `${SUPABASE_URL}/rest/v1/scores?` +
+      `select=pseudo,points&` +
+      `created_at=gte.${encodeURIComponent(isoStart)}`;
+
     if (game_id) {
-      const gEsc = game_id.replace(/"/g,'\\"');
-      formula = `AND(${formula}, {game_id} = "${gEsc}")`;
+      url += `&game_id=eq.${encodeURIComponent(game_id)}`;
     }
 
-    const records = [];
-    let offset = null;
-    do {
-      const url = `${TABLE_SCORES}?pageSize=100&filterByFormula=${encodeURIComponent(formula)}` + (offset ? `&offset=${offset}` : '');
-      const r = await airtableFetch(url);
-      const txt = await r.text();
-      if (!r.ok) {
-        return { statusCode: 500, body: JSON.stringify({ error: 'Airtable read failed', status: r.status, detail: txt }) };
-      }
-      const data = JSON.parse(txt);
-      if (data.records && data.records.length) records.push(...data.records);
-      offset = data.offset;
-    } while (offset);
-
-    // aggregate
-    const agg = {};
-    records.forEach(rec => {
-      const f = rec.fields || {};
-      const p = (f.pseudo || 'anonymous').trim();
-      const pts = Number(f.points) || 0;
-      const gid = f.game_id || 'unknown';
-      if (!agg[p]) agg[p] = { pseudo: p, total: 0, games: {} };
-      agg[p].total += pts;
-      agg[p].games[gid] = (agg[p].games[gid] || 0) + pts;
+    const r = await fetchImpl(url, {
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${SUPABASE_KEY}`,
+      },
     });
 
-    const list = Object.values(agg).sort((a,b) => b.total - a.total).slice(0, limit);
-    return { statusCode: 200, body: JSON.stringify({ ok: true, date, game_id: game_id || 'all', totalRecords: records.length, leaderboard: list }) };
+    const rows = await r.json();
 
+    // agrégation
+    const totals = {};
+
+    rows.forEach((r) => {
+      if (!totals[r.pseudo]) {
+        totals[r.pseudo] = 0;
+      }
+      totals[r.pseudo] += Number(r.points);
+    });
+
+    const leaderboard = Object.entries(totals)
+      .map(([pseudo, total]) => ({ pseudo, total }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, Number(limit));
+
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        ok: true,
+        date: targetDate,
+        game_id: game_id || "all",
+        leaderboard,
+      }),
+    };
   } catch (err) {
-    console.error('leaderboard error', err);
-    return { statusCode: 500, body: JSON.stringify({ error: 'Server error', detail: String(err) }) };
+    console.error(err);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: "Server error" }),
+    };
   }
 };
