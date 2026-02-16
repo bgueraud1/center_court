@@ -89,7 +89,7 @@
 </style>
 </head>
 <body>
-  <script src="/js/leaderboard-client.js"></script>
+<script src="/js/leaderboard-client.js" defer></script>
 
   <div id="flagBg" aria-hidden="true"></div>
   <div id="flagOverlay" aria-hidden="true"></div>
@@ -765,11 +765,22 @@ document.addEventListener('DOMContentLoaded', async ()=>{
 });
 
 // initialiser le panneau LB (après que DOM est prêt)
+// --- à la fin du DOMContentLoaded handler, après startGame() ---
 const lbContainer = document.getElementById('leaderboardWidget');
-if (lbContainer && window.LEADERBOARD && window.LEADERBOARD.createLeaderboardPanel) {
-  lbContainer.dataset.gameId = 'guess_player';
-  window.LEADERBOARD.createLeaderboardPanel(lbContainer);
+if (lbContainer) {
+  // safety: attendre que window.LEADERBOARD soit défini (ou réessayer)
+  const initLb = () => {
+    if (window.LEADERBOARD && window.LEADERBOARD.createLeaderboardPanel) {
+      lbContainer.dataset.gameId = 'guess_player';
+      window.LEADERBOARD.createLeaderboardPanel(lbContainer);
+    } else {
+      // retry léger si la librairie n'est pas encore prête
+      setTimeout(initLb, 200);
+    }
+  };
+  initLb();
 }
+
 
 /* ---------------------------
    Update selectedCountry display:
