@@ -568,153 +568,7 @@ function revealAnswer(won, gainedPoints){
   if(won){ title.textContent = 'You won!'; text.textContent = `You earned ${gainedPoints} points this round.`; } else { title.textContent = 'Round over'; text.textContent = 'No points this time — new round will start.'; }
 
   // après avoir mis à jour score et ouvert le modal
-/* ---------------------------
-   Robust leaderboard submit helpers
-   - waitForLeaderboard: poll for window.LEADERBOARD
-   - queue in localStorage if LB not ready or submit fails
-   - flushScoreQueue when LB becomes ready
----------------------------- */
-
-const LB_QUEUE_KEY = 'lb_score_queue_v1';
-
-function pushToScoreQueue(entry){
-  try {
-    const q = JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]');
-    q.push(Object.assign({ts: (new Date()).toISOString()}, entry));
-    localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q));
-    console.info('Score queued locally', entry);
-  } catch(e){ console.warn('Could not queue score', e); }
-}
-
-function popScoreQueue(){
-  try {
-    const q = JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]');
-    if(!q || q.length === 0) return null;
-    q.shift();
-    localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q));
-    return true;
-  } catch(e){ console.warn('popScoreQueue error', e); return null; }
-}
-
-function readScoreQueue(){
-  try { return JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]'); }
-  catch(e){ return []; }
-}
-
-/** Poll until window.LEADERBOARD is ready or timeout (ms). */
-function waitForLeaderboard(timeout = 5000, interval = 200){
-  return new Promise((resolve) => {
-    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function') return resolve(true);
-    const start = Date.now();
-    const t = setInterval(() => {
-      if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
-        clearInterval(t); resolve(true);
-      } else if(Date.now() - start > timeout){
-        clearInterval(t); resolve(false);
-      }
-    }, interval);
-  });
-}
-
-/** Try to submit a single queued entry to LB; returns Promise<boolean> */
-async function trySubmitEntryToLB(entry){
-  try {
-    if(!window.LEADERBOARD || typeof window.LEADERBOARD.submitScore !== 'function'){
-      console.warn('LEADERBOARD not ready when trying submit entry');
-      return false;
-    }
-    // submitScore might accept (gameId, points, options)
-    // keep same options shape as original code
-    const gameId = 'guess_player';
-    const res = await window.LEADERBOARD.submitScore(gameId, Number(entry.points) || 0, entry.options || {});
-    console.info('submitScore response', res);
-    // many implementations return an object with ok:true; adapt if necessary
-    if(res && (res.ok === true || res.success === true || res.status === 'ok')) return true;
-    // some backends return {ok:false,..} or throw — treat truthy as success otherwise log
-    if(res && typeof res === 'object' && Object.keys(res).length){
-      // if uncertain, consider success when we get an object (fallback)
-      console.info('submitScore returned object, treating as success by fallback', res);
-      return true;
-    }
-    return false;
-  } catch(e){
-    console.error('submitScore failed', e);
-    return false;
-  }
-}
-
-/** Flush local queue while LB is ready. */
-async function flushScoreQueue(){
-  const queue = readScoreQueue();
-  if(!queue || queue.length === 0) return;
-  const ready = await waitForLeaderboard(5000);
-  if(!ready) {
-    console.info('Leaderboard not ready; will keep queue for later flush');
-    return;
-  }
-  // attempt to submit sequentially
-  for(let i=0;i<10;i++){
-    const q = readScoreQueue();
-    if(!q || q.length === 0) break;
-    const entry = q[0];
-    const ok = await trySubmitEntryToLB(entry);
-    if(ok){
-      popScoreQueue();
-      showToast('Score envoyé au leaderboard', 2000);
-    } else {
-      console.warn('Submit failed for queued entry — stop flush now');
-      break;
-    }
-  }
-}
-
-/** Main helper to submit score (robust). 
- *  points: number; meta: object; extra: {displayName}
- */
-async function submitScoreToLeaderboard(points, meta = {}, extra = {}){
-  const options = { mode: (cotdEnabled ? `${currentTour}_by_country` : `${currentTour}_top${levelTopN}`),
-                    meta: JSON.stringify(meta || {}), displayName: (extra.displayName || null) };
-
-  // Try fast path: wait a short time for LB to be ready
-  const ready = await waitForLeaderboard(3000);
-  if(ready){
-    const ok = await trySubmitEntryToLB({ points, options });
-    if(ok){
-      console.info('Score successfully submitted to leaderboard (fast path).');
-      // flush queue if any
-      setTimeout(flushScoreQueue, 250);
-      return;
-    } else {
-      console.warn('Fast path submit failed; queueing the score for retry.');
-      pushToScoreQueue({ points, options });
-      showToast('Score mis en file pour tentative ultérieure', 2000);
-      return;
-    }
-  } else {
-    // Not ready: queue it and schedule flush when LB init completes
-    pushToScoreQueue({ points, options });
-    showToast('Leaderboard non disponible, score mis en file', 2000);
-    // schedule an attempt in a bit (do not block)
-    setTimeout(flushScoreQueue, 1000);
-  }
-}
-
-/* Hook: when leaderboard lib initializes (the page already tries to create panel),
-   call flushScoreQueue so queued scores are sent */
-(function watchForLeaderboardInit(){
-  // if LB already ready, flush now
-  if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
-    setTimeout(flushScoreQueue, 300);
-    return;
-  }
-  // otherwise poll for initialization and flush once ready
-  const poll = setInterval(() => {
-    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
-      clearInterval(poll);
-      setTimeout(flushScoreQueue, 200);
-    }
-  }, 250);
-})();
+  submitScoreToLeaderboard(pointsToSend, { won }, { displayName });
 
 
 
@@ -980,6 +834,158 @@ function pickRandomTargetFromPool(tour, topN, fixedByCountry = null){
   const chosen = countryPlayers.length ? countryPlayers[Math.floor(Math.random()*countryPlayers.length)] : pool[Math.floor(Math.random()*pool.length)];
   return {chosen, country};
 }
+
+
+
+/* ---------------------------
+   Robust leaderboard submit helpers
+   - waitForLeaderboard: poll for window.LEADERBOARD
+   - queue in localStorage if LB not ready or submit fails
+   - flushScoreQueue when LB becomes ready
+---------------------------- */
+
+const LB_QUEUE_KEY = 'lb_score_queue_v1';
+
+function pushToScoreQueue(entry){
+  try {
+    const q = JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]');
+    q.push(Object.assign({ts: (new Date()).toISOString()}, entry));
+    localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q));
+    console.info('Score queued locally', entry);
+  } catch(e){ console.warn('Could not queue score', e); }
+}
+
+function popScoreQueue(){
+  try {
+    const q = JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]');
+    if(!q || q.length === 0) return null;
+    q.shift();
+    localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q));
+    return true;
+  } catch(e){ console.warn('popScoreQueue error', e); return null; }
+}
+
+function readScoreQueue(){
+  try { return JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]'); }
+  catch(e){ return []; }
+}
+
+/** Poll until window.LEADERBOARD is ready or timeout (ms). */
+function waitForLeaderboard(timeout = 5000, interval = 200){
+  return new Promise((resolve) => {
+    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function') return resolve(true);
+    const start = Date.now();
+    const t = setInterval(() => {
+      if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+        clearInterval(t); resolve(true);
+      } else if(Date.now() - start > timeout){
+        clearInterval(t); resolve(false);
+      }
+    }, interval);
+  });
+}
+
+/** Try to submit a single queued entry to LB; returns Promise<boolean> */
+async function trySubmitEntryToLB(entry){
+  try {
+    if(!window.LEADERBOARD || typeof window.LEADERBOARD.submitScore !== 'function'){
+      console.warn('LEADERBOARD not ready when trying submit entry');
+      return false;
+    }
+    // submitScore might accept (gameId, points, options)
+    // keep same options shape as original code
+    const gameId = 'guess_player';
+    const res = await window.LEADERBOARD.submitScore(gameId, Number(entry.points) || 0, entry.options || {});
+    console.info('submitScore response', res);
+    // many implementations return an object with ok:true; adapt if necessary
+    if(res && (res.ok === true || res.success === true || res.status === 'ok')) return true;
+    // some backends return {ok:false,..} or throw — treat truthy as success otherwise log
+    if(res && typeof res === 'object' && Object.keys(res).length){
+      // if uncertain, consider success when we get an object (fallback)
+      console.info('submitScore returned object, treating as success by fallback', res);
+      return true;
+    }
+    return false;
+  } catch(e){
+    console.error('submitScore failed', e);
+    return false;
+  }
+}
+
+/** Flush local queue while LB is ready. */
+async function flushScoreQueue(){
+  const queue = readScoreQueue();
+  if(!queue || queue.length === 0) return;
+  const ready = await waitForLeaderboard(5000);
+  if(!ready) {
+    console.info('Leaderboard not ready; will keep queue for later flush');
+    return;
+  }
+  // attempt to submit sequentially
+  for(let i=0;i<10;i++){
+    const q = readScoreQueue();
+    if(!q || q.length === 0) break;
+    const entry = q[0];
+    const ok = await trySubmitEntryToLB(entry);
+    if(ok){
+      popScoreQueue();
+      showToast('Score envoyé au leaderboard', 2000);
+    } else {
+      console.warn('Submit failed for queued entry — stop flush now');
+      break;
+    }
+  }
+}
+
+/** Main helper to submit score (robust). 
+ *  points: number; meta: object; extra: {displayName}
+ */
+async function submitScoreToLeaderboard(points, meta = {}, extra = {}){
+  const options = { mode: (cotdEnabled ? `${currentTour}_by_country` : `${currentTour}_top${levelTopN}`),
+                    meta: JSON.stringify(meta || {}), displayName: (extra.displayName || null) };
+
+  // Try fast path: wait a short time for LB to be ready
+  const ready = await waitForLeaderboard(3000);
+  if(ready){
+    const ok = await trySubmitEntryToLB({ points, options });
+    if(ok){
+      console.info('Score successfully submitted to leaderboard (fast path).');
+      // flush queue if any
+      setTimeout(flushScoreQueue, 250);
+      return;
+    } else {
+      console.warn('Fast path submit failed; queueing the score for retry.');
+      pushToScoreQueue({ points, options });
+      showToast('Score mis en file pour tentative ultérieure', 2000);
+      return;
+    }
+  } else {
+    // Not ready: queue it and schedule flush when LB init completes
+    pushToScoreQueue({ points, options });
+    showToast('Leaderboard non disponible, score mis en file', 2000);
+    // schedule an attempt in a bit (do not block)
+    setTimeout(flushScoreQueue, 1000);
+  }
+}
+
+/* Hook: when leaderboard lib initializes (the page already tries to create panel),
+   call flushScoreQueue so queued scores are sent */
+(function watchForLeaderboardInit(){
+  // if LB already ready, flush now
+  if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+    setTimeout(flushScoreQueue, 300);
+    return;
+  }
+  // otherwise poll for initialization and flush once ready
+  const poll = setInterval(() => {
+    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+      clearInterval(poll);
+      setTimeout(flushScoreQueue, 200);
+    }
+  }, 250);
+})();
+
+
 </script>
 </body>
 </html>
