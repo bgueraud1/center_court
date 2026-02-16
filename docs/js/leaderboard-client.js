@@ -66,14 +66,16 @@ async function submitScore(gameId, points, options = {}){
   }
 
   const payload = { game_id: gameId, points };
-  if (user) {
-    payload.pseudo = user.pseudo;
-    payload.password_hash = user.password_hash;
-  } else {
-    payload.anon_id = anonId;
-    if (options.displayName) payload.pseudo = options.displayName.slice(0,50);
-  }
-  if (meta) payload.meta = meta;
+if (options.mode) payload.mode = options.mode;
+if (user) {
+  payload.pseudo = user.pseudo;
+  payload.password_hash = user.password_hash;
+} else {
+  payload.anon_id = anonId;
+  if (options.displayName) payload.pseudo = options.displayName.slice(0,50);
+}
+if (meta) payload.meta = meta;
+
 
   try {
     const r = await fetch('/.netlify/functions/submit-score', {
