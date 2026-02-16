@@ -58,49 +58,73 @@
   }
 
   // --- submitScore -> calls Netlify function POST /.netlify/functions/submit-score
-  async function submitScore(gameId, points, options = {}){
-    if (!gameId || typeof points !== 'number') return { ok:false, error:'invalid_args' };
-    if (hasSubmittedTodayLocally(gameId)) return { ok:false, error:'already_submitted_local' };
+  /* ---- submit function ----
+   - gameId: string
+   - points: number
+   - options.meta: optional string or object
+   - options.displayName: optional display name (string)
+   - options.mode: optional string (e.g. "ATP_top20")
+   - options.anon_id: optional string (will be used if provided)
+   - returns parsed JSON from server
+*/
+async function submitScore(gameId, points, options = {}){
+  const user = getLocalUser();
+  // prefer anon_id passed in options only if provided; otherwise use/create local anon id
+  const anonIdFromOpts = options.anon_id || null;
+  const anonId = anonIdFromOpts || getOrCreateAnonId();
+  const metaOpt = options.meta || null;
+  const modeOpt = options.mode || null;
+  const displayNameOpt = options.displayName || null;
 
-    const user = getLocalUser();
-    const anonId = getOrCreateAnonId();
-
-    const payload = { game_id: gameId, points: Number(points) };
-    if (user) {
-      payload.pseudo = user.pseudo;
-      payload.password_hash = user.password_hash;
-    } else {
-      payload.anon_id = anonId;
-      if (options.displayName) payload.pseudo = String(options.displayName).slice(0,50);
-    }
-    if (options.meta) payload.meta = options.meta;
-    if (options.mode) payload.mode = options.mode;
-
-    try {
-      const r = await fetch('/.netlify/functions/submit-score', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (r.status === 409) {
-        const j = await r.json().catch(()=>({}));
-        return { ok:false, error: j.error || 'already_submitted' };
-      }
-      if (!r.ok) {
-        const txt = await r.text();
-        return { ok:false, error:'server', detail: txt };
-      }
-      const json = await r.json();
-      if (json && json.ok) {
-        markSubmittedTodayLocally(gameId);
-      }
-      return json;
-    } catch (err) {
-      console.error('submitScore error', err);
-      return { ok:false, error:'network' };
-    }
+  // local guard: already submitted today.
+  if (hasSubmittedTodayLocally(gameId)) {
+    return { ok:false, error:'already_submitted_local' };
   }
+
+  // build payload
+  const payload = { game_id: gameId, points: Number(points) };
+  if (user) {
+    // if local "logged" user, include pseudo + password_hash if present
+    payload.pseudo = user.pseudo;
+    if (user.password_hash) payload.password_hash = user.password_hash;
+    // if your backend expects user_id instead, change here to include user.id
+  } else {
+    // anonymous path: include anon_id and optional pseudo for display
+    payload.anon_id = anonId;
+    if (displayNameOpt) payload.pseudo = String(displayNameOpt).slice(0,50);
+  }
+
+  if (modeOpt) payload.mode = String(modeOpt).slice(0,50);
+
+  // meta: if object -> stringify
+  if (metaOpt) {
+    if (typeof metaOpt === 'object') payload.meta = JSON.stringify(metaOpt);
+    else payload.meta = String(metaOpt);
+  }
+
+  try {
+    const r = await fetch('/.netlify/functions/submit-score', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const text = await r.text();
+    let data;
+    try { data = text ? JSON.parse(text) : {}; } catch(e){ data = { ok:false, error:'invalid_json_from_server', raw:text }; }
+
+    if (r.ok && data && data.ok) {
+      // mark locally to prevent repeated submits from same browser
+      markSubmittedTodayLocally(gameId);
+    }
+
+    return data;
+  } catch (err) {
+    console.error('submitScore error', err);
+    return { ok:false, error:'network', detail: String(err) };
+  }
+}
+
 
   // --- fetchLeaderboard -> GET /.netlify/functions/leaderboard?date=YYYY-MM-DD&game_id=...
   async function fetchLeaderboard(dateISO, gameId, limit=50){
