@@ -1,34 +1,27 @@
 // netlify/functions/submit-score.js
-// Robust supabase REST usage + CORS + defensive parsing
+// Version corrigée : ne dépend pas d'une colonne `anon_id` (utilise pseudo à la place)
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*', // en prod: remplace par ton domaine
+  'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Allow-Methods': 'OPTIONS, POST'
 };
 
-function jsonSafeParse(text) {
-  try { return JSON.parse(text); } catch (e) { return null; }
-}
-
 exports.handler = async function(event) {
-  // Preflight CORS
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 204, headers: CORS_HEADERS, body: '' };
   }
-
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Method Not Allowed' }) };
   }
-
   if (!SUPABASE_URL || !SUPABASE_KEY) {
     return { statusCode: 500, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Missing Supabase env vars' }) };
   }
 
-  // lazy import fetch for Netlify Node
+  // lazy import fetch for Netlify Node if needed
   let fetchImpl = global.fetch;
   if (!fetchImpl) {
     const nf = await import('node-fetch');
@@ -37,39 +30,37 @@ exports.handler = async function(event) {
 
   try {
     const body = event.body ? JSON.parse(event.body) : {};
-    const { game_id, points, pseudo, password_hash, anon_id, meta } = body;
+    const { game_id, points, pseudo: providedPseudo, password_hash, anon_id, meta } = body;
 
     if (!game_id || typeof points === 'undefined') {
       return { statusCode: 400, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Missing game_id or points' }) };
     }
 
-    // ----- 1) user handling (create or fetch) -----
+    // 1) User handling: if pseudo+password_hash => find or create in users table
     let user_id = null;
-    if (pseudo && password_hash) {
-      // try find user by pseudo
-      const findUserUrl = `${SUPABASE_URL}/rest/v1/users?select=id,password_hash&pseudo=eq.${encodeURIComponent(pseudo)}&limit=1`;
+    let effectivePseudo = providedPseudo ? String(providedPseudo).trim() : null;
+
+    if (password_hash && effectivePseudo) {
+      // find existing user
+      const findUserUrl = `${SUPABASE_URL}/rest/v1/users?select=id,password_hash&pseudo=eq.${encodeURIComponent(effectivePseudo)}&limit=1`;
       const rFind = await fetchImpl(findUserUrl, {
         headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
       });
-
       let findJson = null;
-      try { findJson = await rFind.json(); } catch(e) { findJson = null; }
+      try { findJson = await rFind.json(); } catch (e) { findJson = null; }
 
       if (!rFind.ok) {
-        // log and continue: do not crash, but return an informative error
-        const text = JSON.stringify(findJson || { status: rFind.status, statusText: rFind.statusText });
-        console.error('supabase find user error', text);
+        console.error('supabase find user error', { status: rFind.status, body: findJson });
         return { statusCode: 502, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Supabase find user failed', detail: findJson }) };
       }
 
       if (Array.isArray(findJson) && findJson.length > 0) {
-        // check password hash match (we compare hash directly for prototype)
         if (findJson[0].password_hash !== password_hash) {
           return { statusCode: 403, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Invalid password' }) };
         }
         user_id = findJson[0].id;
       } else {
-        // create user (representation return)
+        // create user
         const createUrl = `${SUPABASE_URL}/rest/v1/users`;
         const rCreate = await fetchImpl(createUrl, {
           method: 'POST',
@@ -79,12 +70,10 @@ exports.handler = async function(event) {
             'Content-Type': 'application/json',
             Prefer: 'return=representation'
           },
-          body: JSON.stringify([{ pseudo, password_hash }])
+          body: JSON.stringify([{ pseudo: effectivePseudo, password_hash }])
         });
-
         let createJson = null;
-        try { createJson = await rCreate.json(); } catch(e) { createJson = null; }
-
+        try { createJson = await rCreate.json(); } catch(e){ createJson = null; }
         if (!rCreate.ok || !Array.isArray(createJson) || createJson.length === 0) {
           console.error('supabase create user failed', createJson);
           return { statusCode: 502, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Supabase create user failed', detail: createJson }) };
@@ -93,38 +82,74 @@ exports.handler = async function(event) {
       }
     }
 
-    // ----- 2) duplicate same-day check -----
-    // Use full ISO-day start to be precise
-    const targetDate = (new Date()).toISOString().slice(0,10);
-    const isoStart = `${targetDate}T00:00:00Z`;
+    // 2) Determine effectivePseudo if anonymous: use anon_id to create a pseudo placeholder
+    if (!effectivePseudo) {
+      if (anon_id) {
+        effectivePseudo = `anon_${String(anon_id).slice(0,8)}`;
+      } else {
+        // ultimate fallback: random anon
+        effectivePseudo = `anon_${Math.random().toString(36).slice(2,9)}`;
+      }
+    }
 
-    const checkUrl = `${SUPABASE_URL}/rest/v1/scores?select=id,user_id,anon_id,pseudo,created_at&game_id=eq.${encodeURIComponent(game_id)}&created_at=gte.${encodeURIComponent(isoStart)}`;
-    const rCheck = await fetchImpl(checkUrl, {
+    // If we have anon_id and meta is not a string, try to embed it in meta JSON for audit
+    let metaOut = meta || null;
+    try {
+      // if meta is string containing JSON, keep; if it's object, stringify
+      if (metaOut && typeof metaOut === 'object') metaOut = JSON.stringify(metaOut);
+    } catch(e) { metaOut = String(metaOut); }
+    if (anon_id) {
+      // ensure metaOut contains anon info (string)
+      try {
+        let mObj = metaOut ? JSON.parse(metaOut) : {};
+        if (typeof mObj !== 'object' || Array.isArray(mObj)) mObj = { meta: metaOut };
+        mObj.anon_id = anon_id;
+        metaOut = JSON.stringify(mObj);
+      } catch(e) {
+        // metaOut not JSON => wrap
+        metaOut = JSON.stringify({ original_meta: String(metaOut || ''), anon_id });
+      }
+    }
+
+    // 3) Duplicate today-check:
+    const today = (new Date()).toISOString().slice(0,10);
+    const isoStart = `${today}T00:00:00Z`;
+
+    // Build check URL with either:
+    // - if user_id and effectivePseudo -> use or=(user_id.eq.X,pseudo.eq.Y)
+    // - else if user_id -> user_id=eq.X
+    // - else -> pseudo=eq.Y
+    let checkUrlBase = `${SUPABASE_URL}/rest/v1/scores?select=id,user_id,pseudo,created_at&game_id=eq.${encodeURIComponent(game_id)}&created_at=gte.${encodeURIComponent(isoStart)}`;
+
+    if (user_id && effectivePseudo) {
+      const orParam = encodeURIComponent(`(user_id.eq.${user_id},pseudo.eq.${effectivePseudo})`);
+      checkUrlBase += `&or=${orParam}`;
+    } else if (user_id) {
+      checkUrlBase += `&user_id=eq.${encodeURIComponent(user_id)}`;
+    } else if (effectivePseudo) {
+      checkUrlBase += `&pseudo=eq.${encodeURIComponent(effectivePseudo)}`;
+    }
+
+    const rCheck = await fetchImpl(checkUrlBase, {
       headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
     });
 
     let existing = null;
-    // Defensive parsing: if supabase returns an error object, handle gracefully
-    try { existing = await rCheck.json(); } catch (e) { existing = null; }
+    try { existing = await rCheck.json(); } catch(e) { existing = null; }
 
     if (!rCheck.ok) {
-      // If Supabase returned error, log and fail early (no silent crash)
-      console.error('supabase check existing returned non-ok', { status: rCheck.status, body: existing });
-      // to be permissive you could set existing = [], but better return informative error
+      console.error('supabase check existing non-ok', { status: rCheck.status, body: existing });
       return { statusCode: 502, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Supabase check failed', detail: existing }) };
     }
 
-    // Ensure existing is an array (some endpoints may return an object on error)
     if (!Array.isArray(existing)) {
       console.warn('supabase check returned unexpected payload (not array)', existing);
-      // defensive: treat as no existing rows to allow insertion OR return error
       existing = [];
     }
 
     const already = existing.some(r => {
       if (user_id && r.user_id && String(r.user_id) === String(user_id)) return true;
-      if (anon_id && r.anon_id && String(r.anon_id) === String(anon_id)) return true;
-      if (!user_id && !anon_id && pseudo && r.pseudo && r.pseudo === pseudo) return true;
+      if (effectivePseudo && r.pseudo && String(r.pseudo) === String(effectivePseudo)) return true;
       return false;
     });
 
@@ -132,15 +157,14 @@ exports.handler = async function(event) {
       return { statusCode: 403, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Already submitted today for this game' }) };
     }
 
-    // ----- 3) insert score -----
+    // 4) Insert
     const insertUrl = `${SUPABASE_URL}/rest/v1/scores`;
     const record = {
       user_id: user_id || null,
-      pseudo: pseudo || (anon_id ? `anon_${String(anon_id).slice(0,8)}` : 'anonymous'),
-      anon_id: anon_id || null,
+      pseudo: effectivePseudo,
       game_id,
       points: Number(points),
-      meta: meta || null
+      meta: metaOut
     };
 
     const rInsert = await fetchImpl(insertUrl, {
@@ -155,14 +179,13 @@ exports.handler = async function(event) {
     });
 
     let insertJson = null;
-    try { insertJson = await rInsert.json(); } catch(e) { insertJson = null; }
+    try { insertJson = await rInsert.json(); } catch(e){ insertJson = null; }
 
     if (!rInsert.ok) {
       console.error('supabase insert error', insertJson);
       return { statusCode: 502, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Insert failed', detail: insertJson }) };
     }
 
-    // success
     return { statusCode: 200, headers: CORS_HEADERS, body: JSON.stringify({ ok: true, record: Array.isArray(insertJson)?insertJson[0]:insertJson }) };
 
   } catch (err) {
