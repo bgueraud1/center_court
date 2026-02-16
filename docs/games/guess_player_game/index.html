@@ -915,29 +915,69 @@ function waitForLeaderboard(timeout = 5000, interval = 200){
   });
 }
 
-/** Try to submit a single queued entry to LB; returns Promise<boolean> */
+/** Replace existing trySubmitEntryToLB with this improved version.
+ *  - treats only res.ok === true (or res.success === true) as success
+ *  - when submitScore responds with ok:false, tries a direct fetch fallback
+ *  - logs everything so you see Network / Console evidence
+ */
 async function trySubmitEntryToLB(entry){
+  const gameId = entry.gameId || 'guess_player';
+  const points = Number(entry.points) || 0;
+  const options = entry.options || {};
+
+  // 1) First try the library's submitScore if available
+  if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+    try {
+      console.info('[LB] calling window.LEADERBOARD.submitScore', { gameId, points, options });
+      const res = await window.LEADERBOARD.submitScore(gameId, points, options);
+      console.info('[LB] submitScore response', res);
+
+      // Treat success only when explicit success flag is present
+      if(res && (res.ok === true || res.success === true || res.status === 'ok')){
+        console.info('[LB] submitScore returned explicit success');
+        return true;
+      }
+
+      // If library responded with ok:false or error, log it and fall through to server fallback
+      console.warn('[LB] submitScore indicated failure or non-success response, will try fallback', res);
+    } catch(err){
+      console.error('[LB] submitScore threw', err);
+      // fall through to fallback
+    }
+  } else {
+    console.warn('[LB] window.LEADERBOARD.submitScore not available; using fallback');
+  }
+
+  // 2) Fallback: POST directly to server endpoint (adapt the URL to your backend)
+  //    This must correspond to the server endpoint that actually writes Scores in DB.
+  const fallbackEndpoint = '/api/leaderboard/submit'; // <-- ADAPTE si besoin
+  const payload = { gameId, points, options, ts: (new Date()).toISOString() };
+
   try {
-    if(!window.LEADERBOARD || typeof window.LEADERBOARD.submitScore !== 'function'){
-      console.warn('LEADERBOARD not ready when trying submit entry');
+    console.info('[LB-FALLBACK] POST', fallbackEndpoint, payload);
+    const resp = await fetch(fallbackEndpoint, {
+      method: 'POST',
+      credentials: 'include', // include cookies/auth — adapt if your API requires token header
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    // Always log raw status & text for debugging
+    const txt = await resp.text().catch(()=>null);
+    console.info('[LB-FALLBACK] response status', resp.status, txt);
+
+    if(resp.ok){
+      // Try to parse JSON if any
+      let json = null;
+      try { json = JSON.parse(txt); } catch(e){ /* ignore */ }
+      console.info('[LB-FALLBACK] success', json);
+      return true;
+    } else {
+      console.warn('[LB-FALLBACK] server returned non-OK', resp.status, txt);
       return false;
     }
-    // submitScore might accept (gameId, points, options)
-    // keep same options shape as original code
-    const gameId = 'guess_player';
-    const res = await window.LEADERBOARD.submitScore(gameId, Number(entry.points) || 0, entry.options || {});
-    console.info('submitScore response', res);
-    // many implementations return an object with ok:true; adapt if necessary
-    if(res && (res.ok === true || res.success === true || res.status === 'ok')) return true;
-    // some backends return {ok:false,..} or throw — treat truthy as success otherwise log
-    if(res && typeof res === 'object' && Object.keys(res).length){
-      // if uncertain, consider success when we get an object (fallback)
-      console.info('submitScore returned object, treating as success by fallback', res);
-      return true;
-    }
-    return false;
-  } catch(e){
-    console.error('submitScore failed', e);
+  } catch(fetchErr){
+    console.error('[LB-FALLBACK] fetch error', fetchErr);
     return false;
   }
 }
