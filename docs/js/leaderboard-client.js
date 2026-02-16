@@ -1,176 +1,209 @@
-/* tiny utils */
-function uuidv4(){
-  return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=>
-    (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c/4).toString(16)
-  );
-}
-async function sha256Hex(msg){
-  const enc = new TextEncoder();
-  const data = enc.encode(msg);
-  const h = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,'0')).join('');
-}
+// docs/js/leaderboard-client.js
+// Minimal leaderboard client (no <script> wrapper) - pure JS file.
+// Expose window.LEADERBOARD with submitScore, fetchLeaderboard, createLeaderboardPanel, getLocalUser, getOrCreateAnonId
 
-/* storage keys */
-const LB_USER_KEY = 'lb_user_v1';
-const LB_ANON_KEY = 'lb_anon_v1';
-const LB_LAST_SUB_PREFIX = 'lb_last_submit_'; // + gameId -> yyyy-mm-dd
-
-/* anon id management */
-function getOrCreateAnonId(){
-  let id = localStorage.getItem(LB_ANON_KEY);
-  if (!id){
-    id = uuidv4();
-    localStorage.setItem(LB_ANON_KEY, id);
+(function(){
+  // --- utils ---
+  function uuidv4(){
+    return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=>
+      (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c/4).toString(16)
+    );
   }
-  return id;
-}
-
-/* user management (local only) */
-async function signupOrLoginLocal(pseudo, password){
-  const hash = await sha256Hex(password);
-  const obj = { pseudo: String(pseudo).trim(), password_hash: hash };
-  localStorage.setItem(LB_USER_KEY, JSON.stringify(obj));
-  return obj;
-}
-function getLocalUser(){
-  const s = localStorage.getItem(LB_USER_KEY);
-  if (!s) return null;
-  try { return JSON.parse(s); } catch(e) { return null; }
-}
-function logoutLocal(){
-  localStorage.removeItem(LB_USER_KEY);
-}
-
-/* duplicate-prevent (local only) */
-function hasSubmittedTodayLocally(gameId){
-  const key = LB_LAST_SUB_PREFIX + gameId;
-  const last = localStorage.getItem(key);
-  const today = (new Date()).toISOString().slice(0,10);
-  return last === today;
-}
-function markSubmittedTodayLocally(gameId){
-  const key = LB_LAST_SUB_PREFIX + gameId;
-  const today = (new Date()).toISOString().slice(0,10);
-  localStorage.setItem(key, today);
-}
-
-/* submit function */
-async function submitScore(gameId, points, options = {}){
-  const user = getLocalUser();
-  const anonId = getOrCreateAnonId();
-  const meta = options.meta || '';
-
-  if (hasSubmittedTodayLocally(gameId)) {
-    return { ok:false, error:'already_submitted_local' };
+  async function sha256Hex(msg){
+    const enc = new TextEncoder();
+    const h = await crypto.subtle.digest('SHA-256', enc.encode(msg));
+    return Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,'0')).join('');
   }
 
-  const payload = { game_id: gameId, points };
-if (options.mode) payload.mode = options.mode;
-if (user) {
-  payload.pseudo = user.pseudo;
-  payload.password_hash = user.password_hash;
-} else {
-  payload.anon_id = anonId;
-  if (options.displayName) payload.pseudo = options.displayName.slice(0,50);
-}
-if (meta) payload.meta = meta;
+  // --- storage keys ---
+  const LB_USER_KEY = 'lb_user_v1';
+  const LB_ANON_KEY = 'lb_anon_v1';
+  const LB_LAST_SUB_PREFIX = 'lb_last_submit_';
 
-
-  try {
-    const r = await fetch('/.netlify/functions/submit-score', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    const data = await r.json();
-    if (r.ok && data && data.ok) {
-      markSubmittedTodayLocally(gameId);
+  // --- anon id ---
+  function getOrCreateAnonId(){
+    let id = localStorage.getItem(LB_ANON_KEY);
+    if (!id){
+      id = uuidv4();
+      localStorage.setItem(LB_ANON_KEY, id);
     }
-    return data;
-  } catch (err) {
-    console.error('submitScore error', err);
-    return { ok:false, error:'network' };
+    return id;
   }
-}
 
-/* leaderboard fetcher */
-async function fetchLeaderboard(dateISO, gameId, limit=30){
-  const q = new URLSearchParams();
-  if (dateISO) q.set('date', dateISO);
-  if (gameId) q.set('game_id', gameId);
-  q.set('limit', String(limit));
-  const r = await fetch('/.netlify/functions/leaderboard?' + q.toString());
-  return r.ok ? r.json() : null;
-}
+  // --- local user simple store ---
+  async function signupOrLoginLocal(pseudo, password){
+    const hash = await sha256Hex(password);
+    const obj = { pseudo: String(pseudo).trim(), password_hash: hash };
+    localStorage.setItem(LB_USER_KEY, JSON.stringify(obj));
+    return obj;
+  }
+  function getLocalUser(){
+    const s = localStorage.getItem(LB_USER_KEY);
+    if (!s) return null;
+    try { return JSON.parse(s); } catch(e) { return null; }
+  }
+  function logoutLocal(){ localStorage.removeItem(LB_USER_KEY); }
 
-/* UI helper */
-function createLeaderboardPanel(containerEl){
-  containerEl.innerHTML = `
-    <div style="display:flex;gap:8px;align-items:center">
-      <div id="lb-auth" style="display:flex;gap:8px;align-items:center">
-        <input id="lb-pseudo" placeholder="Pseudo (optionnel)" style="padding:6px;border-radius:6px" />
-        <input id="lb-pass" type="password" placeholder="Mot de passe (inscription/login)" style="padding:6px;border-radius:6px" />
-        <button id="lb-login" style="padding:6px 8px;border-radius:6px">Login / Signup</button>
-        <button id="lb-logout" style="padding:6px 8px;border-radius:6px;display:none">Logout</button>
+  // --- local duplicate-guard ---
+  function hasSubmittedTodayLocally(gameId){
+    const key = LB_LAST_SUB_PREFIX + gameId;
+    const last = localStorage.getItem(key);
+    const today = (new Date()).toISOString().slice(0,10);
+    return last === today;
+  }
+  function markSubmittedTodayLocally(gameId){
+    const key = LB_LAST_SUB_PREFIX + gameId;
+    const today = (new Date()).toISOString().slice(0,10);
+    localStorage.setItem(key, today);
+  }
+
+  // --- submitScore -> calls Netlify function POST /.netlify/functions/submit-score
+  async function submitScore(gameId, points, options = {}){
+    if (!gameId || typeof points !== 'number') return { ok:false, error:'invalid_args' };
+    if (hasSubmittedTodayLocally(gameId)) return { ok:false, error:'already_submitted_local' };
+
+    const user = getLocalUser();
+    const anonId = getOrCreateAnonId();
+
+    const payload = { game_id: gameId, points: Number(points) };
+    if (user) {
+      payload.pseudo = user.pseudo;
+      payload.password_hash = user.password_hash;
+    } else {
+      payload.anon_id = anonId;
+      if (options.displayName) payload.pseudo = String(options.displayName).slice(0,50);
+    }
+    if (options.meta) payload.meta = options.meta;
+    if (options.mode) payload.mode = options.mode;
+
+    try {
+      const r = await fetch('/.netlify/functions/submit-score', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (r.status === 409) {
+        const j = await r.json().catch(()=>({}));
+        return { ok:false, error: j.error || 'already_submitted' };
+      }
+      if (!r.ok) {
+        const txt = await r.text();
+        return { ok:false, error:'server', detail: txt };
+      }
+      const json = await r.json();
+      if (json && json.ok) {
+        markSubmittedTodayLocally(gameId);
+      }
+      return json;
+    } catch (err) {
+      console.error('submitScore error', err);
+      return { ok:false, error:'network' };
+    }
+  }
+
+  // --- fetchLeaderboard -> GET /.netlify/functions/leaderboard?date=YYYY-MM-DD&game_id=...
+  async function fetchLeaderboard(dateISO, gameId, limit=50){
+    const q = new URLSearchParams();
+    if (dateISO) q.set('date', dateISO);
+    if (gameId) q.set('game_id', gameId);
+    q.set('limit', String(limit));
+    try {
+      const r = await fetch('/.netlify/functions/leaderboard?' + q.toString());
+      if (!r.ok) return null;
+      const j = await r.json();
+      return j;
+    } catch(e) {
+      console.error('fetchLeaderboard error', e);
+      return null;
+    }
+  }
+
+  // --- UI panel helper (simple) ---
+  function createLeaderboardPanel(containerEl){
+    if (!containerEl) return;
+    containerEl.innerHTML = `
+      <div style="display:flex;gap:8px;align-items:center">
+        <div id="lb-auth" style="display:flex;gap:8px;align-items:center">
+          <input id="lb-pseudo" placeholder="Pseudo (optionnel)" style="padding:6px;border-radius:6px" />
+          <input id="lb-pass" type="password" placeholder="Mot de passe (inscription/login)" style="padding:6px;border-radius:6px" />
+          <button id="lb-login" style="padding:6px 8px;border-radius:6px">Login / Signup</button>
+          <button id="lb-logout" style="padding:6px 8px;border-radius:6px;display:none">Logout</button>
+        </div>
+        <div style="margin-left:auto">
+          <button id="lb-refresh" style="padding:6px 8px;border-radius:6px">Refresh LB</button>
+        </div>
       </div>
-      <div style="margin-left:auto">
-        <button id="lb-refresh" style="padding:6px 8px;border-radius:6px">Refresh LB</button>
-      </div>
-    </div>
-    <div id="lb-list" style="margin-top:10px"></div>
-  `;
-  containerEl.querySelector('#lb-login').onclick = async () => {
-    const p = containerEl.querySelector('#lb-pseudo').value.trim();
-    const pw = containerEl.querySelector('#lb-pass').value;
-    if (!p || !pw) return alert('Entrer pseudo et mot de passe (au moins) pour enregistrer');
-    await signupOrLoginLocal(p, pw);
+      <div id="lb-list" style="margin-top:10px">Chargement...</div>
+    `;
+    const btnLogin = containerEl.querySelector('#lb-login');
+    const btnLogout = containerEl.querySelector('#lb-logout');
+    const inputPseudo = containerEl.querySelector('#lb-pseudo');
+    const inputPass = containerEl.querySelector('#lb-pass');
+
+    btnLogin.onclick = async () => {
+      const p = inputPseudo.value.trim();
+      const pw = inputPass.value;
+      if (!p || !pw) return alert('Entrer pseudo et mot de passe (au moins) pour enregistrer');
+      await signupOrLoginLocal(p, pw);
+      updateAuthUi(containerEl);
+      alert('Connecté localement (pseudo enregistré).');
+    };
+    btnLogout.onclick = () => { logoutLocal(); updateAuthUi(containerEl); };
+    containerEl.querySelector('#lb-refresh').onclick = () => refreshLeaderboard(containerEl.dataset.gameId, containerEl);
+
     updateAuthUi(containerEl);
-    alert('Connecté localement (pseudo enregistré).');
-  };
-  containerEl.querySelector('#lb-logout').onclick = () => { logoutLocal(); updateAuthUi(containerEl); };
-  containerEl.querySelector('#lb-refresh').onclick = () => {
-    const gid = containerEl.dataset.gameId;
-    refreshLeaderboard(gid, containerEl);
-  };
-  updateAuthUi(containerEl);
-  refreshLeaderboard(containerEl.dataset.gameId, containerEl);
-}
-function updateAuthUi(containerEl){
-  const user = getLocalUser();
-  const inputPseudo = containerEl.querySelector('#lb-pseudo');
-  const inputPass = containerEl.querySelector('#lb-pass');
-  const btnLogin = containerEl.querySelector('#lb-login');
-  const btnLogout = containerEl.querySelector('#lb-logout');
-  if (user) {
-    inputPseudo.value = user.pseudo;
-    inputPass.value = '';
-    btnLogin.style.display = 'none';
-    btnLogout.style.display = '';
-  } else {
-    inputPseudo.value = '';
-    inputPass.value = '';
-    btnLogin.style.display = '';
-    btnLogout.style.display = 'none';
+    refreshLeaderboard(containerEl.dataset.gameId, containerEl);
   }
-}
-async function refreshLeaderboard(gameId, containerEl){
-  const display = containerEl.querySelector('#lb-list');
-  display.innerHTML = 'Chargement...';
-  const data = await fetchLeaderboard((new Date()).toISOString().slice(0,10), gameId, 30);
-  if (!data || !data.leaderboard) {
-    display.innerHTML = 'Erreur de chargement';
-    return;
-  }
-  const rows = data.leaderboard.map((u,i) => `<div style="padding:6px;border-bottom:1px solid rgba(255,255,255,0.04)"><strong>#${i+1} ${u.pseudo}</strong> — ${u.total} pts</div>`).join('');
-  display.innerHTML = rows || '<div>No score today</div>';
-}
 
-/* export API */
-window.LEADERBOARD = {
-  submitScore,
-  fetchLeaderboard,
-  createLeaderboardPanel,
-  getLocalUser,
-  getOrCreateAnonId
-};
+  function updateAuthUi(containerEl){
+    const user = getLocalUser();
+    const inputPseudo = containerEl.querySelector('#lb-pseudo');
+    const inputPass = containerEl.querySelector('#lb-pass');
+    const btnLogin = containerEl.querySelector('#lb-login');
+    const btnLogout = containerEl.querySelector('#lb-logout');
+    if (user) {
+      inputPseudo.value = user.pseudo;
+      inputPass.value = '';
+      btnLogin.style.display = 'none';
+      btnLogout.style.display = '';
+    } else {
+      inputPseudo.value = '';
+      inputPass.value = '';
+      btnLogin.style.display = '';
+      btnLogout.style.display = 'none';
+    }
+  }
+
+  async function refreshLeaderboard(gameId, containerEl){
+    const display = containerEl.querySelector('#lb-list');
+    display.innerHTML = 'Chargement...';
+    const dateISO = (new Date()).toISOString().slice(0,10);
+    const data = await fetchLeaderboard(dateISO, gameId, 200);
+    if (!data || !data.leaderboard) {
+      display.innerHTML = 'Erreur de chargement';
+      return;
+    }
+    // aggregate by user (client-side)
+    const map = {};
+    data.leaderboard.forEach(r => {
+      const key = r.user_id || r.pseudo || r.anon_id || ('anon_' + (r.id || Math.random()));
+      const name = r.pseudo || (r.user_id ? r.user_id : (r.anon_id || 'anonymous'));
+      if (!map[key]) map[key] = { name, total: 0, rows: [] };
+      map[key].total += (Number(r.points) || 0);
+      map[key].rows.push(r);
+    });
+    const arr = Object.values(map).sort((a,b)=>b.total-a.total);
+    const rowsHtml = arr.map((u,i) => `<div style="padding:6px;border-bottom:1px solid rgba(0,0,0,0.06)"><strong>#${i+1} ${u.name}</strong> — ${u.total} pts</div>`).join('');
+    display.innerHTML = rowsHtml || '<div>Aucun score aujourd\'hui</div>';
+  }
+
+  // export API
+  window.LEADERBOARD = {
+    submitScore,
+    fetchLeaderboard,
+    createLeaderboardPanel,
+    getLocalUser,
+    getOrCreateAnonId
+  };
+})();

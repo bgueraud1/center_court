@@ -1,134 +1,115 @@
 // netlify/functions/submit-score.js
+// Utilise uniquement fetch (Node 18+ sur Netlify) — pas de dépendances externes.
+
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Access-Control-Allow-Methods': 'OPTIONS, POST'
-};
 
 exports.handler = async function(event) {
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 204, headers: CORS_HEADERS, body: '' };
-  }
   if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Method Not Allowed' }) };
-  }
-  if (!SUPABASE_URL || !SUPABASE_KEY) {
-    return { statusCode: 500, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Missing Supabase env vars' }) };
+    return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
   }
 
-  // fetch shim (Netlify Node)
-  let fetchImpl = global.fetch;
-  if (!fetchImpl) {
-    const nf = await import('node-fetch');
-    fetchImpl = nf.default || nf;
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    return { statusCode: 500, body: JSON.stringify({ error: 'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY' }) };
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(event.body || '{}');
+  } catch (e) {
+    return { statusCode: 400, body: JSON.stringify({ error: 'bad_json', detail: e.message }) };
+  }
+
+  const { game_id, points, user_id, anon_id, pseudo, meta, mode } = payload;
+
+  if (!game_id || typeof points !== 'number') {
+    return { statusCode: 400, body: JSON.stringify({ error: 'missing_fields', message: 'game_id and numeric points required' }) };
   }
 
   try {
-    const body = event.body ? JSON.parse(event.body) : {};
-    const { game_id, points, pseudo: providedPseudo, password_hash, anon_id, meta, mode } = body;
+    // calculer plage "aujourd'hui" en UTC (00:00:00 UTC -> 24h)
+    const now = new Date();
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0));
+    const end = new Date(start.getTime() + 24 * 3600 * 1000);
 
-    if (!game_id || typeof points === 'undefined') {
-      return { statusCode: 400, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Missing game_id or points' }) };
+    const startISO = start.toISOString();
+    const endISO = end.toISOString();
+
+    // Construire l'URL PostgREST de recherche
+    // /rest/v1/scores?game_id=eq.<..>&created_at=gte.<start>&created_at=lt.<end>&user_id=eq.<id>
+    const params = new URLSearchParams();
+    params.set('game_id', `eq.${game_id}`);
+    params.set('created_at', `gte.${startISO}`); // fera 2 fois la clé created_at ci-dessous - on forma en string finale
+    // NOTE: URLSearchParams ne permet pas 2x le même nom facilement; on construira manuellement.
+
+    // build query base
+    let q = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/scores?game_id=eq.${encodeURIComponent(game_id)}&created_at=gte.${encodeURIComponent(startISO)}&created_at=lt.${encodeURIComponent(endISO)}`;
+
+    if (user_id) {
+      q += `&user_id=eq.${encodeURIComponent(user_id)}`;
+    } else if (anon_id) {
+      q += `&anon_id=eq.${encodeURIComponent(anon_id)}`;
+    } else if (pseudo) {
+      q += `&pseudo=eq.${encodeURIComponent(pseudo)}`;
+    } else {
+      // pas d'identifiant — nous laissons q tel quel pour detecter d'éventuelles soumissions sans id
     }
 
-    // normalize inputs
-    const effectiveMode = mode ? String(mode).trim() : 'default';
-    let effectivePseudo = providedPseudo ? String(providedPseudo).trim() : null;
-    let user_id = null;
-
-    // If credentials provided, try to find/create user (simple local users table)
-    if (password_hash && effectivePseudo) {
-      // find user by pseudo
-      const findUrl = `${SUPABASE_URL}/rest/v1/users?select=id,password_hash&pseudo=eq.${encodeURIComponent(effectivePseudo)}&limit=1`;
-      const rFind = await fetchImpl(findUrl, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } });
-      const findJson = await rFind.json();
-      if (!rFind.ok) {
-        // don't block: return an error
-        return { statusCode: 502, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Supabase find user failed', detail: findJson }) };
-      }
-      if (Array.isArray(findJson) && findJson.length > 0) {
-        if (findJson[0].password_hash !== password_hash) {
-          return { statusCode: 403, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Invalid password' }) };
-        }
-        user_id = findJson[0].id;
-      } else {
-        // create user
-        const createUrl = `${SUPABASE_URL}/rest/v1/users`;
-        const rCreate = await fetchImpl(createUrl, {
-          method: 'POST',
-          headers: {
-            apikey: SUPABASE_KEY,
-            Authorization: `Bearer ${SUPABASE_KEY}`,
-            'Content-Type': 'application/json',
-            Prefer: 'return=representation'
-          },
-          body: JSON.stringify([{ pseudo: effectivePseudo, password_hash }])
-        });
-        const createJson = await rCreate.json();
-        if (!rCreate.ok || !Array.isArray(createJson) || createJson.length === 0) {
-          return { statusCode: 502, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Supabase create user failed', detail: createJson }) };
-        }
-        user_id = createJson[0].id;
-      }
-    }
-
-    // if no pseudo provided, fallback to anon id or generated
-    if (!effectivePseudo) {
-      if (anon_id) effectivePseudo = `anon_${String(anon_id).slice(0,8)}`;
-      else effectivePseudo = `anon_${Math.random().toString(36).slice(2,9)}`;
-    }
-
-    // meta normalization
-    let metaOut = meta || null;
-    try { if (metaOut && typeof metaOut === 'object') metaOut = JSON.stringify(metaOut); } catch(e) { metaOut = String(metaOut); }
-    if (anon_id) {
-      try {
-        const parsed = metaOut ? JSON.parse(metaOut) : {};
-        if (typeof parsed === 'object' && !Array.isArray(parsed)) { parsed.anon_id = anon_id; metaOut = JSON.stringify(parsed); }
-        else { metaOut = JSON.stringify({ original_meta: metaOut, anon_id }); }
-      } catch(e) { metaOut = JSON.stringify({ original_meta: metaOut, anon_id }); }
-    }
-
-    // build record to insert
-    const record = {
-      user_id: user_id || null,
-      pseudo: effectivePseudo,
-      game_id,
-      mode: effectiveMode,
-      points: Number(points),
-      meta: metaOut
+    const headers = {
+      'Authorization': `Bearer ${SUPABASE_KEY}`,
+      'apikey': SUPABASE_KEY,
+      'Accept': 'application/json'
     };
 
-    const insertUrl = `${SUPABASE_URL}/rest/v1/scores`;
-    const rInsert = await fetchImpl(insertUrl, {
-      method: 'POST',
-      headers: {
-        apikey: SUPABASE_KEY,
-        Authorization: `Bearer ${SUPABASE_KEY}`,
-        'Content-Type': 'application/json',
-        Prefer: 'return=representation'
-      },
-      body: JSON.stringify([record])
-    });
-
-    const insertJson = await rInsert.json();
-
-    // If conflict due to unique constraint we created, PostgREST returns 409
-    if (!rInsert.ok) {
-      if (rInsert.status === 409) {
-        return { statusCode: 409, headers: CORS_HEADERS, body: JSON.stringify({ ok:false, error: 'Already submitted today for this game/mode' }) };
-      }
-      // Some other DB error
-      return { statusCode: 502, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Insert failed', detail: insertJson }) };
+    // 1) Check existing submissions for today
+    const resCheck = await fetch(q, { headers });
+    if (!resCheck.ok) {
+      const text = await resCheck.text().catch(()=>null);
+      return { statusCode: 500, body: JSON.stringify({ error: 'Supabase check failed', status: resCheck.status, detail: text }) };
+    }
+    const existing = await resCheck.json();
+    if (Array.isArray(existing) && existing.length > 0) {
+      return { statusCode: 409, body: JSON.stringify({ ok:false, error: 'Already submitted today for this game' }) };
     }
 
-    // success
-    return { statusCode: 200, headers: CORS_HEADERS, body: JSON.stringify({ ok: true, record: Array.isArray(insertJson) ? insertJson[0] : insertJson }) };
+    // 2) Insert new row
+    const insertRow = {
+      game_id,
+      points,
+      meta: meta || null,
+      created_at: (new Date()).toISOString()
+    };
+    if (user_id) insertRow.user_id = user_id;
+    if (pseudo) insertRow.pseudo = pseudo;
+    if (anon_id) insertRow.anon_id = anon_id;
+    if (mode) insertRow.mode = mode;
+
+    const insertUrl = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/scores`;
+    const resInsert = await fetch(insertUrl, {
+      method: 'POST',
+      headers: Object.assign({
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation',
+      }, headers),
+      body: JSON.stringify(insertRow)
+    });
+
+    const insertText = await resInsert.text();
+    if (!resInsert.ok) {
+      // renvoyer le message renvoyé par Supabase pour debugging
+      let detail = insertText;
+      try { detail = JSON.parse(insertText); } catch(e) {}
+      return { statusCode: 500, body: JSON.stringify({ error: 'Supabase insert failed', status: resInsert.status, detail }) };
+    }
+
+    // resInsert ok -> body JSON du row inséré (return=representation)
+    let inserted;
+    try { inserted = JSON.parse(insertText); } catch(e){ inserted = insertText; }
+
+    return { statusCode: 200, body: JSON.stringify({ ok:true, row: inserted }) };
 
   } catch (err) {
-    console.error('submit-score error', err && err.stack ? err.stack : err);
-    return { statusCode: 500, headers: CORS_HEADERS, body: JSON.stringify({ error: 'Server error', detail: String(err) }) };
+    console.error('submit-score exception', err);
+    return { statusCode: 500, body: JSON.stringify({ error: 'Server error', detail: String(err) }) };
   }
 };
