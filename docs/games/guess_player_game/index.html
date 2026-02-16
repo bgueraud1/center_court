@@ -565,13 +565,42 @@ function revealAnswer(won, gainedPoints){
   const title = document.getElementById('modalTitle');
   const text = document.getElementById('modalText');
   const details = document.getElementById('modalDetails');
-  if(won){ title.textContent = 'You won!'; text.textContent = `You earned ${gainedPoints} points this round.`; } else { title.textContent = 'Round over'; text.textContent = 'No points this time — new round will start.'; }
 
-  // après avoir mis à jour score et ouvert le modal
-  submitScoreToLeaderboard(pointsToSend, { won }, { displayName });
+  // message visible dans le modal
+  if(won){
+    title.textContent = 'You won!';
+    text.textContent = `You earned ${gainedPoints} points this round.`;
+  } else {
+    title.textContent = 'Round over';
+    text.textContent = 'No points this time — new round will start.';
+  }
 
+  // --- Préparer les données pour l'envoi au leaderboard ---
+  // pointsToSend et displayName doivent être définis AVANT d'appeler le helper
+  const pointsToSend = Number(gainedPoints) || 0;
 
+  // essayer d'inférer un pseudo local comme avant
+  let displayName = null;
+  try {
+    if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
+      const localUser = window.LEADERBOARD.getLocalUser();
+      if (localUser && localUser.pseudo) displayName = localUser.pseudo;
+    }
+  } catch(e){
+    console.warn('getLocalUser threw', e);
+  }
+  const displayNameInput = document.querySelector('#lb-pseudo') || document.querySelector('#someDisplayNameInput');
+  if (!displayName && displayNameInput) displayName = (displayNameInput.value || '').trim() || null;
 
+  // appel non-bloquant au helper robuste (défini plus bas dans le script)
+  try {
+    submitScoreToLeaderboard(pointsToSend, { won }, { displayName });
+    console.info('[LB] submitScoreToLeaderboard called', { pointsToSend, displayName, won });
+  } catch (e) {
+    console.error('[LB] submitScoreToLeaderboard threw', e);
+  }
+
+  // --- afficher les détails du target dans le modal (inchangé) ---
   const targetHtml = `<div style="text-align:left;margin-top:12px"><h3 style="margin:0 0 6px 0;color:#fff">${target.full_name} <span style="color:var(--muted);font-size:0.9rem">(${target.source || ''})</span></h3><ul style="color:var(--muted);padding-left:18px"><li>Country: ${(target.represented_country) ? `<strong style="color:#fff">${target.represented_country}</strong>` : '—'}</li><li>Birth: ${(target.birthplace || '—')} (${target.birth_date || '—'})</li><li>Age: ${(target.age!=null ? target.age : '—')}</li><li>Career best: ${(isFinite(target.rank) ? target.rank : '—')}</li><li>Height: ${(target.height_cm!=null ? target.height_cm + ' cm' : '—')}</li></ul></div>`;
   details.innerHTML = targetHtml;
   modal.classList.add('show');
@@ -579,6 +608,7 @@ function revealAnswer(won, gainedPoints){
 
   document.getElementById('closeModalBtn').onclick = function(){ modal.classList.remove('show'); modal.setAttribute('aria-hidden','true'); };
 }
+
 
 /* ---------------------------
    Country text rendering (paragraphs may be strings or objects with subtitle/text)
