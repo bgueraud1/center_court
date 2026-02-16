@@ -44,7 +44,14 @@ module.exports.handler = async function(event) {
   try {
     const url = new URL(`${SUPABASE_URL}/rest/v1/scores`);
     // select minimal fields we need
-    url.searchParams.set('select', 'user_id,pseudo,points,mode,created_at,game_id');
+    if (date) {
+  const start = isoDateStart(date);
+  const next = isoDateNext(date);
+
+  url.searchParams.append('created_at', `gte.${start}`);
+  url.searchParams.append('created_at', `lt.${next}`);
+}
+
     if (game_id) url.searchParams.append('game_id', `eq.${encodeURIComponent(game_id)}`);
 
     // if date provided, filter between date start (inclusive) and next day (exclusive)
