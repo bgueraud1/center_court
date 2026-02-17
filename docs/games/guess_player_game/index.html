@@ -920,60 +920,74 @@ function waitForLeaderboard(timeout = 5000, interval = 200){
  *  - when submitScore responds with ok:false, tries a direct fetch fallback
  *  - logs everything so you see Network / Console evidence
  */
+/** Remplacement de trySubmitEntryToLB : appelle d'abord la lib, puis fallback vers Netlify function */
 async function trySubmitEntryToLB(entry){
   const gameId = entry.gameId || 'guess_player';
   const points = Number(entry.points) || 0;
+  // entry.options doit contenir { mode, meta, displayName } selon notre helper
   const options = entry.options || {};
+  const pseudo = options.displayName || options.pseudo || null;
+  const mode = options.mode || null;
+  const meta = options.meta || null;
 
-  // 1) First try the library's submitScore if available
+  // 1) Premier essai : utiliser la librairie si dispo
   if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
     try {
       console.info('[LB] calling window.LEADERBOARD.submitScore', { gameId, points, options });
       const res = await window.LEADERBOARD.submitScore(gameId, points, options);
       console.info('[LB] submitScore response', res);
 
-      // Treat success only when explicit success flag is present
+      // Succès uniquement si ok:true / success:true / status:'ok'
       if(res && (res.ok === true || res.success === true || res.status === 'ok')){
-        console.info('[LB] submitScore returned explicit success');
+        console.info('[LB] library confirmed success — done.');
         return true;
       }
 
-      // If library responded with ok:false or error, log it and fall through to server fallback
-      console.warn('[LB] submitScore indicated failure or non-success response, will try fallback', res);
+      // Si la librairie répond ok:false (ex: already_submitted_local), on log et on passe au fallback
+      console.warn('[LB] library returned non-success — will try server fallback', res);
     } catch(err){
       console.error('[LB] submitScore threw', err);
-      // fall through to fallback
+      // on continue vers le fallback
     }
   } else {
-    console.warn('[LB] window.LEADERBOARD.submitScore not available; using fallback');
+    console.warn('[LB] window.LEADERBOARD.submitScore not available; using server fallback');
   }
 
-  // 2) Fallback: POST directly to server endpoint (adapt the URL to your backend)
-  //    This must correspond to the server endpoint that actually writes Scores in DB.
-  const fallbackEndpoint = '/api/leaderboard/submit'; // <-- ADAPTE si besoin
-  const payload = { gameId, points, options, ts: (new Date()).toISOString() };
+  // 2) Fallback: appeler la Netlify Function qui écrit en Supabase
+  // URL attendue pour Netlify function locale/déployée sur le même domaine :
+  const fallbackEndpoint = '/.netlify/functions/submit-score';
+
+  // Le payload suit ce que ta function attend : game_id, points, pseudo, mode, meta
+  const payload = {
+    game_id: gameId,
+    points: points,
+    pseudo: pseudo,          // null autorisé
+    mode: mode,              // ex: "ATP_top20"
+    meta: (typeof meta === 'string' ? meta : (meta ? JSON.stringify(meta) : null)),
+    ts: (new Date()).toISOString()
+  };
 
   try {
     console.info('[LB-FALLBACK] POST', fallbackEndpoint, payload);
     const resp = await fetch(fallbackEndpoint, {
       method: 'POST',
-      credentials: 'include', // include cookies/auth — adapt if your API requires token header
+      credentials: 'same-origin', // envoyer cookies de session si nécessaire
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
 
-    // Always log raw status & text for debugging
-    const txt = await resp.text().catch(()=>null);
-    console.info('[LB-FALLBACK] response status', resp.status, txt);
+    // Debug complet : status + body
+    const text = await resp.text().catch(()=>null);
+    console.info('[LB-FALLBACK] response status', resp.status, text);
 
-    if(resp.ok){
-      // Try to parse JSON if any
-      let json = null;
-      try { json = JSON.parse(txt); } catch(e){ /* ignore */ }
-      console.info('[LB-FALLBACK] success', json);
+    if (resp.ok){
+      // parse JSON si possible
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch(e){ data = text; }
+      console.info('[LB-FALLBACK] success', data);
       return true;
     } else {
-      console.warn('[LB-FALLBACK] server returned non-OK', resp.status, txt);
+      console.warn('[LB-FALLBACK] server returned non-OK', resp.status, text);
       return false;
     }
   } catch(fetchErr){
