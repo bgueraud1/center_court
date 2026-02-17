@@ -56,10 +56,10 @@
   thead th{color:var(--muted);font-weight:700}
   .surface-cell{font-weight:700;color:#fff;text-align:center;border-radius:6px;padding:6px}
 
-  .surface-red{background:linear-gradient(180deg,#3b0f0f,#6b1b1b)} /* clay (red) */
-  .surface-green{background:linear-gradient(180deg,#0b3b18,#1b6b34)} /* grass (green) */
-  .surface-blue{background:linear-gradient(180deg,#07304f,#1b5fa0)} /* hard (blue) */
-  .surface-violet{background:linear-gradient(180deg,#3b0f3b,#6b1b6b)} /* carpet (violet) */
+  .surface-red{background:linear-gradient(180deg,#7b1f1f,#b33b3b)} /* clay (red) */
+  .surface-green{background:linear-gradient(180deg,#0b7b36,#1fb865)} /* grass (green) */
+  .surface-blue{background:linear-gradient(180deg,#0b4b8f,#3b7fcf)} /* hard (blue) */
+  .surface-violet{background:linear-gradient(180deg,#7b3b7b,#b36fb3)} /* carpet (violet) */
   .surface-gray{background:linear-gradient(180deg,#2b2b2b,#4b4b4b)} /* other (gray) */
 
   .country-text{margin-top:14px;padding:16px;border-radius:12px;background:rgba(0,0,0,0.5);backdrop-filter:blur(6px);color:#fff;border:1px solid rgba(255,255,255,0.04)}
@@ -130,7 +130,6 @@
       </table>
 
       <div id="h2hOutput" class="country-text" style="display:block;margin-top:16px">
-        <!-- Dynamic H2H tables will be inserted here -->
         <div id="placeholder">H2H results will appear here.</div>
       </div>
     </div>
@@ -162,7 +161,7 @@ let selectedPlayers = null;
 let playersCatalog = [];
 let geocodes = {};
 
-let target = null;                // chosen target (A) - we will NOT reveal its name while guessing
+let target = null;                // chosen target (A) - kept anonymous during guessing
 let currentTour = 'ATP';
 let currentLevel = 'easy';
 let remaining = 15;
@@ -376,7 +375,7 @@ function composeH2H(playerAId, playerBId){
       event_id: m.event_id || '',
       event_year: m.event_year || (m.match_date ? (new Date(m.match_date)).getFullYear() : ''),
       tourney_name: m.tourney_name || '',
-      surface: m.surface || 'Unknown',
+      surface: (m.surface || 'Other'),
       round: m.round || '',
       score_string: m.score || m.score_string || '',
       match_date: m.match_date || '',
@@ -406,7 +405,7 @@ function ensureOutputSkeleton(){
   out.innerHTML = '';
   if(currentLevel === 'hard'){
     const tbl = document.createElement('table'); tbl.id = 'h2hTableHard';
-    const thead = document.createElement('thead'); thead.innerHTML = '<tr><th>Guessed Name</th><th>H2H (matches)</th></tr>';
+    const thead = document.createElement('thead'); thead.innerHTML = '<tr><th>Guessed Name</th><th style="text-align:center">H2H</th></tr>';
     tbl.appendChild(thead);
     tbl.appendChild(document.createElement('tbody'));
     out.appendChild(tbl);
@@ -426,21 +425,21 @@ function ensureOutputSkeleton(){
   }
 }
 
-/* helper: create match HTML lines; winner label is "Guessed" or "Target" (no names)
-   guessIsB indicates if guessed player is playerB in composed h2h
+/* helper: build match lines for Easy
+   winnerLabel: guessed player's name (when guessed won) or "Target"
+   includes round
 */
-function buildMatchLines(h2h, guessIsB){
+function buildMatchLinesEasy(h2h, guessedPlayerId, guessedPlayerName){
   if(!h2h || !Array.isArray(h2h.matches) || h2h.matches.length === 0) return ['No matches'];
   const lines = [];
   for(const m of h2h.matches){
     const year = m.event_year || '';
     const tournament = m.tourney_name || m.event_id || '';
+    const round = m.round || '';
     const score = m.score_string || '';
     const winner = String(m.player_id_winner || '');
-    // If winner equals guessId -> "Guessed", else -> "Target"
-    const label = winner === (guessIsB ? h2h.playerB.id : h2h.playerB.id) ? 'Guessed' : ((winner === (guessIsB ? h2h.playerA.id : h2h.playerA.id)) ? 'Target' : 'Unknown');
-    // Note: we don't display any player names, only label
-    lines.push(`${escapeHtml(year)} — ${escapeHtml(tournament)} — ${escapeHtml(score)} — Winner: ${label}`);
+    const label = (winner === String(guessedPlayerId)) ? (escapeHtml(guessedPlayerName) || 'Guessed') : 'Target';
+    lines.push(`${escapeHtml(year)} — ${escapeHtml(tournament)} — ${escapeHtml(round)} — ${escapeHtml(score)} — Winner: ${label}`);
   }
   return lines;
 }
@@ -452,7 +451,8 @@ function computeSurfaceCounts(h2h){
   const map = {};
   if(!h2h || !Array.isArray(h2h.matches)) return map;
   for(const m of h2h.matches){
-    const s = (m.surface || 'Other');
+    const sRaw = m.surface || 'Other';
+    const s = (sRaw === 'Unknown' ? 'Other' : sRaw);
     map[s] = map[s] || {A:0, B:0, total:0};
     const winner = String(m.player_id_winner || '');
     if(winner === String(h2h.playerB.id)) map[s].B++;
@@ -464,18 +464,17 @@ function computeSurfaceCounts(h2h){
 
 /* update tables with a new guess row */
 function updateTablesWithGuess(guess, h2h){
-  // ensure skeleton exists
   const out = document.getElementById('h2hOutput');
   if(!out.querySelector('table')) ensureOutputSkeleton();
+
   if(currentLevel === 'hard'){
     const tbl = document.getElementById('h2hTableHard').querySelector('tbody');
     const tr = document.createElement('tr');
     const tdName = document.createElement('td'); tdName.textContent = guess.full_name || '';
     const tdH2H = document.createElement('td');
-    // build match list lines, but we must label winner as Guessed/Target
-    const guessIsB = true; // composed function used guessId as playerB
-    const lines = buildMatchLines(h2h, guessIsB);
-    tdH2H.innerHTML = lines.map(l => `<div style="margin-bottom:6px">${escapeHtml(l)}</div>`).join('');
+    const A_wins = (h2h && h2h.aggregates && typeof h2h.aggregates.A_wins !== 'undefined') ? h2h.aggregates.A_wins : 0;
+    const B_wins = (h2h && h2h.aggregates && typeof h2h.aggregates.B_wins !== 'undefined') ? h2h.aggregates.B_wins : 0;
+    tdH2H.innerHTML = `<div style="font-weight:700;text-align:center">${B_wins} - ${A_wins}</div>`;
     tr.appendChild(tdName); tr.appendChild(tdH2H);
     tbl.prepend(tr);
   } else if(currentLevel === 'medium'){
@@ -484,7 +483,16 @@ function updateTablesWithGuess(guess, h2h){
     const tdName = document.createElement('td'); tdName.textContent = guess.full_name || '';
     tr.appendChild(tdName);
     const counts = computeSurfaceCounts(h2h);
+
     // surfaces order: Clay (red), Grass (green), Hard (blue), Carpet (violet), Other (gray)
+    const primary = ['Clay','Grass','Hard','Carpet'];
+    // compute Other as sum of everything not in primary
+    let other = {A:0,B:0,total:0};
+    for(const key of Object.keys(counts)){
+      if(!primary.includes(key)){
+        other.A += counts[key].A; other.B += counts[key].B; other.total += counts[key].total;
+      }
+    }
     const surfaces = [
       {key:'Clay', cls:'surface-red'},
       {key:'Grass', cls:'surface-green'},
@@ -494,8 +502,10 @@ function updateTablesWithGuess(guess, h2h){
     ];
     for(const sInfo of surfaces){
       const s = sInfo.key;
+      let c;
+      if(s === 'Other') c = other;
+      else c = counts[s] || {A:0,B:0,total:0};
       const node = document.createElement('td');
-      const c = counts[s] || {A:0,B:0,total:0};
       node.innerHTML = `<div class="surface-cell ${sInfo.cls}">${c.B} - ${c.A} (${c.total})</div>`;
       tr.appendChild(node);
     }
@@ -505,7 +515,9 @@ function updateTablesWithGuess(guess, h2h){
     const tr = document.createElement('tr');
     const tdName = document.createElement('td'); tdName.textContent = guess.full_name || '';
     const tdMatches = document.createElement('td');
-    const lines = buildMatchLines(h2h, true);
+    const guessedPid = guess.player_id || guess.playerId || '';
+    const guessedName = guess.full_name || '';
+    const lines = buildMatchLinesEasy(h2h, guessedPid, guessedName);
     tdMatches.innerHTML = lines.map(l => `<div style="margin-bottom:6px">${escapeHtml(l)}</div>`).join('');
     tr.appendChild(tdName); tr.appendChild(tdMatches);
     tbl.prepend(tr);
@@ -546,13 +558,12 @@ async function handleGuessSubmission(name){
   // compose H2H oriented A (target) <-> B (guess)
   let h2h = null;
   if(targetPid && guessPid){
-    h2h = composeH2H(targetPid, guessPid); // note: compose uses A,B as passed
+    h2h = composeH2H(targetPid, guessPid); // A=target, B=guess
   } else {
-    // try best-effort: if only one side loaded but includes opponent match entries
     h2h = composeH2H(targetPid || guessPid, guessPid || targetPid);
   }
 
-  // DO NOT display the target name anywhere here. update tables only.
+  // update tables with anonymized target (never show target name)
   updateTablesWithGuess(guess, h2h);
 
   // win detection: same player_id OR same normalized name
@@ -628,8 +639,6 @@ async function startRound(){
   }
   // preload selected players for responsiveness
   await preloadSelectedPlayerFiles(6);
-
-  // prepare output skeleton for current level
   ensureOutputSkeleton();
   document.getElementById('preloadStatus').textContent = `Round started — make up to 15 guesses. Good luck!`;
 }
