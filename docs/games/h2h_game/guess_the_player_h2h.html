@@ -50,7 +50,62 @@
   .toast{position:fixed;right:18px;bottom:18px;background:rgba(0,0,0,0.7);color:#fff;padding:10px 14px;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,0.6);display:none;z-index:220}
   .lb-card{margin-left:auto;display:flex;gap:8px;align-items:center}
   #lb-status{color:var(--muted);font-size:0.9rem;margin-left:8px}
-  .user-badge{display:flex;align-items:center;gap:8px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));padding:6px 10px;border-radius:999px;border:1px solid rgba(255,255,255,0.03);color:#fff}
+  /* prettier user badge: circular avatar + pseudo text */
+.user-badge{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+  padding:8px 12px;
+  border-radius:999px;
+  border:1px solid rgba(255,255,255,0.06);
+  color:#fff;
+  box-shadow: 0 6px 18px rgba(2,6,23,0.55);
+}
+
+/* small avatar circle with initials */
+.user-badge .lb-avatar{
+  width:34px;
+  height:34px;
+  border-radius:50%;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-weight:700;
+  font-size:13px;
+  color:white;
+  background: linear-gradient(135deg,#2b8af6,#7b5cf6);
+  box-shadow: 0 4px 12px rgba(43,138,246,0.18), inset 0 -2px 6px rgba(0,0,0,0.12);
+}
+
+/* nicer pseudo text */
+.user-badge .lb-name{
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  font-weight:700;
+  font-size:14px;
+  letter-spacing:0.2px;
+  color: #fff;
+  max-width:160px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+/* small logout button styling inside the badge area */
+.user-badge .lb-logout-btn{
+  margin-left:6px;
+  padding:6px 8px;
+  border-radius:8px;
+  border:1px solid rgba(255,255,255,0.04);
+  background:transparent;
+  color:var(--muted);
+  font-weight:600;
+  cursor:pointer;
+}
+
+/* status text */
+#lb-status{ color:var(--muted); font-size:0.95rem; margin-left:12px; min-width:92px; text-align:right; }
+
   @media (max-width:880px){ input[type="text"]{min-width:140px} .chip{font-size:0.85rem} th,td{padding:8px;font-size:0.9rem} }
 </style>
 </head>
@@ -61,10 +116,12 @@
 
       <!-- LB area -->
       <div class="lb-card card" aria-hidden="false" style="margin-left:auto;align-items:center">
-        <div id="lbDisplay" style="display:none" class="user-badge">
-          <span id="lbName">Me</span>
-          <button id="lbLogout" class="ghost" title="Log out">Log out</button>
-        </div>
+        <div id="lbDisplay" style="display:none" class="user-badge" role="status" aria-live="polite">
+  <div class="lb-avatar" id="lbAvatar">??</div>
+  <div class="lb-name" id="lbName">Me</div>
+  <button id="lbLogout" class="lb-logout-btn" title="Log out">Log out</button>
+</div>
+
         <button id="lbOpenBtn" class="ghost">Log in / Sign up</button>
         <div id="lb-status">Not connected</div>
       </div>
@@ -448,12 +505,41 @@ function updateLBStatusUI(){
   const st = document.getElementById('lb-status');
   const disp = document.getElementById('lbDisplay');
   const openBtn = document.getElementById('lbOpenBtn');
+
   const u = getLocalUserFromLibOrStorage();
+
   if(u && u.pseudo){
-    document.getElementById('lbName').textContent = u.pseudo;
+    // Connected
+    st.textContent = 'Connected';
+    // display pseudo + initials avatar
+    const nameEl = document.getElementById('lbName');
+    const avatarEl = document.getElementById('lbAvatar');
+    const logoutBtn = document.getElementById('lbLogout');
+
+    nameEl.textContent = u.pseudo;
+    // set initials (2 letters) in avatar
+    try {
+      const parts = (u.pseudo || '').trim().split(/\s+/).filter(Boolean);
+      let initials = parts.length === 0 ? '??' : (parts.length === 1 ? parts[0].slice(0,2) : (parts[0][0] + parts[parts.length-1][0]));
+      initials = initials.toUpperCase().slice(0,2);
+      avatarEl.textContent = initials;
+    } catch(e){ avatarEl.textContent = (String(u.pseudo||'')||'??').slice(0,2).toUpperCase(); }
+
     disp.style.display = 'flex';
     openBtn.style.display = 'none';
+
+    // ensure logout handler (defensive: attach once)
+    if(!logoutBtn._bound){
+      logoutBtn.addEventListener('click', ()=>{
+        try{ localStorage.removeItem(LB_LOCAL_USER_KEY); }catch(e){}
+        try{ if(window.LEADERBOARD && typeof window.LEADERBOARD.clearLocalUser === 'function') window.LEADERBOARD.clearLocalUser(); }catch(e){}
+        updateLBStatusUI();
+        showToast('Logged out');
+      });
+      logoutBtn._bound = true;
+    }
   } else {
+    // Not connected
     st.textContent = 'Not connected';
     disp.style.display = 'none';
     openBtn.style.display = 'inline-block';
