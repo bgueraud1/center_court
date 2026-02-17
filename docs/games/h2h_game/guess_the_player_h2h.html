@@ -33,7 +33,7 @@
 
   header{display:flex;align-items:center;gap:16px}
   h1{margin:0;font-weight:800;color: #eef2ff; font-size:1.25rem}
-  .sub{Color:var(--muted);font-size:0.9rem}
+  .sub{color:var(--muted);font-size:0.9rem}
 
   .controls{display:flex;gap:16px;flex-wrap:wrap;margin-top:18px;align-items:center}
   .card{background:transparent;padding:12px;border-radius:12px}
@@ -107,6 +107,8 @@
         <div class="chip">Mode auto-starts on change</div>
       </div>
     </div>
+
+    <!-- Country of the Day / country chip removed as requested -->
 
     <div class="game-meta" style="margin-top:18px">
       <div class="chip">Level: <strong id="levelLabel">Easy</strong></div>
@@ -200,7 +202,7 @@ function norm(s){ return s ? s.normalize().replace(/[\u0300-\u036f]/g,'').toLowe
 function parseRank(v){ if(v===undefined||v===null||v===''||v==='-') return Infinity; const n=Number(String(v).replace(/[^\d.-]/g,'')); return isNaN(n)?Infinity:n; }
 function tryParseDate(s){ if(!s) return null; const d=new Date(s); if(!isNaN(d)) return d; const clean=s.replace(/\s+/g,' ').split(' ')[0]; const d2=new Date(clean); return isNaN(d2)?null:d2; }
 function calcAge(s){ const d=tryParseDate(s); if(!d) return null; const t=new Date(); let a=t.getFullYear()-d.getFullYear(); const m=t.getMonth()-d.getMonth(); if(m<0||(m===0 && t.getDate()<d.getDate())) a--; return a; }
-function haversineKm(lat1,lon1,lat2,lon2){ const toRad=v=>v*Math.PI/180; const R=6371; const dLat=toRad(lat2-lat1); const dLon=toRad(lon2-lon1); const a=Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2; const c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1 - a)); return R*c; }
+function haversineKm(lat1,lon1,lat2,lon2){ const toRad=v=>v*Math.PI/180; const R=6371; const dLat=toRad(lat2-lat1); const dLon=toRad(lon2-lon1); const a=Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2; const c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1,a)); return R*c; }
 
 /* ---------------------------
   Load JSON helpers
@@ -238,6 +240,7 @@ async function loadGeocodes(){
 
 /* ---------------------------
   Autocompletion (uses playersCatalog)
+  - Restored to use players_catalog like before
 ---------------------------- */
 const guessInput = document.getElementById('guessInput');
 const suggestionsList = document.getElementById('suggestionsList');
@@ -277,6 +280,7 @@ guessInput.addEventListener('keydown', (e) => {
 });
 function highlightSuggestion(){ const items = suggestionsList.children; for(let i=0;i<items.length;i++) items[i].classList.toggle('highlight', i===suggestionIndex); }
 
+/* find catalog player by name */
 function findPlayerByName(name){
   if(!name) return null;
   const q = norm(name.trim());
@@ -291,7 +295,7 @@ function findPlayerByName(name){
 }
 
 /* ---------------------------
-  H2H per-player loading & composition
+  H2H per-player loading & composition (unchanged logic from previous change)
 ---------------------------- */
 function extractPossiblePlayerId(item){
   if(!item) return null;
@@ -516,7 +520,7 @@ function appendGuessRow(guessPlayer, comparison){
   if(comparison.nameMatch) tr.classList.add('good');
   const tdIndex=document.createElement('td'); tdIndex.textContent=idx;
   const tdName=document.createElement('td'); tdName.textContent=guessPlayer.full_name;
-  const tdAge=document.createElement('td'); tdAge.innerHTML=(comparison.ageGuess!=null?comparison.ageGuess:'—') + (comparison.ageDirection?(' '+(comparison.ageDirection==='up?'↑':'↓')):'');
+  const tdAge=document.createElement('td'); tdAge.innerHTML=(comparison.ageGuess!=null?comparison.ageGuess:'—') + (comparison.ageDirection?(' '+(comparison.ageDirection==='up'?'↑':'↓')):'');
   const tdRank=document.createElement('td'); tdRank.innerHTML=(comparison.rankGuess!=null && isFinite(comparison.rankGuess)?comparison.rankGuess:'—') + (comparison.rankDirection?(' '+(comparison.rankDirection==='up'?'↑':'↓')):'');
   const tdBirth=document.createElement('td'); tdBirth.innerHTML=(comparison.birthDistanceKm!=null?`<strong style="font-weight:800">${comparison.birthDistanceKm} km</strong>`:'unknown');
   const tdHeight=document.createElement('td'); tdHeight.innerHTML=(comparison.heightGuess!=null?comparison.heightGuess+' cm':'—') + (comparison.heightDirection?(' '+(comparison.heightDirection==='up'?'↑':'↓')):'');
@@ -530,6 +534,7 @@ function comparePlayers(guess, target){
   res.nameMatch = guess.full_name.trim().toLowerCase() === target.full_name.trim().toLowerCase();
   if(guess.age != null && target.age != null){ res.ageGuess=guess.age; res.ageTarget=target.age; res.ageDirection = (guess.age===target.age)?'equal':(guess.age>target.age?'down':'up'); } else { res.ageGuess=guess.age; res.ageTarget=target.age; res.ageDirection=null; }
   const gRank = guess.rank, tRank = target.rank; if(isFinite(gRank) && isFinite(tRank)){ res.rankGuess=gRank; res.rankTarget=tRank; res.rankDirection = (gRank===tRank)?'equal':(gRank>tRank?'up':'down'); } else { res.rankGuess=isFinite(gRank)?gRank:null; res.rankTarget=isFinite(tRank)?tRank:null; res.rankDirection=null; }
+  // country comparison intentionally ignored (UI no longer shows country)
   let dist = null; if(guess.birthplace && target.birthplace){ const g=geocodes[guess.birthplace]||geocodes[String(guess.birthplace).trim()]||null; const t=geocodes[target.birthplace]||geocodes[String(target.birthplace).trim()]||null; if(g && t && g.length>=2 && t.length>=2) dist = Math.round(haversineKm(g[0],g[1],t[0],t[1])); }
   res.birthDistanceKm = dist;
   if(guess.height_cm != null && target.height_cm != null){ res.heightGuess = guess.height_cm; res.heightTarget = target.height_cm; res.heightDirection = (guess.height_cm===target.height_cm)?'equal':(guess.height_cm>target.height_cm?'down':'up'); } else { res.heightGuess = guess.height_cm; res.heightTarget = target.height_cm; res.heightDirection=null; }
@@ -537,203 +542,6 @@ function comparePlayers(guess, target){
   res.twoHanded = (guess.two_handed===null || target.two_handed===null) ? null : (guess.two_handed === target.two_handed);
   return res;
 }
-
-/* ---------------------------
-  Leaderboard helpers (robust library + server fallback + local queue)
-  - keys & endpoints specific to this game
----------------------------- */
-
-const LB_QUEUE_KEY_H2H = 'lb_score_queue_h2h_v1';
-
-/* queue helpers */
-function pushToScoreQueue(entry){
-  try {
-    const q = JSON.parse(localStorage.getItem(LB_QUEUE_KEY_H2H) || '[]');
-    q.push(Object.assign({ts: (new Date()).toISOString()}, entry));
-    localStorage.setItem(LB_QUEUE_KEY_H2H, JSON.stringify(q));
-    console.info('[LB-QUEUE] queued entry', entry);
-  } catch(e){ console.warn('[LB-QUEUE] push error', e); }
-}
-function popScoreQueue(){
-  try {
-    const q = JSON.parse(localStorage.getItem(LB_QUEUE_KEY_H2H) || '[]');
-    if(!q || q.length === 0) return null;
-    q.shift();
-    localStorage.setItem(LB_QUEUE_KEY_H2H, JSON.stringify(q));
-    return true;
-  } catch(e){ console.warn('[LB-QUEUE] pop error', e); return null; }
-}
-function readScoreQueue(){ try { return JSON.parse(localStorage.getItem(LB_QUEUE_KEY_H2H) || '[]'); } catch(e){ return []; } }
-
-/** Poll until window.LEADERBOARD ready or timeout */
-function waitForLeaderboard(timeout = 5000, interval = 200){
-  return new Promise((resolve) => {
-    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function') return resolve(true);
-    const start = Date.now();
-    const t = setInterval(() => {
-      if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
-        clearInterval(t); resolve(true);
-      } else if(Date.now() - start > timeout){
-        clearInterval(t); resolve(false);
-      }
-    }, interval);
-  });
-}
-
-/** Try to submit a single entry via library then fallback to Netlify function */
-async function trySubmitEntryToLB(entry){
-  const gameId = entry.gameId || 'guess_player_h2h';
-  const points = Number(entry.points) || 0;
-  const options = entry.options || {};
-  const pseudo = options.displayName || options.pseudo || null;
-  const modeOpt = options.mode || null;
-  const meta = options.meta || null;
-
-  console.info('[LB-TRY] trySubmitEntryToLB start', { gameId, points, modeOpt, pseudo });
-
-  // 1) try library first
-  if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
-    try {
-      console.info('[LB-TRY] call library submitScore', { gameId, points, options });
-      const res = await window.LEADERBOARD.submitScore(gameId, points, options);
-      console.info('[LB-TRY] library response', res);
-
-      // real success -> done
-      if(res && (res.ok === true || res.success === true || res.status === 'ok')){
-        console.info('[LB-TRY] library confirmed success');
-        return true;
-      }
-
-      // If library reports already_submitted (local), still try server fallback to ensure DB consistency
-      if(res && res.error && String(res.error).toLowerCase().includes('already_submitted')){
-        console.info('[LB-TRY] library reports already_submitted (likely local) — will still attempt server fallback', res);
-        // fallthrough to server fallback
-      } else {
-        console.warn('[LB-TRY] library returned non-success — will try server fallback', res);
-      }
-    } catch(err){
-      console.error('[LB-TRY] submitScore threw', err);
-      // fall through to fallback
-    }
-  } else {
-    console.warn('[LB-TRY] library not available — using fallback');
-  }
-
-  // 2) fallback -> Netlify function
-  const fallbackEndpoint = `${location.origin}/.netlify/functions/submit-score`;
-  const payload = {
-    game_id: gameId,
-    points: points,
-    pseudo: pseudo,
-    mode: modeOpt,
-    meta: (typeof meta === 'string' ? meta : (meta ? JSON.stringify(meta) : null)),
-    ts: (new Date()).toISOString()
-  };
-
-  try {
-    console.info('[LB-FALLBACK] POST', fallbackEndpoint, payload);
-    const resp = await fetch(fallbackEndpoint, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    const text = await resp.text().catch(()=>null);
-    let parsed = null;
-    try { parsed = text ? JSON.parse(text) : null; } catch(e){ parsed = text; }
-    console.info('[LB-FALLBACK] response', resp.status, parsed);
-
-    if (resp.ok) {
-      console.info('[LB-FALLBACK] server insert OK', parsed);
-      return true;
-    }
-
-    // duplicate -> treat as already submitted (ok)
-    if (resp.status === 409) {
-      console.info('[LB-FALLBACK] server indicates duplicate (already submitted) — treat as done', parsed);
-      return true;
-    }
-    if (parsed && parsed.detail && parsed.detail.code === '23505') {
-      console.info('[LB-FALLBACK] supabase duplicate detail detected — treat as done', parsed);
-      return true;
-    }
-
-    // otherwise, not-ok: will be queued by caller
-    console.warn('[LB-FALLBACK] server returned non-OK (will queue)', resp.status, parsed);
-    return false;
-  } catch(fetchErr){
-    console.error('[LB-FALLBACK] fetch error', fetchErr);
-    return false;
-  }
-}
-
-/** Flush local queue while LB ready */
-async function flushScoreQueue(){
-  const q = readScoreQueue();
-  if(!q || q.length === 0) return;
-  const ready = await waitForLeaderboard(5000);
-  if(!ready){
-    console.info('[LB-QUEUE] LB not ready; will keep queue');
-    return;
-  }
-  for(let i=0;i<20;i++){
-    const arr = readScoreQueue();
-    if(!arr || arr.length === 0) break;
-    const entry = arr[0];
-    const ok = await trySubmitEntryToLB(entry);
-    if(ok){
-      popScoreQueue();
-      console.info('[LB-QUEUE] flushed one entry');
-    } else {
-      console.warn('[LB-QUEUE] flush failed for first entry — stop trying now');
-      break;
-    }
-  }
-}
-
-/** main helper: submitScoreToLeaderboard(points, meta, extra) */
-async function submitScoreToLeaderboard(points, meta = {}, extra = {}){
-  const displayName = extra.displayName || extra.pseudo || null;
-  const modeString = `${currentTour}_h2h_${currentLevel}`; // e.g. "ATP_h2h_easy"
-  const options = { mode: modeString, meta: JSON.stringify(meta || {}), displayName };
-
-  const ready = await waitForLeaderboard(3000);
-  if(ready){
-    const ok = await trySubmitEntryToLB({ gameId:'guess_player_h2h', points, options });
-    if(ok){
-      console.info('[LB] Score successfully submitted (fast path)');
-      setTimeout(flushScoreQueue, 250);
-      return;
-    } else {
-      // queue
-      pushToScoreQueue({ gameId:'guess_player_h2h', points, options });
-      console.info('[LB] Score queued for retry');
-      setTimeout(flushScoreQueue, 1000);
-      return;
-    }
-  } else {
-    // not ready: queue
-    pushToScoreQueue({ gameId:'guess_player_h2h', points, options });
-    console.info('[LB] LB not ready — score queued');
-    setTimeout(flushScoreQueue, 1000);
-    return;
-  }
-}
-
-/* watch for LB init and flush */
-(function watchForLBInit(){
-  if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
-    setTimeout(flushScoreQueue, 300);
-    return;
-  }
-  const poll = setInterval(() => {
-    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
-      clearInterval(poll);
-      setTimeout(flushScoreQueue, 200);
-    }
-  }, 300);
-})();
 
 /* ---------------------------
   Main guess submission
@@ -775,35 +583,13 @@ async function handleGuessSubmission(name){
   if(remaining <= 0){ revealRound(false); setTimeout(startRound, 1200); }
 }
 
-/* revealRound modal + leaderboard submit */
+/* revealRound modal */
 function revealRound(won, points){
   const modal = document.getElementById('modal'); const title=document.getElementById('modalTitle'); const text=document.getElementById('modalText'); const details=document.getElementById('modalDetails');
   if(won){ title.textContent='You won!'; text.textContent=`You earned ${points} points.`; } else { title.textContent='Round over'; text.textContent='No points this time.'; }
   const p = target || {}; const targetHtml = `<div style="text-align:left;margin-top:12px"><h3 style="margin:0 0 6px 0;color:#fff">${escapeHtml(p.full_name||'—')}</h3><ul style="color:var(--muted);padding-left:18px"><li>Birth: ${(p.birthplace||'—')} ${p.birth_date? '('+escapeHtml(p.birth_date)+')':''}</li><li>Age: ${(p.age!=null?p.age:'—')}</li><li>Career best: ${(isFinite(p.rank)?p.rank:'—')}</li><li>Height: ${(p.height_cm!=null? p.height_cm + ' cm' : '—')}</li></ul></div>`;
   details.innerHTML = targetHtml; modal.classList.add('show'); modal.setAttribute('aria-hidden','false');
   document.getElementById('closeModalBtn').onclick = ()=>{ modal.classList.remove('show'); modal.setAttribute('aria-hidden','true'); };
-
-  // prepare displayName
-  let displayName = null;
-  try {
-    if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
-      const localUser = window.LEADERBOARD.getLocalUser();
-      if (localUser && localUser.pseudo) displayName = localUser.pseudo;
-    }
-  } catch(e){ console.warn('getLocalUser threw', e); }
-  const displayNameInput = document.querySelector('#lb-pseudo') || document.querySelector('#someDisplayNameInput');
-  if (!displayName && displayNameInput) displayName = (displayNameInput.value || '').trim() || null;
-
-  // metadata for server
-  const meta = { won: !!won, level: currentLevel, guesses: guesses.length, target_id: (target && target.player_id) ? String(target.player_id) : null };
-
-  // submit (non-blocking)
-  try {
-    submitScoreToLeaderboard(points || 0, meta, { displayName });
-    console.info('[LB] submitScoreToLeaderboard called', { points, displayName, mode: `${currentTour}_h2h_${currentLevel}` });
-  } catch(e){
-    console.error('[LB] submit helper threw', e);
-  }
 }
 
 /* ---------------------------
@@ -858,7 +644,7 @@ async function init(){
 
 init();
 
-/* helper re-declaration fix (kept for compatibility) */
+/* helper to load selected players (used above) */
 async function loadSelectedPlayers(){
   const j = await fetchJson(SELECTED_PLAYERS_JSON);
   if(!j) return false;
