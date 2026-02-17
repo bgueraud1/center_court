@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -113,18 +113,8 @@
 </div>
 
 <script>
-/*
-  Fixes included:
-   - robust opponent id extraction (only tokens containing digits are matched)
-   - candidate lists are hidden while playing and only shown after gameOver (Give Up or all filled)
-   - modal still opens for autocomplete input while playing
-   - DOM selection robust via data-r/data-c
-   - no auto-fill on Give Up; Give Up highlights empty cells red and shows score
-   - scoring: duplicate penalty implemented (first use 10, extra uses 5)
-*/
-
 (() => {
-  // adjust paths to your repo if needed
+  // paths & constants
   const PATHS = {
     WTA: '/games/fill_the_grid_WTA.json',
     ATP: '/games/fill_the_grid_ATP.json',
@@ -138,7 +128,7 @@
     'NZL':'New Zealand','IND':'India','BRA':'Brazil','MEX':'Mexico'
   };
 
-  // DOM
+  // DOM refs
   const app = document.getElementById('app');
   const boardWrap = document.getElementById('boardWrap');
   const btnToggle = document.getElementById('btnToggle');
@@ -161,10 +151,11 @@
   let playersCatalog = null;
   let idToPlayer = {};
   let nameIndex = [];
-  let cellState = {}; // map 'r-c' -> {locked,id,name}
-  let activeCell = null; // {r,c,cellData,domNode,key}
+  let cellState = {};
+  let activeCell = null;
   let gameOver = false;
 
+  /* ---------- helpers ---------- */
   async function fetchJson(path){
     const r = await fetch(path);
     if (!r.ok) throw new Error(`${path} ${r.status}`);
@@ -182,89 +173,66 @@
     }
   }
 
-  // extract opponent id robustly: prefer explicit fields, fallback to token that contains a digit (3+ chars)
-  // REPLACE your old extractOpponentId + preprocessGrid with these
-
-function extractOpponentId(cond) {
-  // Robust: prefer explicit fields; then check tokens against idToPlayer map.
-  if (!cond) return null;
-
-  // 1) explicit known fields
-  const explicitCandidates = [];
-  if (cond.opponent_id) explicitCandidates.push(String(cond.opponent_id));
-  if (cond.opponent) explicitCandidates.push(String(cond.opponent));
-  if (cond.opponent_name) explicitCandidates.push(String(cond.opponent_name));
-  if (cond.raw) {
-    if (cond.raw.opponent_id) explicitCandidates.push(String(cond.raw.opponent_id));
-    if (cond.raw.opponent) explicitCandidates.push(String(cond.raw.opponent));
-  }
-  if (cond.value) explicitCandidates.push(String(cond.value));
-
-  for (const cand of explicitCandidates) {
-    if (!cand) continue;
-    if (idToPlayer[String(cand)]) return String(cand); // exact match in catalog
-  }
-
-  // 2) tokenise the label and check each token EXACTLY against idToPlayer
-  if (cond.label && typeof cond.label === 'string') {
-    // split on anything that's not letter/number/underscore
-    const tokens = cond.label.split(/[^A-Za-z0-9_]+/).filter(Boolean);
-    for (const t of tokens) {
-      if (idToPlayer[String(t)]) return String(t);
+  function extractOpponentId(cond) {
+    if (!cond) return null;
+    const explicitCandidates = [];
+    if (cond.opponent_id) explicitCandidates.push(String(cond.opponent_id));
+    if (cond.opponent) explicitCandidates.push(String(cond.opponent));
+    if (cond.opponent_name) explicitCandidates.push(String(cond.opponent_name));
+    if (cond.raw) {
+      if (cond.raw.opponent_id) explicitCandidates.push(String(cond.raw.opponent_id));
+      if (cond.raw.opponent) explicitCandidates.push(String(cond.raw.opponent));
     }
-  }
-
-  // 3) fallback: find any token of length >=3 that contains at least one digit,
-  // but only accept it if it exists in idToPlayer (defensive)
-  if (cond.label && typeof cond.label === 'string') {
-    const matches = cond.label.match(/\b[A-Za-z0-9_]{3,}\b/g);
-    if (matches) {
-      for (const m of matches) {
-        if (/\d/.test(m) && idToPlayer[String(m)]) return String(m);
+    if (cond.value) explicitCandidates.push(String(cond.value));
+    for (const cand of explicitCandidates) {
+      if (!cand) continue;
+      if (idToPlayer[String(cand)]) return String(cand);
+    }
+    if (cond.label && typeof cond.label === 'string') {
+      const tokens = cond.label.split(/[^A-Za-z0-9_]+/).filter(Boolean);
+      for (const t of tokens) {
+        if (idToPlayer[String(t)]) return String(t);
       }
     }
-  }
-
-  return null;
-}
-q
-function preprocessGrid(raw) {
-  // Keep original shape support
-  const g = raw.grid ? raw.grid : raw;
-  if (!g) return g;
-
-  ['rows', 'cols'].forEach(listName => {
-    if (!g[listName]) return;
-    g[listName].forEach(cond => {
-      // country codes -> friendly names (same as before)
-      if (cond.type === 'country') {
-        const code = (cond.value || cond.label || '').toString().toUpperCase();
-        cond.label = COUNTRY_NAMES[code] || code;
-      }
-
-      // positive_h2h: resolve opponent id -> name using players_catalog
-      if (cond.type === 'positive_h2h') {
-        const oppId = extractOpponentId(cond);
-        if (oppId && idToPlayer[oppId]) {
-          cond.opponent_id = oppId;
-          cond.label = `Positive H2H vs ${idToPlayer[oppId].full_name}`;
-        } else if (oppId) {
-          // oppId found but not present in catalog: show id (clearer than "Positive")
-          cond.opponent_id = oppId;
-          cond.label = `Positive H2H vs ${oppId}`;
-        } else {
-          // No id found — keep a safe fallback label
-          cond.label = cond.label || 'Positive H2H';
+    if (cond.label && typeof cond.label === 'string') {
+      const matches = cond.label.match(/\b[A-Za-z0-9_]{3,}\b/g);
+      if (matches) {
+        for (const m of matches) {
+          if (/\d/.test(m) && idToPlayer[String(m)]) return String(m);
         }
       }
+    }
+    return null;
+  }
 
-      // (other condition types left untouched)
+  function preprocessGrid(raw) {
+    const g = raw.grid ? raw.grid : raw;
+    if (!g) return g;
+    ['rows', 'cols'].forEach(listName => {
+      if (!g[listName]) return;
+      g[listName].forEach(cond => {
+        if (cond.type === 'country') {
+          const code = (cond.value || cond.label || '').toString().toUpperCase();
+          cond.label = COUNTRY_NAMES[code] || code;
+        }
+        if (cond.type === 'positive_h2h') {
+          const oppId = extractOpponentId(cond);
+          if (oppId && idToPlayer[oppId]) {
+            cond.opponent_id = oppId;
+            cond.label = `Positive H2H vs ${idToPlayer[oppId].full_name}`;
+          } else if (oppId) {
+            cond.opponent_id = oppId;
+            cond.label = `Positive H2H vs ${oppId}`;
+          } else {
+            cond.label = cond.label || 'Positive H2H';
+          }
+        }
+      });
     });
-  });
+    return g;
+  }
 
-  return g;
-}
-
+  /* ---------- grid rendering & UI ---------- */
   async function loadGrid(m){
     mode = m;
     app.classList.toggle('theme-wta', mode === 'WTA');
@@ -303,13 +271,11 @@ function preprocessGrid(raw) {
     gridEl.style.display = 'grid';
     gridEl.style.gridTemplateColumns = `minmax(160px,1fr) ${cols.map(()=>`minmax(140px,1fr)`).join(' ')}`;
 
-    // top-left spacer
     const spacer = document.createElement('div');
     spacer.className = 'grid-header-cell';
     spacer.textContent = '';
     gridEl.appendChild(spacer);
 
-    // column headers
     for (let j=0;j<cols.length;j++){
       const ch = document.createElement('div');
       ch.className = 'grid-header-cell';
@@ -317,7 +283,6 @@ function preprocessGrid(raw) {
       gridEl.appendChild(ch);
     }
 
-    // rows + cells
     for (let i=0;i<rows.length;i++){
       const rh = document.createElement('div');
       rh.className = 'row-header';
@@ -337,12 +302,10 @@ function preprocessGrid(raw) {
           cellDiv.innerHTML = `<div class="cell-empty">Click to enter</div>`;
           ((r,c,datum,node)=>{ node.addEventListener('click', ()=> onCellClick(r,c,node,datum)); })(i,j,cellData,cellDiv);
         }
-        // wrong overlay
         const wrongOverlay = document.createElement('div');
         wrongOverlay.className = 'wrong-overlay';
         wrongOverlay.innerHTML = `<div class="wrong-box"><div class="wrong-icon">✖</div></div>`;
         cellDiv.appendChild(wrongOverlay);
-
         gridEl.appendChild(cellDiv);
       }
     }
@@ -351,7 +314,6 @@ function preprocessGrid(raw) {
     boardWrap.appendChild(gridEl);
   }
 
-  // clicking cell opens modal with input only while playing; after gameOver shows candidates and disables input
   function onCellClick(r,c,node,cellData){
     const key = `${r}-${c}`;
     activeCell = { r, c, cellData, domNode: node, key };
@@ -359,19 +321,16 @@ function preprocessGrid(raw) {
   }
 
   function openModal(cell){
-    // prepare
     playerInput.value = '';
     autocompleteList.innerHTML = '';
     candidatesList.innerHTML = '';
     inputModal.style.display = 'block';
     document.querySelector('.input-panel').style.display = 'block';
-    // when gameOver true, show candidates list and disable input
     if (gameOver){
       playerInput.disabled = true;
       autocompleteList.style.display = 'none';
       candidatesList.style.display = 'block';
       cellHint.textContent = 'Candidate players for this cell:';
-      // populate candidate list (resolve names)
       const candIds = (cell.cellData && Array.isArray(cell.cellData.candidates_sample)) ? cell.cellData.candidates_sample : [];
       for (const pid of candIds){
         const id = String(pid);
@@ -379,14 +338,12 @@ function preprocessGrid(raw) {
         const display = info ? `${info.full_name}${info.represented_country ? ' ('+info.represented_country+')' : ''}` : id;
         const div = document.createElement('div');
         div.className = 'candidate-item';
-        // if the cell is locked with that id, mark locked
         const locked = cellState[cell.key] && cellState[cell.key].locked;
         if (locked) div.classList.add('locked');
         div.textContent = display;
         candidatesList.appendChild(div);
       }
     } else {
-      // playing: show autocomplete input only, hide candidates
       playerInput.disabled = false;
       autocompleteList.style.display = 'block';
       candidatesList.style.display = 'none';
@@ -406,9 +363,9 @@ function preprocessGrid(raw) {
     inputModal._candidatesSet = null;
   }
 
-  // Autocomplete
+  /* autocomplete & submission */
   let acIndex = -1;
-  function onInput(e){
+  function onInput(){
     const q = playerInput.value.trim().toLowerCase();
     autocompleteList.innerHTML = ''; acIndex = -1;
     if (!q) return;
@@ -441,7 +398,7 @@ function preprocessGrid(raw) {
 
   function onSubmit(){
     if (!activeCell) return;
-    if (gameOver) { /* input disabled during gameOver, but guard */ return; }
+    if (gameOver) return;
     const typed = playerInput.value.trim();
     if (!typed) return animateWrong();
     const exact = nameIndex.find(n => n.label.toLowerCase() === typed.toLowerCase());
@@ -454,15 +411,13 @@ function preprocessGrid(raw) {
   function attemptSubmit(playerId, playerName){
     if (!activeCell) return;
     const key = activeCell.key;
-    if (cellState[key] && cellState[key].locked) return; // already locked
+    if (cellState[key] && cellState[key].locked) return;
     const candSet = inputModal._candidatesSet;
     if (candSet && candSet.has(String(playerId))){
       lockCell(activeCell.r, activeCell.c, playerId, playerName);
       closeModal();
-      // after locking, check if all filled -> set gameOver true and reveal candidates for future clicks
       if (checkAllFillableFilled()){
         gameOver = true;
-        // candidates will be visible on modal open because gameOver now true
         const score = computeScore();
         showScore(score);
       }
@@ -480,7 +435,6 @@ function preprocessGrid(raw) {
     setTimeout(()=> wb.classList.remove('show'), 750);
   }
 
-  // lock cell by selecting element with data-r/data-c — robust and fixed
   function lockCell(r, c, pid, pname){
     const key = `${r}-${c}`;
     cellState[key] = { locked:true, id: pid, name: pname };
@@ -506,9 +460,7 @@ function preprocessGrid(raw) {
     return total>0 && filled === total;
   }
 
-  // Give Up: mark empties red (overlay), set gameOver true, show score; do NOT auto-fill
   function onGiveUp(){
-    // clear previous overlays
     const all = boardWrap.querySelectorAll('.grid-cell');
     all.forEach(n => n.classList.remove('cell-revealed-empty'));
     let total = 0, filled = 0;
@@ -519,7 +471,6 @@ function preprocessGrid(raw) {
         total++;
         const key = `${r}-${c}`;
         if (cellState[key] && cellState[key].locked){ filled++; continue; }
-        // mark as empty revealed (red overlay)
         const node = boardWrap.querySelector(`.grid-cell[data-r="${r}"][data-c="${c}"]`);
         if (node) node.classList.add('cell-revealed-empty');
       }
@@ -529,7 +480,6 @@ function preprocessGrid(raw) {
     showScore(score);
   }
 
-  // scoring with duplicate penalty: first use 10, each extra use of same player +5; +10 bonus if all filled
   function computeScore(){
     const usedCounts = {};
     let totalFillable = 0;
@@ -549,10 +499,9 @@ function preprocessGrid(raw) {
     for (const pid in usedCounts){
       const count = usedCounts[pid];
       if (count <= 0) continue;
-      points += 10; // first
+      points += 10;
       if (count > 1) points += (count - 1) * 5;
     }
-    // bonus
     let filled = 0;
     for (let r=0;r<gridData.rows.length;r++){
       for (let c=0;c<gridData.cols.length;c++){
@@ -566,34 +515,203 @@ function preprocessGrid(raw) {
     return points;
   }
 
-  function showScore(s){
-  scoreValue.textContent = s;
-  scoreOverlay.style.display = 'block';
+  /* ---------- leaderboard submission helpers (one copy only) ---------- */
+  const LB_QUEUE_KEY_FILLGRID = 'lb_score_queue_fillgrid_v1';
 
-  // try to infer displayName (same approach as other game)
-  let displayName = null;
-  try {
-    if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
-      const localUser = window.LEADERBOARD.getLocalUser();
-      if (localUser && localUser.pseudo) displayName = localUser.pseudo;
-    }
-  } catch(e){ console.warn('getLocalUser threw', e); }
-  // if you have an inline pseudo input on page, read it:
-  const displayNameInput = document.querySelector('#lb-pseudo') || document.querySelector('#someDisplayNameInput');
-  if (!displayName && displayNameInput) displayName = (displayNameInput.value || '').trim() || null;
-
-  // metadata: include breakdown if you want (here only simple)
-  const meta = { total_cells: (gridData ? gridData.rows.length * (gridData.cols?gridData.cols.length:0) : 0), completed: gameOver };
-
-  // submit score (non-blocking)
-  try {
-    submitScoreToLeaderboardFill(s, meta, { displayName });
-    console.info('[LB] submitScoreToLeaderboardFill called', { points: s, displayName, mode: `${mode}_fillgrid` });
-  } catch (e) {
-    console.error('[LB] submit helper threw', e);
+  function pushToScoreQueueFill(entry){
+    try {
+      const q = JSON.parse(localStorage.getItem(LB_QUEUE_KEY_FILLGRID) || '[]');
+      q.push(Object.assign({ts: (new Date()).toISOString()}, entry));
+      localStorage.setItem(LB_QUEUE_KEY_FILLGRID, JSON.stringify(q));
+      console.info('[LB-QUEUE] queued entry', entry);
+    } catch(e){ console.warn('[LB-QUEUE] push error', e); }
   }
-}
 
+  function popScoreQueueFill(){
+    try {
+      const q = JSON.parse(localStorage.getItem(LB_QUEUE_KEY_FILLGRID) || '[]');
+      if(!q || q.length === 0) return null;
+      q.shift();
+      localStorage.setItem(LB_QUEUE_KEY_FILLGRID, JSON.stringify(q));
+      return true;
+    } catch(e){ console.warn('[LB-QUEUE] pop error', e); return null; }
+  }
+
+  function readScoreQueueFill(){
+    try { return JSON.parse(localStorage.getItem(LB_QUEUE_KEY_FILLGRID) || '[]'); }
+    catch(e){ return []; }
+  }
+
+  function waitForLeaderboardFill(timeout = 4000, interval = 200){
+    return new Promise((resolve) => {
+      if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function') return resolve(true);
+      const start = Date.now();
+      const t = setInterval(() => {
+        if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+          clearInterval(t); resolve(true);
+        } else if(Date.now() - start > timeout){
+          clearInterval(t); resolve(false);
+        }
+      }, interval);
+    });
+  }
+
+  async function trySubmitEntryToLBFill(entry){
+    const gameId = entry.gameId || 'fill_grid';
+    const points = Number(entry.points) || 0;
+    const options = entry.options || {};
+    const pseudo = options.displayName || options.pseudo || null;
+    const modeOpt = options.mode || null;
+    const meta = options.meta || null;
+
+    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+      try {
+        console.info('[LB] calling window.LEADERBOARD.submitScore', { gameId, points, options });
+        const res = await window.LEADERBOARD.submitScore(gameId, points, options);
+        console.info('[LB] submitScore response', res);
+        if(res && (res.ok === true || res.success === true || res.status === 'ok')){
+          console.info('[LB] library confirmed success');
+          return true;
+        }
+        if(res && res.error && String(res.error).toLowerCase().includes('already_submitted')){
+          console.info('[LB] library reports already submitted — treat as done', res);
+          return true;
+        }
+        console.warn('[LB] library returned non-success — will try server fallback', res);
+      } catch(err){
+        console.error('[LB] submitScore threw', err);
+      }
+    } else {
+      console.warn('[LB] library not available — using fallback');
+    }
+
+    const fallbackEndpoint = '/.netlify/functions/submit-score';
+    const payload = {
+      game_id: gameId,
+      points: points,
+      pseudo: pseudo,
+      mode: modeOpt,
+      meta: (typeof meta === 'string' ? meta : (meta ? JSON.stringify(meta) : null)),
+      ts: (new Date()).toISOString()
+    };
+
+    try {
+      console.info('[LB-FALLBACK] POST', fallbackEndpoint, payload);
+      const resp = await fetch(fallbackEndpoint, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const text = await resp.text().catch(()=>null);
+      let parsed = null;
+      try { parsed = text ? JSON.parse(text) : null; } catch(e){ parsed = text; }
+      console.info('[LB-FALLBACK] response', resp.status, parsed);
+
+      if (resp.ok) {
+        console.info('[LB-FALLBACK] server insert OK', parsed);
+        return true;
+      }
+      if (resp.status === 409) {
+        console.info('[LB-FALLBACK] server indicates duplicate (already submitted) — treat as done', parsed);
+        return true;
+      }
+      if (parsed && parsed.detail && parsed.detail.code === '23505') {
+        console.info('[LB-FALLBACK] supabase duplicate detail detected — treat as done', parsed);
+        return true;
+      }
+      console.warn('[LB-FALLBACK] server returned non-OK (will queue)', resp.status, parsed);
+      return false;
+    } catch(fetchErr){
+      console.error('[LB-FALLBACK] fetch error', fetchErr);
+      return false;
+    }
+  }
+
+  async function flushQueueFill(){
+    const q = readScoreQueueFill();
+    if(!q || q.length === 0) return;
+    const ready = await waitForLeaderboardFill(5000);
+    if(!ready){
+      console.info('[LB-QUEUE] LB not ready; will keep queue');
+      return;
+    }
+    for(let i=0;i<20;i++){
+      const arr = readScoreQueueFill();
+      if(!arr || arr.length === 0) break;
+      const entry = arr[0];
+      const ok = await trySubmitEntryToLBFill(entry);
+      if(ok){
+        popScoreQueueFill();
+        console.info('[LB-QUEUE] flushed one entry');
+      } else {
+        console.warn('[LB-QUEUE] flush failed for first entry — stop trying now');
+        break;
+      }
+    }
+  }
+
+  async function submitScoreToLeaderboardFill(points, meta = {}, extra = {}){
+    const displayName = extra.displayName || extra.pseudo || null;
+    const modeString = `${mode}_fillgrid`;
+    const options = { mode: modeString, meta: JSON.stringify(meta || {}), displayName };
+
+    const ready = await waitForLeaderboardFill(3000);
+    if(ready){
+      const ok = await trySubmitEntryToLBFill({ gameId:'fill_grid', points, options });
+      if(ok){
+        console.info('[LB] Score successfully submitted (fast path)');
+        setTimeout(flushQueueFill, 250);
+        return;
+      } else {
+        pushToScoreQueueFill({ gameId:'fill_grid', points, options });
+        console.info('[LB] Score queued for retry');
+        setTimeout(flushQueueFill, 1000);
+        return;
+      }
+    } else {
+      pushToScoreQueueFill({ gameId:'fill_grid', points, options });
+      console.info('[LB] LB not ready — score queued');
+      setTimeout(flushQueueFill, 1000);
+      return;
+    }
+  }
+
+  (function watchForLBFillInit(){
+    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+      setTimeout(flushQueueFill, 300);
+      return;
+    }
+    const poll = setInterval(() => {
+      if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+        clearInterval(poll);
+        setTimeout(flushQueueFill, 200);
+      }
+    }, 300);
+  })();
+
+  /* ---------- UI hooks ---------- */
+  function showScore(s){
+    scoreValue.textContent = s;
+    scoreOverlay.style.display = 'block';
+    let displayName = null;
+    try {
+      if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
+        const localUser = window.LEADERBOARD.getLocalUser();
+        if (localUser && localUser.pseudo) displayName = localUser.pseudo;
+      }
+    } catch(e){ console.warn('getLocalUser threw', e); }
+    const displayNameInput = document.querySelector('#lb-pseudo') || document.querySelector('#someDisplayNameInput');
+    if (!displayName && displayNameInput) displayName = (displayNameInput.value || '').trim() || null;
+    const meta = { total_cells: (gridData ? gridData.rows.length * (gridData.cols?gridData.cols.length:0) : 0), completed: gameOver };
+    try {
+      submitScoreToLeaderboardFill(s, meta, { displayName });
+      console.info('[LB] submitScoreToLeaderboardFill called', { points: s, displayName, mode: `${mode}_fillgrid` });
+    } catch (e) {
+      console.error('[LB] submit helper threw', e);
+    }
+  }
 
   function onReset(){
     gameOver = false;
@@ -601,7 +719,7 @@ function preprocessGrid(raw) {
     renderBoard();
   }
 
-  // init sequence: load players catalog, build indexes, load grid
+  /* ---------- init ---------- */
   (async () => {
     try {
       try {
@@ -615,11 +733,7 @@ function preprocessGrid(raw) {
       if (playersCatalog && Array.isArray(playersCatalog.players)){
         for (const p of playersCatalog.players) nameIndex.push({ label: p.full_name, id: String(p.player_id) });
       }
-
-      // load initial grid (WTA)
       await loadGrid(mode);
-
-      // wire up events
       btnToggle.addEventListener('click', ()=> loadGrid(mode === 'WTA' ? 'ATP' : 'WTA'));
       btnGiveUp.addEventListener('click', onGiveUp);
       btnReset.addEventListener('click', onReset);
@@ -630,197 +744,9 @@ function preprocessGrid(raw) {
       scoreClose.addEventListener('click', ()=> scoreOverlay.style.display = 'none');
     } catch (err) {
       console.error('Init failed', err);
+      boardWrap.innerHTML = `<div style="color:#f88">Init failed: ${String(err)}</div>`;
     }
   })();
-
-
-  const LB_QUEUE_KEY_FILLGRID = 'lb_score_queue_fillgrid_v1';
-
-function pushToScoreQueueFill(entry){
-  try {
-    const q = JSON.parse(localStorage.getItem(LB_QUEUE_KEY_FILLGRID) || '[]');
-    q.push(Object.assign({ts: (new Date()).toISOString()}, entry));
-    localStorage.setItem(LB_QUEUE_KEY_FILLGRID, JSON.stringify(q));
-    console.info('[LB-QUEUE] queued entry', entry);
-  } catch(e){ console.warn('[LB-QUEUE] push error', e); }
-}
-
-function popScoreQueueFill(){
-  try {
-    const q = JSON.parse(localStorage.getItem(LB_QUEUE_KEY_FILLGRID) || '[]');
-    if(!q || q.length === 0) return null;
-    q.shift();
-    localStorage.setItem(LB_QUEUE_KEY_FILLGRID, JSON.stringify(q));
-    return true;
-  } catch(e){ console.warn('[LB-QUEUE] pop error', e); return null; }
-}
-
-function readScoreQueueFill(){
-  try { return JSON.parse(localStorage.getItem(LB_QUEUE_KEY_FILLGRID) || '[]'); }
-  catch(e){ return []; }
-}
-
-function waitForLeaderboardFill(timeout = 4000, interval = 200){
-  return new Promise((resolve) => {
-    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function') return resolve(true);
-    const start = Date.now();
-    const t = setInterval(() => {
-      if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
-        clearInterval(t); resolve(true);
-      } else if(Date.now() - start > timeout){
-        clearInterval(t); resolve(false);
-      }
-    }, interval);
-  });
-}
-
-/** trySubmitEntryToLBFill: tries lib then fallback to Netlify function */
-async function trySubmitEntryToLBFill(entry){
-  const gameId = entry.gameId || 'fill_grid';
-  const points = Number(entry.points) || 0;
-  const options = entry.options || {};
-  const pseudo = options.displayName || options.pseudo || null;
-  const modeOpt = options.mode || null;
-  const meta = options.meta || null;
-
-  // 1) try library
-  if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
-    try {
-      console.info('[LB] calling window.LEADERBOARD.submitScore', { gameId, points, options });
-      const res = await window.LEADERBOARD.submitScore(gameId, points, options);
-      console.info('[LB] submitScore response', res);
-      if(res && (res.ok === true || res.success === true || res.status === 'ok')){
-        console.info('[LB] library confirmed success');
-        return true;
-      }
-      if(res && res.error && String(res.error).toLowerCase().includes('already_submitted')){
-        console.info('[LB] library reports already submitted — treat as done', res);
-        return true;
-      }
-      console.warn('[LB] library returned non-success — will try server fallback', res);
-    } catch(err){
-      console.error('[LB] submitScore threw', err);
-      // fall through to fallback
-    }
-  } else {
-    console.warn('[LB] library not available — using fallback');
-  }
-
-  // 2) fallback -> Netlify function
-  const fallbackEndpoint = '/.netlify/functions/submit-score';
-  const payload = {
-    game_id: gameId,
-    points: points,
-    pseudo: pseudo,
-    mode: modeOpt,
-    meta: (typeof meta === 'string' ? meta : (meta ? JSON.stringify(meta) : null)),
-    ts: (new Date()).toISOString()
-  };
-
-  try {
-    console.info('[LB-FALLBACK] POST', fallbackEndpoint, payload);
-    const resp = await fetch(fallbackEndpoint, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    const text = await resp.text().catch(()=>null);
-    let parsed = null;
-    try { parsed = text ? JSON.parse(text) : null; } catch(e){ parsed = text; }
-    console.info('[LB-FALLBACK] response', resp.status, parsed);
-
-    if (resp.ok) {
-      console.info('[LB-FALLBACK] server insert OK', parsed);
-      return true;
-    }
-
-    // duplicate -> treat as already submitted
-    if (resp.status === 409) {
-      console.info('[LB-FALLBACK] server indicates duplicate (already submitted) — treat as done', parsed);
-      return true;
-    }
-    if (parsed && parsed.detail && parsed.detail.code === '23505') {
-      console.info('[LB-FALLBACK] supabase duplicate detail detected — treat as done', parsed);
-      return true;
-    }
-
-    // otherwise, not-ok: queue for retry
-    console.warn('[LB-FALLBACK] server returned non-OK (will queue)', resp.status, parsed);
-    return false;
-  } catch(fetchErr){
-    console.error('[LB-FALLBACK] fetch error', fetchErr);
-    return false;
-  }
-}
-
-/** flush queue */
-async function flushQueueFill(){
-  const q = readScoreQueueFill();
-  if(!q || q.length === 0) return;
-  const ready = await waitForLeaderboardFill(5000);
-  if(!ready){
-    console.info('[LB-QUEUE] LB not ready; will keep queue');
-    return;
-  }
-  for(let i=0;i<20;i++){
-    const arr = readScoreQueueFill();
-    if(!arr || arr.length === 0) break;
-    const entry = arr[0];
-    const ok = await trySubmitEntryToLBFill(entry);
-    if(ok){
-      popScoreQueueFill();
-      console.info('[LB-QUEUE] flushed one entry');
-    } else {
-      console.warn('[LB-QUEUE] flush failed for first entry — stop trying now');
-      break;
-    }
-  }
-}
-
-/** main helper: submitScoreToLeaderboardFill(points, meta, extra) */
-async function submitScoreToLeaderboardFill(points, meta = {}, extra = {}){
-  const displayName = extra.displayName || extra.pseudo || null;
-  const modeString = `${mode}_fillgrid`; // mode variable from the game ("WTA" or "ATP")
-  const options = { mode: modeString, meta: JSON.stringify(meta || {}), displayName };
-
-  const ready = await waitForLeaderboardFill(3000);
-  if(ready){
-    const ok = await trySubmitEntryToLBFill({ gameId:'fill_grid', points, options });
-    if(ok){
-      console.info('[LB] Score successfully submitted (fast path)');
-      setTimeout(flushQueueFill, 250);
-      return;
-    } else {
-      // queue
-      pushToScoreQueueFill({ gameId:'fill_grid', points, options });
-      console.info('[LB] Score queued for retry');
-      setTimeout(flushQueueFill, 1000);
-      return;
-    }
-  } else {
-    // not ready: queue
-    pushToScoreQueueFill({ gameId:'fill_grid', points, options });
-    console.info('[LB] LB not ready — score queued');
-    setTimeout(flushQueueFill, 1000);
-    return;
-  }
-}
-
-/* watch for LB init and flush */
-(function watchForLBFillInit(){
-  if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
-    setTimeout(flushQueueFill, 300);
-    return;
-  }
-  const poll = setInterval(() => {
-    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
-      clearInterval(poll);
-      setTimeout(flushQueueFill, 200);
-    }
-  }, 300);
-})();
 
 })();
 </script>
