@@ -176,7 +176,9 @@
 const SELECTED_PLAYERS_JSON = '/selected_players.json';
 const PLAYERS_CATALOG_JSON = '/tools/players_catalog.json';
 const GEOCODES_JSON = '/tools/geocodes_combined.json';
-const H2H_BASE = '/data/h2h/';
+
+// NEW: base directory for per-player H2H files (each file is one player with matches)
+const H2H_BY_PLAYER_BASE = '/data/h2h_by_player/';
 
 let selectedPlayers = null;
 let playersCatalog = []; // normalized players array
@@ -192,8 +194,12 @@ let gameStarted = false;
 let guesses = [];
 let guessedNames = new Set();
 
-let h2hCache = {}; // key: idA_idB -> json
+let h2hCache = {}; // key: idA_idB -> composed pair JSON (as before)
 let h2hFoundCount = 0;
+
+// NEW: cache of per-player JSON files loaded from H2H_BY_PLAYER_BASE
+// key: playerId -> file JSON (structure like the sample provided)
+let h2hByPlayerCache = {}; // only files for players in selected_players (up to limit)
 
 /* ---------------------------
   Utilities
@@ -241,127 +247,234 @@ async function loadGeocodes(){
 }
 
 /* ---------------------------
-  Catalog helpers & autocompletion
+  H2H per-player loading helpers
+  - We load only the per-player files for players listed in selected_players (limit default 6).
+  - We store them in h2hByPlayerCache[playerId] = json
+  - Later, when the code needs a pair H2H, we compose it from the per-player files (if available)
 ---------------------------- */
-const guessInput = document.getElementById('guessInput');
-const suggestionsList = document.getElementById('suggestionsList');
-let suggestionPool = [], suggestionIndex = -1;
 
-function updateSuggestions(){
-  const q = (guessInput.value||'').trim().toLowerCase();
-  if(q.length < 2){ suggestionsList.style.display='none'; suggestionPool=[]; return; }
-  let pool = playersCatalog.filter(p => p.full_name && p.full_name.toLowerCase().includes(q) && (String(p.source||'').toUpperCase() === currentTour));
-  if(pool.length === 0) pool = playersCatalog.filter(p => p.full_name && p.full_name.toLowerCase().includes(q));
-  pool = pool.filter(p => !guessedNames.has((p.full_name||'').trim())).slice(0,60);
-  suggestionPool = pool;
-  renderSuggestions(pool);
+function extractPossiblePlayerId(item){
+  // robust extraction from different possible shapes
+  if(!item) return null;
+  if(typeof item === 'string' || typeof item === 'number') return String(item);
+  if(item.player_id) return String(item.player_id);
+  if(item.player && item.player.player_id) return String(item.player.player_id);
+  if(item.player && item.player.id) return String(item.player.id);
+  if(item.player && item.playerId) return String(item.player.playerId);
+  if(item.player && item.player.playerId) return String(item.player.playerId);
+  return null;
 }
-function renderSuggestions(list){
-  suggestionsList.innerHTML=''; suggestionIndex=-1;
-  if(!list || !list.length){ suggestionsList.style.display='none'; return; }
-  const max = Math.min(12, list.length);
-  for(let i=0;i<max;i++){
-    const pl=list[i]; const li=document.createElement('li'); li.textContent = pl.full_name + (pl.represented_country ? ` — ${pl.represented_country}` : ''); li.dataset.idx=i;
-    li.onclick = () => { guessInput.value = pl.full_name; suggestionsList.style.display='none'; guessInput.focus(); };
-    li.onmouseover = () => { Array.from(suggestionsList.children).forEach(n=>n.classList.remove('highlight')); li.classList.add('highlight'); suggestionIndex=i; };
-    suggestionsList.appendChild(li);
-  }
-  suggestionsList.style.display='block';
-}
-guessInput.addEventListener('input', updateSuggestions);
-guessInput.addEventListener('focus', updateSuggestions);
-document.addEventListener('click', (e)=>{ if(!document.querySelector('.suggestions')?.contains(e.target)) suggestionsList.style.display='none'; });
-guessInput.addEventListener('keydown', (e) => {
-  if(suggestionsList.style.display==='block'){
-    const items = suggestionsList.children;
-    if(e.key === 'ArrowDown'){ e.preventDefault(); suggestionIndex = Math.min(suggestionIndex+1, items.length-1); highlightSuggestion(); }
-    else if(e.key === 'ArrowUp'){ e.preventDefault(); suggestionIndex = Math.max(suggestionIndex-1,0); highlightSuggestion(); }
-    else if(e.key === 'Enter'){ if(suggestionIndex >= 0 && suggestionPool[suggestionIndex]){ e.preventDefault(); const sel=suggestionPool[suggestionIndex]; guessInput.value = sel.full_name; suggestionsList.style.display='none'; handleGuessSafe(sel.full_name); } }
-  }
-});
-function highlightSuggestion(){ const items = suggestionsList.children; for(let i=0;i<items.length;i++) items[i].classList.toggle('highlight', i===suggestionIndex); }
 
-/* find catalog player by name */
-function findPlayerByName(name){
-  if(!name) return null;
-  const q = norm(name.trim());
-  let p = playersCatalog.find(x => x.player_id && String(x.player_id).toLowerCase() === name.trim().toLowerCase());
-  if(p) return p;
-  p = playersCatalog.find(x => x.full_name && norm(x.full_name) === q);
-  if(p) return p;
-  p = playersCatalog.find(x => x.full_name && norm(x.full_name).startsWith(q));
-  if(p) return p;
-  p = playersCatalog.find(x => x.full_name && norm(x.full_name).includes(q));
-  return p || null;
+async function loadSinglePlayerH2H(playerId){
+  if(!playerId) return null;
+  if(h2hByPlayerCache[playerId]) return h2hByPlayerCache[playerId];
+  const path = `${H2H_BY_PLAYER_BASE}${encodeURIComponent(playerId)}.json`;
+  const j = await fetchJson(path);
+  if(!j) return null;
+  h2hByPlayerCache[playerId] = j;
+  return j;
+}
+
+async function loadH2HFilesForSelectedPlayers(limit = 6){
+  if(!selectedPlayers) return;
+  const ids = new Set();
+  // try common keys: ATP, WTA, atp, wta, or any array in root
+  const keys = Object.keys(selectedPlayers||{});
+  // collect ids from arrays
+  for(const k of keys){
+    const arr = selectedPlayers[k];
+    if(Array.isArray(arr)){
+      for(const it of arr){
+        // each element might be { level: 'easy', player: { player_id: '...' } } or { player_id: '...' }
+        const id = extractPossiblePlayerId(it) || extractPossiblePlayerId(it.player);
+        if(id) ids.add(id);
+        if(ids.size >= limit) break;
+      }
+    }
+    if(ids.size >= limit) break;
+  }
+  // final fallback: if no arrays found, scan top-level for objects with player_id
+  if(ids.size === 0){
+    for(const k of keys){
+      const id = extractPossiblePlayerId(selectedPlayers[k]);
+      if(id) ids.add(id);
+      if(ids.size >= limit) break;
+    }
+  }
+
+  const toLoad = Array.from(ids).slice(0, limit);
+  if(toLoad.length === 0) return;
+  document.getElementById('preloadStatus').textContent = `H2H preload: loading ${toLoad.length} selected-player files...`;
+  let loaded = 0;
+  for(const id of toLoad){
+    try{
+      const j = await loadSinglePlayerH2H(id);
+      if(j) h2hFoundCount++;
+    }catch(e){}
+    loaded++;
+    document.getElementById('preloadStatus').textContent = `H2H preload: ${loaded}/${toLoad.length} selected-player files loaded`;
+  }
+  document.getElementById('preloadStatus').textContent = `H2H preload: loaded ${toLoad.length} selected-player files`;
 }
 
 /* ---------------------------
-  H2H preload logic (try index then catalog scan)
+  Compose pair H2H from per-player files
+  - If either per-player JSON contains matches against the other player, combine them.
+  - Return the composed object in the same minimal shape used by the rest of the app:
+    { meta: { total_matches }, player1: {id, full_name}, player2: {id, full_name}, matches: [...], aggregates: { player1: {h2h_wins}, player2: {h2h_wins} } }
+  - This function does NOT fetch additional per-player files beyond those loaded in h2hByPlayerCache.
 ---------------------------- */
-async function tryFetchIndexForTarget(targetId){
-  const candidates = [
-    `${H2H_BASE}index.json`,
-    `${H2H_BASE}indexes.json`,
-    `${H2H_BASE}index_by_player/${encodeURIComponent(targetId)}.json`,
-    `${H2H_BASE}${encodeURIComponent(targetId)}_index.json`,
-    `${H2H_BASE}index_${encodeURIComponent(targetId)}.json`
-  ];
-  for(const path of candidates){
-    try{
-      const j = await fetchJson(path);
-      if(!j) continue;
-      if(Array.isArray(j)) return j.map(x=>String(x));
-      if(Array.isArray(j.opponents)) return j.opponents.map(x=>String(x));
-      if(typeof j === 'object'){
-        const ids = [];
-        Object.keys(j).forEach(k=>{
-          const k2=k.replace(/\.json$/i,''); const parts=k2.split('_'); const opp=(parts[0]===targetId?parts[1]:(parts[1]===targetId?parts[0]:null)); if(opp) ids.push(opp);
-        });
-        if(ids.length) return [...new Set(ids)];
+function composeH2HFromCachedPlayers(targetId, oppId){
+  const tId = String(targetId);
+  const oId = String(oppId);
+  const pA = h2hByPlayerCache[tId];
+  const pB = h2hByPlayerCache[oId];
+
+  const collected = [];
+  // helper to push matches with origin marker
+  if(pA && Array.isArray(pA.matches)){
+    for(const m of pA.matches){
+      if(String(m.opponent_id) === oId){
+        const copy = Object.assign({}, m);
+        copy.__origin = 'a'; // from player A file
+        collected.push(copy);
       }
-    }catch(e){}
+    }
   }
-  return null;
+  if(pB && Array.isArray(pB.matches)){
+    for(const m of pB.matches){
+      if(String(m.opponent_id) === tId){
+        const copy = Object.assign({}, m);
+        copy.__origin = 'b'; // from player B file
+        collected.push(copy);
+      }
+    }
+  }
+
+  if(collected.length === 0) return null;
+
+  // dedupe by match_id or (event_id+match_date+score) fallback
+  const seen = new Set();
+  const normalized = [];
+  let wins1 = 0, wins2 = 0;
+  for(const m of collected){
+    const mid = m.match_id || (m.event_id ? (m.event_id + '|' + (m.match_date||'')) : JSON.stringify([m.match_date,m.score,m.opponent_id]));
+    if(seen.has(mid)) continue;
+    seen.add(mid);
+
+    // determine winner id given origin
+    // origin 'a' means the file belonged to player A (targetId)
+    // if m.is_winner === true in player A file => target won; in player B file => opponent won
+    let winnerId = null;
+    if(m.__origin === 'a'){
+      winnerId = m.is_winner ? tId : oId;
+    } else if(m.__origin === 'b'){
+      winnerId = m.is_winner ? oId : tId;
+    } else {
+      // unknown origin: try to infer by is_winner + presence of fields (best-effort)
+      winnerId = m.is_winner ? tId : oId;
+    }
+
+    if(String(winnerId) === tId) wins1++;
+    else if(String(winnerId) === oId) wins2++;
+
+    // normalize fields to match what render functions expect
+    const normMatch = {
+      match_id: m.match_id || mid,
+      event_id: m.event_id || m.tourney_id || '',
+      event_year: m.event_year || (m.match_date ? (new Date(m.match_date)).getFullYear() : ''),
+      tourney_name: m.tourney_name || m.tourney_name || '',
+      surface: m.surface || m.surface || '',
+      round: m.round || m.round || '',
+      score_string: m.score_string || m.score || m.score || '',
+      match_date: m.match_date || m.match_date || '',
+      player_id_winner: winnerId,
+      opponent_id: m.opponent_id || m.opponent_id || null,
+      opponent_name: m.opponent_name || m.opponent_name || ''
+    };
+    normalized.push(normMatch);
+  }
+
+  // build player display names
+  const nameA = (pA && pA.player && (pA.player.full_name || pA.player.raw && pA.player.raw.full_name)) || (pB && pB.player && (pB.player.full_name || pB.player.raw && pB.player.raw.full_name)) || '';
+  const nameB = (pB && pB.player && (pB.player.full_name || pB.player.raw && pB.player.raw.full_name)) || (pA && pA.player && (pA.player.full_name || pA.player.raw && pA.player.raw.full_name)) || '';
+
+  const h2h = {
+    meta: { total_matches: normalized.length },
+    player1: { id: tId, full_name: nameA },
+    player2: { id: oId, full_name: nameB },
+    matches: normalized,
+    aggregates: {
+      player1: { h2h_wins: wins1 },
+      player2: { h2h_wins: wins2 }
+    }
+  };
+
+  return h2h;
 }
+
+/* ---------------------------
+  Fetch H2H pair — adjusted behavior:
+  - First check the existing h2hCache (pair cache) like before.
+  - If not present, attempt to compose from per-player cached files (h2hByPlayerCache).
+  - IMPORTANT: we DO NOT fetch arbitrary pair files from pair-wise storage any more.
+---------------------------- */
 async function fetchH2HTryBoth(targetId, oppId){
   const k1 = `${targetId}_${oppId}`, k2 = `${oppId}_${targetId}`;
   if(h2hCache[k1]) return h2hCache[k1];
   if(h2hCache[k2]) return h2hCache[k2];
-  const p1 = `${H2H_BASE}${k1}.json`, p2 = `${H2H_BASE}${k2}.json`;
-  try{ let r = await fetch(p1,{cache:'no-cache'}); if(r.ok){ const j=await r.json(); h2hCache[k1]=j; h2hFoundCount++; return j; } }catch(e){}
-  try{ let r2 = await fetch(p2,{cache:'no-cache'}); if(r2.ok){ const j=await r2.json(); h2hCache[k2]=j; h2hFoundCount++; return j; } }catch(e){}
+
+  // try to compose from per-player caches already loaded
+  const composed = composeH2HFromCachedPlayers(targetId, oppId);
+  if(composed){
+    h2hCache[k1] = composed;
+    h2hFoundCount++;
+    return composed;
+  }
+
+  // If composition failed (no cached per-player files contain their mutual matches),
+  // we *do not* fetch extra arbitrary pair files here to avoid loading many files.
+  // Return null as "not found".
   return null;
 }
-async function batchFetchOpponents(targetId, oppIds, concurrency = 12){
-  const total = oppIds.length; let done=0; document.getElementById('preloadStatus').textContent=`H2H preload: 0/${total} (found 0)`;
-  const q = [...oppIds];
-  async function worker(){
-    while(q.length){
-      const opp = q.shift();
-      try{ await fetchH2HTryBoth(targetId, opp); }catch(e){}
-      done++; document.getElementById('preloadStatus').textContent=`H2H preload: ${done}/${total} (found ${h2hFoundCount})`;
-      await new Promise(r=>setTimeout(r,20));
-    }
-  }
-  const workers=[]; for(let i=0;i<concurrency;i++) workers.push(worker());
-  await Promise.all(workers);
-  document.getElementById('preloadStatus').textContent = `H2H preload done — found ${h2hFoundCount} file(s) for ${targetId}`;
-}
+
+/* ---------------------------
+  Preload logic for a target:
+  - With the new storage layout we preload only the selected_players per-player JSONs (done at init),
+    and at round start we can use those cached per-player files to build pair-wise H2H entries.
+  - For compatibility with UI messages, we still update preloadStatus and h2hFoundCount.
+---------------------------- */
 async function preloadAllH2HForTarget(targetId){
-  h2hFoundCount=0; document.getElementById('preloadStatus').textContent='H2H preload: discovering...';
-  const indexOpps = await tryFetchIndexForTarget(targetId);
-  if(indexOpps && indexOpps.length){ const opps=indexOpps.map(x=>String(x)).filter(x=>x && x!==targetId); document.getElementById('preloadStatus').textContent=`H2H preload: index found — ${opps.length} opponents`; await batchFetchOpponents(targetId,opps,14); return; }
-  // fallback: try daily candidates first (if any)
-  const dailyOpps = (dailyData && Array.isArray(dailyData.players)) ? dailyData.players.map(p=>String(p.player_id)).filter(id=>id && id!==targetId) : [];
-  if(dailyOpps.length){ document.getElementById('preloadStatus').textContent = `H2H preload: using daily candidates (${dailyOpps.length})`; await batchFetchOpponents(targetId,dailyOpps,12); }
-  // final: scan catalog (throttled)
-  const oppIds = playersCatalog.map(p=>String(p.player_id)).filter(id=>id && id!==targetId);
-  document.getElementById('preloadStatus').textContent = `H2H preload: scanning catalog (${oppIds.length}) — may take time`;
-  await batchFetchOpponents(targetId, oppIds, 10);
+  h2hFoundCount=0;
+  document.getElementById('preloadStatus').textContent='H2H preload: composing from selected-player files...';
+  // try to compose pair H2H objects between target and all other loaded per-player files
+  const loadedPlayerIds = Object.keys(h2hByPlayerCache || {});
+  const opps = loadedPlayerIds.filter(id => id && id !== String(targetId));
+  if(opps.length === 0){
+    document.getElementById('preloadStatus').textContent = `H2H preload: no preloaded player files to compose pairs for ${targetId}`;
+    return;
+  }
+  let done = 0;
+  for(const opp of opps){
+    try{
+      const h = composeH2HFromCachedPlayers(targetId, opp);
+      if(h){
+        const k = `${targetId}_${opp}`;
+        h2hCache[k] = h;
+        h2hFoundCount++;
+      }
+    }catch(e){}
+    done++;
+    document.getElementById('preloadStatus').textContent = `H2H preload: ${done}/${opps.length} (found ${h2hFoundCount})`;
+    // tiny delay to keep UI responsive
+    await new Promise(r => setTimeout(r, 10));
+  }
+  document.getElementById('preloadStatus').textContent = `H2H preload done — found ${h2hFoundCount} file(s) for ${targetId}`;
 }
 
 /* ---------------------------
   Render H2H for easy/medium/hard
+  (unchanged)
 ---------------------------- */
 function renderEasy(h2h){
   if(!h2h) return `<div class="country-text">No H2H data available.</div>`;
@@ -396,6 +509,7 @@ function renderHard(h2h){
 
 /* ---------------------------
   Guess handling & table UI
+  (unchanged)
 ---------------------------- */
 function clearGuessesTable(){ document.querySelector('#guessesTable tbody').innerHTML = ''; }
 function appendGuessRow(guessPlayer, comparison){
@@ -408,7 +522,7 @@ function appendGuessRow(guessPlayer, comparison){
   const tdCountry=document.createElement('td'); tdCountry.innerHTML = comparison.sameCountry?`<span class="country-good">${escapeHtml(guessPlayer.represented_country||'—')} ✓</span>`:`<span class="country-bad">${escapeHtml(guessPlayer.represented_country||'—')}</span>`;
   const tdBirth=document.createElement('td'); tdBirth.innerHTML=(comparison.birthDistanceKm!=null?`<strong style="font-weight:800">${comparison.birthDistanceKm} km</strong>`:'unknown');
   const tdHeight=document.createElement('td'); tdHeight.innerHTML=(comparison.heightGuess!=null?comparison.heightGuess+' cm':'—') + (comparison.heightDirection?(' '+(comparison.heightDirection==='up'?'↑':'↓')):'');
-  const tdRight=document.createElement('td'); tdRight.innerHTML=(guessPlayer.right_handed===null?'—':(guessPlayer.right_handed?'Yes':'No')) + (comparison.rightMatch?(' ✔︎'):'');
+  const tdRight=document.createElement('td'); tdRight.innerHTML=(guessPlayer.right_handed===null?'—':(guessPlayer.right_handed?'Yes':'No')) + (comparison.rightMatch?(' ✔︎'):'' );
   const tdTwo=document.createElement('td'); tdTwo.innerHTML=(guessPlayer.two_handed===null?'N/A':(guessPlayer.two_handed?'Yes':'No')) + (comparison.twoHanded===null?'':(comparison.twoHanded?' ✔︎':' ✖︎'));
   [tdIndex,tdName,tdAge,tdRank,tdCountry,tdBirth,tdHeight,tdRight,tdTwo].forEach(td=>tr.appendChild(td)); tbody.prepend(tr);
 }
@@ -429,6 +543,7 @@ function comparePlayers(guess, target){
 
 /* ---------------------------
   Main guess submission
+  (only change: uses new fetchH2HTryBoth implementation above)
 ---------------------------- */
 async function handleGuessSubmission(name){
   if(!gameStarted){ showToast('Round not started'); return; }
@@ -437,7 +552,7 @@ async function handleGuessSubmission(name){
   if(!guess){ showToast('Name not found in catalog'); return; }
   guessedNames.add((guess.full_name||'').trim());
   remaining--; document.getElementById('remaining').textContent = remaining;
-  // ensure h2h available (fetch if necessary)
+  // ensure h2h available (compose if necessary)
   const cacheKeyA = `${target.player_id}_${guess.player_id}`, cacheKeyB = `${guess.player_id}_${target.player_id}`;
   if(!h2hCache[cacheKeyA] && !h2hCache[cacheKeyB]){
     const found = await fetchH2HTryBoth(target.player_id, guess.player_id);
@@ -469,7 +584,7 @@ async function handleGuessSubmission(name){
   if(remaining <= 0){ revealRound(false); setTimeout(startRound, 1200); }
 }
 
-/* revealRound modal */
+/* revealRound modal (unchanged) */
 function revealRound(won, points){
   const modal = document.getElementById('modal'); const title=document.getElementById('modalTitle'); const text=document.getElementById('modalText'); const details=document.getElementById('modalDetails');
   if(won){ title.textContent='You won!'; text.textContent=`You earned ${points} points.`; } else { title.textContent='Round over'; text.textContent='No points this time.'; }
@@ -479,11 +594,12 @@ function revealRound(won, points){
 }
 
 /* ---------------------------
-  Round start: pick target from selected_players.json and preload H2H
+  Round start: pick target from selected_players and preload H2H
+  (modified: relies on per-player files preloaded from selected_players)
 ---------------------------- */
 function pickTargetFromSelected(mode, level){
   if(!selectedPlayers) return null;
-  const arr = selectedPlayers[mode] || [];
+  const arr = selectedPlayers[mode] || selectedPlayers[mode.toLowerCase()] || [];
   const found = arr.find(x => x.level === level);
   return found ? found.player : null;
 }
@@ -509,13 +625,15 @@ async function startRound(){
   document.getElementById('levelLabel').textContent = currentLevel.charAt(0).toUpperCase()+currentLevel.slice(1);
   document.getElementById('selectedCountry').textContent = target.represented_country || '—';
   document.getElementById('preloadStatus').textContent = `Preloading H2H for ${target.player_id}...`;
-  // preload all h2h for target (index-backed or catalog scan)
+  // PRELOAD: compose H2H entries for target vs other preloaded selected-player files (no mass scanning)
   await preloadAllH2HForTarget(String(target.player_id));
   document.getElementById('preloadStatus').textContent = `Preload done — found ${h2hFoundCount} H2H file(s) for ${target.player_id}`;
 }
 
 /* ---------------------------
-  Init: load selected players + catalog + geocodes, wire UI
+  Init: load selected players + catalog + geocodes, load the per-player H2H files
+  (NEW: loadH2HFilesForSelectedPlayers called after selectedPlayers are loaded,
+   so only the per-player files needed are fetched - default up to 6)
 ---------------------------- */
 async function init(){
   // wire UI
@@ -530,7 +648,11 @@ async function init(){
   if(!okCatalog){ alert('players_catalog.json missing or malformed'); return; }
   await loadGeocodes();
   // load selected players if available (not mandatory)
-  await loadSelectedPlayers();
+  const okSel = await loadSelectedPlayers();
+  if(okSel){
+    // load the per-player H2H files only for players in selected_players (default limit 6)
+    await loadH2HFilesForSelectedPlayers(6);
+  }
   // start first round
   startRound();
 }
