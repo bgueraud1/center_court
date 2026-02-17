@@ -775,8 +775,9 @@ document.getElementById('tabLogin').addEventListener('click', (e)=>{ document.ge
 document.getElementById('tabSignup').addEventListener('click', (e)=>{ document.getElementById('tabSignup').classList.add('active'); document.getElementById('tabLogin').classList.remove('active'); document.getElementById('lbModalMsg').textContent='Sign up creates an account on the server (password required).'; });
 
 /* submit handler: calls server for sign up / login */
-document.getElementById('lbModalSubmit').addEventListener('click', async ()=>{
-  const pseudo = (document.getElementById('lbModalPseudo').value || '').trim();
+document.getElementById('lbModalSubmit').addEventListener('click', async ()=> {
+  const pseudoRaw = (document.getElementById('lbModalPseudo').value || '');
+  const pseudo = pseudoRaw.trim();
   const password = (document.getElementById('lbModalPassword').value || '');
   const isSignup = document.getElementById('tabSignup').classList.contains('active');
   const msgEl = document.getElementById('lbModalMsg');
@@ -784,30 +785,85 @@ document.getElementById('lbModalSubmit').addEventListener('click', async ()=>{
   if(!pseudo){ msgEl.textContent = 'Display name is required.'; return; }
   if(!password){ msgEl.textContent = 'Password is required.'; return; }
 
-  msgEl.textContent = 'Processing…';
+  const users = readLocalUsers(); // map pseudoKey -> password_hash (legacy could be plain)
+
+  // Helper: find stored entry case-insensitively (keeps original stored key)
+  function findStoredEntryCaseInsensitive(map, searchPseudo){
+    const normSearch = searchPseudo.trim().toLowerCase();
+    for(const k of Object.keys(map || {})){
+      if(String(k).trim().toLowerCase() === normSearch) return { key: k, value: map[k] };
+    }
+    return null;
+  }
 
   if(isSignup){
-    const res = await signupServer(pseudo, password);
-    if(res.ok){
-      msgEl.textContent = 'Account created — logged in.';
-      setTimeout(()=>{ closeLBModal(); showToast('Signed up'); }, 300);
-    } else {
-      if(res.status === 409 || (res.detail && res.detail.error && String(res.detail.error).toLowerCase().includes('exists'))) {
-        msgEl.textContent = 'This display name already exists. Choose another or Log in.';
-      } else {
-        msgEl.textContent = 'Signup failed. Try again later.';
-      }
-      console.warn('signupServer failed', res);
+    // signup: must not already exist (case-insensitive)
+    const existing = findStoredEntryCaseInsensitive(users, pseudo);
+    if(existing){
+      msgEl.textContent = 'This display name already exists locally. Choose another or log in.';
+      return;
+    }
+    // create user locally and persist
+    try {
+      await setLocalUserAndPersist(pseudo, password); // this writes users[pseudo] = hash
+      msgEl.textContent = 'Account created and saved locally.';
+      updateLBStatusUI();
+      setTimeout(()=> closeLBModal(), 400);
+      showToast('Signed up (local)');
+      return;
+    } catch(e){
+      console.error('signup error', e);
+      msgEl.textContent = 'Signup failed (local)';
+      return;
     }
   } else {
-    const res = await loginServer(pseudo, password);
-    if(res.ok){
-      msgEl.textContent = 'Login successful.';
-      setTimeout(()=>{ closeLBModal(); showToast('Logged in'); }, 200);
+    // LOGIN flow
+    const found = users[pseudo] ? { key: pseudo, value: users[pseudo] } : findStoredEntryCaseInsensitive(users, pseudo);
+    if(!found){
+      msgEl.textContent = 'No local account with that name. Please sign up first.';
+      return;
+    }
+
+    const storedValue = String(found.value || '').trim();
+
+    // compute SHA-256 hex of given password
+    let attemptHash = null;
+    try { attemptHash = await hashStringSHA256Hex(password); } catch(e){ console.error('hashing failed', e); }
+
+    // helper to detect hex-32bytes (sha256 hex)
+    const isHexSha256 = v => typeof v === 'string' && /^[0-9a-f]{64}$/.test(v);
+
+    // Debugging: (optional) show in console — remove or comment out in production
+    console.debug('[LB-LOGIN] pseudo=', pseudo, 'foundKey=', found.key, 'storedValueSample=', storedValue ? (storedValue.length>8 ? storedValue.slice(0,8)+'…' : storedValue) : '(empty)');
+    console.debug('[LB-LOGIN] attemptHash=', attemptHash ? attemptHash.slice(0,8)+'…' : null);
+
+    // If storedValue looks like a SHA-256 hex, compare to attemptHash
+    let ok = false;
+    if(isHexSha256(storedValue) && attemptHash){
+      if(attemptHash === storedValue) ok = true;
     } else {
-      if(res.status === 401) msgEl.textContent = 'Invalid credentials.';
-      else msgEl.textContent = 'Login failed. Check your credentials or sign up.';
-      console.warn('loginServer failed', res);
+      // fallback compatibility: storedValue might be legacy plain password
+      if(password === storedValue) ok = true;
+      // also accept if storedValue happens to be uppercase hex (normalize)
+      if(!ok && typeof storedValue === 'string' && storedValue.toLowerCase() === (attemptHash || '').toLowerCase()) ok = true;
+    }
+
+    if(ok){
+      // successful login: persist as local current user (store hashed password for future)
+      try {
+        // ensure we persist hashed password under the same display pseudo (use the display pseudo the user typed)
+        await setLocalUserAndPersist(pseudo, password); // writes users map and LB_LOCAL_USER_KEY
+      } catch(e){
+        console.warn('warning: persist after login failed', e);
+      }
+      setLocalUserFromStored(pseudo, await hashStringSHA256Hex(password));
+      msgEl.textContent = 'Login successful.';
+      setTimeout(()=> closeLBModal(), 300);
+      showToast('Logged in');
+      return;
+    } else {
+      msgEl.textContent = 'Incorrect password.';
+      return;
     }
   }
 });
