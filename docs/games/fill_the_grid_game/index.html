@@ -556,78 +556,116 @@
     });
   }
 
-  async function trySubmitEntryToLBFill(entry){
-    const gameId = entry.gameId || 'fill_grid';
-    const points = Number(entry.points) || 0;
-    const options = entry.options || {};
-    const pseudo = options.displayName || options.pseudo || null;
-    const modeOpt = options.mode || null;
-    const meta = options.meta || null;
+  /* ---------- Remplace trySubmitEntryToLBFill et submitScoreToLeaderboardFill par ceci ---------- */
 
-    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
-      try {
-        console.info('[LB] calling window.LEADERBOARD.submitScore', { gameId, points, options });
-        const res = await window.LEADERBOARD.submitScore(gameId, points, options);
-        console.info('[LB] submitScore response', res);
-        if(res && (res.ok === true || res.success === true || res.status === 'ok')){
-          console.info('[LB] library confirmed success');
-          return true;
-        }
-        if(res && res.error && String(res.error).toLowerCase().includes('already_submitted')){
-          console.info('[LB] library reports already submitted — treat as done', res);
-          return true;
-        }
-        console.warn('[LB] library returned non-success — will try server fallback', res);
-      } catch(err){
-        console.error('[LB] submitScore threw', err);
-      }
-    } else {
-      console.warn('[LB] library not available — using fallback');
-    }
+async function trySubmitEntryToLBFill(entry){
+  const gameId = entry.gameId || 'fill_grid';
+  const points = Number(entry.points) || 0;
+  const options = entry.options || {};
+  const pseudo = options.displayName || options.pseudo || null;
+  const modeOpt = options.mode || null;
+  const meta = options.meta || null;
 
-    const fallbackEndpoint = '/.netlify/functions/submit-score';
-    const payload = {
-      game_id: gameId,
-      points: points,
-      pseudo: pseudo,
-      mode: modeOpt,
-      meta: (typeof meta === 'string' ? meta : (meta ? JSON.stringify(meta) : null)),
-      ts: (new Date()).toISOString()
-    };
+  console.info('[LB-TRY] trySubmitEntryToLBFill start', { gameId, points, modeOpt, pseudo });
 
+  // 1) attempt library quickly (non-blocking fallback)
+  if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
     try {
-      console.info('[LB-FALLBACK] POST', fallbackEndpoint, payload);
-      const resp = await fetch(fallbackEndpoint, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      const text = await resp.text().catch(()=>null);
-      let parsed = null;
-      try { parsed = text ? JSON.parse(text) : null; } catch(e){ parsed = text; }
-      console.info('[LB-FALLBACK] response', resp.status, parsed);
-
-      if (resp.ok) {
-        console.info('[LB-FALLBACK] server insert OK', parsed);
+      console.info('[LB-TRY] call library submitScore', { gameId, points, options });
+      const res = await window.LEADERBOARD.submitScore(gameId, points, options);
+      console.info('[LB-TRY] library response', res);
+      if(res && (res.ok === true || res.success === true || res.status === 'ok')) return true;
+      if(res && res.error && String(res.error).toLowerCase().includes('already_submitted')){
+        console.info('[LB-TRY] library says already submitted -> treat as success');
         return true;
       }
-      if (resp.status === 409) {
-        console.info('[LB-FALLBACK] server indicates duplicate (already submitted) — treat as done', parsed);
-        return true;
-      }
-      if (parsed && parsed.detail && parsed.detail.code === '23505') {
-        console.info('[LB-FALLBACK] supabase duplicate detail detected — treat as done', parsed);
-        return true;
-      }
-      console.warn('[LB-FALLBACK] server returned non-OK (will queue)', resp.status, parsed);
-      return false;
-    } catch(fetchErr){
-      console.error('[LB-FALLBACK] fetch error', fetchErr);
-      return false;
+      // if library responded but not OK, we still continue to fallback to server
+      console.warn('[LB-TRY] library gave non-success, will fallback to server', res);
+    } catch(libErr){
+      console.warn('[LB-TRY] library threw, will fallback to server', libErr);
     }
+  } else {
+    console.info('[LB-TRY] library not present, skipping to server fallback');
   }
+
+  // 2) Server fallback (force absolute URL using location.origin to avoid path issues)
+  const fallbackEndpoint = `${location.origin}/.netlify/functions/submit-score`;
+  const payload = {
+    game_id: gameId,
+    points: points,
+    pseudo: pseudo,
+    mode: modeOpt,
+    meta: (typeof meta === 'string' ? meta : (meta ? JSON.stringify(meta) : null)),
+    ts: (new Date()).toISOString()
+  };
+
+  try {
+    console.info('[LB-FALLBACK] POST ->', fallbackEndpoint, payload);
+    const resp = await fetch(fallbackEndpoint, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const text = await resp.text().catch(()=>null);
+    let parsed = null;
+    try { parsed = text ? JSON.parse(text) : null; } catch(e){ parsed = text; }
+    console.info('[LB-FALLBACK] server responded', { status: resp.status, body: parsed });
+
+    if (resp.ok) {
+      console.info('[LB-FALLBACK] server insert OK', parsed);
+      return true;
+    }
+
+    // duplicate or supabase unique constraint -> treat as success
+    if (resp.status === 409 || (parsed && parsed.detail && parsed.detail.code === '23505')) {
+      console.info('[LB-FALLBACK] server indicates duplicate / already submitted -> treat as success', parsed);
+      return true;
+    }
+
+    console.warn('[LB-FALLBACK] server returned non-ok -> will return false (to be queued)', { status: resp.status, parsed });
+    return false;
+  } catch(fetchErr){
+    console.error('[LB-FALLBACK] fetch error', fetchErr);
+    return false;
+  }
+}
+
+async function submitScoreToLeaderboardFill(points, meta = {}, extra = {}){
+  const displayName = extra.displayName || extra.pseudo || null;
+  const modeString = `${mode}_fillgrid`;
+  const options = { mode: modeString, meta: JSON.stringify(meta || {}), displayName };
+
+  // Try immediate submission (no waiting). If it fails we queue.
+  try {
+    console.info('[LB] submitScoreToLeaderboardFill immediate try', { points, options });
+    const ok = await trySubmitEntryToLBFill({ gameId:'fill_grid', points, options });
+    if(ok){
+      console.info('[LB] Score successfully submitted (immediate)');
+      // try to flush any queued entries in background
+      setTimeout(flushQueueFill, 300);
+      return;
+    } else {
+      console.warn('[LB] immediate submit failed -> queueing for retry');
+      pushToScoreQueueFill({ gameId:'fill_grid', points, options });
+      setTimeout(flushQueueFill, 1000);
+      return;
+    }
+  } catch(err){
+    console.error('[LB] submitScoreToLeaderboardFill threw -> queueing', err);
+    pushToScoreQueueFill({ gameId:'fill_grid', points, options });
+    setTimeout(flushQueueFill, 1000);
+  }
+}
+
+/* expose a quick debug helper you can run in console to force a test */
+window._testSubmitFill = async function(points=7){
+  console.info('TEST: submitScoreToLeaderboardFill', points);
+  await submitScoreToLeaderboardFill(points, {test:true}, {displayName:'TEST_USER'});
+  console.info('TEST: done');
+};
+
 
   async function flushQueueFill(){
     const q = readScoreQueueFill();
@@ -652,31 +690,7 @@
     }
   }
 
-  async function submitScoreToLeaderboardFill(points, meta = {}, extra = {}){
-    const displayName = extra.displayName || extra.pseudo || null;
-    const modeString = `${mode}_fillgrid`;
-    const options = { mode: modeString, meta: JSON.stringify(meta || {}), displayName };
 
-    const ready = await waitForLeaderboardFill(3000);
-    if(ready){
-      const ok = await trySubmitEntryToLBFill({ gameId:'fill_grid', points, options });
-      if(ok){
-        console.info('[LB] Score successfully submitted (fast path)');
-        setTimeout(flushQueueFill, 250);
-        return;
-      } else {
-        pushToScoreQueueFill({ gameId:'fill_grid', points, options });
-        console.info('[LB] Score queued for retry');
-        setTimeout(flushQueueFill, 1000);
-        return;
-      }
-    } else {
-      pushToScoreQueueFill({ gameId:'fill_grid', points, options });
-      console.info('[LB] LB not ready — score queued');
-      setTimeout(flushQueueFill, 1000);
-      return;
-    }
-  }
 
   (function watchForLBFillInit(){
     if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
