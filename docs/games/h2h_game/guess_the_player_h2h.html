@@ -57,7 +57,7 @@
 <body>
   <div class="wrap">
     <header style="align-items:flex-start">
-      <div><h1>Guess the Player</h1><div class="sub">H2H game — 6 modalities (ATP/WTA × easy/medium/hard). Each modality playable once per day per user.</div></div>
+      <div><h1>Guess the Player</h1><div class="sub">H2H game — Answers are updated daily.</div></div>
 
       <!-- LB area -->
       <div class="lb-card card" aria-hidden="false" style="margin-left:auto;align-items:center">
@@ -85,7 +85,6 @@
       </div>
 
       <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
-        <div class="chip">Auto-start on change</div>
       </div>
     </div>
 
@@ -194,6 +193,37 @@ let preloadedCount = 0;
 /* ---------------------------
   UTIL
 ---------------------------- */
+
+
+
+
+// --- Ensure a sane default mode is selected (ATP + easy) and UI reflects it
+function ensureDefaultModeUI(){
+  // set defaults if undefined / empty
+  if (!currentTour) currentTour = 'ATP';
+  if (!currentLevel) currentLevel = 'easy';
+
+  // update tour buttons
+  const btnATP = document.getElementById('btnATP');
+  const btnWTA = document.getElementById('btnWTA');
+  if (btnATP) btnATP.classList.toggle('active', currentTour === 'ATP');
+  if (btnWTA) btnWTA.classList.toggle('active', currentTour === 'WTA');
+
+  // update difficulty segment buttons
+  const segBtns = document.querySelectorAll('.seg-btn');
+  segBtns.forEach(b => {
+    const lvl = b.dataset.level;
+    if (lvl) b.classList.toggle('active', lvl === currentLevel);
+  });
+
+  // update labels in header
+  const tourLabel = document.getElementById('tourLabel');
+  const levelLabel = document.getElementById('levelLabel');
+  if (tourLabel) tourLabel.textContent = currentTour;
+  if (levelLabel) levelLabel.textContent = currentLevel.charAt(0).toUpperCase() + currentLevel.slice(1);
+}
+
+
 function showToast(msg, t=2000){ const el=document.getElementById('toast'); el.textContent=msg; el.style.display='block'; setTimeout(()=>el.style.display='none', t); }
 function escapeHtml(s){ if(s===undefined||s===null) return ''; return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m]); }
 function norm(s){ return s ? s.normalize().replace(/[\u0300-\u036f]/g,'').toLowerCase() : ''; }
@@ -420,7 +450,6 @@ function updateLBStatusUI(){
   const openBtn = document.getElementById('lbOpenBtn');
   const u = getLocalUserFromLibOrStorage();
   if(u && u.pseudo){
-    st.textContent = `Local: ${u.pseudo}`;
     document.getElementById('lbName').textContent = u.pseudo;
     disp.style.display = 'flex';
     openBtn.style.display = 'none';
@@ -715,7 +744,6 @@ function updateLBStatusUI(){
   const openBtn = document.getElementById('lbOpenBtn');
   const u = getLocalUserFromLibOrStorage();
   if(u && u.pseudo){
-    st.textContent = `Local: ${u.pseudo}`;
     document.getElementById('lbName').textContent = u.pseudo;
     disp.style.display = 'flex';
     openBtn.style.display = 'none';
@@ -803,6 +831,8 @@ async function init(){
   updateLBStatusUI();
   ensureOutputSkeleton();
   startRound();
+  ensureDefaultModeUI();
+
 }
 init();
 
