@@ -639,8 +639,94 @@ async function startRound(){
 }
 
 /* ---------------------------
-  LB Modal logic (LOGIN / SIGNUP) — now requires password
----------------------------- */
+  LB Modal logic (LOGIN / SIGNUP) — server-backed
+  Replaces the previous local-only modal handler.
+  Requires Netlify functions:
+    POST /.netlify/functions/create-user  { pseudo, password_hash }
+    POST /.netlify/functions/check-user   { pseudo, password_hash }
+----------------------------*/
+
+async function signupServer(pseudo, password){
+  if(!pseudo || !password) return { ok:false, error:'missing' };
+  const password_hash = await hashStringSHA256Hex(String(password));
+  try {
+    const resp = await fetch('/.netlify/functions/create-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pseudo, password_hash })
+    });
+    const text = await resp.text().catch(()=>null);
+    let parsed = null;
+    try { parsed = text ? JSON.parse(text) : null; } catch(e){ parsed = text; }
+    if (resp.ok) {
+      // Save local session (we keep password_hash locally so submit-score can send it)
+      const local = { pseudo: pseudo.trim(), password_hash };
+      try { localStorage.setItem(LB_LOCAL_USER_KEY, JSON.stringify(local)); } catch(e){}
+      try{ if(window.LEADERBOARD && typeof window.LEADERBOARD.setLocalUser === 'function') window.LEADERBOARD.setLocalUser(local); } catch(e){}
+      updateLBStatusUI();
+      return { ok:true, user: local };
+    } else {
+      return { ok:false, status: resp.status, detail: parsed };
+    }
+  } catch (err) {
+    return { ok:false, error: String(err) };
+  }
+}
+
+async function loginServer(pseudo, password){
+  if(!pseudo || !password) return { ok:false, error:'missing' };
+  const password_hash = await hashStringSHA256Hex(String(password));
+  try {
+    const resp = await fetch('/.netlify/functions/check-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pseudo, password_hash })
+    });
+    const text = await resp.text().catch(()=>null);
+    let parsed = null;
+    try { parsed = text ? JSON.parse(text) : null; } catch(e){ parsed = text; }
+    if (resp.ok) {
+      // server confirms credentials -> persist local session
+      const user = (parsed && parsed.user) ? parsed.user : { pseudo };
+      const local = { pseudo: user.pseudo || pseudo.trim(), password_hash };
+      try { localStorage.setItem(LB_LOCAL_USER_KEY, JSON.stringify(local)); } catch(e){}
+      try{ if(window.LEADERBOARD && typeof window.LEADERBOARD.setLocalUser === 'function') window.LEADERBOARD.setLocalUser(local); } catch(e){}
+      updateLBStatusUI();
+      return { ok:true, user: local };
+    } else {
+      return { ok:false, status: resp.status, detail: parsed };
+    }
+  } catch (err) {
+    return { ok:false, error: String(err) };
+  }
+}
+
+/* helper: get local session (tries leaderboard lib first, then storage) */
+function getLocalUserFromLibOrStorage(){
+  try { if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function'){ const u = window.LEADERBOARD.getLocalUser(); if(u && u.pseudo) return { pseudo: u.pseudo, password_hash: u.password_hash || null }; } } catch(e){}
+  try { const raw = localStorage.getItem(LB_LOCAL_USER_KEY); if(raw) return JSON.parse(raw); } catch(e){}
+  return null;
+}
+
+/* update UI to show login state */
+function updateLBStatusUI(){
+  const st = document.getElementById('lb-status');
+  const disp = document.getElementById('lbDisplay');
+  const openBtn = document.getElementById('lbOpenBtn');
+  const u = getLocalUserFromLibOrStorage();
+  if(u && u.pseudo){
+    st.textContent = `Local: ${u.pseudo}`;
+    document.getElementById('lbName').textContent = u.pseudo;
+    disp.style.display = 'flex';
+    openBtn.style.display = 'none';
+  } else {
+    st.textContent = 'Not connected';
+    disp.style.display = 'none';
+    openBtn.style.display = 'inline-block';
+  }
+}
+
+/* open/close modal (keep existing accessibility behavior) */
 function openLBModal(){
   const m = document.getElementById('lbModal'); m.classList.add('show'); m.setAttribute('aria-hidden','false');
   const stored = (function(){ try{const s=localStorage.getItem(LB_LOCAL_USER_KEY); return s?JSON.parse(s):null;}catch(e){return null;} })();
@@ -651,13 +737,16 @@ function openLBModal(){
 }
 function closeLBModal(){ const m = document.getElementById('lbModal'); try { if(document.activeElement) document.activeElement.blur(); } catch(e){} m.classList.remove('show'); setTimeout(()=> m.setAttribute('aria-hidden','true'), 120); }
 
+/* wire modal buttons */
 document.getElementById('lbOpenBtn').addEventListener('click', openLBModal);
 document.getElementById('lbModalCancel').addEventListener('click', closeLBModal);
-document.getElementById('lbLogout').addEventListener('click', ()=>{ clearLocalUser(); showToast('Logged out'); });
+document.getElementById('lbLogout').addEventListener('click', ()=>{ try{ localStorage.removeItem(LB_LOCAL_USER_KEY); }catch(e){} try{ if(window.LEADERBOARD && typeof window.LEADERBOARD.clearLocalUser === 'function') window.LEADERBOARD.clearLocalUser(); }catch(e){} updateLBStatusUI(); showToast('Logged out'); });
 
-document.getElementById('tabLogin').addEventListener('click', (e)=>{ document.getElementById('tabLogin').classList.add('active'); document.getElementById('tabSignup').classList.remove('active'); document.getElementById('lbModalMsg').textContent='Log in with your local pseudo (password required).'; });
-document.getElementById('tabSignup').addEventListener('click', (e)=>{ document.getElementById('tabSignup').classList.add('active'); document.getElementById('tabLogin').classList.remove('active'); document.getElementById('lbModalMsg').textContent='Sign up stores pseudo+password locally (password required).'; });
+/* toggle Login / Signup tabs */
+document.getElementById('tabLogin').addEventListener('click', (e)=>{ document.getElementById('tabLogin').classList.add('active'); document.getElementById('tabSignup').classList.remove('active'); document.getElementById('lbModalMsg').textContent='Log in with your account (password required).'; });
+document.getElementById('tabSignup').addEventListener('click', (e)=>{ document.getElementById('tabSignup').classList.add('active'); document.getElementById('tabLogin').classList.remove('active'); document.getElementById('lbModalMsg').textContent='Sign up creates an account on the server (password required).'; });
 
+/* submit handler: calls server for sign up / login */
 document.getElementById('lbModalSubmit').addEventListener('click', async ()=>{
   const pseudo = (document.getElementById('lbModalPseudo').value || '').trim();
   const password = (document.getElementById('lbModalPassword').value || '');
@@ -667,43 +756,34 @@ document.getElementById('lbModalSubmit').addEventListener('click', async ()=>{
   if(!pseudo){ msgEl.textContent = 'Display name is required.'; return; }
   if(!password){ msgEl.textContent = 'Password is required.'; return; }
 
-  const users = readLocalUsers();
+  msgEl.textContent = 'Processing…';
 
   if(isSignup){
-    if(users[pseudo]){
-      msgEl.textContent = 'This display name already exists locally. Choose another or log in.';
-      return;
-    }
-    // create user locally
-    try {
-      await setLocalUserAndPersist(pseudo, password);
-      msgEl.textContent = 'Account created and saved locally.'; updateLBStatusUI();
-      setTimeout(()=> closeLBModal(), 400);
-      showToast('Signed up (local)');
-      return;
-    } catch(e){
-      console.error('signup error', e); msgEl.textContent = 'Signup failed (local)'; return;
+    const res = await signupServer(pseudo, password);
+    if(res.ok){
+      msgEl.textContent = 'Account created — logged in.';
+      setTimeout(()=>{ closeLBModal(); showToast('Signed up'); }, 300);
+    } else {
+      if(res.status === 409 || (res.detail && res.detail.error && String(res.detail.error).toLowerCase().includes('exists'))) {
+        msgEl.textContent = 'This display name already exists. Choose another or Log in.';
+      } else {
+        msgEl.textContent = 'Signup failed. Try again later.';
+      }
+      console.warn('signupServer failed', res);
     }
   } else {
-    // login
-    if(!users[pseudo]){
-      msgEl.textContent = 'No local account with that name. Please sign up first.';
-      return;
-    }
-    const storedHash = users[pseudo];
-    const attemptHash = await hashStringSHA256Hex(password);
-    if(attemptHash === storedHash){
-      setLocalUserFromStored(pseudo, storedHash);
+    const res = await loginServer(pseudo, password);
+    if(res.ok){
       msgEl.textContent = 'Login successful.';
-      setTimeout(()=> closeLBModal(), 300);
-      showToast('Logged in');
-      return;
+      setTimeout(()=>{ closeLBModal(); showToast('Logged in'); }, 200);
     } else {
-      msgEl.textContent = 'Incorrect password.';
-      return;
+      if(res.status === 401) msgEl.textContent = 'Invalid credentials.';
+      else msgEl.textContent = 'Login failed. Check your credentials or sign up.';
+      console.warn('loginServer failed', res);
     }
   }
 });
+
 
 /* ---------------------------
   bootstrap & init
