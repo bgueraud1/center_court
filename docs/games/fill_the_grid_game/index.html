@@ -4,6 +4,9 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Fill the Grid — Game (fixed)</title>
+
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- optional font -->
 <style>
   :root{--bg:#000;--font:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial;--cell-radius:8px}
   html,body{height:100%;margin:0;background:var(--bg);color:#eee;font-family:var(--font);-webkit-font-smoothing:antialiased}
@@ -67,6 +70,8 @@
 </style>
 </head>
 <body>
+<script src="/js/leaderboard-client.js" defer></script>
+
 <div id="app" class="app theme-wta">
   <div class="topbar">
     <div class="title">Fill the Grid</div>
@@ -80,6 +85,8 @@
   <div class="game-wrap">
     <div class="board-wrap" id="boardWrap" aria-live="polite"></div>
     <div class="small-muted" id="infoLine">Based on data from 1990 to 2026. Please forgive any errors.</div>
+    <!-- Leaderboard panel (like first game) -->
+    <div id="leaderboardWidget" data-lb-container data-game-id="fill_grid" style="margin-top:12px"></div>
   </div>
 </div>
 
@@ -113,8 +120,15 @@
 </div>
 
 <script>
+/* Full revised script:
+   - loads players catalog first
+   - builds index
+   - loads grid JSON
+   - robust LB submit (lib -> server fallback -> queue)
+   - exposes test helper
+*/
+
 (() => {
-  // paths & constants
   const PATHS = {
     WTA: '/games/fill_the_grid_WTA.json',
     ATP: '/games/fill_the_grid_ATP.json',
@@ -128,7 +142,7 @@
     'NZL':'New Zealand','IND':'India','BRA':'Brazil','MEX':'Mexico'
   };
 
-  // DOM refs
+  // DOM
   const app = document.getElementById('app');
   const boardWrap = document.getElementById('boardWrap');
   const btnToggle = document.getElementById('btnToggle');
@@ -144,6 +158,7 @@
   const scoreOverlay = document.getElementById('scoreOverlay');
   const scoreValue = document.getElementById('scoreValue');
   const scoreClose = document.getElementById('scoreClose');
+  const lbContainer = document.getElementById('leaderboardWidget');
 
   // state
   let mode = 'WTA';
@@ -151,13 +166,12 @@
   let playersCatalog = null;
   let idToPlayer = {};
   let nameIndex = [];
-  let cellState = {};
-  let activeCell = null;
+  let cellState = {}; // map 'r-c' -> {locked,id,name}
+  let activeCell = null; // {r,c,cellData,domNode,key}
   let gameOver = false;
 
-  /* ---------- helpers ---------- */
   async function fetchJson(path){
-    const r = await fetch(path);
+    const r = await fetch(path, {cache: 'no-cache'});
     if (!r.ok) throw new Error(`${path} ${r.status}`);
     return r.json();
   }
@@ -171,8 +185,12 @@
       idToPlayer[pid] = p;
       nameIndex.push({ label: p.full_name, id: pid });
     }
+    // sort alphabetically for stable autocomplete
+    nameIndex.sort((a,b)=> a.label.localeCompare(b.label));
+    console.info('[INIT] built player index', nameIndex.length, 'players');
   }
 
+  // extract opponent id robustly: prefer explicit fields, fallback to token that contains a digit (3+ chars)
   function extractOpponentId(cond) {
     if (!cond) return null;
     const explicitCandidates = [];
@@ -184,17 +202,17 @@
       if (cond.raw.opponent) explicitCandidates.push(String(cond.raw.opponent));
     }
     if (cond.value) explicitCandidates.push(String(cond.value));
+
     for (const cand of explicitCandidates) {
       if (!cand) continue;
       if (idToPlayer[String(cand)]) return String(cand);
     }
+
     if (cond.label && typeof cond.label === 'string') {
       const tokens = cond.label.split(/[^A-Za-z0-9_]+/).filter(Boolean);
       for (const t of tokens) {
         if (idToPlayer[String(t)]) return String(t);
       }
-    }
-    if (cond.label && typeof cond.label === 'string') {
       const matches = cond.label.match(/\b[A-Za-z0-9_]{3,}\b/g);
       if (matches) {
         for (const m of matches) {
@@ -232,7 +250,6 @@
     return g;
   }
 
-  /* ---------- grid rendering & UI ---------- */
   async function loadGrid(m){
     mode = m;
     app.classList.toggle('theme-wta', mode === 'WTA');
@@ -245,6 +262,7 @@
       gameOver = false;
       initCellState();
       renderBoard();
+      console.info('[GRID] loaded', path);
     } catch (e){
       console.error('Failed loading grid JSON', e);
       boardWrap.innerHTML = `<div style="color:#f88">Failed to load grid: ${e.message}</div>`;
@@ -363,7 +381,7 @@
     inputModal._candidatesSet = null;
   }
 
-  /* autocomplete & submission */
+  // Autocomplete
   let acIndex = -1;
   function onInput(){
     const q = playerInput.value.trim().toLowerCase();
@@ -515,7 +533,38 @@
     return points;
   }
 
-  /* ---------- leaderboard submission helpers (one copy only) ---------- */
+  // When showing score, submit to leaderboard (robust)
+  function showScore(s){
+    scoreValue.textContent = s;
+    scoreOverlay.style.display = 'block';
+
+    // try to infer displayName (same approach as first game)
+    let displayName = null;
+    try {
+      if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
+        const localUser = window.LEADERBOARD.getLocalUser();
+        if (localUser && localUser.pseudo) displayName = localUser.pseudo;
+      }
+    } catch(e){ console.warn('getLocalUser threw', e); }
+    const displayNameInput = document.querySelector('#lb-pseudo') || document.querySelector('#someDisplayNameInput');
+    if (!displayName && displayNameInput) displayName = (displayNameInput.value || '').trim() || null;
+
+    const meta = { total_cells: (gridData ? gridData.rows.length * (gridData.cols?gridData.cols.length:0) : 0), completed: gameOver };
+    try {
+      submitScoreToLeaderboardFill(s, meta, { displayName });
+      console.info('[LB] submitScoreToLeaderboardFill called', { points: s, displayName, mode: `${mode}_fillgrid` });
+    } catch (e) {
+      console.error('[LB] submit helper threw', e);
+    }
+  }
+
+  function onReset(){
+    gameOver = false;
+    initCellState();
+    renderBoard();
+  }
+
+  // --- Leaderboard helpers (robust) ---
   const LB_QUEUE_KEY_FILLGRID = 'lb_score_queue_fillgrid_v1';
 
   function pushToScoreQueueFill(entry){
@@ -556,116 +605,79 @@
     });
   }
 
-  /* ---------- Remplace trySubmitEntryToLBFill et submitScoreToLeaderboardFill par ceci ---------- */
+  async function trySubmitEntryToLBFill(entry){
+    const gameId = entry.gameId || 'fill_grid';
+    const points = Number(entry.points) || 0;
+    const options = entry.options || {};
+    const pseudo = options.displayName || options.pseudo || null;
+    const modeOpt = options.mode || null;
+    const meta = options.meta || null;
 
-async function trySubmitEntryToLBFill(entry){
-  const gameId = entry.gameId || 'fill_grid';
-  const points = Number(entry.points) || 0;
-  const options = entry.options || {};
-  const pseudo = options.displayName || options.pseudo || null;
-  const modeOpt = options.mode || null;
-  const meta = options.meta || null;
+    console.info('[LB-TRY] trySubmitEntryToLBFill start', { gameId, points, modeOpt, pseudo });
 
-  console.info('[LB-TRY] trySubmitEntryToLBFill start', { gameId, points, modeOpt, pseudo });
+    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+      try {
+        console.info('[LB-TRY] call library submitScore', { gameId, points, options });
+        const res = await window.LEADERBOARD.submitScore(gameId, points, options);
+        console.info('[LB-TRY] library response', res);
+        if(res && (res.ok === true || res.success === true || res.status === 'ok')) return true;
+        if(res && res.error && String(res.error).toLowerCase().includes('already_submitted')){
+          console.info('[LB-TRY] library says already submitted -> treat as success');
+          return true;
+        }
+        console.warn('[LB-TRY] library gave non-success, will fallback to server', res);
+      } catch(libErr){
+        console.warn('[LB-TRY] library threw, will fallback to server', libErr);
+      }
+    } else {
+      console.info('[LB-TRY] library not present, going to server fallback');
+    }
 
-  // 1) attempt library quickly (non-blocking fallback)
-  if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+    const fallbackEndpoint = `${location.origin}/.netlify/functions/submit-score`;
+    const payload = {
+      game_id: gameId,
+      points: points,
+      pseudo: pseudo,
+      mode: modeOpt,
+      meta: (typeof meta === 'string' ? meta : (meta ? JSON.stringify(meta) : null)),
+      ts: (new Date()).toISOString()
+    };
+
     try {
-      console.info('[LB-TRY] call library submitScore', { gameId, points, options });
-      const res = await window.LEADERBOARD.submitScore(gameId, points, options);
-      console.info('[LB-TRY] library response', res);
-      if(res && (res.ok === true || res.success === true || res.status === 'ok')) return true;
-      if(res && res.error && String(res.error).toLowerCase().includes('already_submitted')){
-        console.info('[LB-TRY] library says already submitted -> treat as success');
+      console.info('[LB-FALLBACK] POST ->', fallbackEndpoint, payload);
+      const resp = await fetch(fallbackEndpoint, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const text = await resp.text().catch(()=>null);
+      let parsed = null;
+      try { parsed = text ? JSON.parse(text) : null; } catch(e){ parsed = text; }
+      console.info('[LB-FALLBACK] server responded', { status: resp.status, body: parsed });
+
+      if (resp.ok) {
+        console.info('[LB-FALLBACK] server insert OK', parsed);
         return true;
       }
-      // if library responded but not OK, we still continue to fallback to server
-      console.warn('[LB-TRY] library gave non-success, will fallback to server', res);
-    } catch(libErr){
-      console.warn('[LB-TRY] library threw, will fallback to server', libErr);
+
+      if (resp.status === 409) {
+        console.info('[LB-FALLBACK] server indicates duplicate (already submitted) — treat as done', parsed);
+        return true;
+      }
+      if (parsed && parsed.detail && parsed.detail.code === '23505') {
+        console.info('[LB-FALLBACK] supabase duplicate detail detected — treat as done', parsed);
+        return true;
+      }
+
+      console.warn('[LB-FALLBACK] server returned non-OK (will queue)', resp.status, parsed);
+      return false;
+    } catch(fetchErr){
+      console.error('[LB-FALLBACK] fetch error', fetchErr);
+      return false;
     }
-  } else {
-    console.info('[LB-TRY] library not present, skipping to server fallback');
   }
-
-  // 2) Server fallback (force absolute URL using location.origin to avoid path issues)
-  const fallbackEndpoint = `${location.origin}/.netlify/functions/submit-score`;
-  const payload = {
-    game_id: gameId,
-    points: points,
-    pseudo: pseudo,
-    mode: modeOpt,
-    meta: (typeof meta === 'string' ? meta : (meta ? JSON.stringify(meta) : null)),
-    ts: (new Date()).toISOString()
-  };
-
-  try {
-    console.info('[LB-FALLBACK] POST ->', fallbackEndpoint, payload);
-    const resp = await fetch(fallbackEndpoint, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    const text = await resp.text().catch(()=>null);
-    let parsed = null;
-    try { parsed = text ? JSON.parse(text) : null; } catch(e){ parsed = text; }
-    console.info('[LB-FALLBACK] server responded', { status: resp.status, body: parsed });
-
-    if (resp.ok) {
-      console.info('[LB-FALLBACK] server insert OK', parsed);
-      return true;
-    }
-
-    // duplicate or supabase unique constraint -> treat as success
-    if (resp.status === 409 || (parsed && parsed.detail && parsed.detail.code === '23505')) {
-      console.info('[LB-FALLBACK] server indicates duplicate / already submitted -> treat as success', parsed);
-      return true;
-    }
-
-    console.warn('[LB-FALLBACK] server returned non-ok -> will return false (to be queued)', { status: resp.status, parsed });
-    return false;
-  } catch(fetchErr){
-    console.error('[LB-FALLBACK] fetch error', fetchErr);
-    return false;
-  }
-}
-
-async function submitScoreToLeaderboardFill(points, meta = {}, extra = {}){
-  const displayName = extra.displayName || extra.pseudo || null;
-  const modeString = `${mode}_fillgrid`;
-  const options = { mode: modeString, meta: JSON.stringify(meta || {}), displayName };
-
-  // Try immediate submission (no waiting). If it fails we queue.
-  try {
-    console.info('[LB] submitScoreToLeaderboardFill immediate try', { points, options });
-    const ok = await trySubmitEntryToLBFill({ gameId:'fill_grid', points, options });
-    if(ok){
-      console.info('[LB] Score successfully submitted (immediate)');
-      // try to flush any queued entries in background
-      setTimeout(flushQueueFill, 300);
-      return;
-    } else {
-      console.warn('[LB] immediate submit failed -> queueing for retry');
-      pushToScoreQueueFill({ gameId:'fill_grid', points, options });
-      setTimeout(flushQueueFill, 1000);
-      return;
-    }
-  } catch(err){
-    console.error('[LB] submitScoreToLeaderboardFill threw -> queueing', err);
-    pushToScoreQueueFill({ gameId:'fill_grid', points, options });
-    setTimeout(flushQueueFill, 1000);
-  }
-}
-
-/* expose a quick debug helper you can run in console to force a test */
-window._testSubmitFill = async function(points=7){
-  console.info('TEST: submitScoreToLeaderboardFill', points);
-  await submitScoreToLeaderboardFill(points, {test:true}, {displayName:'TEST_USER'});
-  console.info('TEST: done');
-};
-
 
   async function flushQueueFill(){
     const q = readScoreQueueFill();
@@ -690,64 +702,77 @@ window._testSubmitFill = async function(points=7){
     }
   }
 
+  async function submitScoreToLeaderboardFill(points, meta = {}, extra = {}){
+    const displayName = extra.displayName || extra.pseudo || null;
+    const modeString = `${mode}_fillgrid`;
+    const options = { mode: modeString, meta: JSON.stringify(meta || {}), displayName };
 
+    console.info('[LB] submitScoreToLeaderboardFill immediate try', { points, options });
 
+    try {
+      const ok = await trySubmitEntryToLBFill({ gameId:'fill_grid', points, options });
+      if(ok){
+        console.info('[LB] Score successfully submitted (immediate)');
+        setTimeout(flushQueueFill, 300);
+        return;
+      } else {
+        console.warn('[LB] immediate submit failed -> queueing for retry');
+        pushToScoreQueueFill({ gameId:'fill_grid', points, options });
+        setTimeout(flushQueueFill, 1000);
+        return;
+      }
+    } catch(err){
+      console.error('[LB] submitScoreToLeaderboardFill threw -> queueing', err);
+      pushToScoreQueueFill({ gameId:'fill_grid', points, options });
+      setTimeout(flushQueueFill, 1000);
+    }
+  }
+
+  // watch for LB init and flush
   (function watchForLBFillInit(){
     if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
       setTimeout(flushQueueFill, 300);
+      // also ensure panel created
+      if (lbContainer && window.LEADERBOARD && typeof window.LEADERBOARD.createLeaderboardPanel === 'function'){
+        try { window.LEADERBOARD.createLeaderboardPanel(lbContainer); } catch(e){ console.warn('createLeaderboardPanel failed', e); }
+      }
       return;
     }
     const poll = setInterval(() => {
       if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
         clearInterval(poll);
         setTimeout(flushQueueFill, 200);
+        if (lbContainer && typeof window.LEADERBOARD.createLeaderboardPanel === 'function'){
+          try { window.LEADERBOARD.createLeaderboardPanel(lbContainer); } catch(e){ console.warn('createLeaderboardPanel failed', e); }
+        }
       }
     }, 300);
   })();
 
-  /* ---------- UI hooks ---------- */
-  function showScore(s){
-    scoreValue.textContent = s;
-    scoreOverlay.style.display = 'block';
-    let displayName = null;
-    try {
-      if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
-        const localUser = window.LEADERBOARD.getLocalUser();
-        if (localUser && localUser.pseudo) displayName = localUser.pseudo;
-      }
-    } catch(e){ console.warn('getLocalUser threw', e); }
-    const displayNameInput = document.querySelector('#lb-pseudo') || document.querySelector('#someDisplayNameInput');
-    if (!displayName && displayNameInput) displayName = (displayNameInput.value || '').trim() || null;
-    const meta = { total_cells: (gridData ? gridData.rows.length * (gridData.cols?gridData.cols.length:0) : 0), completed: gameOver };
-    try {
-      submitScoreToLeaderboardFill(s, meta, { displayName });
-      console.info('[LB] submitScoreToLeaderboardFill called', { points: s, displayName, mode: `${mode}_fillgrid` });
-    } catch (e) {
-      console.error('[LB] submit helper threw', e);
-    }
-  }
+  // debug helper
+  window._testSubmitFill = async function(points=7){
+    console.info('TEST: submitScoreToLeaderboardFill', points);
+    await submitScoreToLeaderboardFill(points, { test:true }, { displayName:'TEST_USER' });
+    console.info('TEST: done');
+  };
 
-  function onReset(){
-    gameOver = false;
-    initCellState();
-    renderBoard();
-  }
-
-  /* ---------- init ---------- */
+  // init sequence
   (async () => {
     try {
+      // 1) load players catalog FIRST
       try {
         playersCatalog = await fetchJson(PATHS.PLAYERS);
+        console.info('[INIT] players catalog loaded', playersCatalog && playersCatalog.players ? playersCatalog.players.length : 'no players');
       } catch (e){
         console.warn('players catalog load failed:', e);
         playersCatalog = null;
       }
       buildPlayerIndex();
-      nameIndex = [];
-      if (playersCatalog && Array.isArray(playersCatalog.players)){
-        for (const p of playersCatalog.players) nameIndex.push({ label: p.full_name, id: String(p.player_id) });
-      }
+
+      // 2) load initial grid (WTA)
       await loadGrid(mode);
+
+      // 3) wire up UI events
       btnToggle.addEventListener('click', ()=> loadGrid(mode === 'WTA' ? 'ATP' : 'WTA'));
       btnGiveUp.addEventListener('click', onGiveUp);
       btnReset.addEventListener('click', onReset);
@@ -756,9 +781,26 @@ window._testSubmitFill = async function(points=7){
       playerInput.addEventListener('input', onInput);
       playerInput.addEventListener('keydown', onInputKeyDown);
       scoreClose.addEventListener('click', ()=> scoreOverlay.style.display = 'none');
+
+      // init leaderboard panel if library present (or poll will do it)
+      if (lbContainer) {
+        const initLb = () => {
+          if (window.LEADERBOARD && window.LEADERBOARD.createLeaderboardPanel) {
+            try {
+              lbContainer.dataset.gameId = 'fill_grid';
+              window.LEADERBOARD.createLeaderboardPanel(lbContainer);
+              console.info('[LB] leaderboard panel created');
+            } catch(e){ console.warn('[LB] createLeaderboardPanel error', e); }
+          } else {
+            setTimeout(initLb, 200);
+          }
+        };
+        initLb();
+      }
+
+      console.info('[INIT] done');
     } catch (err) {
       console.error('Init failed', err);
-      boardWrap.innerHTML = `<div style="color:#f88">Init failed: ${String(err)}</div>`;
     }
   })();
 
