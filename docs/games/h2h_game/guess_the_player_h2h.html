@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -11,18 +11,12 @@
 <style>
   :root{
     --bg1: #071226; --bg2: #081428;
-    --accent-a: rgba(31,122,236,0.06);
-    --accent-b: rgba(139,92,246,0.06);
-    --accent-strong: #1f7aec;
-    --accent-strong-wta: #8b5cf6;
     --muted:#94a3b8; --success:#16a34a; --danger:#ef4444;
     font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
     color-scheme: dark;
   }
 
   html,body{height:100%;margin:0;background:
-    radial-gradient(1000px 600px at 10% 10%, var(--accent-a), transparent 10%),
-    radial-gradient(800px 500px at 90% 90%, var(--accent-b), transparent 10%),
     linear-gradient(180deg, var(--bg1) 0%, var(--bg2) 100%);
     -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;}
 
@@ -49,7 +43,7 @@
 
   .input-row{display:flex;gap:8px;align-items:center;margin-top:12px}
   input[type="text"]{padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#fff;min-width:360px}
-  button.primary{padding:10px 14px;border-radius:10px;border:none;background:var(--accent-strong);color:white;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(31,122,236,0.12)}
+  button.primary{padding:10px 14px;border-radius:10px;border:none;background:#1f7aec;color:white;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(31,122,236,0.12)}
   button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted);padding:8px 10px;border-radius:8px;cursor:pointer}
 
   .suggestions{position:relative}
@@ -58,18 +52,20 @@
   .suggestions-list li:hover, .suggestions-list li.highlight{ background: rgba(255,255,255,0.02); color: #fff; }
 
   table{width:100%;border-collapse:collapse;margin-top:14px;color:#e6eef8}
-  th,td{padding:12px;text-align:left;border-bottom:1px dashed rgba(255,255,255,0.03);font-size:0.95rem}
+  th,td{padding:10px;text-align:left;border-bottom:1px dashed rgba(255,255,255,0.03);font-size:0.95rem}
   thead th{color:var(--muted);font-weight:700}
-  tr.good td{background:linear-gradient(90deg, rgba(22,163,74,0.06), transparent)}
+  .surface-cell{font-weight:700;color:#fff;text-align:center;border-radius:6px;padding:6px}
+
+  .surface-red{background:linear-gradient(180deg,#3b0f0f,#6b1b1b)} /* clay (red) */
+  .surface-green{background:linear-gradient(180deg,#0b3b18,#1b6b34)} /* grass (green) */
+  .surface-blue{background:linear-gradient(180deg,#07304f,#1b5fa0)} /* hard (blue) */
+  .surface-violet{background:linear-gradient(180deg,#3b0f3b,#6b1b6b)} /* carpet (violet) */
+  .surface-gray{background:linear-gradient(180deg,#2b2b2b,#4b4b4b)} /* other (gray) */
 
   .country-text{margin-top:14px;padding:16px;border-radius:12px;background:rgba(0,0,0,0.5);backdrop-filter:blur(6px);color:#fff;border:1px solid rgba(255,255,255,0.04)}
-  .country-text h3{margin:0 0 6px 0}
-  .country-text p{margin:6px 0;font-style:italic;color:#f0f6ff}
-  .country-text .para-subtitle{font-weight:700;margin-top:8px;margin-bottom:4px}
-
   .modal {position:fixed;left:0;top:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg, rgba(2,6,23,0.6), rgba(2,6,23,0.8));z-index:200;opacity:0;pointer-events:none;transition:opacity .18s ease}
   .modal.show{opacity:1;pointer-events:auto}
-  .modal-card{background:linear-gradient(180deg, rgba(11,17,32,0.98), rgba(8,12,23,0.96));padding:26px;border-radius:16px;max-width:680px;width:94%;box-shadow:0 30px 80px rgba(2,6,23,0.8);border:1px solid rgba(255,255,255,0.03);text-align:center}
+  .modal-card{background:linear-gradient(180deg, rgba(11,17,32,0.98), rgba(8,12,23,0.96));padding:26px;border-radius:16px;max-width:520px;width:94%;box-shadow:0 30px 80px rgba(2,6,23,0.8);border:1px solid rgba(255,255,255,0.03);text-align:center}
 
   .toast{position:fixed;right:18px;bottom:18px;background:rgba(0,0,0,0.7);color:#fff;padding:10px 14px;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,0.6);display:none;z-index:220}
 
@@ -79,7 +75,7 @@
 <body>
   <div class="wrap">
     <header>
-      <div><h1>Guess the Player</h1><div class="sub">Find the hidden player using head-to-head clues.</div></div>
+      <div><h1>Guess the Player</h1><div class="sub">Find the hidden player using head-to-head clues (H2H).</div></div>
     </header>
 
     <div class="controls" style="margin-top:18px">
@@ -97,7 +93,7 @@
       </div>
 
       <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
-        <div class="chip">Mode auto-starts on change</div>
+        <div class="chip">Auto-start on change</div>
       </div>
     </div>
 
@@ -133,14 +129,17 @@
         <tbody></tbody>
       </table>
 
-      <div id="h2hOutput" class="country-text" style="display:block;margin-top:16px">H2H output will appear here.</div>
+      <div id="h2hOutput" class="country-text" style="display:block;margin-top:16px">
+        <!-- Dynamic H2H tables will be inserted here -->
+        <div id="placeholder">H2H results will appear here.</div>
+      </div>
     </div>
   </div>
 
   <div id="modal" class="modal" role="dialog" aria-modal="true" aria-hidden="true">
     <div class="modal-card">
       <h2 id="modalTitle">Round result</h2>
-      <p id="modalText" style="color:var(--muted)">Details below.</p>
+      <p id="modalText" style="color:var(--muted)"></p>
       <div id="modalDetails" style="margin-top:12px;color:#e8f4ea"></div>
       <div style="margin-top:18px;display:flex;gap:12px;justify-content:center">
         <button id="closeModalBtn" class="ghost">Close</button>
@@ -160,20 +159,20 @@ const GEOCODES_JSON = '/tools/geocodes_combined.json';
 const H2H_BY_PLAYER_BASE = '/data/h2h_by_player/';
 
 let selectedPlayers = null;
-let playersCatalog = []; // normalized players array
+let playersCatalog = [];
 let geocodes = {};
 
-let target = null;                // player object (target A)
+let target = null;                // chosen target (A) - we will NOT reveal its name while guessing
 let currentTour = 'ATP';
-let currentLevel = 'easy';        // easy | medium | hard
+let currentLevel = 'easy';
 let remaining = 15;
 let score = 0;
 let gameStarted = false;
 let guesses = [];
 let guessedNames = new Set();
 
-let h2hByPlayerCache = {};        // playerId -> per-player JSON
-let composedH2HCache = {};        // "A_B" -> composed H2H between A and B (normalized)
+let h2hByPlayerCache = {};
+let composedH2HCache = {};
 let preloadedCount = 0;
 
 /* ---------------------------
@@ -204,8 +203,6 @@ async function loadGeocodes(){ const j = await fetchJson(GEOCODES_JSON); if(!j){
 
 /* ---------------------------
   Autocomplete (players_catalog)
-  - shows only full_name
-  - choosing a suggestion submits the guess immediately
 ---------------------------- */
 const guessInput = document.getElementById('guessInput');
 const suggestionsList = document.getElementById('suggestionsList');
@@ -227,7 +224,7 @@ function renderSuggestions(list){
   for(let i=0;i<max;i++){
     const pl = list[i];
     const li = document.createElement('li');
-    li.textContent = pl.full_name; // only name
+    li.textContent = pl.full_name;
     li.dataset.idx = i;
     li.onclick = () => { guessInput.value = pl.full_name; suggestionsList.style.display='none'; handleGuessSubmission(pl.full_name); };
     li.onmouseover = () => { Array.from(suggestionsList.children).forEach(n=>n.classList.remove('highlight')); li.classList.add('highlight'); suggestionIndex=i; };
@@ -249,7 +246,7 @@ guessInput.addEventListener('keydown', (e) => {
 function highlightSuggestion(){ const items = suggestionsList.children; for(let i=0;i<items.length;i++) items[i].classList.toggle('highlight', i===suggestionIndex); }
 
 /* ---------------------------
-  find player in catalog by name (players_catalog)
+  find player in catalog by name
 ---------------------------- */
 function findPlayerByName(name){
   if(!name) return null;
@@ -265,7 +262,7 @@ function findPlayerByName(name){
 }
 
 /* ---------------------------
-  Load per-player H2H files (from /data/h2h_by_player/<id>.json)
+  Load per-player H2H files
 ---------------------------- */
 async function loadPerPlayerH2H(playerId){
   if(!playerId) return null;
@@ -278,7 +275,7 @@ async function loadPerPlayerH2H(playerId){
 }
 
 /* ---------------------------
-  Preload selected players' H2H files (limit configurable)
+  Preload selected players' H2H files
 ---------------------------- */
 async function preloadSelectedPlayerFiles(limit = 6){
   if(!selectedPlayers) return;
@@ -307,8 +304,6 @@ async function preloadSelectedPlayerFiles(limit = 6){
   preloadedCount = toLoad.length;
   document.getElementById('preloadStatus').textContent = `H2H preload: loaded ${preloadedCount} selected-player files`;
 }
-
-/* helper to extract id from selected_players entries */
 function extractPossiblePlayerId(item){
   if(!item) return null;
   if(typeof item === 'string' || typeof item === 'number') return String(item);
@@ -316,14 +311,11 @@ function extractPossiblePlayerId(item){
   if(item.player && item.player.player_id) return String(item.player.player_id);
   if(item.player && item.player.id) return String(item.player.id);
   if(item.player && item.player.raw && item.player.raw.player_id) return String(item.player.raw.player_id);
-  if(item.player && item.player._parsed_id) return String(item.player._parsed_id);
   return null;
 }
 
 /* ---------------------------
   Compose H2H between A and B using cached per-player files
-  - returns normalized object with matches[], aggregates (wins for each side), player ids/names
-  - normalized matches have: match_id, event_year, tourney_name, surface, score_string, match_date, player_id_winner
 ---------------------------- */
 function composeH2H(playerAId, playerBId){
   const aId = String(playerAId), bId = String(playerBId);
@@ -337,34 +329,27 @@ function composeH2H(playerAId, playerBId){
   const collected = [];
   if(A && Array.isArray(A.matches)){
     for(const m of A.matches){
-      if(String(m.opponent_id) === bId){
-        const copy = Object.assign({}, m);
-        collected.push(copy);
-      }
+      if(String(m.opponent_id) === bId) collected.push(Object.assign({}, m));
     }
   }
   if(B && Array.isArray(B.matches)){
     for(const m of B.matches){
-      if(String(m.opponent_id) === aId){
-        const copy = Object.assign({}, m);
-        collected.push(copy);
-      }
+      if(String(m.opponent_id) === aId) collected.push(Object.assign({}, m));
     }
   }
 
   if(collected.length === 0){
-    // no matches found
-    composedH2HCache[cacheKey] = {
+    const empty = {
       meta: { total_matches: 0 },
-      playerA: { id: aId, name: (A && A.player && (A.player.full_name || (A.player.raw && A.player.raw.full_name)))||'' },
-      playerB: { id: bId, name: (B && B.player && (B.player.full_name || (B.player.raw && B.player.raw.full_name)))||'' },
+      playerA: { id: aId },
+      playerB: { id: bId },
       matches: [],
       aggregates: { A_wins:0, B_wins:0 }
     };
-    return composedH2HCache[cacheKey];
+    composedH2HCache[cacheKey] = empty;
+    return empty;
   }
 
-  // deduplicate by match signature
   const seen = new Set();
   const normalized = [];
   let A_wins = 0, B_wins = 0;
@@ -374,24 +359,13 @@ function composeH2H(playerAId, playerBId){
     if(seen.has(mid)) continue;
     seen.add(mid);
 
-    // determine winner id from m.is_winner + origin: if m comes from A file and m.is_winner true -> A won; if from B file and is_winner true -> B won.
-    // But we don't track origin now. Use m.is_winner and opponent_id to infer:
-    // in many files, m.opponent_id is the other player's id. If m.is_winner true and m.opponent_id == other => winner = source player.
-    // We cannot perfectly infer origin; we'll try to infer using presence of player ids in A or B:
+    // infer winner id
     let winnerId = null;
-    if(typeof m.player_id_winner !== 'undefined' && m.player_id_winner) winnerId = String(m.player_id_winner);
+    if(m.player_id_winner) winnerId = String(m.player_id_winner);
     else if(typeof m.is_winner !== 'undefined'){
-      // if m has no explicit winner id, try heuristics:
-      // if A has matches and one match's opponent_id==bId and the per-player file is A, then m.is_winner true => A winner.
-      // Since origin unknown, fallback: if m.is_winner true and (m.opponent_id===bId) set winner = (A contains this match ? aId : (B contains this match ? bId : null))
-      // Simpler: if m.opponent_id === bId then winner = (m.is_winner ? aId : bId)
-      if(String(m.opponent_id) === bId){
-        winnerId = m.is_winner ? aId : bId;
-      } else if(String(m.opponent_id) === aId){
-        winnerId = m.is_winner ? bId : aId;
-      } else {
-        winnerId = m.is_winner ? aId : bId; // fallback guess
-      }
+      if(String(m.opponent_id) === bId) winnerId = m.is_winner ? aId : bId;
+      else if(String(m.opponent_id) === aId) winnerId = m.is_winner ? bId : aId;
+      else winnerId = m.is_winner ? aId : bId;
     }
 
     if(winnerId === aId) A_wins++;
@@ -406,7 +380,7 @@ function composeH2H(playerAId, playerBId){
       round: m.round || '',
       score_string: m.score || m.score_string || '',
       match_date: m.match_date || '',
-      player_id_winner: winnerId,
+      player_id_winner: winnerId || null,
       opponent_id: m.opponent_id || null,
       opponent_name: m.opponent_name || ''
     };
@@ -415,8 +389,8 @@ function composeH2H(playerAId, playerBId){
 
   const h2h = {
     meta: { total_matches: normalized.length },
-    playerA: { id: aId, name: (A && A.player && (A.player.full_name || (A.player.raw && A.player.raw.full_name)))||'' },
-    playerB: { id: bId, name: (B && B.player && (B.player.full_name || (B.player.raw && B.player.raw.full_name)))||'' },
+    playerA: { id: aId },
+    playerB: { id: bId },
     matches: normalized.sort((x,y)=>(String(y.event_year||'').localeCompare(String(x.event_year||'')) || (x.match_date||'').localeCompare(y.match_date||''))),
     aggregates: { A_wins, B_wins }
   };
@@ -425,128 +399,168 @@ function composeH2H(playerAId, playerBId){
 }
 
 /* ---------------------------
-  Render H2H outputs (oriented so that guessed player B is shown first)
-  - easy: "B_wins - A_wins"
-  - medium: per surface "Surface: B_wins - A_wins (total matches)"
-  - hard: list of matches: year — tournament — score — winner (B/A)
+  Render & update UI per difficulty (NO target name displayed)
 ---------------------------- */
-function renderEasyOriented(h2h, guessId){
-  if(!h2h) return '0 - 0';
-  const A = h2h.playerA.id, B = h2h.playerB.id;
-  const Aw = h2h.aggregates.A_wins || 0;
-  const Bw = h2h.aggregates.B_wins || 0;
-  // we present B - A
-  return `${Bw} - ${Aw}`;
+function ensureOutputSkeleton(){
+  const out = document.getElementById('h2hOutput');
+  out.innerHTML = '';
+  if(currentLevel === 'hard'){
+    const tbl = document.createElement('table'); tbl.id = 'h2hTableHard';
+    const thead = document.createElement('thead'); thead.innerHTML = '<tr><th>Guessed Name</th><th>H2H (matches)</th></tr>';
+    tbl.appendChild(thead);
+    tbl.appendChild(document.createElement('tbody'));
+    out.appendChild(tbl);
+  } else if(currentLevel === 'medium'){
+    const tbl = document.createElement('table'); tbl.id = 'h2hTableMedium';
+    const thead = document.createElement('thead');
+    thead.innerHTML = '<tr><th>Guessed Name</th><th style="text-align:center">Clay</th><th style="text-align:center">Grass</th><th style="text-align:center">Hard</th><th style="text-align:center">Carpet</th><th style="text-align:center">Other</th></tr>';
+    tbl.appendChild(thead);
+    tbl.appendChild(document.createElement('tbody'));
+    out.appendChild(tbl);
+  } else { // easy
+    const tbl = document.createElement('table'); tbl.id = 'h2hTableEasy';
+    const thead = document.createElement('thead'); thead.innerHTML = '<tr><th>Guessed Name</th><th>Matches (most recent first)</th></tr>';
+    tbl.appendChild(thead);
+    tbl.appendChild(document.createElement('tbody'));
+    out.appendChild(tbl);
+  }
 }
 
-function renderMediumOriented(h2h, guessId){
-  if(!h2h) return 'No matches';
-  const A = h2h.playerA.id, B = h2h.playerB.id;
-  const groups = {};
-  for(const m of h2h.matches){
-    const s = m.surface || 'Unknown';
-    groups[s] = groups[s] || { A:0, B:0, total:0 };
-    const winner = String(m.player_id_winner || '');
-    if(winner === String(B)) groups[s].B++;
-    else if(winner === String(A)) groups[s].A++;
-    groups[s].total++;
-  }
-  const surfaces = ['Clay','Grass','Hard','Carpet','Unknown'];
-  let html = '<div style="font-weight:700;margin-bottom:8px">By surface</div>';
-  for(const s of surfaces){
-    const g = groups[s] || {A:0,B:0,total:0};
-    html += `<div style="margin-left:6px;margin-top:6px"><strong>${escapeHtml(s)}</strong>: ${g.B} - ${g.A} (${g.total})</div>`;
-  }
-  return html;
-}
-
-function renderHardOriented(h2h, guessId, guessName, targetName){
-  if(!h2h) return 'No matches';
-  const rows = [];
+/* helper: create match HTML lines; winner label is "Guessed" or "Target" (no names)
+   guessIsB indicates if guessed player is playerB in composed h2h
+*/
+function buildMatchLines(h2h, guessIsB){
+  if(!h2h || !Array.isArray(h2h.matches) || h2h.matches.length === 0) return ['No matches'];
+  const lines = [];
   for(const m of h2h.matches){
     const year = m.event_year || '';
-    const tourney = (m.tourney_name || '').trim();
+    const tournament = m.tourney_name || m.event_id || '';
     const score = m.score_string || '';
     const winner = String(m.player_id_winner || '');
-    const winnerLabel = (winner === String(guessId)) ? escapeHtml(guessName) : escapeHtml(targetName);
-    rows.push(`<div style="margin-bottom:6px"><strong>${escapeHtml(year)}</strong> — ${escapeHtml(tourney)} — ${escapeHtml(score)} — Winner: ${winnerLabel}</div>`);
+    // If winner equals guessId -> "Guessed", else -> "Target"
+    const label = winner === (guessIsB ? h2h.playerB.id : h2h.playerB.id) ? 'Guessed' : ((winner === (guessIsB ? h2h.playerA.id : h2h.playerA.id)) ? 'Target' : 'Unknown');
+    // Note: we don't display any player names, only label
+    lines.push(`${escapeHtml(year)} — ${escapeHtml(tournament)} — ${escapeHtml(score)} — Winner: ${label}`);
   }
-  return rows.length ? rows.join('') : 'No matches';
+  return lines;
+}
+
+/* helper: compute surface counts oriented (B - A)
+   returns map surface -> {B: n, A: n, total}
+*/
+function computeSurfaceCounts(h2h){
+  const map = {};
+  if(!h2h || !Array.isArray(h2h.matches)) return map;
+  for(const m of h2h.matches){
+    const s = (m.surface || 'Other');
+    map[s] = map[s] || {A:0, B:0, total:0};
+    const winner = String(m.player_id_winner || '');
+    if(winner === String(h2h.playerB.id)) map[s].B++;
+    else if(winner === String(h2h.playerA.id)) map[s].A++;
+    map[s].total++;
+  }
+  return map;
+}
+
+/* update tables with a new guess row */
+function updateTablesWithGuess(guess, h2h){
+  // ensure skeleton exists
+  const out = document.getElementById('h2hOutput');
+  if(!out.querySelector('table')) ensureOutputSkeleton();
+  if(currentLevel === 'hard'){
+    const tbl = document.getElementById('h2hTableHard').querySelector('tbody');
+    const tr = document.createElement('tr');
+    const tdName = document.createElement('td'); tdName.textContent = guess.full_name || '';
+    const tdH2H = document.createElement('td');
+    // build match list lines, but we must label winner as Guessed/Target
+    const guessIsB = true; // composed function used guessId as playerB
+    const lines = buildMatchLines(h2h, guessIsB);
+    tdH2H.innerHTML = lines.map(l => `<div style="margin-bottom:6px">${escapeHtml(l)}</div>`).join('');
+    tr.appendChild(tdName); tr.appendChild(tdH2H);
+    tbl.prepend(tr);
+  } else if(currentLevel === 'medium'){
+    const tbl = document.getElementById('h2hTableMedium').querySelector('tbody');
+    const tr = document.createElement('tr');
+    const tdName = document.createElement('td'); tdName.textContent = guess.full_name || '';
+    tr.appendChild(tdName);
+    const counts = computeSurfaceCounts(h2h);
+    // surfaces order: Clay (red), Grass (green), Hard (blue), Carpet (violet), Other (gray)
+    const surfaces = [
+      {key:'Clay', cls:'surface-red'},
+      {key:'Grass', cls:'surface-green'},
+      {key:'Hard', cls:'surface-blue'},
+      {key:'Carpet', cls:'surface-violet'},
+      {key:'Other', cls:'surface-gray'}
+    ];
+    for(const sInfo of surfaces){
+      const s = sInfo.key;
+      const node = document.createElement('td');
+      const c = counts[s] || {A:0,B:0,total:0};
+      node.innerHTML = `<div class="surface-cell ${sInfo.cls}">${c.B} - ${c.A} (${c.total})</div>`;
+      tr.appendChild(node);
+    }
+    tbl.prepend(tr);
+  } else { // easy
+    const tbl = document.getElementById('h2hTableEasy').querySelector('tbody');
+    const tr = document.createElement('tr');
+    const tdName = document.createElement('td'); tdName.textContent = guess.full_name || '';
+    const tdMatches = document.createElement('td');
+    const lines = buildMatchLines(h2h, true);
+    tdMatches.innerHTML = lines.map(l => `<div style="margin-bottom:6px">${escapeHtml(l)}</div>`).join('');
+    tr.appendChild(tdName); tr.appendChild(tdMatches);
+    tbl.prepend(tr);
+  }
 }
 
 /* ---------------------------
-  UI: guesses table (only # and name) and H2H output area
+  Guess submission flow
 ---------------------------- */
 function clearGuessesTable(){ document.querySelector('#guessesTable tbody').innerHTML = ''; }
-function appendGuessRowSimple(guessPlayer){
+function appendGuessRowSimple(guess){
   const tbody = document.querySelector('#guessesTable tbody');
   const tr = document.createElement('tr');
   const idx = guesses.length;
   const tdIndex = document.createElement('td'); tdIndex.textContent = idx;
-  const tdName = document.createElement('td'); tdName.textContent = guessPlayer.full_name || guessPlayer.fullName || '';
-  tr.appendChild(tdIndex);
-  tr.appendChild(tdName);
+  const tdName = document.createElement('td'); tdName.textContent = guess.full_name || '';
+  tr.appendChild(tdIndex); tr.appendChild(tdName);
   tbody.prepend(tr);
 }
 
-/* ---------------------------
-  Main guess flow:
-  - find guess in players_catalog
-  - decrement remaining (max 15)
-  - load per-player file for guess B if needed
-  - compose H2H A <-> B and render according to difficulty (oriented to show B - A)
-  - stop if B == A (player_id equal) or attempts >= 15
----------------------------- */
 async function handleGuessSubmission(name){
   if(!gameStarted){ showToast('Round not started'); return; }
   if(remaining <= 0){ showToast('No tries left'); return; }
   const guess = findPlayerByName(name);
   if(!guess){ showToast('Name not found in catalog'); return; }
-  // add to guesses
+  // push guess
   guesses.push(guess);
   guessedNames.add((guess.full_name||'').trim());
   appendGuessRowSimple(guess);
   remaining--; document.getElementById('remaining').textContent = remaining;
 
-  // if guess equals target by player_id -> win
-  const guessId = guess.player_id || guess.playerId || guess.player || '';
-  const targetId = target.player_id || target.playerId || (target.orig__player_id || target.player_id || '');
-  // normalize to strings
-  const gId = guess.player_id ? String(guess.player_id) : (guess.player_id === undefined ? null : String(guess.player_id));
-  const tId = target.player_id ? String(target.player_id) : (target.player_id === undefined ? null : String(target.player_id));
-
-  // load per-player H2H for guess if not cached
+  // load per-player files if needed
   const guessPid = guess.player_id || guess.playerId || null;
-  if(guessPid){
-    await loadPerPlayerH2H(String(guessPid)).catch(()=>null);
-  }
-  // ensure target file is loaded (startRound should have loaded it, but be safe)
-  if(tId) await loadPerPlayerH2H(String(tId)).catch(()=>null);
+  const targetPid = target && (target.player_id || target.playerId || (target.player && target.player.player_id)) ? String(target.player_id || target.playerId || (target.player && target.player.player_id)) : null;
+  if(guessPid) await loadPerPlayerH2H(String(guessPid)).catch(()=>null);
+  if(targetPid) await loadPerPlayerH2H(String(targetPid)).catch(()=>null);
 
-  // compose H2H between target (A) and guess (B)
-  const aId = tId || target.player_id || (target.player && target.player.player_id) || '';
-  const bId = guess.player_id || guess.playerId || '';
-
+  // compose H2H oriented A (target) <-> B (guess)
   let h2h = null;
-  if(aId && bId){
-    h2h = composeH2H(aId, bId);
-  }
-
-  // render oriented to guessed player B
-  const outEl = document.getElementById('h2hOutput');
-  if(currentLevel === 'easy'){
-    outEl.innerHTML = `<div style="font-weight:700">${escapeHtml(guess.full_name||'')} vs ${escapeHtml(target.full_name||'')}: <span style="font-size:1.25rem">${renderEasyOriented(h2h, bId)}</span></div>`;
-  } else if(currentLevel === 'medium'){
-    outEl.innerHTML = `<div style="font-weight:700">${escapeHtml(guess.full_name||'')} vs ${escapeHtml(target.full_name||'')}</div>` + renderMediumOriented(h2h, bId);
+  if(targetPid && guessPid){
+    h2h = composeH2H(targetPid, guessPid); // note: compose uses A,B as passed
   } else {
-    outEl.innerHTML = `<div style="font-weight:700">${escapeHtml(guess.full_name||'')} vs ${escapeHtml(target.full_name||'')}</div>` + renderHardOriented(h2h, bId, guess.full_name||'', target.full_name||'');
+    // try best-effort: if only one side loaded but includes opponent match entries
+    h2h = composeH2H(targetPid || guessPid, guessPid || targetPid);
   }
 
-  // win condition: same player id or same normalized name
+  // DO NOT display the target name anywhere here. update tables only.
+  updateTablesWithGuess(guess, h2h);
+
+  // win detection: same player_id OR same normalized name
+  const gId = guess.player_id ? String(guess.player_id) : null;
+  const tId = target && (target.player_id ? String(target.player_id) : null);
   const sameId = (gId && tId && gId === tId);
   const sameName = (!gId && !tId && norm(guess.full_name||'') === norm(target.full_name||''));
   if(sameId || sameName){
-    // win
     const points = Math.max(10, 100 - (guesses.length-1)*10);
     score += points; document.getElementById('score').textContent = score;
     revealRound(true, points);
@@ -554,31 +568,26 @@ async function handleGuessSubmission(name){
     return;
   }
 
-  // stop if attempts exhausted or guesses >= 15
   if(remaining <= 0 || guesses.length >= 15){
     revealRound(false, 0);
     setTimeout(startRound, 1000);
-    return;
   }
 }
 
 /* ---------------------------
-  Minimal reveal modal (no player meta)
+  Reveal modal (minimal; only reveal target name)
 ---------------------------- */
 function revealRound(won, points){
-  const modal = document.getElementById('modal');
-  const title = document.getElementById('modalTitle');
-  const text = document.getElementById('modalText');
-  const details = document.getElementById('modalDetails');
-  if(won){ title.textContent='You won!'; text.textContent=`You earned ${points} points.`; details.innerHTML = `<div style="font-weight:700">${escapeHtml(target.full_name||'—')}</div>`; }
-  else { title.textContent='Round over'; text.textContent='No points this time.'; details.innerHTML = `<div style="font-weight:700">Target was: ${escapeHtml(target.full_name||'—')}</div>`; }
+  const modal = document.getElementById('modal'); const title=document.getElementById('modalTitle'); const text=document.getElementById('modalText'); const details=document.getElementById('modalDetails');
+  if(won){ title.textContent='You won!'; text.textContent=`You earned ${points} points.`; } else { title.textContent='Round over'; text.textContent='No points this time.'; }
+  const tname = escapeHtml(target && (target.full_name || (target.player && target.player.full_name)) || '—');
+  details.innerHTML = `<div style="font-weight:700">Target: ${tname}</div>`;
   modal.classList.add('show'); modal.setAttribute('aria-hidden','false');
   document.getElementById('closeModalBtn').onclick = ()=>{ modal.classList.remove('show'); modal.setAttribute('aria-hidden','true'); };
 }
 
 /* ---------------------------
-  Round start: pick target A (from selected_players or random from catalog),
-  load its per-player H2H file, preload selected players files and compose known pairs
+  Round start: pick target A and preload files
 ---------------------------- */
 function pickTargetFromSelected(mode, level){
   if(!selectedPlayers) return null;
@@ -597,11 +606,11 @@ async function startRound(){
   // pick target
   const picked = pickTargetFromSelected(currentTour.toLowerCase(), currentLevel) || pickTargetFromSelected(currentTour, currentLevel) || null;
   if(picked){
-    // try to enrich from catalog (match by player_id or full_name)
+    // try to enrich with catalog by player_id or name
     const enriched = playersCatalog.find(p=>p.player_id && picked.player_id && String(p.player_id) === String(picked.player_id)) || playersCatalog.find(p=>p.full_name && picked.full_name && p.full_name.trim().toLowerCase() === picked.full_name.trim().toLowerCase()) || picked;
     target = enriched;
   } else {
-    // fallback random from catalog for the current tour
+    // fallback random
     const pool = playersCatalog.filter(p => (String(p.source||'').toUpperCase()===currentTour) && (typeof p.rank !== 'undefined' ? p.rank <= 9999 : true));
     target = pool.length ? pool[Math.floor(Math.random()*pool.length)] : (playersCatalog[0] || null);
   }
@@ -611,33 +620,27 @@ async function startRound(){
   document.getElementById('tourLabel').textContent = currentTour;
   document.getElementById('levelLabel').textContent = currentLevel.charAt(0).toUpperCase()+currentLevel.slice(1);
 
-  const tid = target.player_id || (target.player && target.player.player_id) || null;
-  if(tid){
-    document.getElementById('preloadStatus').textContent = `Loading H2H file for target ${tid}...`;
-    await loadPerPlayerH2H(String(tid)).catch(()=>null);
+  // load target per-player H2H quietly (we will not show its name in outputs)
+  const tid = target && (target.player_id || (target.player && target.player.player_id)) ? String(target.player_id || (target.player && target.player.player_id)) : null;
+  if(tid) {
+    document.getElementById('preloadStatus').textContent = `Loading H2H for target...`;
+    await loadPerPlayerH2H(tid).catch(()=>null);
   }
-  // preload selected players' files (if not already)
+  // preload selected players for responsiveness
   await preloadSelectedPlayerFiles(6);
-  // attempt to compose any pairs with the target where possible (improves responsiveness)
-  if(tid){
-    const loadedIds = Object.keys(h2hByPlayerCache);
-    for(const otherId of loadedIds){
-      if(otherId === String(tid)) continue;
-      const composed = composeH2H(tid, otherId);
-      if(composed) composedH2HCache[`${tid}_${otherId}`] = composed;
-    }
-  }
-  document.getElementById('preloadStatus').textContent = `Round started — target is chosen.`;
-  document.getElementById('h2hOutput').innerHTML = 'H2H output will appear here.';
+
+  // prepare output skeleton for current level
+  ensureOutputSkeleton();
+  document.getElementById('preloadStatus').textContent = `Round started — make up to 15 guesses. Good luck!`;
 }
 
 /* ---------------------------
-  Init: load catalog, geocodes, selected players and preload some files
+  Init
 ---------------------------- */
 async function init(){
   document.getElementById('btnATP').addEventListener('click', ()=>{ if(currentTour!=='ATP'){ currentTour='ATP'; document.getElementById('tourLabel').textContent = currentTour; startRound(); }});
   document.getElementById('btnWTA').addEventListener('click', ()=>{ if(currentTour!=='WTA'){ currentTour='WTA'; document.getElementById('tourLabel').textContent = currentTour; startRound(); }});
-  document.querySelectorAll('.seg-btn').forEach(btn=>btn.addEventListener('click',(e)=>{ document.querySelectorAll('.seg-btn').forEach(b=>b.classList.remove('active')); e.currentTarget.classList.add('active'); currentLevel = e.currentTarget.dataset.level; document.getElementById('levelLabel').textContent = currentLevel.charAt(0).toUpperCase()+currentLevel.slice(1); startRound(); }));
+  document.querySelectorAll('.seg-btn').forEach(btn=>btn.addEventListener('click',(e)=>{ document.querySelectorAll('.seg-btn').forEach(b=>b.classList.remove('active')); e.currentTarget.classList.add('active'); currentLevel = e.currentTarget.dataset.level; document.getElementById('levelLabel').textContent = currentLevel.charAt(0).toUpperCase()+currentLevel.slice(1); ensureOutputSkeleton(); startRound(); }));
   document.getElementById('guessBtn').addEventListener('click', ()=>{ const v=guessInput.value.trim(); if(!v) return showToast('Type a name'); handleGuessSubmission(v); guessInput.value=''; suggestionsList.style.display='none'; });
   document.getElementById('closeModalBtn').addEventListener('click', ()=>{ document.getElementById('modal').classList.remove('show'); });
 
@@ -645,16 +648,14 @@ async function init(){
   if(!okCatalog){ alert('players_catalog.json missing or malformed'); return; }
   await loadGeocodes();
   await loadSelectedPlayers();
-  // preload some selected players' per-player files
   await preloadSelectedPlayerFiles(6);
-  // start first round
+  ensureOutputSkeleton();
   startRound();
 }
-
 init();
 
 /* ---------------------------
-  Helper to load selected_players.json and normalize keys
+  loadSelectedPlayers helper
 ---------------------------- */
 async function loadSelectedPlayers(){
   const j = await fetchJson(SELECTED_PLAYERS_JSON);
