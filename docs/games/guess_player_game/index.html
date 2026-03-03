@@ -5,14 +5,6 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Guess the Player</title>
 <style>
-/* --- ta CSS inchangée (copiée depuis ton snippet) --- */
-:root{
-  --muted:#94a3b8;
-  --accent-strong-wta:#8b5cf6;
-  --accent-strong:#1f7aec;
-  --success:#16a34a;
-  --danger:#ef4444;
-}
 .segment{display:flex;background:transparent;border-radius:10px;padding:4px;gap:6px}
   .seg-btn{padding:8px 12px;border-radius:8px;border:none;color:var(--muted);cursor:pointer;font-weight:600;background:transparent;transition:all .18s ease}
   .seg-btn.active{color:white; box-shadow:0 6px 18px rgba(2,6,23,0.6); transform:translateY(-2px)}
@@ -523,7 +515,6 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
 
     try {
       submitScoreToLeaderboard(pointsToSend, { won }, { displayName });
-      console.info('[LB] submitScoreToLeaderboard called', { pointsToSend, displayName, won });
     } catch (e) {
       console.error('[LB] submitScoreToLeaderboard threw', e);
     }
@@ -726,67 +717,31 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
 
   /* ---------------------------
      Preflight check: checkUserPlayedToday
-     CORRIGÉ — plus robuste (dates UTC/local/yesterday + user_id/pseudo attempts)
+     SIMPLE & DÉTERMINISTE: envoie le pseudo et la date UTC (un seul essai)
   ---------------------------- */
   async function checkUserPlayedToday(mode){
     let localUser = null;
     try { localUser = (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') ? window.LEADERBOARD.getLocalUser() : null; } catch(e){ localUser = null; }
     if(!localUser) return { exists:false };
 
-    const userId = localUser.user_id || localUser.id || null;
+    // prefer pseudo because server uses COALESCE(user_id::text, pseudo)
     const pseudo = localUser.pseudo || localUser.name || localUser.email || null;
+    if(!pseudo) return { exists:false };
 
-    // build list of candidate dates to check (avoid timezone mismatch)
-    const now = new Date();
-    const utcDateStr = new Date().toISOString().slice(0,10); // UTC date
-    const localDateObj = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const localDateStr = localDateObj.getFullYear() + '-' + String(localDateObj.getMonth()+1).padStart(2,'0') + '-' + String(localDateObj.getDate()).padStart(2,'0');
-    const yesterdayDateStr = new Date(Date.now() - 24*3600*1000).toISOString().slice(0,10);
+    // use UTC date only (matches server-side created_day derived from created_at at UTC)
+    const dateStr = new Date().toISOString().slice(0,10);
+    const qs = `?game_id=guess_player&date=${encodeURIComponent(dateStr)}&check_existing=1&mode=${encodeURIComponent(mode)}&pseudo=${encodeURIComponent(pseudo)}`;
 
-    const datesToTry = Array.from(new Set([utcDateStr, localDateStr, yesterdayDateStr]));
-
-    // try queries in order: if userId present try with userId first, otherwise try with pseudo first
-    for(const d of datesToTry){
-      // Try by user_id (if available)
-      if(userId){
-        const qs = `?game_id=guess_player&date=${encodeURIComponent(d)}&check_existing=1&mode=${encodeURIComponent(mode)}&user_id=${encodeURIComponent(userId)}`;
-        console.info('[PRECHECK] checking existing (by user_id) ->', qs);
-        try {
-          const res = await fetch(`/.netlify/functions/leaderboard${qs}`, { credentials: 'same-origin', cache: 'no-cache' });
-          if(res && res.ok){
-            const j = await res.json().catch(()=>null);
-            if(j && j.ok && j.exists) return { exists:true, rows: j.rows || [] };
-          } else {
-            // try to parse body for debugging even if status not ok
-            const txt = await res.text().catch(()=>null);
-            console.warn('[PRECHECK] check by user_id returned non-ok', res.status, txt);
-          }
-        } catch(err) {
-          console.warn('[PRECHECK] fetch error (by user_id)', err);
-        }
-      }
-
-      // Try by pseudo (if available)
-      if(pseudo){
-        const qs2 = `?game_id=guess_player&date=${encodeURIComponent(d)}&check_existing=1&mode=${encodeURIComponent(mode)}&pseudo=${encodeURIComponent(pseudo)}`;
-        console.info('[PRECHECK] checking existing (by pseudo) ->', qs2);
-        try {
-          const res2 = await fetch(`/.netlify/functions/leaderboard${qs2}`, { credentials: 'same-origin', cache: 'no-cache' });
-          if(res2 && res2.ok){
-            const j2 = await res2.json().catch(()=>null);
-            if(j2 && j2.ok && j2.exists) return { exists:true, rows: j2.rows || [] };
-          } else {
-            const txt2 = await res2.text().catch(()=>null);
-            console.warn('[PRECHECK] check by pseudo returned non-ok', res2.status, txt2);
-          }
-        } catch(err) {
-          console.warn('[PRECHECK] fetch error (by pseudo)', err);
-        }
-      }
+    try {
+      const res = await fetch(`/.netlify/functions/leaderboard${qs}`, { credentials: 'same-origin', cache: 'no-cache' });
+      if(!res.ok) return { exists:false };
+      const j = await res.json().catch(()=>null);
+      if(j && j.ok && j.exists) return { exists:true, rows: j.rows || [] };
+      return { exists:false, rows: j ? (j.rows || []) : [] };
+    } catch(e){
+      console.warn('checkUserPlayedToday error', e);
+      return { exists:false };
     }
-
-    // nothing found
-    return { exists:false };
   }
 
   /* ---------------------------
@@ -834,26 +789,21 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
     suggestionsList.style.display = 'none';
 
     // Wait for LB getLocalUser to appear (long timeout)
-    console.info('[PRECHECK] waiting for leaderboard user (up to 15s)...');
     const lbUser = await waitForLeaderboardUser(15000);
 
     if(lbUser === undefined){
       // library not available in time -> fallback: allow play (can't verify)
-      console.warn('[PRECHECK] leaderboard lib did not appear within timeout. Allowing play (fail-open).');
-      // allow play
       await startGame();
       return;
     }
 
     if(lbUser === null){
       // library present but user not logged in -> allow play
-      console.info('[PRECHECK] leaderboard lib present but user not logged in. Allowing play.');
       await startGame();
       return;
     }
 
     // library present and user object available -> do the server-side check
-    console.info('[PRECHECK] user detected — running server check for mode', mode);
     try {
       const check = await checkUserPlayedToday(mode);
       if(check && check.exists){
@@ -889,17 +839,14 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
         renderCotdBanner();
         renderCountryText();
         clearGuessesTable();
-        console.info('[PRECHECK] mode blocked for user — existing record found.');
         return;
       } else {
         // no existing score -> start the round
         gameBlockedDueToExisting = false;
         await startGame();
-        console.info('[PRECHECK] no existing record — game started.');
         return;
       }
     } catch(e){
-      console.warn('[PRECHECK] server check error', e);
       // fail-open: allow play
       await startGame();
       showToast('Impossible de vérifier l\'historique — le jeu est disponible', 3000);
@@ -1005,7 +952,6 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
     };
 
     try {
-      console.info('[LB-FALLBACK] POST', fallbackEndpoint, payload);
       const resp = await fetch(fallbackEndpoint, {
         method: 'POST',
         credentials: 'same-origin',
@@ -1014,15 +960,10 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
       });
 
       const text = await resp.text().catch(()=>null);
-      console.info('[LB-FALLBACK] response status', resp.status, text);
 
       if (resp.ok){
-        let data = null;
-        try { data = text ? JSON.parse(text) : null; } catch(e){ data = text; }
-        console.info('[LB-FALLBACK] success', data);
         return true;
       } else {
-        console.warn('[LB-FALLBACK] server returned non-OK', resp.status, text);
         return false;
       }
     } catch(fetchErr){
@@ -1036,7 +977,6 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
     if(!queue || queue.length === 0) return;
     const ready = await waitForLeaderboard(5000);
     if(!ready) {
-      console.info('Leaderboard not ready; will keep queue for later flush');
       return;
     }
     for(let i=0;i<10;i++){
@@ -1044,7 +984,7 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
       if(!q || q.length === 0) break;
       const entry = q[0];
       const ok = await trySubmitEntryToLB(entry);
-      if(ok){ popScoreQueue(); showToast('Score submitted to leaderboard', 2000); } else { console.warn('Submit failed for queued entry — stop flush now'); break; }
+      if(ok){ popScoreQueue(); showToast('Score submitted to leaderboard', 2000); } else { break; }
     }
   }
 
@@ -1055,8 +995,8 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
     const ready = await waitForLeaderboard(3000);
     if(ready){
       const ok = await trySubmitEntryToLB({ points, options });
-      if(ok){ console.info('Score successfully submitted to leaderboard (fast path).'); setTimeout(flushScoreQueue, 250); return; }
-      else { console.warn('Fast path submit failed; queueing the score for retry.'); pushToScoreQueue({ points, options }); showToast('Score queued for retry', 2000); return; }
+      if(ok){ setTimeout(flushScoreQueue, 250); return; }
+      else { pushToScoreQueue({ points, options }); showToast('Score queued for retry', 2000); return; }
     } else {
       pushToScoreQueue({ points, options });
       showToast('Leaderboard unavailable — score queued', 2000);
@@ -1130,7 +1070,7 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
       });
 
       // initial preflight
-      performModeCheckAndStart().catch(e => { console.warn('initial performModeCheckAndStart failed', e); startGame(); });
+      performModeCheckAndStart().catch(e => { startGame(); });
 
     }catch(err){
       console && console.error && console.error(err);
