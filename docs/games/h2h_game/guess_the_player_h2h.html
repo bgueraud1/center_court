@@ -17,6 +17,7 @@
   }
   html,body{height:100%;margin:0;background:linear-gradient(180deg, var(--bg1) 0%, var(--bg2) 100%);-webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;}
   .wrap{max-width:1100px;margin:28px auto;padding:20px;border-radius:14px;position:relative;z-index:2;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));box-shadow: 0 8px 40px rgba(2,6,23,0.6); border: 1px solid rgba(255,255,255,0.03);}
+
   header{display:flex;align-items:center;gap:16px}
   h1{margin:0;font-weight:800;color: #eef2ff; font-size:1.25rem}
   .sub{color:var(--muted);font-size:0.9rem}
@@ -63,21 +64,10 @@
   .toast{position:fixed;right:18px;bottom:18px;background:rgba(0,0,0,0.7);color:#fff;padding:10px 14px;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,0.6);display:none;z-index:220}
   .lb-card{margin-left:auto;display:flex;gap:8px;align-items:center;position:relative}
   #lb-status{color:var(--muted);font-size:0.9rem;margin-left:8px}
-  .user-box {
-    display:inline-flex;
-    align-items:center;
-    gap:10px;
-    padding:8px 12px;
-    border-radius:999px;
-    background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
-    border:1px solid rgba(255,255,255,0.04);
-    cursor:pointer;
-    color:#fff;
-    font-weight:700;
-    box-shadow: 0 6px 18px rgba(2,6,23,0.45);
-  }
-  .user-box .lb-avatar{
-    width:34px;height:34px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:white;background: linear-gradient(135deg,#2b8af6,#7b5cf6);
+  /* make the top-right user UI look like the .chip (as requested) */
+  .user-chip{cursor:pointer;color:#fff; display:inline-flex; align-items:center; gap:8px; font-weight:700; padding:8px 12px;}
+  .user-chip .lb-avatar{
+    width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;color:white;background: linear-gradient(135deg,#2b8af6,#7b5cf6);
     box-shadow: 0 4px 12px rgba(43,138,246,0.18), inset 0 -2px 6px rgba(0,0,0,0.12);
   }
   .user-dropdown {
@@ -92,6 +82,7 @@
   }
   .user-dropdown button { display:block;width:100%;text-align:left;padding:10px 12px;background:transparent;border:none;color:var(--muted);cursor:pointer;font-weight:700;}
   .user-dropdown button:hover{ color:#fff; background: rgba(255,255,255,0.02); }
+
   @media (max-width:880px){ input[type="text"]{min-width:140px} .chip{font-size:0.85rem} th,td{padding:8px;font-size:0.9rem} }
 </style>
 </head>
@@ -103,8 +94,8 @@
       <div><h1>Guess the Player</h1><div class="sub">H2H game — Answers are updated daily.</div></div>
 
       <!-- LB area -->
-      <div class="lb-card card" id="lbCard" aria-hidden="false" style="margin-left:auto;align-items:center">
-        <!-- Either user-box (connected) or connect button (not connected) -->
+      <div class="lb-card card" id="lbCard" aria-hidden="false" style="margin-left:auto;align-items:center;position:relative">
+        <!-- Either user-chip (connected) or connect chip (not connected) -->
         <div id="lbBoxPlaceholder"></div>
         <div id="lb-status">Not connected</div>
       </div>
@@ -226,6 +217,13 @@ let guessedNames = new Set();
 let h2hByPlayerCache = {};
 let composedH2HCache = {};
 let preloadedCount = 0;
+
+/* ---------------------------
+  Ensure/check flags (modified: support queued rechecks)
+----------------------------*/
+let _ensureCheckRunning = false;
+let _ensureRecheckRequested = false;
+let _ensureRequestedMode = null;
 
 /* ---------------------------
   UTIL
@@ -429,22 +427,23 @@ function getLocalUserFromLibOrStorage(){
 /* ---------------------------
   Render top-right box (connected / not connected)
   and dropdown toggles
+  -> Modified to use .chip (visual parity with first game) while keeping behaviors
 ----------------------------*/
 function renderLbBox(){
   const placeholder = document.getElementById('lbBoxPlaceholder');
   placeholder.innerHTML = '';
   const u = getLocalUserFromLibOrStorage();
   if(u && u.pseudo){
-    // connected -> show user-box with pseudo + avatar; clicking toggles logout dropdown
-    const box = document.createElement('div'); box.className = 'user-box'; box.id = 'userBox';
+    // connected -> show chip-like user element
+    const box = document.createElement('div'); box.className = 'chip user-chip'; box.id = 'userChip';
     const avatar = document.createElement('div'); avatar.className='lb-avatar'; avatar.textContent = (u.pseudo.split(/\s+/).map(x=>x[0]).slice(0,2).join('').toUpperCase() || '??');
     const name = document.createElement('div'); name.className='lb-name'; name.textContent = u.pseudo;
     box.appendChild(avatar); box.appendChild(name);
     box.onclick = (e)=>{ e.stopPropagation(); toggleUserDropdown(box); };
     placeholder.appendChild(box);
   } else {
-    // not connected -> "Connect" user-box; clicking toggles login/signup options dropdown
-    const btn = document.createElement('div'); btn.className='user-box'; btn.id='connectBox';
+    // not connected -> show "Connect" chip
+    const btn = document.createElement('div'); btn.className='chip user-chip'; btn.id='connectChip';
     btn.textContent='Connect';
     btn.onclick = (e)=>{ e.stopPropagation(); toggleConnectDropdown(btn); };
     placeholder.appendChild(btn);
@@ -504,7 +503,7 @@ function openLBModalAndTab(tab){
 }
 
 /* ---------------------------
-  Check whether user played today (pre-check)
+  Check whether user played today (mode-based)
 ----------------------------*/
 async function checkUserPlayedToday(mode){
   let localUser = getLocalUserFromLibOrStorage();
@@ -774,31 +773,45 @@ async function submitScoreToLeaderboard(points, meta = {}, extra = {}){
   - disables input immediately and performs the check
   - if already played -> show modal and keep blocked
   - else -> startRound
-  - also polls for late login/leaderboard for a short time
+  - supports queued re-check requests when toggling modes rapidly
 ----------------------------*/
-let _ensureCheckRunning = false;
 async function ensureModeCheckedAndStart(){
-  if(_ensureCheckRunning) return;
-  _ensureCheckRunning = true;
+  // Always immediately disable input (so user cannot type while check is pending)
   const mode = `${currentTour}_h2h_${currentLevel}`;
-
-  // Update UI labels
   document.getElementById('levelLabel').textContent = currentLevel.charAt(0).toUpperCase() + currentLevel.slice(1);
   document.getElementById('tourLabel').textContent = currentTour;
   document.getElementById('preloadStatus').textContent = 'Checking if you already played this variant today...';
 
-  // Immediately disable inputs until check completes
   gameBlockedDueToExisting = false;
   gameStarted = false;
   guessInput.disabled = true;
   document.getElementById('guessBtn').disabled = true;
   suggestionsList.style.display = 'none';
 
+  // If a check is already running, schedule a re-check and return (input remains disabled)
+  if(_ensureCheckRunning){
+    _ensureRecheckRequested = true;
+    _ensureRequestedMode = mode;
+    console.info('[ensureModeCheckedAndStart] check already running — recheck scheduled for', mode);
+    return;
+  }
+
+  _ensureCheckRunning = true;
   try {
     const check = await checkUserPlayedToday(mode);
     if(check && check.exists){
       showAlreadyPlayedModal(check, mode);
       _ensureCheckRunning = false;
+      // If a recheck has been requested during this check, clear flag and run it
+      if(_ensureRecheckRequested){
+        const req = _ensureRequestedMode;
+        _ensureRecheckRequested = false;
+        _ensureRequestedMode = null;
+        console.info('[ensureModeCheckedAndStart] running queued recheck for', req);
+        // tiny delay to avoid tight recursion
+        setTimeout(()=> ensureModeCheckedAndStart(), 50);
+        return;
+      }
       return;
     } else {
       startRound();
@@ -824,11 +837,33 @@ async function ensureModeCheckedAndStart(){
           clearInterval(interval);
           showAlreadyPlayedModal(check2, mode);
           _ensureCheckRunning = false;
+          // re-run queued request if any
+          if(_ensureRecheckRequested){
+            const req = _ensureRequestedMode;
+            _ensureRecheckRequested = false;
+            _ensureRequestedMode = null;
+            setTimeout(()=> ensureModeCheckedAndStart(), 50);
+          }
           return;
         }
       }
-      if(Date.now() - start > maxWait){ clearInterval(interval); _ensureCheckRunning = false; return; }
-    } catch(err){ console.warn('Polling check error', err); if(Date.now() - start > maxWait){ clearInterval(interval); _ensureCheckRunning = false; return; } }
+      if(Date.now() - start > maxWait){ clearInterval(interval); _ensureCheckRunning = false; 
+        // run queued request if any
+        if(_ensureRecheckRequested){
+          const req = _ensureRequestedMode;
+          _ensureRecheckRequested = false;
+          _ensureRequestedMode = null;
+          setTimeout(()=> ensureModeCheckedAndStart(), 50);
+        }
+        return; }
+    } catch(err){ console.warn('Polling check error', err); if(Date.now() - start > maxWait){ clearInterval(interval); _ensureCheckRunning = false; 
+      if(_ensureRecheckRequested){
+        const req = _ensureRequestedMode;
+        _ensureRecheckRequested = false;
+        _ensureRequestedMode = null;
+        setTimeout(()=> ensureModeCheckedAndStart(), 50);
+      }
+      return; } }
   }, 600);
 }
 
@@ -1000,17 +1035,17 @@ async function init(){
 
   // render LB box & UI
   renderLbBox();
-  updateLBStatusUI();
+  updateLBStatusUI && updateLBStatusUI();
   ensureOutputSkeleton();
   await ensureModeCheckedAndStart();
 
   // watch login state
   let lastUserId = null;
-  setInterval(async ()=>{ let localUser = null; try{ localUser = getLocalUserFromLibOrStorage(); }catch(e){ localUser=null; } const id = localUser ? (localUser.user_id || localUser.pseudo || '') : ''; if(id !== lastUserId){ lastUserId = id; renderLbBox(); updateLBStatusUI(); await ensureModeCheckedAndStart(); } }, 1200);
+  setInterval(async ()=>{ let localUser = null; try{ localUser = getLocalUserFromLibOrStorage(); }catch(e){ localUser=null; } const id = localUser ? (localUser.user_id || localUser.pseudo || '') : ''; if(id !== lastUserId){ lastUserId = id; renderLbBox(); updateLBStatusUI && updateLBStatusUI(); await ensureModeCheckedAndStart(); } }, 1200);
 }
 init();
 
-(function(){ try{ const raw = localStorage.getItem(LB_LOCAL_USER_KEY); if(raw){ const o=JSON.parse(raw); if(o && o.pseudo) document.getElementById('lb-status').textContent = 'Connected'; } }catch(e){} renderLbBox(); updateLBStatusUI(); })();
+(function(){ try{ const raw = localStorage.getItem(LB_LOCAL_USER_KEY); if(raw){ const o=JSON.parse(raw); if(o && o.pseudo) document.getElementById('lb-status').textContent = 'Connected'; } }catch(e){} renderLbBox(); updateLBStatusUI && updateLBStatusUI(); })();
 
 </script>
 </body>
