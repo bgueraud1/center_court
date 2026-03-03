@@ -13,7 +13,7 @@
   .app{max-width:1100px;margin:28px auto;padding:20px}
   .topbar{display:flex;gap:12px;align-items:center;margin-bottom:18px}
   .title{font-size:20px;font-weight:700}
-  .controls{margin-left:auto;display:flex;gap:8px}
+  .controls{margin-left:auto;display:flex;gap:8px;align-items:center}
   .btn{background:transparent;border:1px solid #444;color:#ddd;padding:8px 10px;border-radius:8px;cursor:pointer;font-weight:600}
   .btn.primary{background:linear-gradient(90deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));border-color:#666}
   .game-wrap{display:grid;gap:16px}
@@ -78,6 +78,25 @@
   /* toast */
   .toast{position:fixed;right:18px;bottom:18px;background:rgba(0,0,0,0.8);color:#fff;padding:8px 12px;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,0.6);display:none;z-index:5000}
 
+  /* --- USER CHIP / DROPDOWN (top-right) --- */
+  .lb-card { display:flex; align-items:center; gap:8px; margin-right:8px; }
+  .user-chip{cursor:pointer;color:#fff; display:inline-flex; align-items:center; gap:8px; font-weight:700; padding:8px 12px; border-radius:999px; background: linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border:1px solid rgba(255,255,255,0.03); min-height:40px }
+  .user-chip .lb-avatar{
+    width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;color:white;background: linear-gradient(135deg,#2b8af6,#7b5cf6); box-shadow: 0 4px 12px rgba(43,138,246,0.18), inset 0 -2px 6px rgba(0,0,0,0.12);
+  }
+  .user-dropdown {
+    position:absolute; right:20px; top:64px;
+    background: linear-gradient(180deg,#081025,#06101a);
+    border-radius:8px;
+    border:1px solid rgba(255,255,255,0.04);
+    box-shadow:0 12px 40px rgba(2,6,23,0.6);
+    min-width:160px;
+    overflow:hidden;
+    z-index:220;
+  }
+  .user-dropdown button { display:block;width:100%;text-align:left;padding:10px 12px;background:transparent;border:none;color:#cbd5e1;cursor:pointer;font-weight:700;}
+  .user-dropdown button:hover{ color:#fff; background: rgba(255,255,255,0.02); }
+
   @media (max-width:900px){.input-panel{min-width:300px}.grid-cell,.row-header,.grid-header-cell{min-width:110px;min-height:60px;font-size:13px}}
 </style>
 </head>
@@ -87,10 +106,19 @@
 <div id="app" class="app theme-wta">
   <div class="topbar">
     <div class="title">Fill the Grid</div>
-    <div class="controls" id="controlsBar">
-      <button class="btn primary" id="btnToggle">Switch to ATP</button>
-      <button class="btn" id="btnGiveUp">Give Up</button>
-      <button class="btn" id="btnReset">Reset</button>
+
+    <!-- LB area (top-right) -->
+    <div class="controls" id="controlsBar" style="align-items:center">
+      <div class="lb-card" id="lbCard" aria-hidden="false" style="position:relative">
+        <div id="lbBoxPlaceholder"></div>
+        <div id="lb-status" style="color:#9aa6bd;font-size:0.95rem;margin-left:8px">Not connected</div>
+      </div>
+
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn primary" id="btnToggle">Switch to ATP</button>
+        <button class="btn" id="btnGiveUp">Give Up</button>
+        <button class="btn" id="btnReset">Reset</button>
+      </div>
     </div>
   </div>
 
@@ -144,6 +172,132 @@
 
 <script>
 (() => {
+  /* -------------------
+     USER CHIP / AUTH HOOKUP
+     -------------------*/
+  function renderLbBox(){
+    const placeholder = document.getElementById('lbBoxPlaceholder');
+    placeholder.innerHTML = '';
+    let u = null;
+    try {
+      if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
+        u = window.LEADERBOARD.getLocalUser();
+      } else {
+        // fallback to older key names
+        const raw = localStorage.getItem('lb_user_v1') || localStorage.getItem('lb_local_user_v1') || null;
+        if (raw) u = JSON.parse(raw);
+      }
+    } catch(e){ u = null; }
+
+    const statusEl = document.getElementById('lb-status');
+    if (u && u.pseudo) {
+      // connected -> show chip-like user element
+      const box = document.createElement('div'); box.className = 'user-chip'; box.id = 'userChip';
+      const avatar = document.createElement('div'); avatar.className='lb-avatar';
+      avatar.textContent = (u.pseudo.split(/\s+/).map(x=>x[0]).slice(0,2).join('').toUpperCase() || '??');
+      const name = document.createElement('div'); name.className='lb-name'; name.textContent = u.pseudo;
+      box.appendChild(avatar); box.appendChild(name);
+      box.onclick = (e)=>{ e.stopPropagation(); toggleUserDropdown(box); };
+      placeholder.appendChild(box);
+      if (statusEl) statusEl.textContent = 'Connected';
+    } else {
+      // not connected -> show "Connect" chip
+      const btn = document.createElement('div'); btn.className='user-chip'; btn.id='connectChip';
+      btn.textContent='Connect';
+      btn.onclick = (e)=>{ e.stopPropagation(); toggleConnectDropdown(btn); };
+      placeholder.appendChild(btn);
+      if (statusEl) statusEl.textContent = 'Not connected';
+    }
+  }
+
+  function toggleUserDropdown(anchor){
+    // remove existing dropdown
+    const existing = document.querySelector('.user-dropdown');
+    if (existing){ existing.remove(); return; }
+    const dd = document.createElement('div'); dd.className='user-dropdown';
+    const btnLogout = document.createElement('button'); btnLogout.type='button'; btnLogout.textContent='Log out';
+    btnLogout.onclick = async ()=> {
+      try {
+        if (window.LEADERBOARD && typeof window.LEADERBOARD.logout === 'function') {
+          await window.LEADERBOARD.logout();
+        } else {
+          // fallback: clear storage
+          localStorage.removeItem('lb_user_v1');
+        }
+      } catch(e){ console.warn('Logout failed', e); }
+      dd.remove();
+      renderLbBox();
+      // re-check mode now that user changed
+      try { if (typeof ensureModeCheckedAndStart === 'function') ensureModeCheckedAndStart(); } catch(e){}
+    };
+    const btnProfile = document.createElement('button'); btnProfile.type='button'; btnProfile.textContent='Profile (not implemented)';
+    dd.appendChild(btnProfile);
+    dd.appendChild(btnLogout);
+    anchor.parentElement.appendChild(dd);
+
+    setTimeout(()=> {
+      const onDoc = (ev)=>{ if(!anchor.parentElement.contains(ev.target)){ const d=document.querySelector('.user-dropdown'); if(d) d.remove(); document.removeEventListener('click', onDoc); } };
+      document.addEventListener('click', onDoc);
+    }, 10);
+  }
+
+  function toggleConnectDropdown(anchor){
+    const existing = document.querySelector('.user-dropdown');
+    if (existing){ existing.remove(); return; }
+    const dd = document.createElement('div'); dd.className='user-dropdown';
+    const btnLogin = document.createElement('button'); btnLogin.type='button'; btnLogin.textContent='Log in';
+    btnLogin.onclick = async ()=> {
+      try {
+        // delegate to LEADERBOARD modal/client
+        if (window.LEADERBOARD && typeof window.LEADERBOARD.openLogin === 'function') {
+          await window.LEADERBOARD.openLogin();
+        } else if (window.LEADERBOARD && typeof window.LEADERBOARD.login === 'function') {
+          await window.LEADERBOARD.login();
+        } else {
+          alert('Login function not available (library not loaded).');
+        }
+      } catch(e){ console.warn('openLogin error', e); }
+      dd.remove();
+      // update UI after login
+      renderLbBox();
+      try { if (typeof ensureModeCheckedAndStart === 'function') ensureModeCheckedAndStart(); } catch(e){}
+    };
+    const btnSignup = document.createElement('button'); btnSignup.type='button'; btnSignup.textContent='Sign up';
+    btnSignup.onclick = async ()=> {
+      try {
+        if (window.LEADERBOARD && typeof window.LEADERBOARD.openRegister === 'function') {
+          await window.LEADERBOARD.openRegister();
+        } else if (window.LEADERBOARD && typeof window.LEADERBOARD.register === 'function') {
+          await window.LEADERBOARD.register();
+        } else {
+          alert('Register function not available (library not loaded).');
+        }
+      } catch(e){ console.warn('openRegister error', e); }
+      dd.remove();
+      renderLbBox();
+      try { if (typeof ensureModeCheckedAndStart === 'function') ensureModeCheckedAndStart(); } catch(e){}
+    };
+    dd.appendChild(btnLogin);
+    dd.appendChild(btnSignup);
+    anchor.parentElement.appendChild(dd);
+
+    setTimeout(()=> {
+      const onDoc = (ev)=>{ if(!anchor.parentElement.contains(ev.target)){ const d=document.querySelector('.user-dropdown'); if(d) d.remove(); document.removeEventListener('click', onDoc); } };
+      document.addEventListener('click', onDoc);
+    }, 10);
+  }
+
+  // react to global auth changes
+  window.addEventListener('lb:auth-changed', ()=> {
+    renderLbBox();
+    // re-check current mode to update "already played" logic
+    try { if (typeof ensureModeCheckedAndStart === 'function') ensureModeCheckedAndStart(); } catch(e){}
+    try { if (typeof updateControlsDisabledUI === 'function') updateControlsDisabledUI(); } catch(e){}
+  });
+
+  /* ---------------------------
+     rest of game script
+  ----------------------------*/
   const PATHS = {
     WTA: '/games/fill_the_grid_WTA.json',
     ATP: '/games/fill_the_grid_ATP.json',
@@ -587,6 +741,12 @@
       if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
         const localUser = window.LEADERBOARD.getLocalUser();
         if (localUser && localUser.pseudo) displayName = localUser.pseudo;
+      } else {
+        const raw = localStorage.getItem('lb_user_v1') || localStorage.getItem('lb_local_user_v1') || null;
+        if (raw) {
+          const o = JSON.parse(raw);
+          if (o && o.pseudo) displayName = o.pseudo;
+        }
       }
     } catch(e){ console.warn('getLocalUser threw', e); }
 
@@ -935,6 +1095,9 @@
       playerInput.addEventListener('input', onInput);
       playerInput.addEventListener('keydown', onInputKeyDown);
       scoreClose.addEventListener('click', ()=> scoreOverlay.style.display = 'none');
+
+      // initial render of LB box (so button exists immediately)
+      renderLbBox();
 
       // initial check & load (ensures duplicate check on page load)
       await ensureModeCheckedAndStart();
