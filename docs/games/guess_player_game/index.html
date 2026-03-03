@@ -712,6 +712,7 @@ async function handleAuthSubmit() {
     const text = await res.text().catch(()=>null);
     let json = null;
     try { json = text ? JSON.parse(text) : null; } catch(e) { json = { raw: text }; }
+    console.info('[AUTH] handleAuthSubmit response:', { status: res.status, body: json });
 
     if (!res.ok) {
       authFeedback.textContent = json && json.error ? (`Erreur: ${json.error}`) : ('Erreur serveur');
@@ -770,34 +771,80 @@ authAction.addEventListener('click', (e) => { e.preventDefault(); handleAuthSubm
 
 /* --- local persistence for "logged in" user --- */
 // clé locale (vérifie que c'est la même partout)
+// clé locale (vérifie que c'est la même partout)
 const LOCAL_USER_KEY = 'lb_current_user';
 
 function persistLocalUser(u) {
   try {
     if (!u) {
       localStorage.removeItem(LOCAL_USER_KEY);
+      window.__PERSISTED_LOCAL_USER = null;
     } else {
       localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(u));
+      window.__PERSISTED_LOCAL_USER = u;
     }
   } catch (e) {
     console.warn('persistLocalUser storage error', e);
   }
 
-  // exposer dans window.LEADERBOARD si la stub existe
+  // Exposer / normaliser l'API sur window.LEADERBOARD pour que toute librairie
+  // consomme la même source de vérité (localStorage).
   try {
-    if (window.LEADERBOARD && typeof window.LEADERBOARD.setLocalUser === 'function') {
-      window.LEADERBOARD.setLocalUser(u);
-    } else {
-      // create minimal setter so other code can rely on it
-      if (!window.LEADERBOARD) window.LEADERBOARD = {};
-      window.LEADERBOARD.setLocalUser = function(x){
-        try { if(!x) localStorage.removeItem(LOCAL_USER_KEY); else localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(x)); } catch(e){}
-      };
-    }
+    if (!window.LEADERBOARD) window.LEADERBOARD = {};
+    // Ensure getLocalUser reads from localStorage (source of truth)
+    window.LEADERBOARD.getLocalUser = function(){ return readLocalUser(); };
+    // Ensure setLocalUser writes to localStorage (and updates our window var)
+    window.LEADERBOARD.setLocalUser = function(x){
+      try {
+        if (!x) {
+          localStorage.removeItem(LOCAL_USER_KEY);
+          window.__PERSISTED_LOCAL_USER = null;
+        } else {
+          localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(x));
+          window.__PERSISTED_LOCAL_USER = x;
+        }
+      } catch(e){}
+    };
   } catch(e){
     console.warn('persistLocalUser lb exposure error', e);
   }
 }
+
+
+// Sync persisted user into any external leaderboard lib that appears later.
+// Retourne true si on a appliqué quelque chose.
+function syncLocalUserToExternalLB() {
+  try {
+    const user = readLocalUser();
+    if (!user) return false;
+    if (!window.LEADERBOARD) return false;
+
+    // Prefer using an exposed setter if it exists
+    if (typeof window.LEADERBOARD.setLocalUser === 'function') {
+      try {
+        window.LEADERBOARD.setLocalUser(user);
+        console.info('[SYNC] setLocalUser called on window.LEADERBOARD');
+      } catch(e){
+        console.warn('[SYNC] window.LEADERBOARD.setLocalUser threw', e);
+      }
+    }
+
+    // Ensure a getLocalUser exists (fallback to reading localStorage)
+    if (typeof window.LEADERBOARD.getLocalUser !== 'function') {
+      window.LEADERBOARD.getLocalUser = function(){ return readLocalUser(); };
+      console.info('[SYNC] injected getLocalUser on window.LEADERBOARD');
+    }
+
+    // Provide a non-invasive hint property (some libs may read it)
+    try { window.LEADERBOARD.__localUser = user; } catch(e){}
+
+    return true;
+  } catch(e) {
+    console.warn('syncLocalUserToExternalLB error', e);
+    return false;
+  }
+}
+
 function readLocalUser() {
   try {
     const s = localStorage.getItem(LOCAL_USER_KEY);
@@ -1269,51 +1316,35 @@ dd.appendChild(btnCreate);
 }
 
 (function watchForLbToRenderUser(){
-  // initial render from our persisted user/local stub
+  // initial render from persisted user (fast)
   renderUserPanel();
 
-  // try immediate sync once (in case stub exists)
+  // immediate sync attempt in case LB already exists
   try { syncLocalUserToExternalLB(); } catch(e){}
 
-  // watch for the external LB lib to appear / be replaced
-  const maxMillis = 8000; // watch for up to 8s (adjust if needed)
+  // watch for window.LEADERBOARD being created/replaced and re-sync
+  let lastRef = window.LEADERBOARD;
   const start = Date.now();
-  let lastRef = window.LEADERBOARD; // likely the stub or undefined
-
-  const poll = setInterval(()=> {
-    // if LB introduced or replaced (reference change) -> try syncing user
+  const MAX_MS = 8000;
+  const poll = setInterval(() => {
+    // If the reference changed, an external script likely replaced it -> sync again
     if (window.LEADERBOARD !== lastRef) {
       lastRef = window.LEADERBOARD;
       console.info('[WATCH] window.LEADERBOARD changed — attempting sync');
       try { syncLocalUserToExternalLB(); } catch(e){ console.warn('sync failed', e); }
-      // re-render panel to reflect actual lib state
-      try { renderUserPanel(); } catch(e){ }
+      try { renderUserPanel(); } catch(e){}
     } else {
-      // also attempt sync in case LB exists but didn't receive user earlier
-      if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
-        // prefer the library's user if available; otherwise push our persisted user
-        try {
-          const libUser = window.LEADERBOARD.getLocalUser();
-          if (!libUser) {
-            syncLocalUserToExternalLB();
-            renderUserPanel();
-          } else {
-            renderUserPanel();
-            clearInterval(poll);
-            return;
-          }
-        } catch(e){ /* ignore */ }
+      // If LB exists but doesn't expose getLocalUser, inject it (safe)
+      if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser !== 'function') {
+        try { window.LEADERBOARD.getLocalUser = function(){ return readLocalUser(); }; } catch(e){}
       }
     }
-
-    if (Date.now() - start > maxMillis) {
+    // stop polling after a few seconds
+    if (Date.now() - start > MAX_MS) {
       clearInterval(poll);
-      // final render
-      try { renderUserPanel(); } catch(e){ }
     }
   }, 350);
 })();
-
 /* ---------------------------
    Update selectedCountry display:
    - show country code only when COTD is ON
