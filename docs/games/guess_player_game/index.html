@@ -1080,9 +1080,28 @@ function waitForLeaderboard(timeout = 5000, interval = 200){
   });
 }
 
+/* Wait for localUser to become available (used to avoid false-negative checkUserPlayedToday) */
+function waitForLocalUser(timeout = 3500, interval = 200){
+  return new Promise((resolve) => {
+    try { if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function' && window.LEADERBOARD.getLocalUser()) return resolve(true); } catch(e){}
+    const start = Date.now();
+    const t = setInterval(() => {
+      try {
+        if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function' && window.LEADERBOARD.getLocalUser()){
+          clearInterval(t); resolve(true); return;
+        }
+        if (Date.now() - start > timeout){
+          clearInterval(t); resolve(false); return;
+        }
+      } catch(e){}
+    }, interval);
+  });
+}
+
 /** Replace existing trySubmitEntryToLB with this improved version.
  *  - treats only res.ok === true (or res.success === true) as success
- *  - when submitScore responds with ok:false, tries a direct fetch fallback
+ *  - when submitScore responds with ok:false and indicates already submitted -> block UI (duplicate)
+ *  - when fallback returns 409 / detail.code 23505 -> block UI (duplicate)
  *  - logs everything so you see Network / Console evidence
  */
 async function trySubmitEntryToLB(entry){
@@ -1099,10 +1118,19 @@ async function trySubmitEntryToLB(entry){
       console.info('[LB] calling window.LEADERBOARD.submitScore', { gameId, points, options });
       const res = await window.LEADERBOARD.submitScore(gameId, points, options);
       console.info('[LB] submitScore response', res);
+
       if(res && (res.ok === true || res.success === true || res.status === 'ok')){
         console.info('[LB] library confirmed success — done.');
         return true;
       }
+
+      // lib explicitly indicates already submitted locally
+      if(res && res.ok === false && res.error && String(res.error).toLowerCase().includes('already_submitted')){
+        console.warn('[LB] library reports already submitted locally. Treating as duplicate — blocking UI.');
+        try { showAlreadyPlayedModal({ rows: [] }, mode || getModeString()); } catch(e) { console.warn('showAlreadyPlayedModal failed', e); }
+        return true; // handled: do not retry or queue
+      }
+
       console.warn('[LB] library returned non-success — will try server fallback', res);
     } catch(err){
       console.error('[LB] submitScore threw', err);
@@ -1132,15 +1160,21 @@ async function trySubmitEntryToLB(entry){
     });
 
     const text = await resp.text().catch(()=>null);
-    console.info('[LB-FALLBACK] response status', resp.status, text);
+    let parsed = null;
+    try { parsed = text ? JSON.parse(text) : null; } catch(e){ parsed = null; }
+    console.info('[LB-FALLBACK] response status', resp.status, parsed || text);
 
     if (resp.ok){
-      let data = null;
-      try { data = text ? JSON.parse(text) : null; } catch(e){ data = text; }
-      console.info('[LB-FALLBACK] success', data);
+      console.info('[LB-FALLBACK] success', parsed);
       return true;
     } else {
-      console.warn('[LB-FALLBACK] server returned non-OK', resp.status, text);
+      // duplicate detection: status 409 or Postgres 23505 in detail
+      if(resp.status === 409 || (parsed && parsed.detail && parsed.detail.code === 23505) || (parsed && parsed.error && String(parsed.error).toLowerCase().includes('duplicate'))){
+        console.warn('[LB-FALLBACK] server indicates duplicate entry for today — blocking UI and dropping queue item.');
+        try { showAlreadyPlayedModal({ rows: [] }, mode || getModeString()); } catch(e) { console.warn('showAlreadyPlayedModal failed', e); }
+        return true; // handled: do not retry or queue
+      }
+      console.warn('[LB-FALLBACK] server returned non-OK', resp.status, parsed || text);
       return false;
     }
   } catch(fetchErr){
@@ -1164,8 +1198,9 @@ async function flushScoreQueue(){
     const entry = q[0];
     const ok = await trySubmitEntryToLB(entry);
     if(ok){
+      // whether success or duplicate handled, remove the queued entry
       popScoreQueue();
-      showToast('Score submitted to leaderboard', 2000);
+      showToast('Score submitted / already present (handled)', 2000);
     } else {
       console.warn('Submit failed for queued entry — stop flush now');
       break;
@@ -1203,16 +1238,19 @@ async function submitScoreToLeaderboard(points, meta = {}, extra = {}){
   }
 }
 
-/* Hook: when leaderboard lib initializes, call flushScoreQueue */
+/* Hook: when leaderboard lib initializes, call flushScoreQueue AND re-check current mode */
 (function watchForLeaderboardInit(){
   if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
     setTimeout(flushScoreQueue, 300);
+    // re-evaluate current mode in case LB became available after initial load
+    setTimeout(()=> checkAndStart(), 400);
     return;
   }
   const poll = setInterval(() => {
     if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
       clearInterval(poll);
       setTimeout(flushScoreQueue, 200);
+      setTimeout(()=> checkAndStart(), 300);
     }
   }, 250);
 })();
@@ -1226,7 +1264,7 @@ function getModeString(){
 
 /* ---------------------------
    NEW: checkAndStart(mode?) 
-   - performs checkUserPlayedToday(mode) immediately and either:
+   - performs waitForLocalUser briefly, then checkUserPlayedToday(mode) and either:
      - shows already-played modal + disables game, or
      - calls startGame() to begin a playable round
 ---------------------------- */
@@ -1240,17 +1278,25 @@ async function checkAndStart(modeArg){
   renderCotdBanner();
   renderCountryText();
 
-  // Reset any previous blocking state so the check result is authoritative
+  // disable inputs while we check
   gameBlockedDueToExisting = false;
   guessInput.disabled = true;
   document.getElementById('guessBtn').disabled = true;
+  suggestionsList.style.display = 'none';
+
+  // wait for localUser availability to avoid false negative
+  const haveLocalUser = await waitForLocalUser(3500);
+  if(!haveLocalUser){
+    // if no local user within timeout -> allow play (no identity to check)
+    startGame();
+    return;
+  }
 
   try {
     const check = await checkUserPlayedToday(mode);
     if(check && check.exists){
       // show blocking modal and keep game disabled
       showAlreadyPlayedModal(check, mode);
-      // ensure table is empty and suggestions disabled
       clearGuessesTable();
       suggestionsList.style.display = 'none';
       return;
