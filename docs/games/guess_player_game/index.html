@@ -87,14 +87,6 @@
   .seg-btn.active{color:white; box-shadow:0 6px 18px rgba(2,6,23,0.6); transform:translateY(-2px)}
 
   .tour-toggle{display:flex;gap:6px}
-  <!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Guess the Player</title>
-<style>
-  /* --- ton CSS inchangé --- */
   .tour-btn{min-width:72px;padding:8px 12px;border-radius:999px;border:1px solid rgba(255,255,255,0.03);cursor:pointer;font-weight:700;background:transparent;color:var(--muted)}
   .tour-btn.active.atp{background:linear-gradient(180deg, rgba(31,122,236,0.14), rgba(31,122,236,0.06)); color: #cfe8ff}
   .tour-btn.active.wta{background:linear-gradient(180deg, rgba(139,92,246,0.14), rgba(139,92,246,0.06)); color: #efe6ff}
@@ -233,982 +225,1078 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <script>
-/* ===========================
-   Guard: avoid double init
-   =========================== */
-if (window.GUESS_PLAYER_APP_INITIALIZED) {
-  console.warn('Guess player app already initialized — skipping second init.');
-} else {
-  window.GUESS_PLAYER_APP_INITIALIZED = true;
+/* ---------------------------
+   Paths & state
+---------------------------- */
+const PLAYERS_CATALOG_JSON = '/tools/players_catalog.json';
+const GEOCODES_JSON = '/tools/geocodes_combined.json';
+const DAILY_GUESS_PATH = '/tools/daily_guess.json';
+const COUNTRY_TEXTS_PATH = '/tools/country_texts.json';
 
-  /* ---------------------------
-     Paths & state
-  ---------------------------- */
-  const PLAYERS_CATALOG_JSON = '/tools/players_catalog.json';
-  const GEOCODES_JSON = '/tools/geocodes_combined.json';
-  const DAILY_GUESS_PATH = '/tools/daily_guess.json';
-  const COUNTRY_TEXTS_PATH = '/tools/country_texts.json';
+let players = [], geocodes = {}, dailyGuessData = null;
+let countryTexts = {}; // loaded from COUNTRY_TEXTS_PATH
 
-  let players = [], geocodes = {}, dailyGuessData = null;
-  let countryTexts = {};
+let target = null;
+const MAX_TRIES = 10;
+let remaining = MAX_TRIES;
+let levelTopN = 20;
+let guesses = [];
+let score = 0;
+let currentTour = 'ATP';
+let cotdEnabled = false;   // OFF by default
+let fixedCountry = null;
+let currentFlagUrl = null;
 
-  let target = null;
-  const MAX_TRIES = 10;
-  let remaining = MAX_TRIES;
-  let levelTopN = 20;
-  let guesses = [];
-  let score = 0;
-  let currentTour = 'ATP';
-  let cotdEnabled = false;
-  let fixedCountry = null;
+/* daily candidates structures (from daily_guess.json) */
+let dailyMap = {};   // keys like "ATP_top20", "WTA_by_country"
+let dailyList = [];  // array of candidate objects (up to 8)
 
-  let dailyMap = {};
-  let dailyList = [];
+/* runtime state */
+let gameStarted = false;
+let gameBlockedDueToExisting = false; // new flag to block gameplay when already played
 
-  let gameStarted = false;
-  let gameBlockedDueToExisting = false;
+/* guessed names this round (excluded from suggestions) */
+let guessedNames = new Set();
 
-  let guessedNames = new Set();
-  let lastKnownLocalUserId = null;
+/* ---------------------------
+   Utilities
+---------------------------- */
+function normName(s){ if(!s) return ''; return s.normalize ? s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase() : s.toLowerCase(); }
+function parseRank(v){ if(v===undefined||v===null||v===''||v==='-') return Infinity; const n = Number(String(v).replace(/[^\d.-]/g,'')); return isNaN(n)?Infinity:n; }
+function tryParseDate(s){ if(!s) return null; s=s.trim(); const d=new Date(s); if(!isNaN(d)) return d; const clean=s.replace(/\s+/g,' ').split(' ')[0]; const d2=new Date(clean); return isNaN(d2)?null:d2; }
+function calcAgeFromBirthDate(birthDate){ const d=tryParseDate(birthDate); if(!d) return null; const today=new Date(); let age=today.getFullYear()-d.getFullYear(); const m=today.getMonth()-d.getMonth(); if(m<0||(m===0 && today.getDate()<d.getDate())) age--; return age; }
+function haversineKm(lat1,lon1,lat2,lon2){ const toRad=v=>v*Math.PI/180; const R=6371; const dLat=toRad(lat2-lat1); const dLon=toRad(lon2-lon1); const a=Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2; const c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)); return R*c; }
+function showToast(msg, t=2000){ const el=document.getElementById('toast'); el.textContent=msg; el.style.display='block'; setTimeout(()=>{ el.style.display='none'; },t); }
 
-  /* ---------------------------
-     Utilities
-  ---------------------------- */
-  function normName(s){ if(!s) return ''; return s.normalize ? s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase() : s.toLowerCase(); }
-  function parseRank(v){ if(v===undefined||v===null||v===''||v==='-') return Infinity; const n = Number(String(v).replace(/[^\d.-]/g,'')); return isNaN(n)?Infinity:n; }
-  function tryParseDate(s){ if(!s) return null; s=s.trim(); const d=new Date(s); if(!isNaN(d)) return d; const clean=s.replace(/\s+/g,' ').split(' ')[0]; const d2=new Date(clean); return isNaN(d2)?null:d2; }
-  function calcAgeFromBirthDate(birthDate){ const d=tryParseDate(birthDate); if(!d) return null; const today=new Date(); let age=today.getFullYear()-d.getFullYear(); const m=today.getMonth()-d.getMonth(); if(m<0||(m===0 && today.getDate()<d.getDate())) age--; return age; }
-  function haversineKm(lat1,lon1,lat2,lon2){ const toRad=v=>v*Math.PI/180; const R=6371; const dLat=toRad(lat2-lat1); const dLon=toRad(lon2-lon1); const a=Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2; const c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)); return R*c; }
-  function showToast(msg, t=2000){ const el=document.getElementById('toast'); el.textContent=msg; el.style.display='block'; setTimeout(()=>{ el.style.display='none'; },t); }
+/* scoring */
+function scoreForGuessNumber(guessNumber){
+  if(guessNumber <= 1) return 100;
+  if(guessNumber >= 10) return 5;
+  const points = [[1,100],[3,85],[6,20],[10,5]];
+  for(let i=0;i<points.length-1;i++){ const [x1,y1]=points[i], [x2,y2]=points[i+1]; if(guessNumber>=x1 && guessNumber<=x2){ const t=(guessNumber-x1)/(x2-x1); return Math.round(y1 + (y2-y1)*t); } }
+  return 5;
+}
 
-  function scoreForGuessNumber(guessNumber){
-    if(guessNumber <= 1) return 100;
-    if(guessNumber >= 10) return 5;
-    const points = [[1,100],[3,85],[6,20],[10,5]];
-    for(let i=0;i<points.length-1;i++){ const [x1,y1]=points[i], [x2,y2]=points[i+1]; if(guessNumber>=x1 && guessNumber<=x2){ const t=(guessNumber-x1)/(x2-x1); return Math.round(y1 + (y2-y1)*t); } }
-    return 5;
-  }
+/* ---------------------------
+   Load JSONs & build daily candidates
+---------------------------- */
+async function loadJson(path){ try{ const r=await fetch(path,{cache:'no-cache'}); if(!r.ok) return null; return await r.json(); }catch(e){ return null; } }
+async function loadPlayersCatalog(){ const j=await loadJson(PLAYERS_CATALOG_JSON); if(!j||!Array.isArray(j.players)) return false; players = j.players.map(p=>{ const pp=Object.assign({},p); pp.age=(typeof pp.age==='undefined'||pp.age===null)?calcAgeFromBirthDate(pp.birth_date):pp.age; pp.rank=(typeof pp.rank!=='undefined'&&pp.rank!==null)?parseRank(pp.rank):Infinity; pp.height_cm=(typeof pp.height_cm==='undefined'||pp.height_cm===null)?null:Number(pp.height_cm); pp.right_handed=(typeof pp.right_handed==='undefined')?(pp.plays?String(pp.plays).toLowerCase().includes('right'):null):pp.right_handed; pp.two_handed=(typeof pp.two_handed==='undefined')?(pp.backhand?String(pp.backhand).toLowerCase().includes('two'):null):pp.two_handed; return pp; }); return true; }
+async function loadGeocodes(){ const j=await loadJson(GEOCODES_JSON); if(!j) return false; geocodes = j.geocode && typeof j.geocode==='object' ? j.geocode : j; return true; }
 
-  /* ---------------------------
-     Load JSONs
-  ---------------------------- */
-  async function loadJson(path){ try{ const r=await fetch(path,{cache:'no-cache'}); if(!r.ok) return null; return await r.json(); }catch(e){ return null; } }
-  async function loadPlayersCatalog(){ const j=await loadJson(PLAYERS_CATALOG_JSON); if(!j||!Array.isArray(j.players)) return false; players = j.players.map(p=>{ const pp=Object.assign({},p); pp.age=(typeof pp.age==='undefined'||pp.age===null)?calcAgeFromBirthDate(pp.birth_date):pp.age; pp.rank=(typeof pp.rank!=='undefined'&&pp.rank!==null)?parseRank(pp.rank):Infinity; pp.height_cm=(typeof pp.height_cm==='undefined'||pp.height_cm===null)?null:Number(pp.height_cm); pp.right_handed=(typeof pp.right_handed==='undefined')?(pp.plays?String(pp.plays).toLowerCase().includes('right'):null):pp.right_handed; pp.two_handed=(typeof pp.two_handed==='undefined')?(pp.backhand?String(pp.backhand).toLowerCase().includes('two'):null):pp.two_handed; return pp; }); return true; }
-  async function loadGeocodes(){ const j=await loadJson(GEOCODES_JSON); if(!j) return false; geocodes = j.geocode && typeof j.geocode==='object' ? j.geocode : j; return true; }
-  async function loadDailyGuessIfAvailable(){ const j = await loadJson(DAILY_GUESS_PATH); if(!j) { dailyGuessData = null; dailyMap = {}; dailyList = []; fixedCountry = null; return null; } dailyGuessData = j; dailyMap = {}; dailyList = []; const keys = [['ATP','top20'],['ATP','top100'],['ATP','top300'],['ATP','by_country'],['WTA','top20'],['WTA','top100'],['WTA','top300'],['WTA','by_country']]; keys.forEach(([tour,slot])=>{ const obj = (j[tour] && j[tour][slot] && j[tour][slot].chosen) ? j[tour][slot].chosen : null; if(obj){ const key = `${tour}_${slot}`; dailyMap[key] = obj; const exists = dailyList.find(p => (p.player_id && obj.player_id && String(p.player_id) === String(obj.player_id)) || (p.full_name && obj.full_name && p.full_name.trim().toLowerCase() === obj.full_name.trim().toLowerCase())); if(!exists) dailyList.push(obj); } }); const atpcd = j && j.ATP && j.ATP.by_country && j.ATP.by_country.country; const wtacd = j && j.WTA && j.WTA.by_country && j.WTA.by_country.country; fixedCountry = atpcd || wtacd || null; return j; }
-  async function loadCountryTexts(){ const j = await loadJson(COUNTRY_TEXTS_PATH); if(!j) { countryTexts = {}; return; } countryTexts = j; }
-
-  /* ---------------------------
-     Typeahead
-  ---------------------------- */
-  const guessInput = document.getElementById('guessInput');
-  const suggestionsList = document.getElementById('suggestionsList');
-  let currentSuggestionIndex = -1;
-  let currentSuggestions = [];
-
-  function showSuggestions(list){
-    currentSuggestions = list || [];
-    currentSuggestionIndex = -1;
-    if(!list||list.length===0){ suggestionsList.style.display='none'; suggestionsList.innerHTML=''; return; }
-    suggestionsList.innerHTML='';
-    const max=8;
-    for(let i=0;i<Math.min(max,list.length);i++){
-      const pl=list[i];
-      const li=document.createElement('li');
-      li.textContent = pl.full_name + (pl.represented_country ? ` — ${pl.represented_country}` : '');
-      li.dataset.index = i;
-      li.addEventListener('click', ()=>{ guessInput.value = pl.full_name; suggestionsList.style.display='none'; guessInput.focus(); });
-      li.addEventListener('mouseover', ()=> { setSuggestionHighlight(i); });
-      suggestionsList.appendChild(li);
-    }
-    suggestionsList.style.display='block';
-  }
-
-  function updateSuggestions(){
-    const v = guessInput.value.trim().toLowerCase();
-    if(v.length < 2){ showSuggestions([]); return; }
-    const poolFull = players;
-    const byTour = poolFull.filter(p => (String(p.source || (p._raw_row && p._raw_row._source) || '').toUpperCase()) === currentTour);
-    let pool = byTour.filter(p => p.full_name && p.full_name.toLowerCase().includes(v));
-    if(pool.length === 0) pool = poolFull.filter(p => p.full_name && p.full_name.toLowerCase().includes(v));
-    pool = pool.filter(p => !guessedNames.has((p.full_name || '').trim()));
-    pool.sort((a,b)=>{
-      const va=a.full_name.toLowerCase(), vb=b.full_name.toLowerCase();
-      const sa=va.startsWith(v)?0:1, sb=vb.startsWith(v)?0:1;
-      if(sa!==sb) return sa-sb;
-      return va.localeCompare(vb);
-    });
-    showSuggestions(pool);
-  }
-
-  function setSuggestionHighlight(idx){
-    const lis = suggestionsList.querySelectorAll('li');
-    lis.forEach(li => li.classList.remove('highlight'));
-    if(idx >= 0 && idx < lis.length){
-      lis[idx].classList.add('highlight');
-      currentSuggestionIndex = idx;
-      const pl = currentSuggestions[idx];
-      if(pl) guessInput.value = pl.full_name;
-      lis[idx].scrollIntoView({block:'nearest'});
-    } else {
-      currentSuggestionIndex = -1;
-    }
-  }
-
-  guessInput.addEventListener('input', ()=>{ if(!guessInput.readOnly) updateSuggestions(); });
-  guessInput.addEventListener('focus', ()=>{ if(!guessInput.readOnly) updateSuggestions(); });
-
-  document.addEventListener('click',(e)=>{ if(!document.querySelector('.suggestions')?.contains(e.target)) suggestionsList.style.display='none'; });
-
-  guessInput.addEventListener('keydown', (e)=>{
-    if(suggestionsList.style.display === 'block' && currentSuggestions.length > 0){
-      if(e.key === 'ArrowDown'){ e.preventDefault(); const next = Math.min(currentSuggestionIndex + 1, Math.min(currentSuggestions.length,8) - 1); setSuggestionHighlight(next); return; }
-      else if(e.key === 'ArrowUp'){ e.preventDefault(); const prev = Math.max(currentSuggestionIndex - 1, 0); setSuggestionHighlight(prev); return; }
-      else if(e.key === 'Enter'){
-        if(currentSuggestionIndex >= 0 && currentSuggestionIndex < currentSuggestions.length){
-          e.preventDefault();
-          const picked = currentSuggestions[currentSuggestionIndex];
-          guessInput.value = picked.full_name;
-          suggestionsList.style.display = 'none';
-          if(gameStarted){ handleGuessSafe(picked.full_name); } else { showToast('Round will start automatically when settings change'); }
-          return;
-        }
-      }
-    }
-    // prevent Enter submission if game not started or blocked
-    if(e.key === 'Enter' && (!gameStarted || gameBlockedDueToExisting)){
-      e.preventDefault();
-      showToast(gameBlockedDueToExisting ? 'Round blocked — you already played this variant today' : 'Round not active yet');
+async function loadDailyGuessIfAvailable(){
+  const j = await loadJson(DAILY_GUESS_PATH);
+  if(!j) { dailyGuessData = null; dailyMap = {}; dailyList = []; fixedCountry = null; return null; }
+  dailyGuessData = j;
+  // build dailyMap and dailyList from the JSON (up to eight candidates)
+  dailyMap = {};
+  dailyList = [];
+  const keys = [
+    ['ATP','top20'], ['ATP','top100'], ['ATP','top300'], ['ATP','by_country'],
+    ['WTA','top20'], ['WTA','top100'], ['WTA','top300'], ['WTA','by_country']
+  ];
+  keys.forEach(([tour,slot])=>{
+    const obj = (j[tour] && j[tour][slot] && j[tour][slot].chosen) ? j[tour][slot].chosen : null;
+    if(obj){
+      const key = `${tour}_${slot}`;
+      dailyMap[key] = obj;
+      const exists = dailyList.find(p => (p.player_id && obj.player_id && String(p.player_id) === String(obj.player_id)) || (p.full_name && obj.full_name && p.full_name.trim().toLowerCase() === obj.full_name.trim().toLowerCase()));
+      if(!exists) dailyList.push(obj);
     }
   });
+  const atpcd = j && j.ATP && j.ATP.by_country && j.ATP.by_country.country;
+  const wtacd = j && j.WTA && j.WTA.by_country && j.WTA.by_country.country;
+  fixedCountry = atpcd || wtacd || null;
+  return j;
+}
 
-  /* ---------------------------
-     Find player
-  ---------------------------- */
-  function findPlayerByName(name){
-    if(!name) return null;
-    const cleaned = normName(name.trim());
-    const pool = players;
-    let match = pool.find(p => p.full_name && normName(p.full_name) === cleaned);
-    if(match) return match;
-    match = pool.find(p => p.player_id && String(p.player_id).toLowerCase() === name.trim().toLowerCase());
-    if(match) return match;
-    match = pool.find(p => p.full_name && normName(p.full_name).startsWith(cleaned));
-    if(match) return match;
-    match = pool.find(p => p.full_name && normName(p.full_name).includes(cleaned));
-    if(match) return match;
-    const parts = cleaned.split(/\s+/);
-    if(parts.length>1){
-      const last = parts[parts.length-1];
-      match = pool.find(p => p.full_name && normName(p.full_name).split(/\s+/).some(tok => tok === last));
-      if(match) return match;
-    }
-    return null;
-  }
+/* load optional country texts */
+async function loadCountryTexts(){
+  const j = await loadJson(COUNTRY_TEXTS_PATH);
+  if(!j) { countryTexts = {}; return; }
+  countryTexts = j;
+}
 
-  function enrichPlayerFromCatalog(candidate){
-    if(!candidate) return null;
-    const matchById = players.find(p => p.player_id && candidate.player_id && String(p.player_id) === String(candidate.player_id));
-    if(matchById) return matchById;
-    const matchByName = players.find(p => p.full_name && candidate.full_name && p.full_name.trim().toLowerCase() === candidate.full_name.trim().toLowerCase());
-    if(matchByName) return matchByName;
-    return {
-      full_name: candidate.full_name || (candidate.player_id || 'Unknown'),
-      player_id: candidate.player_id || null,
-      represented_country: candidate.represented_country || null,
-      rank: (typeof candidate.rank !== 'undefined' && candidate.rank !== null) ? parseRank(candidate.rank) : Infinity,
-      height_cm: candidate.height_cm || null,
-      birth_date: candidate.birth_date || null,
-      birthplace: candidate.birthplace || null,
-      source: candidate.source || 'DAILY',
-      age: calcAgeFromBirthDate(candidate.birth_date),
-      right_handed: null,
-      two_handed: null
-    };
-  }
+/* ---------------------------
+   Typeahead (always from full players catalog), excludes guessedNames
+---------------------------- */
+const guessInput = document.getElementById('guessInput');
+const suggestionsList = document.getElementById('suggestionsList');
+let currentSuggestionIndex = -1;
+let currentSuggestions = [];
 
-  function pickTargetFromDailyMap(tour, levelTopN, cotdOn){
-    if(!dailyMap || Object.keys(dailyMap).length === 0) return null;
-    if(cotdOn){
-      const key = `${tour}_by_country`;
-      const candidate = dailyMap[key] || null;
-      if(candidate) return candidate;
-    }
-    const slot = (levelTopN <= 20) ? 'top20' : (levelTopN <= 100 ? 'top100' : 'top300');
-    const candidate = dailyMap[`${tour}_${slot}`] || null;
-    return candidate;
-  }
-
-  function makeArrowSvg(direction){
-    if(direction === 'equal') return `<svg class="icon" viewBox="0 0 24 24" fill="none"><path d="M5 12h14" stroke="#94a3b8" stroke-width="1.6" stroke-linecap="round"/></svg>`;
-    if(direction === 'up') return `<svg class="icon" viewBox="0 0 24 24" fill="none"><path d="M6 18L18 6" stroke="#16a34a" stroke-width="1.8" stroke-linecap="round"/><path d="M12 6h6v6" stroke="#16a34a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-    return `<svg class="icon" viewBox="0 0 24 24" fill="none"><path d="M6 6L18 18" stroke="#ef4444" stroke-width="1.8" stroke-linecap="round"/><path d="M12 18h6v-6" stroke="#ef4444" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-  }
-  function tickSvg(ok){ if(ok) return `<svg class="tick" viewBox="0 0 24 24" fill="none"><path d="M6 12.2l3.1 3.1L18 6.4" stroke="#16a34a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`; return `<svg class="tick" viewBox="0 0 24 24" fill="none"><path d="M6 12.2l3.1 3.1L18 6.4" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`; }
-
-  function comparePlayers(guess, target){
-    const res = {};
-    res.nameMatch = guess.full_name.trim().toLowerCase() === target.full_name.trim().toLowerCase();
-
-    if(guess.age != null && target.age != null){
-      res.ageGuess = guess.age; res.ageTarget = target.age;
-      res.ageDirection = (guess.age === target.age) ? 'equal' : (guess.age > target.age ? 'down' : 'up');
-    } else { res.ageGuess = guess.age; res.ageTarget = target.age; res.ageDirection = null; }
-
-    const gRank = guess.rank, tRank = target.rank;
-    if(isFinite(gRank) && isFinite(tRank)){
-      res.rankGuess = gRank; res.rankTarget = tRank;
-      res.rankDirection = (gRank === tRank) ? 'equal' : (gRank > tRank ? 'up' : 'down');
-    } else { res.rankGuess = isFinite(gRank) ? gRank : null; res.rankTarget = isFinite(tRank) ? tRank : null; res.rankDirection = null; }
-
-    res.sameCountry = (guess.represented_country && target.represented_country && guess.represented_country === target.represented_country);
-
-    let dist = null;
-    const cityGuess = guess.birthplace, cityTarget = target.birthplace;
-    if(cityGuess && cityTarget){
-      const gCoord = geocodes[cityGuess] || geocodes[String(cityGuess).trim()] || geocodes[String(cityGuess).replace(/"/g,'').trim()];
-      const tCoord = geocodes[cityTarget] || geocodes[String(cityTarget).trim()] || geocodes[String(cityTarget).replace(/"/g,'').trim()];
-      if(gCoord && tCoord && gCoord.length>=2 && tCoord.length>=2) dist = Math.round(haversineKm(gCoord[0],gCoord[1],tCoord[0],tCoord[1]));
-    }
-    res.birthDistanceKm = dist;
-
-    if(guess.height_cm != null && target.height_cm != null){
-      res.heightGuess = guess.height_cm; res.heightTarget = target.height_cm;
-      res.heightDirection = (guess.height_cm === target.height_cm) ? 'equal' : (guess.height_cm > target.height_cm ? 'down' : 'up');
-    } else { res.heightGuess = guess.height_cm; res.heightTarget = target.height_cm; res.heightDirection = null; }
-
-    res.rightMatch = (guess.right_handed === target.right_handed);
-    res.twoHanded = (guess.two_handed === null || target.two_handed === null) ? null : (guess.two_handed === target.two_handed);
-
-    return res;
-  }
-
-  function clearGuessesTable(){ document.querySelector('#guessesTable tbody').innerHTML = ''; }
-  function appendGuessRow(guessPlayer, comparison){
-    const tbody = document.querySelector('#guessesTable tbody');
-    const tr = document.createElement('tr');
-    const idx = guesses.length;
-    if(comparison.nameMatch) tr.classList.add('good');
-
-    const tdIndex = document.createElement('td'); tdIndex.textContent = idx;
-    const tdName = document.createElement('td'); tdName.textContent = guessPlayer.full_name;
-
-    const tdAge = document.createElement('td');
-    let ageHtml = (comparison.ageGuess!=null ? `${comparison.ageGuess}` : '—');
-    if(comparison.ageDirection) ageHtml += ' ' + makeArrowSvg(comparison.ageDirection);
-    tdAge.innerHTML = ageHtml;
-
-    const tdRank = document.createElement('td');
-    let rankHtml = (comparison.rankGuess!=null && isFinite(comparison.rankGuess) ? `${comparison.rankGuess}` : '—');
-    if(comparison.rankDirection) rankHtml += ' ' + makeArrowSvg(comparison.rankDirection);
-    tdRank.innerHTML = rankHtml;
-
-    const tdCountry = document.createElement('td');
-    if(comparison.sameCountry) tdCountry.innerHTML = `<span class="country-good">${guessPlayer.represented_country || '—'} ✓</span>`;
-    else tdCountry.innerHTML = `<span class="country-bad">${guessPlayer.represented_country || '—'}</span>`;
-
-    const tdBirth = document.createElement('td');
-    tdBirth.innerHTML = (comparison.birthDistanceKm!=null ? `<strong style="font-weight:800">${comparison.birthDistanceKm} km</strong>` : 'unknown');
-
-    const tdHeight = document.createElement('td');
-    let htm = (comparison.heightGuess!=null ? `${comparison.heightGuess} cm` : '—');
-    if(comparison.heightDirection) htm += ' ' + makeArrowSvg(comparison.heightDirection);
-    tdHeight.innerHTML = htm;
-
-    const tdRight = document.createElement('td');
-    tdRight.innerHTML = (guessPlayer.right_handed === null ? '—' : (guessPlayer.right_handed ? 'Yes' : 'No')) + (comparison.rightMatch ? ` ${tickSvg(true)}` : '');
-
-    const tdTwo = document.createElement('td');
-    tdTwo.innerHTML = (guessPlayer.two_handed === null ? 'N/A' : (guessPlayer.two_handed ? 'Yes' : 'No')) + (comparison.twoHanded === null ? '' : (comparison.twoHanded ? ` ${tickSvg(true)}` : ` ${tickSvg(false)}`));
-
-    [tdIndex,tdName,tdAge,tdRank,tdCountry,tdBirth,tdHeight,tdRight,tdTwo].forEach(td=>tr.appendChild(td));
-    tbody.prepend(tr);
-  }
-
-  /* ---------------------------
-     Guess handling
-  ---------------------------- */
-  function handleGuessSafe(name){
-    try{ handleGuess(name); } catch(err){ showToast('An error occurred.'); console && console.error && console.error(err); }
-  }
-
-  function handleGuess(name){
-    if(!gameStarted){ showToast('Round not active yet'); return; }
-    if(gameBlockedDueToExisting){ showToast('You have already completed this variant today'); return; }
-    if(remaining <= 0){ showToast('No tries left — new round will start'); return; }
-    const guessPlayer = findPlayerByName(name);
-    if(!guessPlayer){
-      const suggestions = players.filter(p => p.full_name && p.full_name.toLowerCase().includes((name||'').toLowerCase())).slice(0,8);
-      showSuggestions(suggestions);
-      showToast('Name not found — suggestions opened');
-      return;
-    }
-
-    guessedNames.add((guessPlayer.full_name || '').trim());
-
-    remaining--;
-    document.getElementById('remaining').textContent = remaining;
-
-    const comparison = comparePlayers(guessPlayer, target);
-    guesses.push({player: guessPlayer, comparison});
-    appendGuessRow(guessPlayer, comparison);
-
-    guessInput.value = '';
-    suggestionsList.style.display = 'none';
-
-    if(comparison.nameMatch){
-      const points = scoreForGuessNumber(guesses.length);
-      score += points; document.getElementById('score').textContent = score;
-      revealAnswer(true, points);
-      setTimeout(()=> performModeCheckAndStart().catch(()=>{}), 1200);
-      return;
-    }
-
-    if(remaining <= 0){
-      revealAnswer(false, 0);
-      setTimeout(()=> performModeCheckAndStart().catch(()=>{}), 1200);
-    }
-  }
-
-  function revealAnswer(won, gainedPoints){
-    const modal = document.getElementById('modal');
-    const title = document.getElementById('modalTitle');
-    const text = document.getElementById('modalText');
-    const details = document.getElementById('modalDetails');
-
-    if(won){
-      title.textContent = 'You won!';
-      text.textContent = `You earned ${gainedPoints} points this round.`;
-    } else {
-      title.textContent = 'Round over';
-      text.textContent = 'No points this time — new round will start.';
-    }
-
-    const pointsToSend = Number(gainedPoints) || 0;
-
-    let displayName = null;
-    try {
-      if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
-        const localUser = window.LEADERBOARD.getLocalUser();
-        if (localUser && localUser.pseudo) displayName = localUser.pseudo;
-      }
-    } catch(e){
-      console.warn('getLocalUser threw', e);
-    }
-    const displayNameInput = document.querySelector('#lb-pseudo') || document.querySelector('#someDisplayNameInput');
-    if (!displayName && displayNameInput) displayName = (displayNameInput.value || '').trim() || null;
-
-    try {
-      submitScoreToLeaderboard(pointsToSend, { won }, { displayName });
-      console.info('[LB] submitScoreToLeaderboard called', { pointsToSend, displayName, won });
-    } catch (e) {
-      console.error('[LB] submitScoreToLeaderboard threw', e);
-    }
-
-    const targetHtml = `<div style="text-align:left;margin-top:12px"><h3 style="margin:0 0 6px 0;color:#fff">${target.full_name} <span style="color:var(--muted);font-size:0.9rem">(${target.source || ''})</span></h3><ul style="color:var(--muted);padding-left:18px"><li>Country: ${(target.represented_country) ? `<strong style="color:#fff">${target.represented_country}</strong>` : '—'}</li><li>Birth: ${(target.birthplace || '—')} (${target.birth_date || '—'})</li><li>Age: ${(target.age!=null ? target.age : '—')}</li><li>Career best: ${(isFinite(target.rank) ? target.rank : '—')}</li><li>Height: ${(target.height_cm!=null ? target.height_cm + ' cm' : '—')}</li></ul></div>`;
-    details.innerHTML = targetHtml;
-    modal.classList.add('show');
-    modal.setAttribute('aria-hidden','false');
-
-    document.getElementById('closeModalBtn').onclick = function(){ modal.classList.remove('show'); modal.setAttribute('aria-hidden','true'); };
-  }
-
-  /* ---------------------------
-     Country text & COTD banner
-  ---------------------------- */
-  function renderCountryText(){
-    const panel = document.getElementById('countryText');
-    if(!cotdEnabled || !fixedCountry || !countryTexts || !countryTexts[fixedCountry]){ panel.style.display = 'none'; panel.innerHTML = ''; return; }
-    const info = countryTexts[fixedCountry];
-    let html = '';
-    if(info.title) html += `<h3>${info.title}</h3>`;
-    if(info.subtitle) html += `<div style="color:var(--muted);margin-bottom:8px">${info.subtitle}</div>`;
-    if(Array.isArray(info.paragraphs)){
-      info.paragraphs.forEach(p => {
-        if(typeof p === 'string'){ html += `<div style="font-style:italic">${p}</div>`; }
-        else if(typeof p === 'object'){ if(p.subtitle) html += `<div class="para-subtitle">${p.subtitle}</div>`; if(p.text) html += `<div style="font-style:italic">${p.text}</div>`; }
-      });
-    } else if(info.paragraph){ html += `<div style="font-style:italic">${info.paragraph}</div>`; }
-    panel.innerHTML = html;
-    panel.style.display = 'block';
-  }
-
-  const flagBgEl = document.getElementById('flagBg'), flagOverlayEl = document.getElementById('flagOverlay'), cotdBanner = document.getElementById('cotdBanner'), cotdFlag = document.getElementById('cotdFlag'), cotdName = document.getElementById('cotdName');
-
-  function setFlagBackground(url){
-    if(!url){ flagBgEl.style.opacity=0; flagBgEl.style.backgroundImage=''; flagOverlayEl.style.opacity=0; return; }
-    flagBgEl.style.backgroundImage=`url('${url}')`; flagBgEl.style.opacity=1; flagOverlayEl.style.opacity=1;
-  }
-
-  function renderCotdBanner(){
-    if(!cotdEnabled){ cotdBanner.style.display='none'; setFlagBackground(null); updateDifficultyVisibility(); return; }
-    cotdBanner.style.display='flex';
-    const key = `${currentTour}_by_country`;
-    const dailyCandidate = (dailyMap && dailyMap[key]) ? dailyMap[key] : null;
-    const cc = dailyCandidate && dailyCandidate.represented_country ? dailyCandidate.represented_country : (fixedCountry || '—');
-    cotdName.textContent = cc;
-    cotdFlag.innerHTML = '';
-    if(cc && cc !== '—'){
-      fetch(`https://restcountries.com/v3.1/alpha/${cc}`).then(r=>r.ok?r.json():null).then(data=>{
-        if(data && data[0] && data[0].flags && (data[0].flags.svg || data[0].flags.png)){
-          const img=document.createElement('img'); img.src = data[0].flags.svg || data[0].flags.png; img.alt = data[0].name && data[0].name.common ? data[0].name.common : cc; img.style.width='100%'; img.style.height='100%'; img.style.objectFit='cover'; cotdFlag.appendChild(img); cotdName.textContent = data[0].name.common || cc; setFlagBackground(data[0].flags.svg || data[0].flags.png);
-        } else { cotdFlag.textContent = cc; setFlagBackground(null); }
-      }).catch(()=>{ cotdFlag.textContent = cc; setFlagBackground(null); });
-    } else { cotdFlag.textContent = '—'; setFlagBackground(null); }
-    updateDifficultyVisibility();
-  }
-
-  function updateDifficultyVisibility(){
-    const seg = document.getElementById('difficultySegment');
-    if(!seg) return;
-    seg.style.display = cotdEnabled ? 'none' : '';
-  }
-
-  function applyTourTheme(){
-    const root=document.documentElement;
-    if(currentTour==='WTA'){
-      root.style.setProperty('--accent-a', 'rgba(0,0,0,0)');
-      root.style.setProperty('--accent-b', 'rgba(139,92,246,0.12)');
-      root.style.setProperty('--accent-strong', getComputedStyle(root).getPropertyValue('--accent-strong-wta')||'#8b5cf6');
-      document.getElementById('btnWTA').classList.add('active','wta'); document.getElementById('btnATP').classList.remove('active','atp');
-    } else {
-      root.style.setProperty('--accent-b', 'rgba(0,0,0,0)');
-      root.style.setProperty('--accent-a', 'rgba(31,122,236,0.12)');
-      root.style.setProperty('--accent-strong', '#1f7aec');
-      document.getElementById('btnATP').classList.add('active','atp'); document.getElementById('btnWTA').classList.remove('active','wta');
-    }
-  }
-
-  /* ---------------------------
-     User panel
-  ---------------------------- */
-  const userBox = document.getElementById('userBox');
-  const userPanel = document.getElementById('userPanel');
-
-  function renderUserPanel(){
-    const dropdownExisting = userPanel.querySelector('.user-dropdown');
-    if(dropdownExisting) dropdownExisting.remove();
-
-    let localUser = null;
-    try {
-      if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
-        localUser = window.LEADERBOARD.getLocalUser() || null;
-      }
-    } catch (e) {
-      console.warn('getLocalUser threw', e);
-    }
-
-    if(localUser && (localUser.pseudo || localUser.email || localUser.id || localUser.user_id)){
-      const name = localUser.pseudo || localUser.email || localUser.id || localUser.user_id;
-      userBox.textContent = name;
-      userBox.setAttribute('aria-expanded','false');
-      userBox.onclick = toggleUserDropdown;
-    } else {
-      userBox.textContent = 'Connect';
-      userBox.onclick = toggleUserDropdown;
-    }
-
-    const newId = localUser ? (localUser.user_id || localUser.id || localUser.pseudo || localUser.email) : null;
-    if(newId !== lastKnownLocalUserId){
-      lastKnownLocalUserId = newId;
-      performModeCheckAndStart().catch(e => console.warn('performModeCheckAndStart error', e));
-    }
-  }
-
-  function toggleUserDropdown(e){
-    e.stopPropagation();
-    const existing = userPanel.querySelector('.user-dropdown');
-    if(existing){ existing.remove(); userBox.setAttribute('aria-expanded','false'); return; }
-    const dd = document.createElement('div');
-    dd.className = 'user-dropdown';
-    dd.setAttribute('role','menu');
-
-    let localUser = null;
-    try { localUser = (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') ? window.LEADERBOARD.getLocalUser() : null; } catch (e) { localUser = null; }
-
-    if(localUser && (localUser.pseudo || localUser.user_id)){
-      const btnLogout = document.createElement('button');
-      btnLogout.type='button';
-      btnLogout.textContent = 'Log out';
-      btnLogout.onclick = async () => {
-        try {
-          if(window.LEADERBOARD && typeof window.LEADERBOARD.logout === 'function'){
-            await window.LEADERBOARD.logout();
-            showToast('Logged out');
-          } else if(window.LEADERBOARD && typeof window.LEADERBOARD.signOut === 'function'){
-            await window.LEADERBOARD.signOut();
-            showToast('Logged out');
-          } else {
-            try{ localStorage.removeItem('lb_score_queue_v1'); }catch(e){}
-            showToast('Logged out (local)');
-          }
-        } catch(e){
-          console.error('Logout failed', e);
-          showToast('Logout failed');
-        } finally {
-          setTimeout(renderUserPanel, 300);
-          setTimeout(()=> performModeCheckAndStart().catch(()=>{}), 400);
-        }
-      };
-      dd.appendChild(btnLogout);
-    } else {
-      const btnLogin = document.createElement('button');
-      btnLogin.type='button';
-      btnLogin.textContent = 'Log In';
-      btnLogin.onclick = () => {
-        if(window.LEADERBOARD){
-          if(typeof window.LEADERBOARD.openLogin === 'function') return window.LEADERBOARD.openLogin();
-          if(typeof window.LEADERBOARD.login === 'function') return window.LEADERBOARD.login();
-          if(typeof window.LEADERBOARD.showAuth === 'function') return window.LEADERBOARD.showAuth();
-        }
-        showToast('Login not available from this page');
-      };
-      dd.appendChild(btnLogin);
-
-      const btnCreate = document.createElement('button');
-      btnCreate.type='button';
-      btnCreate.textContent = 'Create account';
-      btnCreate.onclick = () => {
-        if(window.LEADERBOARD && typeof window.LEADERBOARD.openRegister === 'function') return window.LEADERBOARD.openRegister();
-        if(window.LEADERBOARD && typeof window.LEADERBOARD.register === 'function') return window.LEADERBOARD.register();
-        showToast('Register not available from this page');
-      };
-      dd.appendChild(btnCreate);
-    }
-
-    userPanel.appendChild(dd);
-    userBox.setAttribute('aria-expanded','true');
-
-    setTimeout(()=> {
-      const onDoc = (ev) => {
-        if(!userPanel.contains(ev.target)){
-          const d = userPanel.querySelector('.user-dropdown');
-          if(d) d.remove();
-          userBox.setAttribute('aria-expanded','false');
-          document.removeEventListener('click', onDoc);
-        }
-      };
-      document.addEventListener('click', onDoc);
-    }, 10);
-  }
-
-  function updateSelectedCountryDisplay(){
-    const el = document.getElementById('selectedCountry');
-    if(cotdEnabled){
-      el.textContent = (fixedCountry || (target && target.represented_country) || '—');
-    } else {
-      el.textContent = '—';
-    }
-  }
-
-  /* ---------------------------
-     Preflight check: checkUserPlayedToday
-     - improved: parse body even on non-OK to detect duplicate record responses
-  ---------------------------- */
-  async function checkUserPlayedToday(mode){
-    let localUser = null;
-    try { localUser = (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') ? window.LEADERBOARD.getLocalUser() : null; } catch(e){ localUser = null; }
-    if(!localUser) return { exists:false };
-
-    const userId = localUser.user_id || localUser.id || null;
-    const pseudo = localUser.pseudo || localUser.name || localUser.email || null;
-
-    const dateStr = new Date().toISOString().slice(0,10);
-    let qs = `?game_id=guess_player&date=${encodeURIComponent(dateStr)}&check_existing=1&mode=${encodeURIComponent(mode)}`;
-    if(userId) qs += `&user_id=${encodeURIComponent(userId)}`;
-    if(pseudo) qs += `&pseudo=${encodeURIComponent(pseudo)}`;
-
-    try {
-      const res = await fetch(`/.netlify/functions/leaderboard${qs}`, { credentials: 'same-origin', cache: 'no-cache' });
-
-      const text = await res.text().catch(()=>null);
-      let j = null;
-      try { j = text ? JSON.parse(text) : null; } catch(e) { j = null; }
-
-      if(res.ok){
-        if(j && j.ok && j.exists) return { exists:true, rows: j.rows || [] };
-        return { exists:false, rows: j && j.rows ? j.rows : [] };
-      } else {
-        // non-OK: inspect body for hints of duplicate / existing record
-        console.warn('[PRECHECK] leaderboard check returned non-OK', res.status, j || text);
-        if(j && (j.exists || (j.detail && (String(j.detail).toLowerCase().includes('duplicate') || String(j.detail).toLowerCase().includes('already exists'))))){
-          return { exists:true, rows: j.rows || [] };
-        }
-        // some server implementations return 500 but include detail with duplicate info
-        if(text && /duplicate key value|already exists|uniq_daily_user_game_mode/i.test(text)) {
-          return { exists:true, rows: [] };
-        }
-        return { exists:false, rows: j && j.rows ? j.rows : [] };
-      }
-    } catch(e){
-      console.warn('checkUserPlayedToday error', e);
-      return { exists:false };
-    }
-  }
-
-  /* ---------------------------
-     Wait for leaderboard user (longer timeout)
-  ---------------------------- */
-  function waitForLeaderboardUser(timeout = 15000, interval = 250){
-    return new Promise(resolve => {
-      try {
-        if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function'){
-          const u = window.LEADERBOARD.getLocalUser();
-          resolve(u); return;
-        }
-      } catch(e){}
-      const start = Date.now();
-      const t = setInterval(() => {
-        try {
-          if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function'){
-            clearInterval(t);
-            const u = window.LEADERBOARD.getLocalUser();
-            resolve(u);
-            return;
-          }
-        } catch(e){}
-        if(Date.now() - start > timeout){
-          clearInterval(t);
-          resolve(undefined);
-        }
-      }, interval);
+function showSuggestions(list){
+  currentSuggestions = list || [];
+  currentSuggestionIndex = -1;
+  if(!list||list.length===0){ suggestionsList.style.display='none'; suggestionsList.innerHTML=''; return; }
+  suggestionsList.innerHTML='';
+  const max=8;
+  for(let i=0;i<Math.min(max,list.length);i++){
+    const pl=list[i];
+    const li=document.createElement('li');
+    li.textContent = pl.full_name + (pl.represented_country ? ` — ${pl.represented_country}` : '');
+    li.dataset.index = i;
+    li.addEventListener('click', ()=>{
+      guessInput.value = pl.full_name;
+      suggestionsList.style.display='none';
+      guessInput.focus();
     });
+    li.addEventListener('mouseover', ()=> { setSuggestionHighlight(i); });
+    suggestionsList.appendChild(li);
   }
+  suggestionsList.style.display='block';
+}
 
-  /* ---------------------------
-     performModeCheckAndStart: PRE-FLIGHT verification
-  ---------------------------- */
-  async function performModeCheckAndStart(){
-    const mode = (cotdEnabled ? `${currentTour}_by_country` : `${currentTour}_top${levelTopN}`);
+function updateSuggestions(){
+  const v = guessInput.value.trim().toLowerCase();
+  if(v.length < 2){ showSuggestions([]); return; }
+  const poolFull = players;
+  const byTour = poolFull.filter(p => (String(p.source || (p._raw_row && p._raw_row._source) || '').toUpperCase()) === currentTour);
+  let pool = byTour.filter(p => p.full_name && p.full_name.toLowerCase().includes(v));
+  if(pool.length === 0) pool = poolFull.filter(p => p.full_name && p.full_name.toLowerCase().includes(v));
+  // exclude names already guessed this round
+  pool = pool.filter(p => !guessedNames.has((p.full_name || '').trim()));
+  pool.sort((a,b)=>{
+    const va=a.full_name.toLowerCase(), vb=b.full_name.toLowerCase();
+    const sa=va.startsWith(v)?0:1, sb=vb.startsWith(v)?0:1;
+    if(sa!==sb) return sa-sb;
+    return va.localeCompare(vb);
+  });
+  showSuggestions(pool);
+}
 
-    // Immediately disable UI until verification completes
-    guessInput.disabled = true;
-    guessInput.readOnly = true;
-    document.getElementById('guessBtn').disabled = true;
-    suggestionsList.style.display = 'none';
+function setSuggestionHighlight(idx){
+  const lis = suggestionsList.querySelectorAll('li');
+  lis.forEach(li => li.classList.remove('highlight'));
+  if(idx >= 0 && idx < lis.length){
+    lis[idx].classList.add('highlight');
+    currentSuggestionIndex = idx;
+    const pl = currentSuggestions[idx];
+    if(pl) guessInput.value = pl.full_name; // preview into input
+    lis[idx].scrollIntoView({block:'nearest'});
+  } else {
+    currentSuggestionIndex = -1;
+  }
+}
 
-    // Wait for LB getLocalUser to appear (long timeout)
-    console.info('[PRECHECK] waiting for leaderboard user (up to 15s)...');
-    const lbUser = await waitForLeaderboardUser(15000);
+guessInput.addEventListener('input', ()=>{ updateSuggestions(); });
+guessInput.addEventListener('focus', ()=>{ updateSuggestions(); });
 
-    if(lbUser === undefined){
-      // library not available in time -> fallback: allow play (can't verify)
-      console.warn('[PRECHECK] leaderboard lib did not appear within timeout. Allowing play (fail-open).');
-      await startGame();
-      return;
-    }
+document.addEventListener('click',(e)=>{ if(!document.querySelector('.suggestions')?.contains(e.target)) suggestionsList.style.display='none'; });
 
-    if(lbUser === null){
-      // library present but user not logged in -> allow play
-      console.info('[PRECHECK] leaderboard lib present but user not logged in. Allowing play.');
-      await startGame();
-      return;
-    }
-
-    // library present and user object available -> do the server-side check
-    console.info('[PRECHECK] user detected — running server check for mode', mode);
-    try {
-      const check = await checkUserPlayedToday(mode);
-      if(check && check.exists){
-        // block play and show modal
-        gameBlockedDueToExisting = true;
-        gameStarted = false;
-        guessInput.disabled = true;
-        guessInput.readOnly = true;
-        document.getElementById('guessBtn').disabled = true;
-
-        const modal = document.getElementById('modal');
-        const title = document.getElementById('modalTitle');
-        const text = document.getElementById('modalText');
-        const details = document.getElementById('modalDetails');
-
-        title.textContent = 'Déjà joué aujourd\'hui';
-        text.textContent = `Vous avez déjà complété cette variante aujourd'hui (${mode}). Il n'est pas possible de rejouer pour le même utilisateur et le même jour.`;
-        let infoHtml = `<div style="text-align:left;margin-top:12px;color:var(--muted)">`;
-        if(check.rows && check.rows.length){
-          for(const r of check.rows.slice(0,5)){
-            infoHtml += `<div style="margin-bottom:6px"><strong>Points:</strong> ${r.points || 0} — <strong>Mode:</strong> ${r.mode || '—'} — <strong>At:</strong> ${r.created_at || '—'}</div>`;
-          }
-        } else {
-          infoHtml += `<div style="margin-bottom:6px;color:var(--muted)">Aucun détail supplémentaire disponible.</div>`;
-        }
-        infoHtml += `</div>`;
-        details.innerHTML = infoHtml;
-        modal.classList.add('show');
-        modal.setAttribute('aria-hidden','false');
-        document.getElementById('closeModalBtn').onclick = function(){ modal.classList.remove('show'); modal.setAttribute('aria-hidden','true'); };
-
-        updateSelectedCountryDisplay();
-        renderCotdBanner();
-        renderCountryText();
-        clearGuessesTable();
-        console.info('[PRECHECK] mode blocked for user — existing record found.');
-        return;
-      } else {
-        // no existing score -> start the round
-        gameBlockedDueToExisting = false;
-        await startGame();
-        console.info('[PRECHECK] no existing record — game started.');
+guessInput.addEventListener('keydown', (e)=>{
+  if(suggestionsList.style.display === 'block' && currentSuggestions.length > 0){
+    if(e.key === 'ArrowDown'){ e.preventDefault(); const next = Math.min(currentSuggestionIndex + 1, Math.min(currentSuggestions.length,8) - 1); setSuggestionHighlight(next); return; }
+    else if(e.key === 'ArrowUp'){ e.preventDefault(); const prev = Math.max(currentSuggestionIndex - 1, 0); setSuggestionHighlight(prev); return; }
+    else if(e.key === 'Enter'){
+      if(currentSuggestionIndex >= 0 && currentSuggestionIndex < currentSuggestions.length){
+        e.preventDefault();
+        const picked = currentSuggestions[currentSuggestionIndex];
+        guessInput.value = picked.full_name;
+        suggestionsList.style.display = 'none';
+        if(gameStarted){ handleGuessSafe(picked.full_name); } else { showToast('Round will start automatically when settings change'); }
         return;
       }
-    } catch(e){
-      console.warn('[PRECHECK] server check error', e);
-      // fail-open: allow play
-      await startGame();
-      showToast('Impossible de vérifier l\'historique — le jeu est disponible', 3000);
     }
   }
+});
 
-  /* ---------------------------
-     startGame (assumes preflight done)
-  ---------------------------- */
-  async function startGame(){
-    remaining = MAX_TRIES;
-    guesses = [];
-    guessedNames.clear();
-    document.getElementById('remaining').textContent = remaining;
-    document.getElementById('score').textContent = score;
-    document.getElementById('levelLabel').textContent = `Top ${levelTopN}`;
-    document.getElementById('tourLabel').textContent = currentTour;
+/* ---------------------------
+   Find player by name (full catalog)
+---------------------------- */
+function findPlayerByName(name){
+  if(!name) return null;
+  const cleaned = normName(name.trim());
+  const pool = players;
+  let match = pool.find(p => p.full_name && normName(p.full_name) === cleaned);
+  if(match) return match;
+  match = pool.find(p => p.player_id && String(p.player_id).toLowerCase() === name.trim().toLowerCase());
+  if(match) return match;
+  match = pool.find(p => p.full_name && normName(p.full_name).startsWith(cleaned));
+  if(match) return match;
+  match = pool.find(p => p.full_name && normName(p.full_name).includes(cleaned));
+  if(match) return match;
+  const parts = cleaned.split(/\s+/);
+  if(parts.length>1){
+    const last = parts[parts.length-1];
+    match = pool.find(p => p.full_name && normName(p.full_name).split(/\s+/).some(tok => tok === last));
+    if(match) return match;
+  }
+  return null;
+}
 
-    let usedDailyCandidate = false;
-    if(dailyList && dailyList.length){
-      const candidate = pickTargetFromDailyMap(currentTour, levelTopN, cotdEnabled);
-      if(candidate){ target = enrichPlayerFromCatalog(candidate); usedDailyCandidate = true; if(candidate.represented_country) fixedCountry = candidate.represented_country; }
-      else {
-        const pool = dailyList.filter(p => (String(p.source||'').toUpperCase()) === currentTour);
-        if(pool.length){ const pick = pool[Math.floor(Math.random()*pool.length)]; target = enrichPlayerFromCatalog(pick); usedDailyCandidate = true; if(pick.represented_country) fixedCountry = pick.represented_country; }
+/* ---------------------------
+   Enrich daily candidate from catalog if possible
+---------------------------- */
+function enrichPlayerFromCatalog(candidate){
+  if(!candidate) return null;
+  const matchById = players.find(p => p.player_id && candidate.player_id && String(p.player_id) === String(candidate.player_id));
+  if(matchById) return matchById;
+  const matchByName = players.find(p => p.full_name && candidate.full_name && p.full_name.trim().toLowerCase() === candidate.full_name.trim().toLowerCase());
+  if(matchByName) return matchByName;
+  // synth
+  return {
+    full_name: candidate.full_name || (candidate.player_id || 'Unknown'),
+    player_id: candidate.player_id || null,
+    represented_country: candidate.represented_country || null,
+    rank: (typeof candidate.rank !== 'undefined' && candidate.rank !== null) ? parseRank(candidate.rank) : Infinity,
+    height_cm: candidate.height_cm || null,
+    birth_date: candidate.birth_date || null,
+    birthplace: candidate.birthplace || null,
+    source: candidate.source || 'DAILY',
+    age: calcAgeFromBirthDate(candidate.birth_date),
+    right_handed: null,
+    two_handed: null
+  };
+}
+
+/* ---------------------------
+   Pick target logic (dailyMap used only for selecting target; suggestions remain full catalog)
+---------------------------- */
+function pickTargetFromDailyMap(tour, levelTopN, cotdOn){
+  if(!dailyMap || Object.keys(dailyMap).length === 0) return null;
+  if(cotdOn){
+    const key = `${tour}_by_country`;
+    const candidate = dailyMap[key] || null;
+    if(candidate) return candidate;
+  }
+  const slot = (levelTopN <= 20) ? 'top20' : (levelTopN <= 100 ? 'top100' : 'top300');
+  const candidate = dailyMap[`${tour}_${slot}`] || null;
+  return candidate;
+}
+
+/* ---------------------------
+   Comparison & rendering
+   NOTE: ageDirection and heightDirection are inverted compared to previous
+         (fixed per user's request). Rank direction left unchanged.
+---------------------------- */
+function makeArrowSvg(direction){
+  if(direction === 'equal') return `<svg class="icon" viewBox="0 0 24 24" fill="none"><path d="M5 12h14" stroke="#94a3b8" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+  if(direction === 'up') return `<svg class="icon" viewBox="0 0 24 24" fill="none"><path d="M6 18L18 6" stroke="#16a34a" stroke-width="1.8" stroke-linecap="round"/><path d="M12 6h6v6" stroke="#16a34a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  return `<svg class="icon" viewBox="0 0 24 24" fill="none"><path d="M6 6L18 18" stroke="#ef4444" stroke-width="1.8" stroke-linecap="round"/><path d="M12 18h6v-6" stroke="#ef4444" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+function tickSvg(ok){ if(ok) return `<svg class="tick" viewBox="0 0 24 24" fill="none"><path d="M6 12.2l3.1 3.1L18 6.4" stroke="#16a34a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`; return `<svg class="tick" viewBox="0 0 24 24" fill="none"><path d="M6 12.2l3.1 3.1L18 6.4" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`; }
+
+function comparePlayers(guess, target){
+  const res = {};
+  res.nameMatch = guess.full_name.trim().toLowerCase() === target.full_name.trim().toLowerCase();
+
+  // AGE: inverted direction (user requested)
+  if(guess.age != null && target.age != null){
+    res.ageGuess = guess.age; res.ageTarget = target.age;
+    // previously 'up' when guess > target; user wanted reversed behaviour -> invert
+    res.ageDirection = (guess.age === target.age) ? 'equal' : (guess.age > target.age ? 'down' : 'up');
+  } else { res.ageGuess = guess.age; res.ageTarget = target.age; res.ageDirection = null; }
+
+  // RANK: keep current semantics (up when numeric guess > target number — this matches earlier request)
+  const gRank = guess.rank, tRank = target.rank;
+  if(isFinite(gRank) && isFinite(tRank)){
+    res.rankGuess = gRank; res.rankTarget = tRank;
+    res.rankDirection = (gRank === tRank) ? 'equal' : (gRank > tRank ? 'up' : 'down');
+  } else { res.rankGuess = isFinite(gRank) ? gRank : null; res.rankTarget = isFinite(tRank) ? tRank : null; res.rankDirection = null; }
+
+  res.sameCountry = (guess.represented_country && target.represented_country && guess.represented_country === target.represented_country);
+
+  let dist = null;
+  const cityGuess = guess.birthplace, cityTarget = target.birthplace;
+  if(cityGuess && cityTarget){
+    const gCoord = geocodes[cityGuess] || geocodes[String(cityGuess).trim()] || geocodes[String(cityGuess).replace(/"/g,'').trim()];
+    const tCoord = geocodes[cityTarget] || geocodes[String(cityTarget).trim()] || geocodes[String(cityTarget).replace(/"/g,'').trim()];
+    if(gCoord && tCoord && gCoord.length>=2 && tCoord.length>=2) dist = Math.round(haversineKm(gCoord[0],gCoord[1],tCoord[0],tCoord[1]));
+  }
+  res.birthDistanceKm = dist;
+
+  // HEIGHT: invert direction as requested (same approach as age)
+  if(guess.height_cm != null && target.height_cm != null){
+    res.heightGuess = guess.height_cm; res.heightTarget = target.height_cm;
+    res.heightDirection = (guess.height_cm === target.height_cm) ? 'equal' : (guess.height_cm > target.height_cm ? 'down' : 'up');
+  } else { res.heightGuess = guess.height_cm; res.heightTarget = target.height_cm; res.heightDirection = null; }
+
+  res.rightMatch = (guess.right_handed === target.right_handed);
+  res.twoHanded = (guess.two_handed === null || target.two_handed === null) ? null : (guess.two_handed === target.two_handed);
+
+  return res;
+}
+
+function clearGuessesTable(){ document.querySelector('#guessesTable tbody').innerHTML = ''; }
+function appendGuessRow(guessPlayer, comparison){
+  const tbody = document.querySelector('#guessesTable tbody');
+  const tr = document.createElement('tr');
+  const idx = guesses.length;
+  if(comparison.nameMatch) tr.classList.add('good');
+
+  const tdIndex = document.createElement('td'); tdIndex.textContent = idx;
+  const tdName = document.createElement('td'); tdName.textContent = guessPlayer.full_name;
+
+  const tdAge = document.createElement('td');
+  let ageHtml = (comparison.ageGuess!=null ? `${comparison.ageGuess}` : '—');
+  if(comparison.ageDirection) ageHtml += ' ' + makeArrowSvg(comparison.ageDirection);
+  tdAge.innerHTML = ageHtml;
+
+  const tdRank = document.createElement('td');
+  let rankHtml = (comparison.rankGuess!=null && isFinite(comparison.rankGuess) ? `${comparison.rankGuess}` : '—');
+  if(comparison.rankDirection) rankHtml += ' ' + makeArrowSvg(comparison.rankDirection);
+  tdRank.innerHTML = rankHtml;
+
+  const tdCountry = document.createElement('td');
+  if(comparison.sameCountry) tdCountry.innerHTML = `<span class="country-good">${guessPlayer.represented_country || '—'} ✓</span>`;
+  else tdCountry.innerHTML = `<span class="country-bad">${guessPlayer.represented_country || '—'}</span>`;
+
+  const tdBirth = document.createElement('td');
+  tdBirth.innerHTML = (comparison.birthDistanceKm!=null ? `<strong style="font-weight:800">${comparison.birthDistanceKm} km</strong>` : 'unknown');
+
+  const tdHeight = document.createElement('td');
+  let htm = (comparison.heightGuess!=null ? `${comparison.heightGuess} cm` : '—');
+  if(comparison.heightDirection) htm += ' ' + makeArrowSvg(comparison.heightDirection);
+  tdHeight.innerHTML = htm;
+
+  const tdRight = document.createElement('td');
+  tdRight.innerHTML = (guessPlayer.right_handed === null ? '—' : (guessPlayer.right_handed ? 'Yes' : 'No')) + (comparison.rightMatch ? ` ${tickSvg(true)}` : '');
+
+  const tdTwo = document.createElement('td');
+  tdTwo.innerHTML = (guessPlayer.two_handed === null ? 'N/A' : (guessPlayer.two_handed ? 'Yes' : 'No')) + (comparison.twoHanded === null ? '' : (comparison.twoHanded ? ` ${tickSvg(true)}` : ` ${tickSvg(false)}`));
+
+  [tdIndex,tdName,tdAge,tdRank,tdCountry,tdBirth,tdHeight,tdRight,tdTwo].forEach(td=>tr.appendChild(td));
+  tbody.prepend(tr);
+}
+
+/* ---------------------------
+   Guess handling (adds to guessedNames and clears input)
+---------------------------- */
+function handleGuessSafe(name){
+  try{ handleGuess(name); } catch(err){ showToast('An error occurred.'); console && console.error && console.error(err); }
+}
+
+function handleGuess(name){
+  if(!gameStarted){ showToast('Round not active yet'); return; }
+  if(gameBlockedDueToExisting){ showToast('You have already completed this variant today'); return; }
+  if(remaining <= 0){ showToast('No tries left — new round will start'); return; }
+  const guessPlayer = findPlayerByName(name);
+  if(!guessPlayer){
+    const suggestions = players.filter(p => p.full_name && p.full_name.toLowerCase().includes((name||'').toLowerCase())).slice(0,8);
+    showSuggestions(suggestions);
+    showToast('Name not found — suggestions opened');
+    return;
+  }
+
+  // add to guessed names (exclude from suggestions until next round)
+  guessedNames.add((guessPlayer.full_name || '').trim());
+
+  remaining--;
+  document.getElementById('remaining').textContent = remaining;
+
+  const comparison = comparePlayers(guessPlayer, target);
+  guesses.push({player: guessPlayer, comparison});
+  appendGuessRow(guessPlayer, comparison);
+
+  // clear input and hide suggestions immediately
+  guessInput.value = '';
+  suggestionsList.style.display = 'none';
+
+  if(comparison.nameMatch){
+    const points = scoreForGuessNumber(guesses.length);
+    score += points; document.getElementById('score').textContent = score;
+    revealAnswer(true, points);
+    // auto-restart after short delay
+    setTimeout(()=> startGame(), 1200);
+    return;
+  }
+
+  if(remaining <= 0){
+    revealAnswer(false, 0);
+    // auto-restart after short delay
+    setTimeout(()=> startGame(), 1200);
+  }
+}
+
+/* reveal */
+function revealAnswer(won, gainedPoints){
+  const modal = document.getElementById('modal');
+  const title = document.getElementById('modalTitle');
+  const text = document.getElementById('modalText');
+  const details = document.getElementById('modalDetails');
+
+  // message visible in the modal
+  if(won){
+    title.textContent = 'You won!';
+    text.textContent = `You earned ${gainedPoints} points this round.`;
+  } else {
+    title.textContent = 'Round over';
+    text.textContent = 'No points this time — new round will start.';
+  }
+
+  // --- Prepare data for leaderboard submit ---
+  const pointsToSend = Number(gainedPoints) || 0;
+
+  // try to infer a local pseudo as before
+  let displayName = null;
+  try {
+    if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
+      const localUser = window.LEADERBOARD.getLocalUser();
+      if (localUser && localUser.pseudo) displayName = localUser.pseudo;
+    }
+  } catch(e){
+    console.warn('getLocalUser threw', e);
+  }
+  const displayNameInput = document.querySelector('#lb-pseudo') || document.querySelector('#someDisplayNameInput');
+  if (!displayName && displayNameInput) displayName = (displayNameInput.value || '').trim() || null;
+
+  // call robust helper (defined below)
+  try {
+    submitScoreToLeaderboard(pointsToSend, { won }, { displayName });
+    console.info('[LB] submitScoreToLeaderboard called', { pointsToSend, displayName, won });
+  } catch (e) {
+    console.error('[LB] submitScoreToLeaderboard threw', e);
+  }
+
+  // --- show target details in modal (unchanged) ---
+  const targetHtml = `<div style="text-align:left;margin-top:12px"><h3 style="margin:0 0 6px 0;color:#fff">${target.full_name} <span style="color:var(--muted);font-size:0.9rem">(${target.source || ''})</span></h3><ul style="color:var(--muted);padding-left:18px"><li>Country: ${(target.represented_country) ? `<strong style="color:#fff">${target.represented_country}</strong>` : '—'}</li><li>Birth: ${(target.birthplace || '—')} (${target.birth_date || '—'})</li><li>Age: ${(target.age!=null ? target.age : '—')}</li><li>Career best: ${(isFinite(target.rank) ? target.rank : '—')}</li><li>Height: ${(target.height_cm!=null ? target.height_cm + ' cm' : '—')}</li></ul></div>`;
+  details.innerHTML = targetHtml;
+  modal.classList.add('show');
+  modal.setAttribute('aria-hidden','false');
+
+  document.getElementById('closeModalBtn').onclick = function(){ modal.classList.remove('show'); modal.setAttribute('aria-hidden','true'); };
+}
+
+
+/* ---------------------------
+   Country text rendering (paragraphs may be strings or objects with subtitle/text)
+---------------------------- */
+function renderCountryText(){
+  const panel = document.getElementById('countryText');
+  if(!cotdEnabled || !fixedCountry || !countryTexts || !countryTexts[fixedCountry]){ panel.style.display = 'none'; panel.innerHTML = ''; return; }
+  const info = countryTexts[fixedCountry];
+  let html = '';
+  if(info.title) html += `<h3>${info.title}</h3>`;
+  if(info.subtitle) html += `<div style="color:var(--muted);margin-bottom:8px">${info.subtitle}</div>`;
+  if(Array.isArray(info.paragraphs)){
+    info.paragraphs.forEach(p => {
+      if(typeof p === 'string'){
+        html += `<div style="font-style:italic">${p}</div>`;
+      } else if(typeof p === 'object'){
+        if(p.subtitle) html += `<div class="para-subtitle">${p.subtitle}</div>`;
+        if(p.text) html += `<div style="font-style:italic">${p.text}</div>`;
       }
-    }
+    });
+  } else if(info.paragraph){
+    html += `<div style="font-style:italic">${info.paragraph}</div>`;
+  }
+  panel.innerHTML = html;
+  panel.style.display = 'block';
+}
 
-    if(!usedDailyCandidate){
-      const preferredCountry = (cotdEnabled && fixedCountry) ? fixedCountry : null;
-      const pick = pickRandomTargetFromPool(currentTour, levelTopN, preferredCountry);
-      target = pick.chosen;
-      if(pick.country) fixedCountry = pick.country;
-    }
+/* ---------------------------
+   COTD banner + background (uses dailyMap[<tour>_by_country] first)
+---------------------------- */
+const flagBgEl = document.getElementById('flagBg'), flagOverlayEl = document.getElementById('flagOverlay'), cotdBanner = document.getElementById('cotdBanner'), cotdFlag = document.getElementById('cotdFlag'), cotdName = document.getElementById('cotdName');
 
-    gameStarted = true;
-    gameBlockedDueToExisting = false;
-    guessInput.disabled = false;
-    guessInput.readOnly = false;
-    document.getElementById('guessBtn').disabled = false;
+function setFlagBackground(url){
+  if(!url){ flagBgEl.style.opacity=0; flagBgEl.style.backgroundImage=''; flagOverlayEl.style.opacity=0; currentFlagUrl=null; return; }
+  currentFlagUrl=url; flagBgEl.style.backgroundImage=`url('${url}')`; flagBgEl.style.opacity=1; flagOverlayEl.style.opacity=1;
+}
 
-    updateSelectedCountryDisplay();
-    renderCotdBanner();
-    renderCountryText();
-    clearGuessesTable();
+function renderCotdBanner(){
+  if(!cotdEnabled){
+    cotdBanner.style.display='none';
+    setFlagBackground(null);
+    updateDifficultyVisibility();
+    return;
   }
 
-  function pickRandomTargetFromPool(tour, topN, fixedByCountry = null){
-    let pool = players.filter(p => p.represented_country && p.player_id && p.rank <= topN && (String(p.source||p._raw_row&&p._raw_row._source||'').toUpperCase() === tour || !p.source));
-    if(pool.length === 0) pool = players.filter(p => p.represented_country && (String(p.source||p._raw_row&&p._raw_row._source||'').toUpperCase() === tour || !p.source));
-    if(pool.length === 0) pool = players.filter(p => p.represented_country);
-    if(pool.length === 0) return {chosen:null, country:null};
-    if(fixedByCountry){
-      const candidates = pool.filter(p => p.represented_country === fixedByCountry);
-      if(candidates.length) return {chosen: candidates[Math.floor(Math.random()*candidates.length)], country: fixedByCountry};
+  cotdBanner.style.display='flex';
+
+  // Priority: use dailyMap[tour_by_country] if present, else fallback to fixedCountry
+  const key = `${currentTour}_by_country`;
+  const dailyCandidate = (dailyMap && dailyMap[key]) ? dailyMap[key] : null;
+  const cc = dailyCandidate && dailyCandidate.represented_country ? dailyCandidate.represented_country : (fixedCountry || '—');
+
+  cotdName.textContent = cc;
+  cotdFlag.innerHTML = '';
+
+  if(cc && cc !== '—'){
+    fetch(`https://restcountries.com/v3.1/alpha/${cc}`).then(r=>r.ok?r.json():null).then(data=>{
+      if(data && data[0] && data[0].flags && (data[0].flags.svg || data[0].flags.png)){
+        const img=document.createElement('img'); img.src = data[0].flags.svg || data[0].flags.png; img.alt = data[0].name && data[0].name.common ? data[0].name.common : cc; img.style.width='100%'; img.style.height='100%'; img.style.objectFit='cover'; cotdFlag.appendChild(img); cotdName.textContent = data[0].name.common || cc; setFlagBackground(data[0].flags.svg || data[0].flags.png);
+      } else { cotdFlag.textContent = cc; setFlagBackground(null); }
+    }).catch(()=>{ cotdFlag.textContent = cc; setFlagBackground(null); });
+  } else { cotdFlag.textContent = '—'; setFlagBackground(null); }
+
+  // hide difficulty while in COTD mode
+  updateDifficultyVisibility();
+}
+
+/* ---------------------------
+   Update difficulty visibility depending on COTD
+---------------------------- */
+function updateDifficultyVisibility(){
+  const seg = document.getElementById('difficultySegment');
+  if(!seg) return;
+  if(cotdEnabled){
+    seg.style.display = 'none';
+  } else {
+    seg.style.display = '';
+  }
+}
+
+/* ---------------------------
+   Theme (ATP/WTA)
+---------------------------- */
+function applyTourTheme(){
+  const root=document.documentElement;
+  if(currentTour==='WTA'){
+    root.style.setProperty('--accent-a', 'rgba(0,0,0,0)');
+    root.style.setProperty('--accent-b', 'rgba(139,92,246,0.12)');
+    root.style.setProperty('--accent-strong', getComputedStyle(root).getPropertyValue('--accent-strong-wta')||'#8b5cf6');
+    document.getElementById('btnWTA').classList.add('active','wta'); document.getElementById('btnATP').classList.remove('active','atp');
+  } else {
+    root.style.setProperty('--accent-b', 'rgba(0,0,0,0)');
+    root.style.setProperty('--accent-a', 'rgba(31,122,236,0.12)');
+    root.style.setProperty('--accent-strong', '#1f7aec');
+    document.getElementById('btnATP').classList.add('active','atp'); document.getElementById('btnWTA').classList.remove('active','wta');
+  }
+}
+
+/* ---------------------------
+   USER PANEL (top-right)
+   - shows pseudo if connected, or "Connect" if not
+   - clicking opens small dropdown with relevant options:
+     - if connected: Log out
+     - if not: Log In, Create Account
+   - uses window.LEADERBOARD.* if available, otherwise graceful fallback
+---------------------------- */
+const userBox = document.getElementById('userBox');
+const userPanel = document.getElementById('userPanel');
+
+function renderUserPanel(){
+  const dropdownExisting = userPanel.querySelector('.user-dropdown');
+  if(dropdownExisting) dropdownExisting.remove();
+
+  let localUser = null;
+  try {
+    if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
+      localUser = window.LEADERBOARD.getLocalUser() || null;
     }
-    const countries = [...new Set(pool.map(p=>p.represented_country))];
-    const country = countries[Math.floor(Math.random()*countries.length)];
-    const countryPlayers = pool.filter(p=>p.represented_country === country);
-    const chosen = countryPlayers.length ? countryPlayers[Math.floor(Math.random()*countryPlayers.length)] : pool[Math.floor(Math.random()*pool.length)];
-    return {chosen, country};
+  } catch (e) {
+    console.warn('getLocalUser threw', e);
   }
 
-  /* ---------------------------
-     Leaderboard helpers (unchanged, but improved fallback handling)
-  ---------------------------- */
-  const LB_QUEUE_KEY = 'lb_score_queue_v1';
-  function pushToScoreQueue(entry){ try { const q = JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]'); q.push(Object.assign({ts: (new Date()).toISOString()}, entry)); localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q)); console.info('Score queued locally', entry); } catch(e){ console.warn('Could not queue score', e); } }
-  function popScoreQueue(){ try { const q = JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]'); if(!q || q.length === 0) return null; q.shift(); localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q)); return true; } catch(e){ console.warn('popScoreQueue error', e); return null; } }
-  function readScoreQueue(){ try { return JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]'); } catch(e){ return []; } }
-  function waitForLeaderboard(timeout = 5000, interval = 200){ return new Promise((resolve) => { if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function') return resolve(true); const start = Date.now(); const t = setInterval(() => { if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){ clearInterval(t); resolve(true); } else if(Date.now() - start > timeout){ clearInterval(t); resolve(false); } }, interval); }); }
+  if(localUser && (localUser.pseudo || localUser.email || localUser.id || localUser.user_id)){
+    const name = localUser.pseudo || localUser.email || localUser.id || localUser.user_id;
+    userBox.textContent = name;
+    userBox.setAttribute('aria-expanded','false');
+    userBox.onclick = toggleUserDropdown;
+  } else {
+    userBox.textContent = 'Connect';
+    userBox.onclick = toggleUserDropdown;
+  }
+}
 
-  // trySubmitEntryToLB improved:
-  async function trySubmitEntryToLB(entry){
-    const gameId = entry.gameId || 'guess_player';
-    const points = Number(entry.points) || 0;
-    const options = entry.options || {};
-    const pseudo = options.displayName || options.pseudo || null;
-    const mode = options.mode || null;
-    const meta = options.meta || null;
+function toggleUserDropdown(e){
+  e.stopPropagation();
+  const existing = userPanel.querySelector('.user-dropdown');
+  if(existing){
+    existing.remove();
+    userBox.setAttribute('aria-expanded','false');
+    return;
+  }
+  const dd = document.createElement('div');
+  dd.className = 'user-dropdown';
+  dd.setAttribute('role','menu');
 
-    // Fast path: try window.LEADERBOARD if available
-    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+  let localUser = null;
+  try { localUser = (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') ? window.LEADERBOARD.getLocalUser() : null; } catch (e) { localUser = null; }
+
+  if(localUser && (localUser.pseudo || localUser.user_id)){
+    // connected: show Log Out
+    const btnLogout = document.createElement('button');
+    btnLogout.type='button';
+    btnLogout.textContent = 'Log out';
+    btnLogout.onclick = async () => {
       try {
-        console.info('[LB] calling window.LEADERBOARD.submitScore', { gameId, points, options });
-        const res = await window.LEADERBOARD.submitScore(gameId, points, options);
-        console.info('[LB] submitScore response', res);
-        if(res && (res.ok === true || res.success === true || res.status === 'ok')){
-          console.info('[LB] library confirmed success — done.');
-          return true;
+        if(window.LEADERBOARD && typeof window.LEADERBOARD.logout === 'function'){
+          await window.LEADERBOARD.logout();
+          showToast('Logged out');
+        } else if(window.LEADERBOARD && typeof window.LEADERBOARD.signOut === 'function'){
+          await window.LEADERBOARD.signOut();
+          showToast('Logged out');
+        } else {
+          // fallback: clear local storage keys that LB might use and reload
+          try{ localStorage.removeItem('lb_score_queue_v1'); }catch(e){}
+          showToast('Logged out (local)');
         }
-        // special handling: some libs return already_submitted_local
-        if(res && res.ok === false && (res.error === 'already_submitted_local' || (res.error && String(res.error).toLowerCase().includes('already')))){
-          console.info('[LB] library indicates already submitted locally — treat as success.');
-          return true;
-        }
-        console.warn('[LB] library returned non-success — will try server fallback', res);
-      } catch(err){
-        console.error('[LB] submitScore threw', err);
+      } catch(e){
+        console.error('Logout failed', e);
+        showToast('Logout failed');
+      } finally {
+        // re-render panel (small delay to allow library to update)
+        setTimeout(renderUserPanel, 300);
+        // if we blocked the game earlier, re-check
+        startGame();
       }
-    } else {
-      console.warn('[LB] window.LEADERBOARD.submitScore not available; using server fallback');
-    }
-
-    // Server fallback
-    const fallbackEndpoint = '/.netlify/functions/submit-score';
-    const payload = {
-      game_id: gameId,
-      points: points,
-      pseudo: pseudo,
-      mode: mode,
-      meta: (typeof meta === 'string' ? meta : (meta ? JSON.stringify(meta) : null)),
-      ts: (new Date()).toISOString()
     };
-
-    try {
-      console.info('[LB-FALLBACK] POST', fallbackEndpoint, payload);
-      const resp = await fetch(fallbackEndpoint, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      const text = await resp.text().catch(()=>null);
-      let data = null;
-      try { data = text ? JSON.parse(text) : null; } catch(e){ data = text; }
-      console.info('[LB-FALLBACK] response status', resp.status, data || text);
-
-      if (resp.ok){
-        console.info('[LB-FALLBACK] success', data);
-        return true;
-      } else {
-        // Some server implementations return non-200 but include detail/status about duplicate key
-        // Treat duplicate-key / already-exists as "success" (entry already present)
-        if(data && (data.status === 409 || (data.detail && (data.detail.code === '23505' || /duplicate key value/i.test(String(data.detail)) )))){
-          console.warn('[LB-FALLBACK] duplicate detected in body — treating as submitted', data);
-          return true;
-        }
-        // sometimes server returns 500 but message contains duplicate info in text
-        if(text && /duplicate key value|uniq_daily_user_game_mode|already exists|23505/i.test(text)){
-          console.warn('[LB-FALLBACK] duplicate detected in text body — treating as submitted', text);
-          return true;
-        }
-        console.warn('[LB-FALLBACK] server returned non-OK', resp.status, data || text);
-        return false;
+    dd.appendChild(btnLogout);
+  } else {
+    // not connected: show Log In and Create Account
+    const btnLogin = document.createElement('button');
+    btnLogin.type='button';
+    btnLogin.textContent = 'Log In';
+    btnLogin.onclick = () => {
+      // try multiple possible entry points in leaderboard lib
+      if(window.LEADERBOARD){
+        if(typeof window.LEADERBOARD.openLogin === 'function') return window.LEADERBOARD.openLogin();
+        if(typeof window.LEADERBOARD.login === 'function') return window.LEADERBOARD.login();
+        if(typeof window.LEADERBOARD.showAuth === 'function') return window.LEADERBOARD.showAuth();
       }
-    } catch(fetchErr){
-      console.error('[LB-FALLBACK] fetch error', fetchErr);
-      return false;
-    }
+      showToast('Login not available from this page');
+    };
+    dd.appendChild(btnLogin);
+
+    const btnCreate = document.createElement('button');
+    btnCreate.type='button';
+    btnCreate.textContent = 'Create account';
+    btnCreate.onclick = () => {
+      if(window.LEADERBOARD && typeof window.LEADERBOARD.openRegister === 'function') return window.LEADERBOARD.openRegister();
+      if(window.LEADERBOARD && typeof window.LEADERBOARD.register === 'function') return window.LEADERBOARD.register();
+      showToast('Register not available from this page');
+    };
+    dd.appendChild(btnCreate);
   }
 
-  async function flushScoreQueue(){
-    const queue = readScoreQueue();
-    if(!queue || queue.length === 0) return;
-    const ready = await waitForLeaderboard(5000);
-    if(!ready) {
-      console.info('Leaderboard not ready; will keep queue for later flush');
-      return;
-    }
-    for(let i=0;i<10;i++){
-      const q = readScoreQueue();
-      if(!q || q.length === 0) break;
-      const entry = q[0];
-      const ok = await trySubmitEntryToLB(entry);
-      if(ok){ popScoreQueue(); showToast('Score submitted to leaderboard', 2000); } else { console.warn('Submit failed for queued entry — stop flush now'); break; }
-    }
+  userPanel.appendChild(dd);
+  userBox.setAttribute('aria-expanded','true');
+
+  // click outside to close
+  setTimeout(()=> {
+    const onDoc = (ev) => {
+      if(!userPanel.contains(ev.target)){
+        const d = userPanel.querySelector('.user-dropdown');
+        if(d) d.remove();
+        userBox.setAttribute('aria-expanded','false');
+        document.removeEventListener('click', onDoc);
+      }
+    };
+    document.addEventListener('click', onDoc);
+  }, 10);
+}
+
+/* Initialize user panel after DOM ready and after eventual LB lib ready */
+(function watchForLbToRenderUser(){
+  renderUserPanel();
+  // if LB defines an event/callback to notify auth change, you can hook it here.
+  // poll once to update pseudo if LB becomes available shortly after load:
+  const t = setInterval(()=>{ renderUserPanel(); if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser==='function') { clearInterval(t); } }, 400);
+})();
+
+/* ---------------------------
+   Update selectedCountry display:
+   - show country code only when COTD is ON
+---------------------------- */
+function updateSelectedCountryDisplay(){
+  const el = document.getElementById('selectedCountry');
+  if(cotdEnabled){
+    el.textContent = (fixedCountry || (target && target.represented_country) || '—');
+  } else {
+    el.textContent = '—';
   }
+}
 
-  async function submitScoreToLeaderboard(points, meta = {}, extra = {}){
-    const options = { mode: (cotdEnabled ? `${currentTour}_by_country` : `${currentTour}_top${levelTopN}`),
-                      meta: JSON.stringify(meta || {}), displayName: (extra.displayName || null) };
+/* ---------------------------
+   Check whether connected user already has a score for this mode/date
+   - calls updated leaderboard endpoint with check_existing=1
+   - returns { exists: boolean, rows: [...] }
+---------------------------- */
+async function checkUserPlayedToday(mode){
+  let localUser = null;
+  try { localUser = (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') ? window.LEADERBOARD.getLocalUser() : null; } catch(e){ localUser = null; }
+  if(!localUser) return { exists:false };
 
-    const ready = await waitForLeaderboard(3000);
-    if(ready){
-      const ok = await trySubmitEntryToLB({ points, options });
-      if(ok){ console.info('Score successfully submitted to leaderboard (fast path).'); setTimeout(flushScoreQueue, 250); return; }
-      else { console.warn('Fast path submit failed; queueing the score for retry.'); pushToScoreQueue({ points, options }); showToast('Score queued for retry', 2000); return; }
+  // get best identifier(s)
+  const userId = localUser.user_id || localUser.id || null;
+  const pseudo = localUser.pseudo || localUser.name || localUser.email || null;
+
+  const dateStr = new Date().toISOString().slice(0,10); // YYYY-MM-DD (today)
+  let qs = `?game_id=guess_player&date=${encodeURIComponent(dateStr)}&check_existing=1&mode=${encodeURIComponent(mode)}`;
+  if(userId) qs += `&user_id=${encodeURIComponent(userId)}`;
+  if(pseudo) qs += `&pseudo=${encodeURIComponent(pseudo)}`;
+
+  try {
+    const res = await fetch(`/.netlify/functions/leaderboard${qs}`, { credentials: 'same-origin' });
+    if(!res.ok) return { exists:false };
+    const j = await res.json();
+    if(j && j.ok && j.exists) return { exists:true, rows: j.rows || [] };
+    return { exists:false, rows: j.rows || [] };
+  } catch(e){
+    console.warn('checkUserPlayedToday error', e);
+    return { exists:false };
+  }
+}
+
+/* ---------------------------
+   Start Game (automatic)
+   - chooses the target (dailyMap if present) for the exact combo (tour+level) or by_country if COTD ON
+   - resets remaining and guesses, keeps score
+   - clears table and updates display
+   - clears guessedNames set
+   - NEW: if connected user already completed this mode today, block play and show modal
+---------------------------- */
+async function startGame(){
+  // reset block flag
+  gameBlockedDueToExisting = false;
+
+  remaining = MAX_TRIES;
+  guesses = [];
+  guessedNames.clear();          // clear exclusions at new round
+  document.getElementById('remaining').textContent = remaining;
+  document.getElementById('score').textContent = score;
+  document.getElementById('levelLabel').textContent = `Top ${levelTopN}`;
+  document.getElementById('tourLabel').textContent = currentTour;
+
+  // pick candidate from dailyMap if present
+  let usedDailyCandidate = false;
+  if(dailyList && dailyList.length){
+    const candidate = pickTargetFromDailyMap(currentTour, levelTopN, cotdEnabled);
+    if(candidate){
+      target = enrichPlayerFromCatalog(candidate);
+      usedDailyCandidate = true;
+      if(candidate.represented_country) fixedCountry = candidate.represented_country;
     } else {
-      pushToScoreQueue({ points, options });
-      showToast('Leaderboard unavailable — score queued', 2000);
-      setTimeout(flushScoreQueue, 1000);
+      const pool = dailyList.filter(p => (String(p.source||'').toUpperCase()) === currentTour);
+      if(pool.length){
+        const pick = pool[Math.floor(Math.random()*pool.length)];
+        target = enrichPlayerFromCatalog(pick);
+        usedDailyCandidate = true;
+        if(pick.represented_country) fixedCountry = pick.represented_country;
+      }
     }
   }
 
-  (function watchForLeaderboardInit(){
-    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){ setTimeout(flushScoreQueue, 300); return; }
-    const poll = setInterval(() => {
-      if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){ clearInterval(poll); setTimeout(flushScoreQueue, 200); }
-    }, 250);
-  })();
+  if(!usedDailyCandidate){
+    const preferredCountry = (cotdEnabled && fixedCountry) ? fixedCountry : null;
+    const pick = pickRandomTargetFromPool(currentTour, levelTopN, preferredCountry);
+    target = pick.chosen;
+    if(pick.country) fixedCountry = pick.country;
+  }
 
-  /* ---------------------------
-     Wiring & Init
-  ---------------------------- */
-  document.addEventListener('DOMContentLoaded', async ()=>{
-    try{
-      // immediately lock inputs until preflight runs
+  // compute mode string exactly as used for submits
+  const mode = (cotdEnabled ? `${currentTour}_by_country` : `${currentTour}_top${levelTopN}`);
+
+  // NEW: If user connected and already has a score for this mode today -> block replay
+  try {
+    const check = await checkUserPlayedToday(mode);
+    if(check.exists){
+      gameBlockedDueToExisting = true;
+      gameStarted = false;
+      // disable input and button
       guessInput.disabled = true;
-      guessInput.readOnly = true;
       document.getElementById('guessBtn').disabled = true;
 
-      const okPlayers = await loadPlayersCatalog();
-      if(!okPlayers){ alert('Players catalog missing or malformed.'); return; }
-      await loadGeocodes();
-      await loadDailyGuessIfAvailable();
-      await loadCountryTexts();
+      // show modal telling user it's already completed
+      const modal = document.getElementById('modal');
+      const title = document.getElementById('modalTitle');
+      const text = document.getElementById('modalText');
+      const details = document.getElementById('modalDetails');
 
-      updateDifficultyVisibility();
+      title.textContent = 'Already completed';
+      text.textContent = `You have already completed this variant today (${mode}). You cannot replay the same variant today.`;
+      // include brief details if available
+      let infoHtml = `<div style="text-align:left;margin-top:12px;color:var(--muted)">`;
+      if(check.rows && check.rows.length){
+        for(const r of check.rows.slice(0,3)){
+          infoHtml += `<div style="margin-bottom:6px"><strong>Points:</strong> ${r.points || 0} — <strong>Mode:</strong> ${r.mode || '—'} — <strong>At:</strong> ${r.created_at || '—'}</div>`;
+        }
+      }
+      infoHtml += `</div>`;
+      details.innerHTML = infoHtml;
+      modal.classList.add('show');
+      modal.setAttribute('aria-hidden','false');
+      document.getElementById('closeModalBtn').onclick = function(){ modal.classList.remove('show'); modal.setAttribute('aria-hidden','true'); };
+      updateSelectedCountryDisplay();
       renderCotdBanner();
-      applyTourTheme();
       renderCountryText();
-      renderUserPanel();
-
-      document.getElementById('btnATP').addEventListener('click', ()=>{ if(currentTour !== 'ATP'){ currentTour='ATP'; document.getElementById('tourLabel').textContent=currentTour; applyTourTheme(); performModeCheckAndStart().catch(e=>console.warn(e)); } });
-      document.getElementById('btnWTA').addEventListener('click', ()=>{ if(currentTour !== 'WTA'){ currentTour='WTA'; document.getElementById('tourLabel').textContent=currentTour; applyTourTheme(); performModeCheckAndStart().catch(e=>console.warn(e)); } });
-
-      document.querySelectorAll('.seg-btn').forEach(btn=>{
-        btn.addEventListener('click', (e)=>{
-          const newTop = Number(e.currentTarget.dataset.top);
-          if(newTop !== levelTopN){
-            document.querySelectorAll('.seg-btn').forEach(b=>b.classList.remove('active'));
-            e.currentTarget.classList.add('active');
-            levelTopN = newTop;
-            document.getElementById('levelLabel').textContent = `Top ${levelTopN}`;
-            performModeCheckAndStart().catch(err => console.warn(err));
-          }
-        });
-      });
-
-      document.getElementById('cotdToggle').addEventListener('click', ()=>{
-        cotdEnabled = !cotdEnabled;
-        document.getElementById('cotdToggle').textContent = cotdEnabled ? 'ON' : 'OFF';
-        renderCotdBanner();
-        renderCountryText();
-        performModeCheckAndStart().catch(err => console.warn(err));
-      });
-
-      document.getElementById('guessBtn').addEventListener('click', ()=>{
-        const name = guessInput.value;
-        if(!name) { showToast('Type a name before guessing'); return; }
-        handleGuessSafe(name);
-        guessInput.value = '';
-        suggestionsList.style.display = 'none';
-      });
-
-      // initial preflight
-      performModeCheckAndStart().catch(e => { console.warn('initial performModeCheckAndStart failed', e); startGame(); });
-
-    }catch(err){
-      console && console.error && console.error(err);
-      showToast('Initialization error');
+      clearGuessesTable();
+      return; // stop startGame flow: game remains blocked
     }
+  } catch(e){
+    console.warn('Error checking existing score', e);
+    // fallback: allow play
+  }
+
+  // No existing score -> enable play
+  gameStarted = true;
+  gameBlockedDueToExisting = false;
+  guessInput.disabled = false;
+  document.getElementById('guessBtn').disabled = false;
+
+  updateSelectedCountryDisplay();
+  renderCotdBanner();
+  renderCountryText();
+  clearGuessesTable();
+}
+
+/* ---------------------------
+   Fallback picker used when no daily candidate is selected */
+function pickRandomTargetFromPool(tour, topN, fixedByCountry = null){
+  let pool = players.filter(p => p.represented_country && p.player_id && p.rank <= topN && (String(p.source||p._raw_row&&p._raw_row._source||'').toUpperCase() === tour || !p.source));
+  if(pool.length === 0) pool = players.filter(p => p.represented_country && (String(p.source||p._raw_row&&p._raw_row._source||'').toUpperCase() === tour || !p.source));
+  if(pool.length === 0) pool = players.filter(p => p.represented_country);
+  if(pool.length === 0) return {chosen:null, country:null};
+  if(fixedByCountry){
+    const candidates = pool.filter(p => p.represented_country === fixedByCountry);
+    if(candidates.length) return {chosen: candidates[Math.floor(Math.random()*candidates.length)], country: fixedByCountry};
+  }
+  const countries = [...new Set(pool.map(p=>p.represented_country))];
+  const country = countries[Math.floor(Math.random()*countries.length)];
+  const countryPlayers = pool.filter(p=>p.represented_country === country);
+  const chosen = countryPlayers.length ? countryPlayers[Math.floor(Math.random()*countryPlayers.length)] : pool[Math.floor(Math.random()*pool.length)];
+  return {chosen, country};
+}
+
+
+
+/* ---------------------------
+   Robust leaderboard submit helpers
+   - waitForLeaderboard: poll for window.LEADERBOARD
+   - queue in localStorage if LB not ready or submit fails
+   - flushScoreQueue when LB becomes ready
+   ---------------------------- */
+
+const LB_QUEUE_KEY = 'lb_score_queue_v1';
+
+function pushToScoreQueue(entry){
+  try {
+    const q = JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]');
+    q.push(Object.assign({ts: (new Date()).toISOString()}, entry));
+    localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q));
+    console.info('Score queued locally', entry);
+  } catch(e){ console.warn('Could not queue score', e); }
+}
+
+function popScoreQueue(){
+  try {
+    const q = JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]');
+    if(!q || q.length === 0) return null;
+    q.shift();
+    localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q));
+    return true;
+  } catch(e){ console.warn('popScoreQueue error', e); return null; }
+}
+
+function readScoreQueue(){
+  try { return JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]'); }
+  catch(e){ return []; }
+}
+
+/** Poll until window.LEADERBOARD is ready or timeout (ms). */
+function waitForLeaderboard(timeout = 5000, interval = 200){
+  return new Promise((resolve) => {
+    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function') return resolve(true);
+    const start = Date.now();
+    const t = setInterval(() => {
+      if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+        clearInterval(t); resolve(true);
+      } else if(Date.now() - start > timeout){
+        clearInterval(t); resolve(false);
+      }
+    }, interval);
   });
-} // end guard
+}
+
+/** Replace existing trySubmitEntryToLB with this improved version.
+ *  - treats only res.ok === true (or res.success === true) as success
+ *  - when submitScore responds with ok:false, tries a direct fetch fallback
+ *  - logs everything so you see Network / Console evidence
+ */
+async function trySubmitEntryToLB(entry){
+  const gameId = entry.gameId || 'guess_player';
+  const points = Number(entry.points) || 0;
+  const options = entry.options || {};
+  const pseudo = options.displayName || options.pseudo || null;
+  const mode = options.mode || null;
+  const meta = options.meta || null;
+
+  // 1) library attempt
+  if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+    try {
+      console.info('[LB] calling window.LEADERBOARD.submitScore', { gameId, points, options });
+      const res = await window.LEADERBOARD.submitScore(gameId, points, options);
+      console.info('[LB] submitScore response', res);
+      if(res && (res.ok === true || res.success === true || res.status === 'ok')){
+        console.info('[LB] library confirmed success — done.');
+        return true;
+      }
+      console.warn('[LB] library returned non-success — will try server fallback', res);
+    } catch(err){
+      console.error('[LB] submitScore threw', err);
+    }
+  } else {
+    console.warn('[LB] window.LEADERBOARD.submitScore not available; using server fallback');
+  }
+
+  // 2) fallback to server-side submit
+  const fallbackEndpoint = '/.netlify/functions/submit-score';
+  const payload = {
+    game_id: gameId,
+    points: points,
+    pseudo: pseudo,
+    mode: mode,
+    meta: (typeof meta === 'string' ? meta : (meta ? JSON.stringify(meta) : null)),
+    ts: (new Date()).toISOString()
+  };
+
+  try {
+    console.info('[LB-FALLBACK] POST', fallbackEndpoint, payload);
+    const resp = await fetch(fallbackEndpoint, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const text = await resp.text().catch(()=>null);
+    console.info('[LB-FALLBACK] response status', resp.status, text);
+
+    if (resp.ok){
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch(e){ data = text; }
+      console.info('[LB-FALLBACK] success', data);
+      return true;
+    } else {
+      console.warn('[LB-FALLBACK] server returned non-OK', resp.status, text);
+      return false;
+    }
+  } catch(fetchErr){
+    console.error('[LB-FALLBACK] fetch error', fetchErr);
+    return false;
+  }
+}
+
+/** Flush local queue while LB is ready. */
+async function flushScoreQueue(){
+  const queue = readScoreQueue();
+  if(!queue || queue.length === 0) return;
+  const ready = await waitForLeaderboard(5000);
+  if(!ready) {
+    console.info('Leaderboard not ready; will keep queue for later flush');
+    return;
+  }
+  for(let i=0;i<10;i++){
+    const q = readScoreQueue();
+    if(!q || q.length === 0) break;
+    const entry = q[0];
+    const ok = await trySubmitEntryToLB(entry);
+    if(ok){
+      popScoreQueue();
+      showToast('Score submitted to leaderboard', 2000);
+    } else {
+      console.warn('Submit failed for queued entry — stop flush now');
+      break;
+    }
+  }
+}
+
+/** Main helper to submit score (robust). 
+ *  points: number; meta: object; extra: {displayName}
+ */
+async function submitScoreToLeaderboard(points, meta = {}, extra = {}){
+  const options = { mode: (cotdEnabled ? `${currentTour}_by_country` : `${currentTour}_top${levelTopN}`),
+                    meta: JSON.stringify(meta || {}), displayName: (extra.displayName || null) };
+
+  // Try fast path: wait a short time for LB to be ready
+  const ready = await waitForLeaderboard(3000);
+  if(ready){
+    const ok = await trySubmitEntryToLB({ points, options });
+    if(ok){
+      console.info('Score successfully submitted to leaderboard (fast path).');
+      // flush queue if any
+      setTimeout(flushScoreQueue, 250);
+      return;
+    } else {
+      console.warn('Fast path submit failed; queueing the score for retry.');
+      pushToScoreQueue({ points, options });
+      showToast('Score queued for retry', 2000);
+      return;
+    }
+  } else {
+    // Not ready: queue it and schedule flush when LB init completes
+    pushToScoreQueue({ points, options });
+    showToast('Leaderboard unavailable — score queued', 2000);
+    setTimeout(flushScoreQueue, 1000);
+  }
+}
+
+/* Hook: when leaderboard lib initializes, call flushScoreQueue */
+(function watchForLeaderboardInit(){
+  if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+    setTimeout(flushScoreQueue, 300);
+    return;
+  }
+  const poll = setInterval(() => {
+    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+      clearInterval(poll);
+      setTimeout(flushScoreQueue, 200);
+    }
+  }, 250);
+})();
+
+/* ---------------------------
+   Wiring & Init
+---------------------------- */
+document.addEventListener('DOMContentLoaded', async ()=>{
+  try{
+    const okPlayers = await loadPlayersCatalog();
+    if(!okPlayers){ alert('Players catalog missing or malformed.'); return; }
+    await loadGeocodes();
+    await loadDailyGuessIfAvailable();
+    await loadCountryTexts();
+
+    // ensure difficulty visibility reflects COTD default
+    updateDifficultyVisibility();
+    renderCotdBanner();
+    applyTourTheme();
+    renderCountryText();
+    renderUserPanel();
+
+    // wire events -> on any change, (re)start the round automatically
+    document.getElementById('btnATP').addEventListener('click', ()=>{ if(currentTour !== 'ATP'){ currentTour='ATP'; document.getElementById('tourLabel').textContent=currentTour; applyTourTheme(); startGame(); } });
+    document.getElementById('btnWTA').addEventListener('click', ()=>{ if(currentTour !== 'WTA'){ currentTour='WTA'; document.getElementById('tourLabel').textContent=currentTour; applyTourTheme(); startGame(); } });
+
+    document.querySelectorAll('.seg-btn').forEach(btn=>{
+      btn.addEventListener('click', (e)=>{
+        const newTop = Number(e.currentTarget.dataset.top);
+        if(newTop !== levelTopN){
+          document.querySelectorAll('.seg-btn').forEach(b=>b.classList.remove('active'));
+          e.currentTarget.classList.add('active');
+          levelTopN = newTop;
+          document.getElementById('levelLabel').textContent = `Top ${levelTopN}`;
+          startGame();
+        }
+      });
+    });
+
+    document.getElementById('cotdToggle').addEventListener('click', ()=>{
+      cotdEnabled = !cotdEnabled;
+      document.getElementById('cotdToggle').textContent = cotdEnabled ? 'ON' : 'OFF';
+      renderCotdBanner();
+      renderCountryText();
+      startGame();
+    });
+
+    // Guess handling
+    document.getElementById('guessBtn').addEventListener('click', ()=>{
+      const name = guessInput.value;
+      if(!name) { showToast('Type a name before guessing'); return; }
+      handleGuessSafe(name);
+      guessInput.value = '';
+      suggestionsList.style.display = 'none';
+    });
+
+    // initial auto-start
+    startGame();
+  }catch(err){
+    console && console.error && console.error(err);
+    showToast('Initialization error');
+  }
+});
 </script>
 </body>
 </html>

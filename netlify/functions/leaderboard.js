@@ -47,7 +47,75 @@ exports.handler = async function(event) {
   const game_id = q.game_id || null;
   const limit = Number(q.limit || 50);
 
+  // new param: check_existing=1 -> return whether a given user/pseudo already has rows for mode/date
+  const checkExisting = q.check_existing === '1' || q.check_existing === 'true';
+
   try {
+
+    // if checkExisting requested, expect mode and user_id or pseudo
+    if (checkExisting) {
+      const mode = q.mode || null;
+      const user_id = q.user_id || null;
+      const pseudo = q.pseudo || null;
+
+      if (!mode || (!user_id && !pseudo)) {
+        return jsonResponse(400, { ok: false, error: 'need mode and user_id or pseudo for check' });
+      }
+
+      // build Supabase REST query
+      // base select
+      let query = `${SUPABASE_URL}/rest/v1/scores?select=user_id,pseudo,points,mode,created_at,game_id`;
+
+      // filters
+      if (game_id) {
+        query += `&game_id=eq.${encodeURIComponent(game_id)}`;
+      }
+      // filter by mode
+      query += `&mode=eq.${encodeURIComponent(mode)}`;
+
+      // by date if given
+      if (date) {
+        const start = isoDateStart(date);
+        const next = isoDateNext(date);
+        query += `&created_at=gte.${encodeURIComponent(start)}&created_at=lt.${encodeURIComponent(next)}`;
+      }
+
+      // filter by user_id or pseudo
+      if (user_id) {
+        query += `&user_id=eq.${encodeURIComponent(user_id)}`;
+      } else if (pseudo) {
+        // search by pseudo exact
+        query += `&pseudo=eq.${encodeURIComponent(pseudo)}`;
+      }
+
+      query += `&limit=1`; // we only need existence
+
+      const r = await fetch(query, {
+        headers: {
+          apikey: SUPABASE_KEY,
+          Authorization: `Bearer ${SUPABASE_KEY}`,
+          Accept: "application/json"
+        }
+      });
+
+      if (!r.ok) {
+        const txt = await r.text();
+        return jsonResponse(500, {
+          ok: false,
+          error: "Supabase read failed (check_existing)",
+          status: r.status,
+          detail: txt
+        });
+      }
+
+      const rows = await r.json();
+      const exists = Array.isArray(rows) && rows.length > 0;
+
+      return jsonResponse(200, { ok: true, exists: exists, rows: rows });
+
+    } // end checkExisting branch
+
+    // --- default: fetch all rows (as before) and aggregate leaderboard ---
 
     // ⚠️ Construction MANUELLE de l'URL (PAS URLSearchParams)
     let query = `${SUPABASE_URL}/rest/v1/scores?select=user_id,pseudo,points,mode,created_at`;
@@ -83,7 +151,7 @@ exports.handler = async function(event) {
 
     const rows = await r.json();
 
-    // Agrégation
+    // Aggregation
     const map = new Map();
 
     for (const row of rows) {
