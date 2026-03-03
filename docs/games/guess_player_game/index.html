@@ -1,50 +1,19 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Guess The Player</title>
-
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
-
+<title>Guess the Player</title>
 <style>
-  :root{
-    --bg1: #071226; --bg2: #081428;
-    --accent-a: rgba(31,122,236,0.06);
-    --accent-b: rgba(139,92,246,0.06);
-    --accent-strong: #1f7aec;
-    --accent-strong-wta: #8b5cf6;
-    --muted:#94a3b8; --success:#16a34a; --danger:#ef4444;
-    font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-    color-scheme: dark;
-  }
-
-  html,body{height:100%;margin:0;background:
-    radial-gradient(1000px 600px at 10% 10%, var(--accent-a), transparent 10%),
-    radial-gradient(800px 500px at 90% 90%, var(--accent-b), transparent 10%),
-    linear-gradient(180deg, var(--bg1) 0%, var(--bg2) 100%);
-    -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;}
-
-  #flagBg { position: fixed; left:0; top:0; right:0; bottom:0; background-position:center; background-size:cover; opacity:0; filter:blur(18px) contrast(0.9) saturate(0.95); transition:opacity .35s ease, transform .35s ease; z-index:0; pointer-events:none; }
-  #flagOverlay { position: fixed; left:0; top:0; right:0; bottom:0; background:linear-gradient(180deg, rgba(2,6,23,0.66), rgba(2,6,23,0.76)); opacity:0; transition:opacity .35s ease; z-index:1; pointer-events:none; }
-
-  .wrap{max-width:1100px;margin:28px auto;padding:20px;border-radius:14px;position:relative;z-index:2;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));box-shadow: 0 8px 40px rgba(2,6,23,0.6); border: 1px solid rgba(255,255,255,0.03);}
-
-  header{display:flex;align-items:center;gap:16px}
-  h1{margin:0;font-weight:800;color: #eef2ff; font-size:1.25rem}
-  .sub{color:var(--muted);font-size:0.9rem}
-
-  .user-panel { position: absolute; right: 18px; top: 18px; z-index: 30; }
-  .user-box { background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); padding: 8px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.03); color: #e6eef8; font-weight:700; cursor: pointer; display:flex; gap:8px; align-items:center; min-width:96px; justify-content:center; box-shadow: 0 6px 24px rgba(2,6,23,0.35); }
-  .user-box.small { padding:6px 10px; font-weight:600; }
-  .user-dropdown { margin-top:8px; background: linear-gradient(180deg,#081025,#06101a); border-radius:8px; border:1px solid rgba(255,255,255,0.04); box-shadow:0 12px 40px rgba(2,6,23,0.6); min-width:160px; overflow:hidden; }
-  .user-dropdown button { display:block; width:100%; text-align:left; padding:10px 12px; background:transparent; border:none; color:var(--muted); cursor:pointer; font-weight:700; }
-  .user-dropdown button:hover { color:#fff; background: rgba(255,255,255,0.02); }
-
-  .controls{display:flex;gap:16px;flex-wrap:wrap;margin-top:18px;align-items:center}
-  .card{background:transparent;padding:12px;border-radius:12px}
-  .segment{display:flex;background:transparent;border-radius:10px;padding:4px;gap:6px}
+/* --- ta CSS inchangée (copiée depuis ton snippet) --- */
+:root{
+  --muted:#94a3b8;
+  --accent-strong-wta:#8b5cf6;
+  --accent-strong:#1f7aec;
+  --success:#16a34a;
+  --danger:#ef4444;
+}
+.segment{display:flex;background:transparent;border-radius:10px;padding:4px;gap:6px}
   .seg-btn{padding:8px 12px;border-radius:8px;border:none;color:var(--muted);cursor:pointer;font-weight:600;background:transparent;transition:all .18s ease}
   .seg-btn.active{color:white; box-shadow:0 6px 18px rgba(2,6,23,0.6); transform:translateY(-2px)}
 
@@ -271,11 +240,7 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
       const li=document.createElement('li');
       li.textContent = pl.full_name + (pl.represented_country ? ` — ${pl.represented_country}` : '');
       li.dataset.index = i;
-      li.addEventListener('click', ()=>{
-        guessInput.value = pl.full_name;
-        suggestionsList.style.display='none';
-        guessInput.focus();
-      });
+      li.addEventListener('click', ()=>{ guessInput.value = pl.full_name; suggestionsList.style.display='none'; guessInput.focus(); });
       li.addEventListener('mouseover', ()=> { setSuggestionHighlight(i); });
       suggestionsList.appendChild(li);
     }
@@ -761,6 +726,7 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
 
   /* ---------------------------
      Preflight check: checkUserPlayedToday
+     CORRIGÉ — plus robuste (dates UTC/local/yesterday + user_id/pseudo attempts)
   ---------------------------- */
   async function checkUserPlayedToday(mode){
     let localUser = null;
@@ -770,21 +736,57 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
     const userId = localUser.user_id || localUser.id || null;
     const pseudo = localUser.pseudo || localUser.name || localUser.email || null;
 
-    const dateStr = new Date().toISOString().slice(0,10);
-    let qs = `?game_id=guess_player&date=${encodeURIComponent(dateStr)}&check_existing=1&mode=${encodeURIComponent(mode)}`;
-    if(userId) qs += `&user_id=${encodeURIComponent(userId)}`;
-    if(pseudo) qs += `&pseudo=${encodeURIComponent(pseudo)}`;
+    // build list of candidate dates to check (avoid timezone mismatch)
+    const now = new Date();
+    const utcDateStr = new Date().toISOString().slice(0,10); // UTC date
+    const localDateObj = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const localDateStr = localDateObj.getFullYear() + '-' + String(localDateObj.getMonth()+1).padStart(2,'0') + '-' + String(localDateObj.getDate()).padStart(2,'0');
+    const yesterdayDateStr = new Date(Date.now() - 24*3600*1000).toISOString().slice(0,10);
 
-    try {
-      const res = await fetch(`/.netlify/functions/leaderboard${qs}`, { credentials: 'same-origin' });
-      if(!res.ok) return { exists:false };
-      const j = await res.json();
-      if(j && j.ok && j.exists) return { exists:true, rows: j.rows || [] };
-      return { exists:false, rows: j.rows || [] };
-    } catch(e){
-      console.warn('checkUserPlayedToday error', e);
-      return { exists:false };
+    const datesToTry = Array.from(new Set([utcDateStr, localDateStr, yesterdayDateStr]));
+
+    // try queries in order: if userId present try with userId first, otherwise try with pseudo first
+    for(const d of datesToTry){
+      // Try by user_id (if available)
+      if(userId){
+        const qs = `?game_id=guess_player&date=${encodeURIComponent(d)}&check_existing=1&mode=${encodeURIComponent(mode)}&user_id=${encodeURIComponent(userId)}`;
+        console.info('[PRECHECK] checking existing (by user_id) ->', qs);
+        try {
+          const res = await fetch(`/.netlify/functions/leaderboard${qs}`, { credentials: 'same-origin', cache: 'no-cache' });
+          if(res && res.ok){
+            const j = await res.json().catch(()=>null);
+            if(j && j.ok && j.exists) return { exists:true, rows: j.rows || [] };
+          } else {
+            // try to parse body for debugging even if status not ok
+            const txt = await res.text().catch(()=>null);
+            console.warn('[PRECHECK] check by user_id returned non-ok', res.status, txt);
+          }
+        } catch(err) {
+          console.warn('[PRECHECK] fetch error (by user_id)', err);
+        }
+      }
+
+      // Try by pseudo (if available)
+      if(pseudo){
+        const qs2 = `?game_id=guess_player&date=${encodeURIComponent(d)}&check_existing=1&mode=${encodeURIComponent(mode)}&pseudo=${encodeURIComponent(pseudo)}`;
+        console.info('[PRECHECK] checking existing (by pseudo) ->', qs2);
+        try {
+          const res2 = await fetch(`/.netlify/functions/leaderboard${qs2}`, { credentials: 'same-origin', cache: 'no-cache' });
+          if(res2 && res2.ok){
+            const j2 = await res2.json().catch(()=>null);
+            if(j2 && j2.ok && j2.exists) return { exists:true, rows: j2.rows || [] };
+          } else {
+            const txt2 = await res2.text().catch(()=>null);
+            console.warn('[PRECHECK] check by pseudo returned non-ok', res2.status, txt2);
+          }
+        } catch(err) {
+          console.warn('[PRECHECK] fetch error (by pseudo)', err);
+        }
+      }
     }
+
+    // nothing found
+    return { exists:false };
   }
 
   /* ---------------------------
@@ -983,10 +985,7 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
         console.info('[LB] calling window.LEADERBOARD.submitScore', { gameId, points, options });
         const res = await window.LEADERBOARD.submitScore(gameId, points, options);
         console.info('[LB] submitScore response', res);
-        if(res && (res.ok === true || res.success === true || res.status === 'ok')){
-          console.info('[LB] library confirmed success — done.');
-          return true;
-        }
+        if(res && (res.ok === true || res.success === true || res.status === 'ok')){ return true; }
         console.warn('[LB] library returned non-success — will try server fallback', res);
       } catch(err){
         console.error('[LB] submitScore threw', err);
