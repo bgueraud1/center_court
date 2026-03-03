@@ -1,9 +1,9 @@
 // docs/js/leaderboard-client.js
 // Minimal leaderboard client - exposes window.LEADERBOARD with:
 // submitScore, fetchLeaderboard, createLeaderboardPanel, getLocalUser, getOrCreateAnonId
-// Also provides auth functions that call your Netlify functions:
+// Auth uses server Netlify functions:
 //  - POST /.netlify/functions/create-user  (body: { pseudo, password_hash })
-//  - POST /.netlify/functions/check_user   (body: { pseudo, password_hash })
+//  - POST /.netlify/functions/check-user   (body: { pseudo, password_hash })
 
 (function(){
   // --- utils ---
@@ -23,6 +23,9 @@
   const LB_ANON_KEY = 'lb_anon_v1';        // anonymous id for non-logged users
   const LB_LAST_SUB_PREFIX = 'lb_last_submit_';
 
+  // --- in-memory list of panels created by createLeaderboardPanel so we can update them on auth changes ---
+  const _registeredPanels = [];
+
   // --- anon id ---
   function getOrCreateAnonId(){
     let id = localStorage.getItem(LB_ANON_KEY);
@@ -35,7 +38,6 @@
 
   // --- minimal session store (only id + pseudo) ---
   function saveLocalSession(userObj){
-    // userObj should be { id: <string|number>, pseudo: <string> }
     if (!userObj || !userObj.id) return;
     const s = { id: String(userObj.id), pseudo: String(userObj.pseudo || '') };
     localStorage.setItem(LB_USER_KEY, JSON.stringify(s));
@@ -78,15 +80,6 @@
   }
 
   // --- submitScore -> calls Netlify function POST /.netlify/functions/submit-score
-  /*
-   - gameId: string
-   - points: number
-   - options.meta: optional string or object
-   - options.displayName: optional display name (string)
-   - options.mode: optional string (e.g. "ATP_top20")
-   - options.anon_id: optional string (will be used if provided)
-   - returns parsed JSON from server
-  */
   async function submitScore(gameId, points, options = {}){
     const user = getLocalUser();
     const anonIdFromOpts = options.anon_id || null;
@@ -101,7 +94,6 @@
 
     const payload = { game_id: gameId, points: Number(points) };
     if (user) {
-      // include user id and pseudo (server-side submit-score prefers user_id if provided)
       payload.user_id = user.id;
       payload.pseudo = user.pseudo;
     } else {
@@ -155,7 +147,62 @@
     }
   }
 
-  // --- small auth modal (DOM) helper, in English ---
+  // --- Inject clean modal CSS (site-friendly) ---
+  (function injectModalStyles(){
+    if (document.getElementById('lb-modal-styles')) return;
+    const css = `
+      /* leaderboard client modal styles */
+      .lb-modal-overlay {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(12, 18, 30, 0.55);
+        z-index: 99999;
+        padding: 20px;
+      }
+      .lb-modal {
+        width: 420px;
+        max-width: calc(100% - 40px);
+        background: linear-gradient(180deg, #ffffff 0%, #fbfbff 100%);
+        border-radius: 12px;
+        box-shadow: 0 16px 40px rgba(2,6,23,0.18);
+        padding: 20px;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+        color: #0f172a;
+      }
+      .lb-modal h3 { margin: 0 0 12px 0; font-size: 18px; font-weight: 700; }
+      .lb-modal .lb-field { margin-bottom: 12px; }
+      .lb-modal input[type="text"], .lb-modal input[type="password"] {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid #e6e9ef;
+        outline: none;
+        font-size: 14px;
+      }
+      .lb-modal .lb-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:6px; }
+      .lb-btn {
+        padding: 9px 12px;
+        border-radius: 8px;
+        font-weight: 600;
+        border: 0;
+        cursor: pointer;
+      }
+      .lb-btn:active { transform: translateY(1px); }
+      .lb-btn-ghost { background: transparent; border: 1px solid #e3e6ee; color: #1f2937; }
+      .lb-btn-primary { background: linear-gradient(90deg,#2563eb,#4f46e5); color: #fff; box-shadow: 0 6px 18px rgba(37,99,235,0.18); }
+      .lb-modal .lb-note { font-size: 12px; color: #6b7280; margin-top:10px; }
+      @media (max-width:480px){ .lb-modal { width: 100%; padding: 14px; border-radius: 10px; } }
+    `;
+    const st = document.createElement('style');
+    st.id = 'lb-modal-styles';
+    st.appendChild(document.createTextNode(css));
+    document.head.appendChild(st);
+  })();
+
+  // --- small auth modal (DOM) helper, in English, styled nicely ---
   function openAuthModal(defaultAction = 'login'){
     // returns a Promise that resolves with { action: 'login'|'register', pseudo, password } or null if cancelled
     return new Promise((resolve) => {
@@ -163,41 +210,28 @@
 
       const overlay = document.createElement('div');
       overlay.id = 'lb-auth-modal';
-      overlay.style.position = 'fixed';
-      overlay.style.left = '0';
-      overlay.style.top = '0';
-      overlay.style.width = '100%';
-      overlay.style.height = '100%';
-      overlay.style.display = 'flex';
-      overlay.style.alignItems = 'center';
-      overlay.style.justifyContent = 'center';
-      overlay.style.background = 'rgba(0,0,0,0.4)';
-      overlay.style.zIndex = '99999';
+      overlay.className = 'lb-modal-overlay';
 
       const panel = document.createElement('div');
-      panel.style.width = '360px';
-      panel.style.padding = '16px';
-      panel.style.borderRadius = '8px';
-      panel.style.background = '#fff';
-      panel.style.boxShadow = '0 8px 30px rgba(2,6,23,0.12)';
-      panel.style.fontFamily = 'system-ui, sans-serif';
-      panel.style.color = '#111';
-
+      panel.className = 'lb-modal';
       panel.innerHTML = `
-        <div style="font-weight:700;margin-bottom:10px;font-size:16px">Sign In / Sign Up</div>
-        <div style="margin-bottom:8px">
-          <input id="lb-modal-pseudo" placeholder="Username" style="width:100%;padding:10px;border-radius:6px;border:1px solid #ddd" />
+        <h3>Sign In / Sign Up</h3>
+        <div class="lb-field">
+          <label style="display:block;font-size:12px;color:#374151;margin-bottom:6px">Username</label>
+          <input id="lb-modal-pseudo" type="text" placeholder="Choose a username" />
         </div>
-        <div style="margin-bottom:12px">
-          <input id="lb-modal-pass" type="password" placeholder="Password" style="width:100%;padding:10px;border-radius:6px;border:1px solid #ddd" />
+        <div class="lb-field">
+          <label style="display:block;font-size:12px;color:#374151;margin-bottom:6px">Password</label>
+          <input id="lb-modal-pass" type="password" placeholder="Enter a password" />
         </div>
-        <div style="display:flex;gap:8px;justify-content:flex-end">
-          <button id="lb-modal-cancel" style="padding:8px 10px;border-radius:6px;background:transparent;border:1px solid #ccc">Cancel</button>
-          <button id="lb-modal-register" style="padding:8px 10px;border-radius:6px;background:#f0f0f0;border:1px solid #ddd">Sign Up</button>
-          <button id="lb-modal-login" style="padding:8px 10px;border-radius:6px;background:#2563eb;color:#fff;border:0">Sign In</button>
+        <div class="lb-actions">
+          <button id="lb-modal-cancel" class="lb-btn lb-btn-ghost">Cancel</button>
+          <button id="lb-modal-register" class="lb-btn lb-btn-ghost">Sign Up</button>
+          <button id="lb-modal-login" class="lb-btn lb-btn-primary">Sign In</button>
         </div>
-        <div style="margin-top:10px;font-size:12px;color:#666">Accounts are created and validated with the server.</div>
+        <div class="lb-note">Accounts are created and validated on the server (Supabase).</div>
       `;
+
       overlay.appendChild(panel);
       document.body.appendChild(overlay);
 
@@ -248,6 +282,10 @@
   // --- UI panel helper (simple) ---
   function createLeaderboardPanel(containerEl){
     if (!containerEl) return;
+    // register this panel (for automatic updates after auth change)
+    if (!_registeredPanels.includes(containerEl)) _registeredPanels.push(containerEl);
+
+    containerEl.setAttribute('data-leaderboard-panel','1');
     containerEl.innerHTML = `
       <div style="display:flex;gap:8px;align-items:center">
         <div id="lb-auth" style="display:flex;gap:8px;align-items:center">
@@ -275,7 +313,8 @@
         const success = await performServerLogin(p, pw);
         if (success) {
           updateAuthUi(containerEl);
-          alert('Signed in.');
+          _onAuthChanged();
+          showTemporaryMessage(containerEl, 'Signed in.');
         }
       } else {
         // open modal
@@ -285,13 +324,15 @@
           const ok = await performServerLogin(res.pseudo, res.password);
           if (ok) {
             updateAuthUi(containerEl);
-            alert('Signed in.');
+            _onAuthChanged();
+            showTemporaryMessage(containerEl, 'Signed in.');
           }
         } else if (res.action === 'register') {
           const ok = await performServerSignup(res.pseudo, res.password);
           if (ok) {
             updateAuthUi(containerEl);
-            alert('Account created and signed in.');
+            _onAuthChanged();
+            showTemporaryMessage(containerEl, 'Account created and signed in.');
           }
         }
       }
@@ -300,13 +341,31 @@
     btnLogout.onclick = () => {
       clearLocalSession();
       updateAuthUi(containerEl);
-      window.dispatchEvent(new Event('lb:auth-changed'));
+      _onAuthChanged();
+      showTemporaryMessage(containerEl, 'Signed out.');
     };
 
     containerEl.querySelector('#lb-refresh').onclick = () => refreshLeaderboard(containerEl.dataset.gameId, containerEl);
 
     updateAuthUi(containerEl);
     refreshLeaderboard(containerEl.dataset.gameId, containerEl);
+  }
+
+  function showTemporaryMessage(containerEl, text){
+    // small ephemeral message near panel
+    try {
+      let note = containerEl.querySelector('.lb-temp-note');
+      if (!note) {
+        note = document.createElement('div');
+        note.className = 'lb-temp-note';
+        note.style.fontSize = '13px';
+        note.style.color = '#065f46';
+        note.style.marginTop = '8px';
+        containerEl.appendChild(note);
+      }
+      note.textContent = text;
+      setTimeout(()=>{ if (note && note.parentNode) note.remove(); }, 3000);
+    } catch(e){ /* ignore */ }
   }
 
   function updateAuthUi(containerEl){
@@ -316,15 +375,15 @@
     const btnLogin = containerEl.querySelector('#lb-login');
     const btnLogout = containerEl.querySelector('#lb-logout');
     if (user) {
-      inputPseudo.value = user.pseudo;
-      inputPass.value = '';
-      btnLogin.style.display = 'none';
-      btnLogout.style.display = '';
+      if (inputPseudo) inputPseudo.value = user.pseudo;
+      if (inputPass) inputPass.value = '';
+      if (btnLogin) btnLogin.style.display = 'none';
+      if (btnLogout) btnLogout.style.display = '';
     } else {
-      inputPseudo.value = '';
-      inputPass.value = '';
-      btnLogin.style.display = '';
-      btnLogout.style.display = 'none';
+      if (inputPseudo) inputPseudo.value = '';
+      if (inputPass) inputPass.value = '';
+      if (btnLogin) btnLogin.style.display = '';
+      if (btnLogout) btnLogout.style.display = 'none';
     }
   }
 
@@ -347,18 +406,20 @@
       map[key].rows.push(r);
     });
     const arr = Object.values(map).sort((a,b)=>b.total-a.total);
-    const rowsHtml = arr.map((u,i) => `<div style="padding:6px;border-bottom:1px solid rgba(0,0,0,0.06)"><strong>#${i+1} ${u.name}</strong> — ${u.total} pts</div>`).join('');
+    const rowsHtml = arr.map((u,i) => `<div style="padding:6px;border-bottom:1px solid rgba(0,0,0,0.06)"><strong>#${i+1} ${escapeHtml(u.name)}</strong> — ${u.total} pts</div>`).join('');
     display.innerHTML = rowsHtml || '<div>No scores today</div>';
+  }
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
   // --- server signup / login integration ---
   async function performServerSignup(pseudo, password){
     try {
       const hash = await sha256Hex(password);
-      // call your Netlify function create-user
       const res = await callNetlifyFunction('/.netlify/functions/create-user', { pseudo, password_hash: hash });
       if (!res.ok) {
-        // server returned non-200, try to surface server message if present
         const body = res.body || {};
         if (body.error) {
           alert(`Sign up failed: ${body.error}${body.detail ? ' - ' + JSON.stringify(body.detail) : ''}`);
@@ -367,16 +428,15 @@
         }
         return false;
       }
-      // parse body: create-user returns { ok:true, inserted: [...] } on success
       const b = res.body || {};
       if (b.ok && Array.isArray(b.inserted) && b.inserted.length > 0) {
-        // take first inserted row
         const u = b.inserted[0];
-        saveLocalSession({ id: u.id || u.ID || u.id?.toString?.() || '', pseudo: u.pseudo || pseudo });
-        window.dispatchEvent(new Event('lb:auth-changed'));
+        // prefer id fields returned by PostgREST (id)
+        const idVal = u.id ?? u.ID ?? u.Id ?? null;
+        saveLocalSession({ id: idVal ?? '', pseudo: u.pseudo || pseudo });
+        _onAuthChanged();
         return true;
       } else {
-        // maybe create-user returned specific error in body
         if (b.error) {
           alert('Sign up error: ' + (b.error || 'unknown'));
         } else {
@@ -394,12 +454,10 @@
   async function performServerLogin(pseudo, password){
     try {
       const hash = await sha256Hex(password);
-      // call your Netlify function check_user
-      const res = await callNetlifyFunction('/.netlify/functions/check_user', { pseudo, password_hash: hash });
+      const res = await callNetlifyFunction('/.netlify/functions/check-user', { pseudo, password_hash: hash });
       if (!res.ok) {
         const body = res.body || {};
         if (body.error) {
-          // check_user returns 401 for invalid credentials
           alert(`Sign in failed: ${body.error}${body.detail ? ' - ' + JSON.stringify(body.detail) : ''}`);
         } else {
           alert('Sign in failed (server error).');
@@ -409,7 +467,7 @@
       const b = res.body || {};
       if (b.ok && b.user && b.user.id) {
         saveLocalSession({ id: b.user.id, pseudo: b.user.pseudo || pseudo });
-        window.dispatchEvent(new Event('lb:auth-changed'));
+        _onAuthChanged();
         return true;
       } else {
         if (b.error) {
@@ -426,7 +484,33 @@
     }
   }
 
-  // --- Auth integration functions exposed to page ---
+  // --- Centralized reaction to auth change: update panels & try to update page UI ---
+  function _onAuthChanged(){
+    // dispatch event so other parts of app can listen
+    try { window.dispatchEvent(new Event('lb:auth-changed')); } catch(e){ /* ignore */ }
+
+    // update all registered leaderboard panels
+    try {
+      for (const p of _registeredPanels) {
+        try { updateAuthUi(p); } catch(e){ /* ignore */ }
+      }
+    } catch(e){}
+
+    // Try to call page-level helpers if present (some pages expose these)
+    try {
+      if (typeof window.renderUserPanel === 'function') {
+        try { window.renderUserPanel(); } catch(e) { /* ignore */ }
+      }
+      if (typeof window.updateUserPanel === 'function') {
+        try { window.updateUserPanel(); } catch(e) { /* ignore */ }
+      }
+      if (typeof window.refreshPageAuthUI === 'function') {
+        try { window.refreshPageAuthUI(); } catch(e) { /* ignore */ }
+      }
+    } catch(e){}
+  }
+
+  // --- small helpers to expose programmatic auth UI ---
   async function _openLoginPrompt(){
     const res = await openAuthModal('login');
     if (!res) return null;
@@ -452,11 +536,11 @@
 
   function _logoutAndNotify(){
     clearLocalSession();
-    window.dispatchEvent(new Event('lb:auth-changed'));
+    _onAuthChanged();
     return true;
   }
 
-  // export API
+  // --- export API ---
   window.LEADERBOARD = {
     submitScore,
     fetchLeaderboard,
@@ -475,4 +559,12 @@
     logout: _logoutAndNotify,
     signOut: _logoutAndNotify
   };
-})();
+
+  // --- listening for global auth-change to refresh registered panels (in case some external code dispatches it) ---
+  window.addEventListener('lb:auth-changed', () => {
+    for (const p of _registeredPanels) {
+      try { updateAuthUi(p); } catch(e){}
+    }
+  });
+
+})(); 
