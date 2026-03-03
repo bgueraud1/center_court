@@ -35,6 +35,51 @@
   h1{margin:0;font-weight:800;color: #eef2ff; font-size:1.25rem}
   .sub{color:var(--muted);font-size:0.9rem}
 
+  /* user panel (top-right) */
+  .user-panel {
+    position: absolute;
+    right: 18px;
+    top: 18px;
+    z-index: 30;
+  }
+  .user-box {
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    padding: 8px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.03);
+    color: #e6eef8;
+    font-weight:700;
+    cursor: pointer;
+    display:flex;
+    gap:8px;
+    align-items:center;
+    min-width:96px;
+    justify-content:center;
+    box-shadow: 0 6px 24px rgba(2,6,23,0.35);
+  }
+  .user-box.small { padding:6px 10px; font-weight:600; }
+  .user-dropdown {
+    margin-top:8px;
+    background: linear-gradient(180deg,#081025,#06101a);
+    border-radius:8px;
+    border:1px solid rgba(255,255,255,0.04);
+    box-shadow:0 12px 40px rgba(2,6,23,0.6);
+    min-width:160px;
+    overflow:hidden;
+  }
+  .user-dropdown button {
+    display:block;
+    width:100%;
+    text-align:left;
+    padding:10px 12px;
+    background:transparent;
+    border:none;
+    color:var(--muted);
+    cursor:pointer;
+    font-weight:700;
+  }
+  .user-dropdown button:hover { color:#fff; background: rgba(255,255,255,0.02); }
+
   .controls{display:flex;gap:16px;flex-wrap:wrap;margin-top:18px;align-items:center}
   .card{background:transparent;padding:12px;border-radius:12px}
   .segment{display:flex;background:transparent;border-radius:10px;padding:4px;gap:6px}
@@ -95,6 +140,12 @@
   <div id="flagOverlay" aria-hidden="true"></div>
 
   <div class="wrap">
+    <!-- user panel (top-right) -->
+    <div class="user-panel" id="userPanel">
+      <div class="user-box small" id="userBox" aria-haspopup="true" aria-expanded="false">Connect</div>
+      <!-- dropdown injected dynamically -->
+    </div>
+
     <header>
       <div><h1>Guess the Player</h1><div class="sub">Compare age, career best rank, birthplace distance and height.</div></div>
     </header>
@@ -173,9 +224,6 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <div data-lb-container data-game-id="guess_player" id="leaderboardWidget" style="margin-top:12px"></div>
-
-
 <script>
 /* ---------------------------
    Paths & state
@@ -205,6 +253,7 @@ let dailyList = [];  // array of candidate objects (up to 8)
 
 /* runtime state */
 let gameStarted = false;
+let gameBlockedDueToExisting = false; // new flag to block gameplay when already played
 
 /* guessed names this round (excluded from suggestions) */
 let guessedNames = new Set();
@@ -520,6 +569,7 @@ function handleGuessSafe(name){
 
 function handleGuess(name){
   if(!gameStarted){ showToast('Round not active yet'); return; }
+  if(gameBlockedDueToExisting){ showToast('You have already completed this variant today'); return; }
   if(remaining <= 0){ showToast('No tries left — new round will start'); return; }
   const guessPlayer = findPlayerByName(name);
   if(!guessPlayer){
@@ -566,7 +616,7 @@ function revealAnswer(won, gainedPoints){
   const text = document.getElementById('modalText');
   const details = document.getElementById('modalDetails');
 
-  // message visible dans le modal
+  // message visible in the modal
   if(won){
     title.textContent = 'You won!';
     text.textContent = `You earned ${gainedPoints} points this round.`;
@@ -575,11 +625,10 @@ function revealAnswer(won, gainedPoints){
     text.textContent = 'No points this time — new round will start.';
   }
 
-  // --- Préparer les données pour l'envoi au leaderboard ---
-  // pointsToSend et displayName doivent être définis AVANT d'appeler le helper
+  // --- Prepare data for leaderboard submit ---
   const pointsToSend = Number(gainedPoints) || 0;
 
-  // essayer d'inférer un pseudo local comme avant
+  // try to infer a local pseudo as before
   let displayName = null;
   try {
     if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
@@ -592,7 +641,7 @@ function revealAnswer(won, gainedPoints){
   const displayNameInput = document.querySelector('#lb-pseudo') || document.querySelector('#someDisplayNameInput');
   if (!displayName && displayNameInput) displayName = (displayNameInput.value || '').trim() || null;
 
-  // appel non-bloquant au helper robuste (défini plus bas dans le script)
+  // call robust helper (defined below)
   try {
     submitScoreToLeaderboard(pointsToSend, { won }, { displayName });
     console.info('[LB] submitScoreToLeaderboard called', { pointsToSend, displayName, won });
@@ -600,7 +649,7 @@ function revealAnswer(won, gainedPoints){
     console.error('[LB] submitScoreToLeaderboard threw', e);
   }
 
-  // --- afficher les détails du target dans le modal (inchangé) ---
+  // --- show target details in modal (unchanged) ---
   const targetHtml = `<div style="text-align:left;margin-top:12px"><h3 style="margin:0 0 6px 0;color:#fff">${target.full_name} <span style="color:var(--muted);font-size:0.9rem">(${target.source || ''})</span></h3><ul style="color:var(--muted);padding-left:18px"><li>Country: ${(target.represented_country) ? `<strong style="color:#fff">${target.represented_country}</strong>` : '—'}</li><li>Birth: ${(target.birthplace || '—')} (${target.birth_date || '—'})</li><li>Age: ${(target.age!=null ? target.age : '—')}</li><li>Career best: ${(isFinite(target.rank) ? target.rank : '—')}</li><li>Height: ${(target.height_cm!=null ? target.height_cm + ' cm' : '—')}</li></ul></div>`;
   details.innerHTML = targetHtml;
   modal.classList.add('show');
@@ -708,82 +757,135 @@ function applyTourTheme(){
 }
 
 /* ---------------------------
-   Wiring & Init
-   - automatic start on load and on any setting change
+   USER PANEL (top-right)
+   - shows pseudo if connected, or "Connect" if not
+   - clicking opens small dropdown with relevant options:
+     - if connected: Log out
+     - if not: Log In, Create Account
+   - uses window.LEADERBOARD.* if available, otherwise graceful fallback
 ---------------------------- */
-document.addEventListener('DOMContentLoaded', async ()=>{
-  try{
-    const okPlayers = await loadPlayersCatalog();
-    if(!okPlayers){ alert('Players catalog missing or malformed.'); return; }
-    await loadGeocodes();
-    await loadDailyGuessIfAvailable();
-    await loadCountryTexts();
+const userBox = document.getElementById('userBox');
+const userPanel = document.getElementById('userPanel');
 
-    // ensure difficulty visibility reflects COTD default
-    updateDifficultyVisibility();
-    renderCotdBanner();
-    applyTourTheme();
-    renderCountryText();
+function renderUserPanel(){
+  const dropdownExisting = userPanel.querySelector('.user-dropdown');
+  if(dropdownExisting) dropdownExisting.remove();
 
-    // wire events -> on any change, (re)start the round automatically
-    document.getElementById('btnATP').addEventListener('click', ()=>{ if(currentTour !== 'ATP'){ currentTour='ATP'; document.getElementById('tourLabel').textContent=currentTour; applyTourTheme(); startGame(); } });
-    document.getElementById('btnWTA').addEventListener('click', ()=>{ if(currentTour !== 'WTA'){ currentTour='WTA'; document.getElementById('tourLabel').textContent=currentTour; applyTourTheme(); startGame(); } });
-
-    document.querySelectorAll('.seg-btn').forEach(btn=>{
-      btn.addEventListener('click', (e)=>{
-        const newTop = Number(e.currentTarget.dataset.top);
-        if(newTop !== levelTopN){
-          document.querySelectorAll('.seg-btn').forEach(b=>b.classList.remove('active'));
-          e.currentTarget.classList.add('active');
-          levelTopN = newTop;
-          document.getElementById('levelLabel').textContent = `Top ${levelTopN}`;
-          startGame();
-        }
-      });
-    });
-
-    document.getElementById('cotdToggle').addEventListener('click', ()=>{
-      cotdEnabled = !cotdEnabled;
-      document.getElementById('cotdToggle').textContent = cotdEnabled ? 'ON' : 'OFF';
-      renderCotdBanner();
-      renderCountryText();
-      startGame();
-    });
-
-    // Guess handling
-    document.getElementById('guessBtn').addEventListener('click', ()=>{
-      const name = guessInput.value;
-      if(!name) { showToast('Type a name before guessing'); return; }
-      handleGuessSafe(name);
-      guessInput.value = '';
-      suggestionsList.style.display = 'none';
-    });
-
-    // initial auto-start
-    startGame();
-  }catch(err){
-    console && console.error && console.error(err);
-    showToast('Initialization error');
-  }
-});
-
-// initialiser le panneau LB (après que DOM est prêt)
-// --- à la fin du DOMContentLoaded handler, après startGame() ---
-const lbContainer = document.getElementById('leaderboardWidget');
-if (lbContainer) {
-  // safety: attendre que window.LEADERBOARD soit défini (ou réessayer)
-  const initLb = () => {
-    if (window.LEADERBOARD && window.LEADERBOARD.createLeaderboardPanel) {
-      lbContainer.dataset.gameId = 'guess_player';
-      window.LEADERBOARD.createLeaderboardPanel(lbContainer);
-    } else {
-      // retry léger si la librairie n'est pas encore prête
-      setTimeout(initLb, 200);
+  let localUser = null;
+  try {
+    if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
+      localUser = window.LEADERBOARD.getLocalUser() || null;
     }
-  };
-  initLb();
+  } catch (e) {
+    console.warn('getLocalUser threw', e);
+  }
+
+  if(localUser && (localUser.pseudo || localUser.email || localUser.id || localUser.user_id)){
+    const name = localUser.pseudo || localUser.email || localUser.id || localUser.user_id;
+    userBox.textContent = name;
+    userBox.setAttribute('aria-expanded','false');
+    userBox.onclick = toggleUserDropdown;
+  } else {
+    userBox.textContent = 'Connect';
+    userBox.onclick = toggleUserDropdown;
+  }
 }
 
+function toggleUserDropdown(e){
+  e.stopPropagation();
+  const existing = userPanel.querySelector('.user-dropdown');
+  if(existing){
+    existing.remove();
+    userBox.setAttribute('aria-expanded','false');
+    return;
+  }
+  const dd = document.createElement('div');
+  dd.className = 'user-dropdown';
+  dd.setAttribute('role','menu');
+
+  let localUser = null;
+  try { localUser = (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') ? window.LEADERBOARD.getLocalUser() : null; } catch (e) { localUser = null; }
+
+  if(localUser && (localUser.pseudo || localUser.user_id)){
+    // connected: show Log Out
+    const btnLogout = document.createElement('button');
+    btnLogout.type='button';
+    btnLogout.textContent = 'Log out';
+    btnLogout.onclick = async () => {
+      try {
+        if(window.LEADERBOARD && typeof window.LEADERBOARD.logout === 'function'){
+          await window.LEADERBOARD.logout();
+          showToast('Logged out');
+        } else if(window.LEADERBOARD && typeof window.LEADERBOARD.signOut === 'function'){
+          await window.LEADERBOARD.signOut();
+          showToast('Logged out');
+        } else {
+          // fallback: clear local storage keys that LB might use and reload
+          try{ localStorage.removeItem('lb_score_queue_v1'); }catch(e){}
+          showToast('Logged out (local)');
+        }
+      } catch(e){
+        console.error('Logout failed', e);
+        showToast('Logout failed');
+      } finally {
+        // re-render panel (small delay to allow library to update)
+        setTimeout(renderUserPanel, 300);
+        // if we blocked the game earlier, re-check
+        startGame();
+      }
+    };
+    dd.appendChild(btnLogout);
+  } else {
+    // not connected: show Log In and Create Account
+    const btnLogin = document.createElement('button');
+    btnLogin.type='button';
+    btnLogin.textContent = 'Log In';
+    btnLogin.onclick = () => {
+      // try multiple possible entry points in leaderboard lib
+      if(window.LEADERBOARD){
+        if(typeof window.LEADERBOARD.openLogin === 'function') return window.LEADERBOARD.openLogin();
+        if(typeof window.LEADERBOARD.login === 'function') return window.LEADERBOARD.login();
+        if(typeof window.LEADERBOARD.showAuth === 'function') return window.LEADERBOARD.showAuth();
+      }
+      showToast('Login not available from this page');
+    };
+    dd.appendChild(btnLogin);
+
+    const btnCreate = document.createElement('button');
+    btnCreate.type='button';
+    btnCreate.textContent = 'Create account';
+    btnCreate.onclick = () => {
+      if(window.LEADERBOARD && typeof window.LEADERBOARD.openRegister === 'function') return window.LEADERBOARD.openRegister();
+      if(window.LEADERBOARD && typeof window.LEADERBOARD.register === 'function') return window.LEADERBOARD.register();
+      showToast('Register not available from this page');
+    };
+    dd.appendChild(btnCreate);
+  }
+
+  userPanel.appendChild(dd);
+  userBox.setAttribute('aria-expanded','true');
+
+  // click outside to close
+  setTimeout(()=> {
+    const onDoc = (ev) => {
+      if(!userPanel.contains(ev.target)){
+        const d = userPanel.querySelector('.user-dropdown');
+        if(d) d.remove();
+        userBox.setAttribute('aria-expanded','false');
+        document.removeEventListener('click', onDoc);
+      }
+    };
+    document.addEventListener('click', onDoc);
+  }, 10);
+}
+
+/* Initialize user panel after DOM ready and after eventual LB lib ready */
+(function watchForLbToRenderUser(){
+  renderUserPanel();
+  // if LB defines an event/callback to notify auth change, you can hook it here.
+  // poll once to update pseudo if LB becomes available shortly after load:
+  const t = setInterval(()=>{ renderUserPanel(); if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser==='function') { clearInterval(t); } }, 400);
+})();
 
 /* ---------------------------
    Update selectedCountry display:
@@ -799,13 +901,48 @@ function updateSelectedCountryDisplay(){
 }
 
 /* ---------------------------
+   Check whether connected user already has a score for this mode/date
+   - calls updated leaderboard endpoint with check_existing=1
+   - returns { exists: boolean, rows: [...] }
+---------------------------- */
+async function checkUserPlayedToday(mode){
+  let localUser = null;
+  try { localUser = (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') ? window.LEADERBOARD.getLocalUser() : null; } catch(e){ localUser = null; }
+  if(!localUser) return { exists:false };
+
+  // get best identifier(s)
+  const userId = localUser.user_id || localUser.id || null;
+  const pseudo = localUser.pseudo || localUser.name || localUser.email || null;
+
+  const dateStr = new Date().toISOString().slice(0,10); // YYYY-MM-DD (today)
+  let qs = `?game_id=guess_player&date=${encodeURIComponent(dateStr)}&check_existing=1&mode=${encodeURIComponent(mode)}`;
+  if(userId) qs += `&user_id=${encodeURIComponent(userId)}`;
+  if(pseudo) qs += `&pseudo=${encodeURIComponent(pseudo)}`;
+
+  try {
+    const res = await fetch(`/.netlify/functions/leaderboard${qs}`, { credentials: 'same-origin' });
+    if(!res.ok) return { exists:false };
+    const j = await res.json();
+    if(j && j.ok && j.exists) return { exists:true, rows: j.rows || [] };
+    return { exists:false, rows: j.rows || [] };
+  } catch(e){
+    console.warn('checkUserPlayedToday error', e);
+    return { exists:false };
+  }
+}
+
+/* ---------------------------
    Start Game (automatic)
    - chooses the target (dailyMap if present) for the exact combo (tour+level) or by_country if COTD ON
    - resets remaining and guesses, keeps score
    - clears table and updates display
    - clears guessedNames set
+   - NEW: if connected user already completed this mode today, block play and show modal
 ---------------------------- */
-function startGame(){
+async function startGame(){
+  // reset block flag
+  gameBlockedDueToExisting = false;
+
   remaining = MAX_TRIES;
   guesses = [];
   guessedNames.clear();          // clear exclusions at new round
@@ -840,7 +977,56 @@ function startGame(){
     if(pick.country) fixedCountry = pick.country;
   }
 
+  // compute mode string exactly as used for submits
+  const mode = (cotdEnabled ? `${currentTour}_by_country` : `${currentTour}_top${levelTopN}`);
+
+  // NEW: If user connected and already has a score for this mode today -> block replay
+  try {
+    const check = await checkUserPlayedToday(mode);
+    if(check.exists){
+      gameBlockedDueToExisting = true;
+      gameStarted = false;
+      // disable input and button
+      guessInput.disabled = true;
+      document.getElementById('guessBtn').disabled = true;
+
+      // show modal telling user it's already completed
+      const modal = document.getElementById('modal');
+      const title = document.getElementById('modalTitle');
+      const text = document.getElementById('modalText');
+      const details = document.getElementById('modalDetails');
+
+      title.textContent = 'Already completed';
+      text.textContent = `You have already completed this variant today (${mode}). You cannot replay the same variant today.`;
+      // include brief details if available
+      let infoHtml = `<div style="text-align:left;margin-top:12px;color:var(--muted)">`;
+      if(check.rows && check.rows.length){
+        for(const r of check.rows.slice(0,3)){
+          infoHtml += `<div style="margin-bottom:6px"><strong>Points:</strong> ${r.points || 0} — <strong>Mode:</strong> ${r.mode || '—'} — <strong>At:</strong> ${r.created_at || '—'}</div>`;
+        }
+      }
+      infoHtml += `</div>`;
+      details.innerHTML = infoHtml;
+      modal.classList.add('show');
+      modal.setAttribute('aria-hidden','false');
+      document.getElementById('closeModalBtn').onclick = function(){ modal.classList.remove('show'); modal.setAttribute('aria-hidden','true'); };
+      updateSelectedCountryDisplay();
+      renderCotdBanner();
+      renderCountryText();
+      clearGuessesTable();
+      return; // stop startGame flow: game remains blocked
+    }
+  } catch(e){
+    console.warn('Error checking existing score', e);
+    // fallback: allow play
+  }
+
+  // No existing score -> enable play
   gameStarted = true;
+  gameBlockedDueToExisting = false;
+  guessInput.disabled = false;
+  document.getElementById('guessBtn').disabled = false;
+
   updateSelectedCountryDisplay();
   renderCotdBanner();
   renderCountryText();
@@ -872,7 +1058,7 @@ function pickRandomTargetFromPool(tour, topN, fixedByCountry = null){
    - waitForLeaderboard: poll for window.LEADERBOARD
    - queue in localStorage if LB not ready or submit fails
    - flushScoreQueue when LB becomes ready
----------------------------- */
+   ---------------------------- */
 
 const LB_QUEUE_KEY = 'lb_score_queue_v1';
 
@@ -920,49 +1106,39 @@ function waitForLeaderboard(timeout = 5000, interval = 200){
  *  - when submitScore responds with ok:false, tries a direct fetch fallback
  *  - logs everything so you see Network / Console evidence
  */
-/** Remplacement de trySubmitEntryToLB : appelle d'abord la lib, puis fallback vers Netlify function */
 async function trySubmitEntryToLB(entry){
   const gameId = entry.gameId || 'guess_player';
   const points = Number(entry.points) || 0;
-  // entry.options doit contenir { mode, meta, displayName } selon notre helper
   const options = entry.options || {};
   const pseudo = options.displayName || options.pseudo || null;
   const mode = options.mode || null;
   const meta = options.meta || null;
 
-  // 1) Premier essai : utiliser la librairie si dispo
+  // 1) library attempt
   if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
     try {
       console.info('[LB] calling window.LEADERBOARD.submitScore', { gameId, points, options });
       const res = await window.LEADERBOARD.submitScore(gameId, points, options);
       console.info('[LB] submitScore response', res);
-
-      // Succès uniquement si ok:true / success:true / status:'ok'
       if(res && (res.ok === true || res.success === true || res.status === 'ok')){
         console.info('[LB] library confirmed success — done.');
         return true;
       }
-
-      // Si la librairie répond ok:false (ex: already_submitted_local), on log et on passe au fallback
       console.warn('[LB] library returned non-success — will try server fallback', res);
     } catch(err){
       console.error('[LB] submitScore threw', err);
-      // on continue vers le fallback
     }
   } else {
     console.warn('[LB] window.LEADERBOARD.submitScore not available; using server fallback');
   }
 
-  // 2) Fallback: appeler la Netlify Function qui écrit en Supabase
-  // URL attendue pour Netlify function locale/déployée sur le même domaine :
+  // 2) fallback to server-side submit
   const fallbackEndpoint = '/.netlify/functions/submit-score';
-
-  // Le payload suit ce que ta function attend : game_id, points, pseudo, mode, meta
   const payload = {
     game_id: gameId,
     points: points,
-    pseudo: pseudo,          // null autorisé
-    mode: mode,              // ex: "ATP_top20"
+    pseudo: pseudo,
+    mode: mode,
     meta: (typeof meta === 'string' ? meta : (meta ? JSON.stringify(meta) : null)),
     ts: (new Date()).toISOString()
   };
@@ -971,17 +1147,15 @@ async function trySubmitEntryToLB(entry){
     console.info('[LB-FALLBACK] POST', fallbackEndpoint, payload);
     const resp = await fetch(fallbackEndpoint, {
       method: 'POST',
-      credentials: 'same-origin', // envoyer cookies de session si nécessaire
+      credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
 
-    // Debug complet : status + body
     const text = await resp.text().catch(()=>null);
     console.info('[LB-FALLBACK] response status', resp.status, text);
 
     if (resp.ok){
-      // parse JSON si possible
       let data = null;
       try { data = text ? JSON.parse(text) : null; } catch(e){ data = text; }
       console.info('[LB-FALLBACK] success', data);
@@ -1005,7 +1179,6 @@ async function flushScoreQueue(){
     console.info('Leaderboard not ready; will keep queue for later flush');
     return;
   }
-  // attempt to submit sequentially
   for(let i=0;i<10;i++){
     const q = readScoreQueue();
     if(!q || q.length === 0) break;
@@ -1013,7 +1186,7 @@ async function flushScoreQueue(){
     const ok = await trySubmitEntryToLB(entry);
     if(ok){
       popScoreQueue();
-      showToast('Score envoyé au leaderboard', 2000);
+      showToast('Score submitted to leaderboard', 2000);
     } else {
       console.warn('Submit failed for queued entry — stop flush now');
       break;
@@ -1040,27 +1213,23 @@ async function submitScoreToLeaderboard(points, meta = {}, extra = {}){
     } else {
       console.warn('Fast path submit failed; queueing the score for retry.');
       pushToScoreQueue({ points, options });
-      showToast('Score mis en file pour tentative ultérieure', 2000);
+      showToast('Score queued for retry', 2000);
       return;
     }
   } else {
     // Not ready: queue it and schedule flush when LB init completes
     pushToScoreQueue({ points, options });
-    showToast('Leaderboard non disponible, score mis en file', 2000);
-    // schedule an attempt in a bit (do not block)
+    showToast('Leaderboard unavailable — score queued', 2000);
     setTimeout(flushScoreQueue, 1000);
   }
 }
 
-/* Hook: when leaderboard lib initializes (the page already tries to create panel),
-   call flushScoreQueue so queued scores are sent */
+/* Hook: when leaderboard lib initializes, call flushScoreQueue */
 (function watchForLeaderboardInit(){
-  // if LB already ready, flush now
   if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
     setTimeout(flushScoreQueue, 300);
     return;
   }
-  // otherwise poll for initialization and flush once ready
   const poll = setInterval(() => {
     if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
       clearInterval(poll);
@@ -1069,7 +1238,65 @@ async function submitScoreToLeaderboard(points, meta = {}, extra = {}){
   }, 250);
 })();
 
+/* ---------------------------
+   Wiring & Init
+---------------------------- */
+document.addEventListener('DOMContentLoaded', async ()=>{
+  try{
+    const okPlayers = await loadPlayersCatalog();
+    if(!okPlayers){ alert('Players catalog missing or malformed.'); return; }
+    await loadGeocodes();
+    await loadDailyGuessIfAvailable();
+    await loadCountryTexts();
 
+    // ensure difficulty visibility reflects COTD default
+    updateDifficultyVisibility();
+    renderCotdBanner();
+    applyTourTheme();
+    renderCountryText();
+    renderUserPanel();
+
+    // wire events -> on any change, (re)start the round automatically
+    document.getElementById('btnATP').addEventListener('click', ()=>{ if(currentTour !== 'ATP'){ currentTour='ATP'; document.getElementById('tourLabel').textContent=currentTour; applyTourTheme(); startGame(); } });
+    document.getElementById('btnWTA').addEventListener('click', ()=>{ if(currentTour !== 'WTA'){ currentTour='WTA'; document.getElementById('tourLabel').textContent=currentTour; applyTourTheme(); startGame(); } });
+
+    document.querySelectorAll('.seg-btn').forEach(btn=>{
+      btn.addEventListener('click', (e)=>{
+        const newTop = Number(e.currentTarget.dataset.top);
+        if(newTop !== levelTopN){
+          document.querySelectorAll('.seg-btn').forEach(b=>b.classList.remove('active'));
+          e.currentTarget.classList.add('active');
+          levelTopN = newTop;
+          document.getElementById('levelLabel').textContent = `Top ${levelTopN}`;
+          startGame();
+        }
+      });
+    });
+
+    document.getElementById('cotdToggle').addEventListener('click', ()=>{
+      cotdEnabled = !cotdEnabled;
+      document.getElementById('cotdToggle').textContent = cotdEnabled ? 'ON' : 'OFF';
+      renderCotdBanner();
+      renderCountryText();
+      startGame();
+    });
+
+    // Guess handling
+    document.getElementById('guessBtn').addEventListener('click', ()=>{
+      const name = guessInput.value;
+      if(!name) { showToast('Type a name before guessing'); return; }
+      handleGuessSafe(name);
+      guessInput.value = '';
+      suggestionsList.style.display = 'none';
+    });
+
+    // initial auto-start
+    startGame();
+  }catch(err){
+    console && console.error && console.error(err);
+    showToast('Initialization error');
+  }
+});
 </script>
 </body>
 </html>
