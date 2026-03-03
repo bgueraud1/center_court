@@ -764,16 +764,40 @@ authAction.addEventListener('click', (e) => { e.preventDefault(); handleAuthSubm
 
 
 /* --- local persistence for "logged in" user --- */
+// clé locale (vérifie que c'est la même partout)
 const LOCAL_USER_KEY = 'lb_current_user';
+
 function persistLocalUser(u) {
-  try { localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(u)); } catch(e){ }
-  // expose to window.LEADERBOARD stub too
-  if (window.LEADERBOARD && typeof window.LEADERBOARD.setLocalUser === 'function') {
-    try { window.LEADERBOARD.setLocalUser(u); } catch(e){}
+  try {
+    if (!u) {
+      localStorage.removeItem(LOCAL_USER_KEY);
+    } else {
+      localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(u));
+    }
+  } catch (e) {
+    console.warn('persistLocalUser storage error', e);
+  }
+
+  // exposer dans window.LEADERBOARD si la stub existe
+  try {
+    if (window.LEADERBOARD && typeof window.LEADERBOARD.setLocalUser === 'function') {
+      window.LEADERBOARD.setLocalUser(u);
+    } else {
+      // create minimal setter so other code can rely on it
+      if (!window.LEADERBOARD) window.LEADERBOARD = {};
+      window.LEADERBOARD.setLocalUser = function(x){
+        try { if(!x) localStorage.removeItem(LOCAL_USER_KEY); else localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(x)); } catch(e){}
+      };
+    }
+  } catch(e){
+    console.warn('persistLocalUser lb exposure error', e);
   }
 }
 function readLocalUser() {
-  try { const s = localStorage.getItem(LOCAL_USER_KEY); return s ? JSON.parse(s) : null; } catch(e){ return null; }
+  try {
+    const s = localStorage.getItem(LOCAL_USER_KEY);
+    return s ? JSON.parse(s) : null;
+  } catch(e) { return null; }
 }
 function clearLocalUser() {
   try { localStorage.removeItem(LOCAL_USER_KEY); } catch(e){}
@@ -805,31 +829,32 @@ function clearLocalUser() {
 
   // simple submitScore fallback: calls submit-score server function
   LB.submitScore = LB.submitScore || async function(gameId, points, options = {}) {
-    const payload = {
-      game_id: gameId || 'guess_player',
-      points: Number(points) || 0,
-      pseudo: (options && options.displayName) ? options.displayName : (readLocalUser() && readLocalUser().pseudo) ? readLocalUser().pseudo : null,
-      mode: options && options.mode ? options.mode : null,
-      meta: options && options.meta ? options.meta : null
-    };
-    try {
-      const resp = await fetch('/.netlify/functions/submit-score', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const txt = await resp.text().catch(()=>null);
-      let j = null;
-      try { j = txt ? JSON.parse(txt) : null; } catch(e){ j = { raw: txt }; }
-      if (resp.ok) return { ok:true, data: j };
-      return { ok:false, data: j };
-    } catch (e) {
-      console.error('LB.submitScore network error', e);
-      return { ok:false, error: String(e) };
-    }
+  const local = readLocalUser();
+  const payload = {
+    game_id: gameId || 'guess_player',
+    points: Number(points) || 0,
+    pseudo: (options && options.displayName) ? options.displayName : (local && local.pseudo) ? local.pseudo : null,
+    user_id: local && local.id ? local.id : null,   // <-- ajouté
+    mode: options && options.mode ? options.mode : null,
+    meta: options && options.meta ? options.meta : null
   };
-
+  try {
+    const resp = await fetch('/.netlify/functions/submit-score', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const txt = await resp.text().catch(()=>null);
+    let j = null;
+    try { j = txt ? JSON.parse(txt) : null; } catch(e){ j = { raw: txt }; }
+    if (resp.ok) return { ok:true, data: j };
+    return { ok:false, data: j };
+  } catch (e) {
+    console.error('LB.submitScore network error', e);
+    return { ok:false, error: String(e) };
+  }
+};
   // convenience: openLogin / openRegister so third-party code can still call them
   LB.openLogin = LB.openLogin || function(){ openAuthModal('login'); };
   LB.openRegister = LB.openRegister || function(){ openAuthModal('register'); };
