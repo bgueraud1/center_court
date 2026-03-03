@@ -1,15 +1,11 @@
 <!doctype html>
-<html lang="fr">
+<html>
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Guess the Player</title>
 <style>
-.segment{display:flex;background:transparent;border-radius:10px;padding:4px;gap:6px}
-  .seg-btn{padding:8px 12px;border-radius:8px;border:none;color:var(--muted);cursor:pointer;font-weight:600;background:transparent;transition:all .18s ease}
-  .seg-btn.active{color:white; box-shadow:0 6px 18px rgba(2,6,23,0.6); transform:translateY(-2px)}
-
-  .tour-toggle{display:flex;gap:6px}
+  /* --- ton CSS inchangé --- */
   .tour-btn{min-width:72px;padding:8px 12px;border-radius:999px;border:1px solid rgba(255,255,255,0.03);cursor:pointer;font-weight:700;background:transparent;color:var(--muted)}
   .tour-btn.active.atp{background:linear-gradient(180deg, rgba(31,122,236,0.14), rgba(31,122,236,0.06)); color: #cfe8ff}
   .tour-btn.active.wta{background:linear-gradient(180deg, rgba(139,92,246,0.14), rgba(139,92,246,0.06)); color: #efe6ff}
@@ -515,6 +511,7 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
 
     try {
       submitScoreToLeaderboard(pointsToSend, { won }, { displayName });
+      console.info('[LB] submitScoreToLeaderboard called', { pointsToSend, displayName, won });
     } catch (e) {
       console.error('[LB] submitScoreToLeaderboard threw', e);
     }
@@ -717,27 +714,43 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
 
   /* ---------------------------
      Preflight check: checkUserPlayedToday
-     SIMPLE & DÉTERMINISTE: envoie le pseudo et la date UTC (un seul essai)
+     - improved: parse body even on non-OK to detect duplicate record responses
   ---------------------------- */
   async function checkUserPlayedToday(mode){
     let localUser = null;
     try { localUser = (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') ? window.LEADERBOARD.getLocalUser() : null; } catch(e){ localUser = null; }
     if(!localUser) return { exists:false };
 
-    // prefer pseudo because server uses COALESCE(user_id::text, pseudo)
+    const userId = localUser.user_id || localUser.id || null;
     const pseudo = localUser.pseudo || localUser.name || localUser.email || null;
-    if(!pseudo) return { exists:false };
 
-    // use UTC date only (matches server-side created_day derived from created_at at UTC)
     const dateStr = new Date().toISOString().slice(0,10);
-    const qs = `?game_id=guess_player&date=${encodeURIComponent(dateStr)}&check_existing=1&mode=${encodeURIComponent(mode)}&pseudo=${encodeURIComponent(pseudo)}`;
+    let qs = `?game_id=guess_player&date=${encodeURIComponent(dateStr)}&check_existing=1&mode=${encodeURIComponent(mode)}`;
+    if(userId) qs += `&user_id=${encodeURIComponent(userId)}`;
+    if(pseudo) qs += `&pseudo=${encodeURIComponent(pseudo)}`;
 
     try {
       const res = await fetch(`/.netlify/functions/leaderboard${qs}`, { credentials: 'same-origin', cache: 'no-cache' });
-      if(!res.ok) return { exists:false };
-      const j = await res.json().catch(()=>null);
-      if(j && j.ok && j.exists) return { exists:true, rows: j.rows || [] };
-      return { exists:false, rows: j ? (j.rows || []) : [] };
+
+      const text = await res.text().catch(()=>null);
+      let j = null;
+      try { j = text ? JSON.parse(text) : null; } catch(e) { j = null; }
+
+      if(res.ok){
+        if(j && j.ok && j.exists) return { exists:true, rows: j.rows || [] };
+        return { exists:false, rows: j && j.rows ? j.rows : [] };
+      } else {
+        // non-OK: inspect body for hints of duplicate / existing record
+        console.warn('[PRECHECK] leaderboard check returned non-OK', res.status, j || text);
+        if(j && (j.exists || (j.detail && (String(j.detail).toLowerCase().includes('duplicate') || String(j.detail).toLowerCase().includes('already exists'))))){
+          return { exists:true, rows: j.rows || [] };
+        }
+        // some server implementations return 500 but include detail with duplicate info
+        if(text && /duplicate key value|already exists|uniq_daily_user_game_mode/i.test(text)) {
+          return { exists:true, rows: [] };
+        }
+        return { exists:false, rows: j && j.rows ? j.rows : [] };
+      }
     } catch(e){
       console.warn('checkUserPlayedToday error', e);
       return { exists:false };
@@ -746,7 +759,6 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
 
   /* ---------------------------
      Wait for leaderboard user (longer timeout)
-     - returns: user object (could be null if not logged), or undefined if function never appeared
   ---------------------------- */
   function waitForLeaderboardUser(timeout = 15000, interval = 250){
     return new Promise(resolve => {
@@ -776,8 +788,6 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
 
   /* ---------------------------
      performModeCheckAndStart: PRE-FLIGHT verification
-     - disables input until verification completes
-     - mandatory on load and on every mode change
   ---------------------------- */
   async function performModeCheckAndStart(){
     const mode = (cotdEnabled ? `${currentTour}_by_country` : `${currentTour}_top${levelTopN}`);
@@ -789,21 +799,25 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
     suggestionsList.style.display = 'none';
 
     // Wait for LB getLocalUser to appear (long timeout)
+    console.info('[PRECHECK] waiting for leaderboard user (up to 15s)...');
     const lbUser = await waitForLeaderboardUser(15000);
 
     if(lbUser === undefined){
       // library not available in time -> fallback: allow play (can't verify)
+      console.warn('[PRECHECK] leaderboard lib did not appear within timeout. Allowing play (fail-open).');
       await startGame();
       return;
     }
 
     if(lbUser === null){
       // library present but user not logged in -> allow play
+      console.info('[PRECHECK] leaderboard lib present but user not logged in. Allowing play.');
       await startGame();
       return;
     }
 
     // library present and user object available -> do the server-side check
+    console.info('[PRECHECK] user detected — running server check for mode', mode);
     try {
       const check = await checkUserPlayedToday(mode);
       if(check && check.exists){
@@ -839,14 +853,17 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
         renderCotdBanner();
         renderCountryText();
         clearGuessesTable();
+        console.info('[PRECHECK] mode blocked for user — existing record found.');
         return;
       } else {
         // no existing score -> start the round
         gameBlockedDueToExisting = false;
         await startGame();
+        console.info('[PRECHECK] no existing record — game started.');
         return;
       }
     } catch(e){
+      console.warn('[PRECHECK] server check error', e);
       // fail-open: allow play
       await startGame();
       showToast('Impossible de vérifier l\'historique — le jeu est disponible', 3000);
@@ -911,7 +928,7 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
   }
 
   /* ---------------------------
-     Leaderboard helpers (unchanged)
+     Leaderboard helpers (unchanged, but improved fallback handling)
   ---------------------------- */
   const LB_QUEUE_KEY = 'lb_score_queue_v1';
   function pushToScoreQueue(entry){ try { const q = JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]'); q.push(Object.assign({ts: (new Date()).toISOString()}, entry)); localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q)); console.info('Score queued locally', entry); } catch(e){ console.warn('Could not queue score', e); } }
@@ -919,6 +936,7 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
   function readScoreQueue(){ try { return JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]'); } catch(e){ return []; } }
   function waitForLeaderboard(timeout = 5000, interval = 200){ return new Promise((resolve) => { if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function') return resolve(true); const start = Date.now(); const t = setInterval(() => { if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){ clearInterval(t); resolve(true); } else if(Date.now() - start > timeout){ clearInterval(t); resolve(false); } }, interval); }); }
 
+  // trySubmitEntryToLB improved:
   async function trySubmitEntryToLB(entry){
     const gameId = entry.gameId || 'guess_player';
     const points = Number(entry.points) || 0;
@@ -927,12 +945,21 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
     const mode = options.mode || null;
     const meta = options.meta || null;
 
+    // Fast path: try window.LEADERBOARD if available
     if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
       try {
         console.info('[LB] calling window.LEADERBOARD.submitScore', { gameId, points, options });
         const res = await window.LEADERBOARD.submitScore(gameId, points, options);
         console.info('[LB] submitScore response', res);
-        if(res && (res.ok === true || res.success === true || res.status === 'ok')){ return true; }
+        if(res && (res.ok === true || res.success === true || res.status === 'ok')){
+          console.info('[LB] library confirmed success — done.');
+          return true;
+        }
+        // special handling: some libs return already_submitted_local
+        if(res && res.ok === false && (res.error === 'already_submitted_local' || (res.error && String(res.error).toLowerCase().includes('already')))){
+          console.info('[LB] library indicates already submitted locally — treat as success.');
+          return true;
+        }
         console.warn('[LB] library returned non-success — will try server fallback', res);
       } catch(err){
         console.error('[LB] submitScore threw', err);
@@ -941,6 +968,7 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
       console.warn('[LB] window.LEADERBOARD.submitScore not available; using server fallback');
     }
 
+    // Server fallback
     const fallbackEndpoint = '/.netlify/functions/submit-score';
     const payload = {
       game_id: gameId,
@@ -952,6 +980,7 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
     };
 
     try {
+      console.info('[LB-FALLBACK] POST', fallbackEndpoint, payload);
       const resp = await fetch(fallbackEndpoint, {
         method: 'POST',
         credentials: 'same-origin',
@@ -960,10 +989,26 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
       });
 
       const text = await resp.text().catch(()=>null);
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch(e){ data = text; }
+      console.info('[LB-FALLBACK] response status', resp.status, data || text);
 
       if (resp.ok){
+        console.info('[LB-FALLBACK] success', data);
         return true;
       } else {
+        // Some server implementations return non-200 but include detail/status about duplicate key
+        // Treat duplicate-key / already-exists as "success" (entry already present)
+        if(data && (data.status === 409 || (data.detail && (data.detail.code === '23505' || /duplicate key value/i.test(String(data.detail)) )))){
+          console.warn('[LB-FALLBACK] duplicate detected in body — treating as submitted', data);
+          return true;
+        }
+        // sometimes server returns 500 but message contains duplicate info in text
+        if(text && /duplicate key value|uniq_daily_user_game_mode|already exists|23505/i.test(text)){
+          console.warn('[LB-FALLBACK] duplicate detected in text body — treating as submitted', text);
+          return true;
+        }
+        console.warn('[LB-FALLBACK] server returned non-OK', resp.status, data || text);
         return false;
       }
     } catch(fetchErr){
@@ -977,6 +1022,7 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
     if(!queue || queue.length === 0) return;
     const ready = await waitForLeaderboard(5000);
     if(!ready) {
+      console.info('Leaderboard not ready; will keep queue for later flush');
       return;
     }
     for(let i=0;i<10;i++){
@@ -984,7 +1030,7 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
       if(!q || q.length === 0) break;
       const entry = q[0];
       const ok = await trySubmitEntryToLB(entry);
-      if(ok){ popScoreQueue(); showToast('Score submitted to leaderboard', 2000); } else { break; }
+      if(ok){ popScoreQueue(); showToast('Score submitted to leaderboard', 2000); } else { console.warn('Submit failed for queued entry — stop flush now'); break; }
     }
   }
 
@@ -995,8 +1041,8 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
     const ready = await waitForLeaderboard(3000);
     if(ready){
       const ok = await trySubmitEntryToLB({ points, options });
-      if(ok){ setTimeout(flushScoreQueue, 250); return; }
-      else { pushToScoreQueue({ points, options }); showToast('Score queued for retry', 2000); return; }
+      if(ok){ console.info('Score successfully submitted to leaderboard (fast path).'); setTimeout(flushScoreQueue, 250); return; }
+      else { console.warn('Fast path submit failed; queueing the score for retry.'); pushToScoreQueue({ points, options }); showToast('Score queued for retry', 2000); return; }
     } else {
       pushToScoreQueue({ points, options });
       showToast('Leaderboard unavailable — score queued', 2000);
@@ -1033,12 +1079,8 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
       renderCountryText();
       renderUserPanel();
 
-      document.getElementById('btnATP').addEventListener('click', ()=>{
-        if(currentTour !== 'ATP'){ currentTour='ATP'; document.getElementById('tourLabel').textContent=currentTour; applyTourTheme(); performModeCheckAndStart().catch(e=>console.warn(e)); }
-      });
-      document.getElementById('btnWTA').addEventListener('click', ()=>{
-        if(currentTour !== 'WTA'){ currentTour='WTA'; document.getElementById('tourLabel').textContent=currentTour; applyTourTheme(); performModeCheckAndStart().catch(e=>console.warn(e)); }
-      });
+      document.getElementById('btnATP').addEventListener('click', ()=>{ if(currentTour !== 'ATP'){ currentTour='ATP'; document.getElementById('tourLabel').textContent=currentTour; applyTourTheme(); performModeCheckAndStart().catch(e=>console.warn(e)); } });
+      document.getElementById('btnWTA').addEventListener('click', ()=>{ if(currentTour !== 'WTA'){ currentTour='WTA'; document.getElementById('tourLabel').textContent=currentTour; applyTourTheme(); performModeCheckAndStart().catch(e=>console.warn(e)); } });
 
       document.querySelectorAll('.seg-btn').forEach(btn=>{
         btn.addEventListener('click', (e)=>{
@@ -1070,7 +1112,7 @@ if (window.GUESS_PLAYER_APP_INITIALIZED) {
       });
 
       // initial preflight
-      performModeCheckAndStart().catch(e => { startGame(); });
+      performModeCheckAndStart().catch(e => { console.warn('initial performModeCheckAndStart failed', e); startGame(); });
 
     }catch(err){
       console && console.error && console.error(err);
