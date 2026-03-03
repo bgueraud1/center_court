@@ -1,5 +1,4 @@
 // netlify/functions/submit-score.js
-// POST-only Netlify Function that inserts into Supabase "scores" table via REST
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -48,18 +47,56 @@ module.exports.handler = async function(event) {
   const mode = body.mode ? String(body.mode).slice(0,50) : null;
   const meta = body.meta ? (typeof body.meta === "string" ? body.meta : JSON.stringify(body.meta)) : null;
 
-  // try to authenticate local user (if pseudo+password_hash provided) by finding users row
+  // NEW: accept user_id from client (but verify it)
+  const clientUserId = body.user_id ? String(body.user_id) : null;
+
+  // try to authenticate local user (if pseudo+password_hash provided)
   let user_id = null;
   let pseudoToStore = pseudoFromClient || null;
 
   try {
-    if (pseudoFromClient && password_hash) {
-      const q = new URL(`${SUPABASE_URL}/rest/v1/users`);
-      q.searchParams.set('select', 'id,pseudo,password_hash');
-      q.searchParams.set('pseudo', `eq.${encodeURIComponent(pseudoFromClient)}`);
-      q.searchParams.set('password_hash', `eq.${encodeURIComponent(password_hash)}`);
-      // Make the request
-      const r = await fetch(q.toString(), {
+    // If client provided user_id, attempt to verify and fetch pseudo
+    if (clientUserId) {
+      try {
+        const q = new URL(`${SUPABASE_URL}/rest/v1/users`);
+        q.searchParams.set('select', 'id,pseudo');
+        q.searchParams.set('id', `eq.${encodeURIComponent(clientUserId)}`);
+
+        const r = await fetch(q.toString(), {
+          method: 'GET',
+          headers: {
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${SUPABASE_KEY}`,
+            'Accept': 'application/json'
+          }
+        });
+
+        if (r.ok) {
+          const arr = await r.json();
+          if (Array.isArray(arr) && arr.length > 0) {
+            // trust this user_id because it exists in the users table
+            user_id = arr[0].id || null;
+            pseudoToStore = arr[0].pseudo || pseudoToStore;
+          } else {
+            // not found -> ignore clientUserId
+            console.warn('client-provided user_id not found in users table', clientUserId);
+          }
+        } else {
+          console.warn('user lookup by id failed', await r.text().catch(()=>null));
+        }
+      } catch (e) {
+        console.warn('user lookup by id error', String(e));
+      }
+    }
+
+    // If we still have no user_id, attempt pseudo+password_hash authentication (existing behaviour)
+    if (!user_id && pseudoFromClient && password_hash) {
+      const q2 = new URL(`${SUPABASE_URL}/rest/v1/users`);
+      q2.searchParams.set('select', 'id,pseudo,password_hash');
+      q2.searchParams.set('pseudo', `eq.${encodeURIComponent(pseudoFromClient)}`);
+      q2.searchParams.set('password_hash', `eq.${encodeURIComponent(password_hash)}`);
+
+      const r2 = await fetch(q2.toString(), {
         method: 'GET',
         headers: {
           'apikey': SUPABASE_KEY,
@@ -67,19 +104,20 @@ module.exports.handler = async function(event) {
           'Accept': 'application/json'
         }
       });
-      if (r.ok) {
-        const arr = await r.json();
-        if (Array.isArray(arr) && arr.length > 0) {
-          user_id = arr[0].id || null;
-          pseudoToStore = arr[0].pseudo || pseudoToStore;
+
+      if (r2.ok) {
+        const arr2 = await r2.json();
+        if (Array.isArray(arr2) && arr2.length > 0) {
+          user_id = arr2[0].id || null;
+          pseudoToStore = arr2[0].pseudo || pseudoToStore;
         }
       } else {
-        // non fatal: continue as anonymous if the query fails
-        console.warn("User lookup failed", await r.text());
+        console.warn("User lookup failed (pseudo+hash)", await r2.text().catch(()=>null));
       }
     }
   } catch (e) {
     console.warn("user lookup error", String(e));
+    // continue as anonymous if error
   }
 
   const insertObj = {
@@ -113,7 +151,6 @@ module.exports.handler = async function(event) {
     try { data = text ? JSON.parse(text) : null; } catch(e) { data = text; }
 
     if (!r.ok) {
-      // return server error + detail
       return jsonResponse(500, { error: "Supabase insert failed", status: r.status, detail: data });
     }
 
