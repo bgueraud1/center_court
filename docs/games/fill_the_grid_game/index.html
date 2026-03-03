@@ -48,6 +48,10 @@
     pointer-events:none;
   }
 
+  /* Disable overlay while checking */
+  .controls-disabled .grid-cell { pointer-events: none; opacity: 0.7; }
+  .controls-disabled .btn { pointer-events: none; opacity: 0.6; }
+
   /* input panel */
   .input-panel{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);background:#0b0b0b;border-radius:12px;padding:14px;min-width:420px;box-shadow:0 12px 40px rgba(0,0,0,0.8);z-index:2000;border:1px solid rgba(255,255,255,0.03)}
   .input-row{display:flex;gap:8px;align-items:center}
@@ -66,6 +70,14 @@
   .score-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(0deg,rgba(0,0,0,0.55),rgba(0,0,0,0.55));z-index:3000}
   .score-card{background:#0b0b0b;padding:22px;border-radius:12px;color:#fff;border:1px solid rgba(255,255,255,0.03);min-width:320px;text-align:center}
 
+  /* already played modal */
+  .modal { position: fixed; left:0; top:0; right:0; bottom:0; display:flex;align-items:center;justify-content:center; background: rgba(0,0,0,0.6); z-index:4000; opacity:0; pointer-events:none; transition:opacity .15s ease;}
+  .modal.show{ opacity:1; pointer-events:auto; }
+  .modal-card{ background:#071018; padding:18px; border-radius:12px; color:#fff; min-width:320px; border:1px solid rgba(255,255,255,0.03); box-shadow:0 12px 60px rgba(0,0,0,0.8); }
+
+  /* toast */
+  .toast{position:fixed;right:18px;bottom:18px;background:rgba(0,0,0,0.8);color:#fff;padding:8px 12px;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,0.6);display:none;z-index:5000}
+
   @media (max-width:900px){.input-panel{min-width:300px}.grid-cell,.row-header,.grid-header-cell{min-width:110px;min-height:60px;font-size:13px}}
 </style>
 </head>
@@ -75,7 +87,7 @@
 <div id="app" class="app theme-wta">
   <div class="topbar">
     <div class="title">Fill the Grid</div>
-    <div class="controls">
+    <div class="controls" id="controlsBar">
       <button class="btn primary" id="btnToggle">Switch to ATP</button>
       <button class="btn" id="btnGiveUp">Give Up</button>
       <button class="btn" id="btnReset">Reset</button>
@@ -85,12 +97,11 @@
   <div class="game-wrap">
     <div class="board-wrap" id="boardWrap" aria-live="polite"></div>
     <div class="small-muted" id="infoLine">Based on data from 1990 to 2026. Please forgive any errors.</div>
-    <!-- Leaderboard panel (like first game) -->
-    <div id="leaderboardWidget" data-lb-container data-game-id="fill_grid" style="margin-top:12px"></div>
+    <!-- leaderboard removed as requested -->
   </div>
 </div>
 
-<!-- modal -->
+<!-- input modal -->
 <div id="inputModal" style="display:none;">
   <div class="input-panel" role="dialog" aria-modal="true" aria-labelledby="panelTitle">
     <div id="panelTitle" style="color:#ddd;font-weight:700;margin-bottom:8px">Fill cell</div>
@@ -119,21 +130,27 @@
   </div>
 </div>
 
-<script>
-/* Full revised script:
-   - loads players catalog first
-   - builds index
-   - loads grid JSON
-   - robust LB submit (lib -> server fallback -> queue)
-   - exposes test helper
-*/
+<!-- already played modal -->
+<div id="playedModal" class="modal" aria-hidden="true">
+  <div class="modal-card">
+    <h3 id="playedTitle">Already completed</h3>
+    <div id="playedText" style="color:#cfcfcf;margin-top:8px">You have already completed this variant today. You cannot play the same variant twice in the same day.</div>
+    <div id="playedDetails" style="margin-top:12px;color:var(--muted);text-align:left;max-height:220px;overflow:auto;"></div>
+    <div style="margin-top:12px;text-align:right"><button id="playedClose" class="btn">Close</button></div>
+  </div>
+</div>
 
+<div id="toast" class="toast"></div>
+
+<script>
 (() => {
   const PATHS = {
     WTA: '/games/fill_the_grid_WTA.json',
     ATP: '/games/fill_the_grid_ATP.json',
     PLAYERS: '/tools/players_catalog.json'
   };
+
+  const GAME_ID = 'gill_the_grid'; // as requested (note: exact string from your message)
 
   const COUNTRY_NAMES = {
     'RUS':'Russia','FRA':'France','ESP':'Spain','GBR':'United Kingdom','USA':'United States',
@@ -158,7 +175,11 @@
   const scoreOverlay = document.getElementById('scoreOverlay');
   const scoreValue = document.getElementById('scoreValue');
   const scoreClose = document.getElementById('scoreClose');
-  const lbContainer = document.getElementById('leaderboardWidget');
+  const playedModal = document.getElementById('playedModal');
+  const playedDetails = document.getElementById('playedDetails');
+  const playedClose = document.getElementById('playedClose');
+  const toastEl = document.getElementById('toast');
+  const controlsBar = document.getElementById('controlsBar');
 
   // state
   let mode = 'WTA';
@@ -169,6 +190,19 @@
   let cellState = {}; // map 'r-c' -> {locked,id,name}
   let activeCell = null; // {r,c,cellData,domNode,key}
   let gameOver = false;
+
+  // check/disable state (for duplicate-check behavior)
+  let controlsDisabled = false;
+  let gameBlockedDueToExisting = false;
+  let _ensureCheckRunning = false;
+  let _ensureRecheckRequested = false;
+  let _ensureRequestedMode = null;
+
+  function showToast(msg, t=2000){
+    toastEl.textContent = msg;
+    toastEl.style.display = 'block';
+    setTimeout(()=> { try{ toastEl.style.display='none'; }catch(e){} }, t);
+  }
 
   async function fetchJson(path){
     const r = await fetch(path, {cache: 'no-cache'});
@@ -185,12 +219,10 @@
       idToPlayer[pid] = p;
       nameIndex.push({ label: p.full_name, id: pid });
     }
-    // sort alphabetically for stable autocomplete
     nameIndex.sort((a,b)=> a.label.localeCompare(b.label));
     console.info('[INIT] built player index', nameIndex.length, 'players');
   }
 
-  // extract opponent id robustly: prefer explicit fields, fallback to token that contains a digit (3+ chars)
   function extractOpponentId(cond) {
     if (!cond) return null;
     const explicitCandidates = [];
@@ -266,6 +298,9 @@
     } catch (e){
       console.error('Failed loading grid JSON', e);
       boardWrap.innerHTML = `<div style="color:#f88">Failed to load grid: ${e.message}</div>`;
+    } finally {
+      // ensure controls disabled flag updated if something changed
+      updateControlsDisabledUI();
     }
   }
 
@@ -317,8 +352,15 @@
           cellDiv.classList.add('disabled');
           cellDiv.innerHTML = `<div class="cell-empty">—</div>`;
         } else {
-          cellDiv.innerHTML = `<div class="cell-empty">Click to enter</div>`;
-          ((r,c,datum,node)=>{ node.addEventListener('click', ()=> onCellClick(r,c,node,datum)); })(i,j,cellData,cellDiv);
+          // if already locked, show value
+          const key = `${i}-${j}`;
+          if (cellState[key] && cellState[key].locked){
+            cellDiv.classList.add('cell-locked');
+            cellDiv.innerHTML = `<div class="cell-value">${escapeHtml(cellState[key].name)}</div>`;
+          } else {
+            cellDiv.innerHTML = `<div class="cell-empty">Click to enter</div>`;
+            ((r,c,datum,node)=>{ node.addEventListener('click', ()=> onCellClick(r,c,node,datum)); })(i,j,cellData,cellDiv);
+          }
         }
         const wrongOverlay = document.createElement('div');
         wrongOverlay.className = 'wrong-overlay';
@@ -330,9 +372,11 @@
 
     boardWrap.innerHTML = '';
     boardWrap.appendChild(gridEl);
+    updateControlsDisabledUI();
   }
 
   function onCellClick(r,c,node,cellData){
+    if (controlsDisabled || gameBlockedDueToExisting) { showToast('Vérification en cours ou partie bloquée — impossible de jouer.'); return; }
     const key = `${r}-${c}`;
     activeCell = { r, c, cellData, domNode: node, key };
     openModal(activeCell);
@@ -460,7 +504,7 @@
     const node = boardWrap.querySelector(sel);
     if (!node) return;
     node.classList.add('cell-locked');
-    node.innerHTML = `<div class="cell-value">${pname}</div>`;
+    node.innerHTML = `<div class="cell-value">${escapeHtml(pname)}</div>`;
     const ok = document.createElement('div'); ok.style.position='absolute'; ok.style.top='6px'; ok.style.left='6px'; ok.style.fontSize='14px'; ok.style.color='var(--good-text)'; ok.textContent='✔';
     node.appendChild(ok);
   }
@@ -479,16 +523,15 @@
   }
 
   function onGiveUp(){
+    if (controlsDisabled || gameBlockedDueToExisting){ showToast('Vérification en cours — impossible de Give Up'); return; }
     const all = boardWrap.querySelectorAll('.grid-cell');
     all.forEach(n => n.classList.remove('cell-revealed-empty'));
-    let total = 0, filled = 0;
     for (let r=0;r<gridData.rows.length;r++){
       for (let c=0;c<gridData.cols.length;c++){
         const cell = gridData.cells[r][c];
         if (!cell || !Array.isArray(cell.candidates_sample) || cell.candidates_sample.length === 0) continue;
-        total++;
         const key = `${r}-${c}`;
-        if (cellState[key] && cellState[key].locked){ filled++; continue; }
+        if (cellState[key] && cellState[key].locked) continue;
         const node = boardWrap.querySelector(`.grid-cell[data-r="${r}"][data-c="${c}"]`);
         if (node) node.classList.add('cell-revealed-empty');
       }
@@ -546,8 +589,6 @@
         if (localUser && localUser.pseudo) displayName = localUser.pseudo;
       }
     } catch(e){ console.warn('getLocalUser threw', e); }
-    const displayNameInput = document.querySelector('#lb-pseudo') || document.querySelector('#someDisplayNameInput');
-    if (!displayName && displayNameInput) displayName = (displayNameInput.value || '').trim() || null;
 
     const meta = { total_cells: (gridData ? gridData.rows.length * (gridData.cols?gridData.cols.length:0) : 0), completed: gameOver };
     try {
@@ -559,6 +600,7 @@
   }
 
   function onReset(){
+    if (controlsDisabled || gameBlockedDueToExisting){ showToast('Vérification en cours — reset bloqué'); return; }
     gameOver = false;
     initCellState();
     renderBoard();
@@ -596,127 +638,95 @@
       if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function') return resolve(true);
       const start = Date.now();
       const t = setInterval(() => {
-        if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
-          clearInterval(t); resolve(true);
-        } else if(Date.now() - start > timeout){
-          clearInterval(t); resolve(false);
-        }
+        if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){ clearInterval(t); resolve(true); }
+        else if(Date.now() - start > timeout){ clearInterval(t); resolve(false); }
       }, interval);
     });
   }
 
- 
- 
- async function trySubmitEntryToLBFill(entry){
-  const gameId = entry.gameId || 'fill_grid';
-  const points = Number(entry.points) || 0;
-  const options = entry.options || {};
-  const pseudo = options.displayName || options.pseudo || null;
-  const modeOpt = options.mode || null;
-  const meta = options.meta || null;
+  async function trySubmitEntryToLBFill(entry){
+    const gameId = entry.gameId || GAME_ID;
+    const points = Number(entry.points) || 0;
+    const options = entry.options || {};
+    const pseudo = options.displayName || options.pseudo || null;
+    const modeOpt = options.mode || null;
+    const meta = options.meta || null;
 
-  console.info('[LB-TRY] trySubmitEntryToLBFill start', { gameId, points, modeOpt, pseudo });
+    console.info('[LB-TRY] trySubmitEntryToLBFill start', { gameId, points, modeOpt, pseudo });
 
-  // 1) try library first
-  if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+    // 1) try library first
+    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+      try {
+        console.info('[LB-TRY] call library submitScore', { gameId, points, options });
+        const res = await window.LEADERBOARD.submitScore(gameId, points, options);
+        console.info('[LB-TRY] library response', res);
+
+        if(res && (res.ok === true || res.success === true || res.status === 'ok')){ console.info('[LB-TRY] library confirmed success'); return true; }
+
+        // If library reports already_submitted, still try server fallback to ensure DB consistency.
+        if(res && res.error && String(res.error).toLowerCase().includes('already_submitted')){
+          console.info('[LB-TRY] library reports already_submitted — will attempt server fallback', res);
+        } else {
+          console.warn('[LB-TRY] library returned non-success — will try server fallback', res);
+        }
+      } catch(err){
+        console.error('[LB-TRY] submitScore threw', err);
+      }
+    } else {
+      console.warn('[LB-TRY] library not available — using fallback');
+    }
+
+    // 2) fallback -> Netlify function
+    const fallbackEndpoint = `${location.origin}/.netlify/functions/submit-score`;
+    const payload = {
+      game_id: gameId,
+      points: points,
+      pseudo: pseudo,
+      mode: modeOpt,
+      meta: (typeof meta === 'string' ? meta : (meta ? JSON.stringify(meta) : null)),
+      ts: (new Date()).toISOString()
+    };
+
     try {
-      console.info('[LB-TRY] call library submitScore', { gameId, points, options });
-      const res = await window.LEADERBOARD.submitScore(gameId, points, options);
-      console.info('[LB-TRY] library response', res);
+      console.info('[LB-FALLBACK] POST', fallbackEndpoint, payload);
+      const resp = await fetch(fallbackEndpoint, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
 
-      // real success -> done
-      if(res && (res.ok === true || res.success === true || res.status === 'ok')){
-        console.info('[LB-TRY] library confirmed success');
-        return true;
-      }
+      const text = await resp.text().catch(()=>null);
+      let parsed = null;
+      try { parsed = text ? JSON.parse(text) : null; } catch(e){ parsed = text; }
+      console.info('[LB-FALLBACK] response', resp.status, parsed);
 
-      // If library reports already_submitted (local), DO NOT treat this as final success:
-      // continue to the server fallback to ensure DB consistency.
-      if(res && res.error && String(res.error).toLowerCase().includes('already_submitted')){
-        console.info('[LB-TRY] library reports already_submitted (likely local) — will still attempt server fallback to ensure DB has the record', res);
-        // fallthrough -> try server fallback below
-      } else {
-        console.warn('[LB-TRY] library returned non-success — will try server fallback', res);
-      }
-    } catch(err){
-      console.error('[LB-TRY] submitScore threw', err);
-      // fall through to fallback
+      if (resp.ok) { console.info('[LB-FALLBACK] server insert OK', parsed); return true; }
+
+      // duplicate -> treat as already submitted (ok)
+      if (resp.status === 409) { console.info('[LB-FALLBACK] server indicates duplicate — treat as done', parsed); return true; }
+      if (parsed && parsed.detail && parsed.detail.code === '23505') { console.info('[LB-FALLBACK] supabase duplicate detail detected — treat as done', parsed); return true; }
+
+      console.warn('[LB-FALLBACK] server returned non-OK (will queue)', resp.status, parsed);
+      return false;
+    } catch(fetchErr){
+      console.error('[LB-FALLBACK] fetch error', fetchErr);
+      return false;
     }
-  } else {
-    console.warn('[LB-TRY] library not available — using fallback');
   }
 
-  // 2) fallback -> Netlify function
-  const fallbackEndpoint = `${location.origin}/.netlify/functions/submit-score`;
-  const payload = {
-    game_id: gameId,
-    points: points,
-    pseudo: pseudo,
-    mode: modeOpt,
-    meta: (typeof meta === 'string' ? meta : (meta ? JSON.stringify(meta) : null)),
-    ts: (new Date()).toISOString()
-  };
-
-  try {
-    console.info('[LB-FALLBACK] POST', fallbackEndpoint, payload);
-    const resp = await fetch(fallbackEndpoint, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    const text = await resp.text().catch(()=>null);
-    let parsed = null;
-    try { parsed = text ? JSON.parse(text) : null; } catch(e){ parsed = text; }
-    console.info('[LB-FALLBACK] response', resp.status, parsed);
-
-    if (resp.ok) {
-      console.info('[LB-FALLBACK] server insert OK', parsed);
-      return true;
-    }
-
-    // duplicate -> treat as already submitted (ok)
-    if (resp.status === 409) {
-      console.info('[LB-FALLBACK] server indicates duplicate (already submitted) — treat as done', parsed);
-      return true;
-    }
-    if (parsed && parsed.detail && parsed.detail.code === '23505') {
-      console.info('[LB-FALLBACK] supabase duplicate detail detected — treat as done', parsed);
-      return true;
-    }
-
-    // otherwise, not-ok: will be queued by caller
-    console.warn('[LB-FALLBACK] server returned non-OK (will queue)', resp.status, parsed);
-    return false;
-  } catch(fetchErr){
-    console.error('[LB-FALLBACK] fetch error', fetchErr);
-    return false;
-  }
-}
-
- 
- 
   async function flushQueueFill(){
     const q = readScoreQueueFill();
     if(!q || q.length === 0) return;
     const ready = await waitForLeaderboardFill(5000);
-    if(!ready){
-      console.info('[LB-QUEUE] LB not ready; will keep queue');
-      return;
-    }
+    if(!ready){ console.info('[LB-QUEUE] LB not ready; will keep queue'); return; }
     for(let i=0;i<20;i++){
       const arr = readScoreQueueFill();
       if(!arr || arr.length === 0) break;
       const entry = arr[0];
       const ok = await trySubmitEntryToLBFill(entry);
-      if(ok){
-        popScoreQueueFill();
-        console.info('[LB-QUEUE] flushed one entry');
-      } else {
-        console.warn('[LB-QUEUE] flush failed for first entry — stop trying now');
-        break;
-      }
+      if(ok){ popScoreQueueFill(); console.info('[LB-QUEUE] flushed one entry'); }
+      else { console.warn('[LB-QUEUE] flush failed for first entry — stop trying now'); break; }
     }
   }
 
@@ -728,44 +738,167 @@
     console.info('[LB] submitScoreToLeaderboardFill immediate try', { points, options });
 
     try {
-      const ok = await trySubmitEntryToLBFill({ gameId:'fill_grid', points, options });
-      if(ok){
-        console.info('[LB] Score successfully submitted (immediate)');
-        setTimeout(flushQueueFill, 300);
-        return;
-      } else {
-        console.warn('[LB] immediate submit failed -> queueing for retry');
-        pushToScoreQueueFill({ gameId:'fill_grid', points, options });
-        setTimeout(flushQueueFill, 1000);
-        return;
-      }
-    } catch(err){
-      console.error('[LB] submitScoreToLeaderboardFill threw -> queueing', err);
-      pushToScoreQueueFill({ gameId:'fill_grid', points, options });
-      setTimeout(flushQueueFill, 1000);
-    }
+      const ok = await trySubmitEntryToLBFill({ gameId:GAME_ID, points, options });
+      if(ok){ console.info('[LB] Score successfully submitted (immediate)'); setTimeout(flushQueueFill, 300); return; }
+      else { console.warn('[LB] immediate submit failed -> queueing for retry'); pushToScoreQueueFill({ gameId:GAME_ID, points, options }); setTimeout(flushQueueFill, 1000); return; }
+    } catch(err){ console.error('[LB] submitScoreToLeaderboardFill threw -> queueing', err); pushToScoreQueueFill({ gameId:GAME_ID, points, options }); setTimeout(flushQueueFill, 1000); }
   }
 
-  // watch for LB init and flush
+  // watch for LB init and flush queued entries
   (function watchForLBFillInit(){
     if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
       setTimeout(flushQueueFill, 300);
-      // also ensure panel created
-      if (lbContainer && window.LEADERBOARD && typeof window.LEADERBOARD.createLeaderboardPanel === 'function'){
-        try { window.LEADERBOARD.createLeaderboardPanel(lbContainer); } catch(e){ console.warn('createLeaderboardPanel failed', e); }
-      }
       return;
     }
     const poll = setInterval(() => {
       if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
         clearInterval(poll);
         setTimeout(flushQueueFill, 200);
-        if (lbContainer && typeof window.LEADERBOARD.createLeaderboardPanel === 'function'){
-          try { window.LEADERBOARD.createLeaderboardPanel(lbContainer); } catch(e){ console.warn('createLeaderboardPanel failed', e); }
-        }
       }
     }, 300);
   })();
+
+  // --- Duplicate-check functions (identical semantics to other games) ---
+  async function checkUserPlayedToday(modeString){
+    let localUser = null;
+    try { if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') localUser = window.LEADERBOARD.getLocalUser(); } catch(e){}
+    try { if(!localUser) localUser = JSON.parse(localStorage.getItem('lb_local_user_v1')||'null'); } catch(e){}
+    if(!localUser) return { exists:false };
+    const userId = localUser.user_id || localUser.id || null;
+    const pseudo = localUser.pseudo || null;
+    const dateStr = new Date().toISOString().slice(0,10);
+    let qs = `?game_id=${encodeURIComponent(GAME_ID)}&date=${encodeURIComponent(dateStr)}&check_existing=1&mode=${encodeURIComponent(modeString)}`;
+    if(userId) qs += `&user_id=${encodeURIComponent(userId)}`;
+    if(pseudo) qs += `&pseudo=${encodeURIComponent(pseudo)}`;
+    try {
+      const res = await fetch(`/.netlify/functions/leaderboard${qs}`, { credentials: 'same-origin' });
+      if(!res.ok) return { exists:false };
+      const j = await res.json();
+      if(j && j.ok && j.exists) return { exists:true, rows: j.rows || [] };
+      return { exists:false, rows: j.rows || [] };
+    } catch(e){
+      console.warn('checkUserPlayedToday error', e);
+      return { exists:false };
+    }
+  }
+
+  function showAlreadyPlayedModal(check, modeString){
+    gameBlockedDueToExisting = true;
+    controlsDisabled = true;
+    updateControlsDisabledUI();
+
+    playedDetails.innerHTML = '';
+    if(check && check.rows && check.rows.length){
+      for(const r of check.rows.slice(0,8)){
+        const div = document.createElement('div');
+        div.style.marginBottom = '6px';
+        div.innerHTML = `<strong>Points:</strong> ${escapeHtml(String(r.points||0))} — <strong>Mode:</strong> ${escapeHtml(r.mode||'—')} — <strong>At:</strong> ${escapeHtml(r.created_at||'—')}`;
+        playedDetails.appendChild(div);
+      }
+    } else {
+      playedDetails.textContent = 'No details available.';
+    }
+    playedModal.classList.add('show');
+    playedModal.setAttribute('aria-hidden','false');
+    playedClose.onclick = () => {
+      playedModal.classList.remove('show');
+      playedModal.setAttribute('aria-hidden','true');
+    };
+  }
+
+  function setControlsDisabled(val){
+    controlsDisabled = !!val;
+    updateControlsDisabledUI();
+  }
+
+  function updateControlsDisabledUI(){
+    if(controlsDisabled || gameBlockedDueToExisting){
+      app.classList.add('controls-disabled');
+      // disable interactive buttons and input
+      playerInput.disabled = true;
+      btnSubmit.disabled = true;
+      btnGiveUp.disabled = true;
+      btnReset.disabled = true;
+      btnToggle.disabled = true;
+    } else {
+      app.classList.remove('controls-disabled');
+      playerInput.disabled = false;
+      btnSubmit.disabled = false;
+      btnGiveUp.disabled = false;
+      btnReset.disabled = false;
+      btnToggle.disabled = false;
+    }
+  }
+
+  // ensure check runs on load and on mode change; identical semantics to earlier games:
+  async function ensureModeCheckedAndStart(){
+    // prepare UI & disable immediately
+    setControlsDisabled(true);
+    gameBlockedDueToExisting = false;
+    updateControlsDisabledUI();
+    const modeString = `${mode}_fillgrid`;
+    document.getElementById('infoLine').textContent = 'Vérification si vous avez déjà joué ce mode aujourd\'hui...';
+
+    if(_ensureCheckRunning){
+      _ensureRecheckRequested = true;
+      _ensureRequestedMode = modeString;
+      console.info('[ensureModeCheckedAndStart] check already running — recheck scheduled for', modeString);
+      return;
+    }
+
+    _ensureCheckRunning = true;
+    try {
+      const check = await checkUserPlayedToday(modeString);
+      if(check && check.exists){
+        showAlreadyPlayedModal(check, modeString);
+        _ensureCheckRunning = false;
+        // if recheck requested, perform it after small delay
+        if(_ensureRecheckRequested){
+          _ensureRecheckRequested = false;
+          setTimeout(()=> ensureModeCheckedAndStart(), 50);
+        }
+        return;
+      } else {
+        // allowed to play: load grid and enable controls
+        await loadGrid(mode);
+        setControlsDisabled(false);
+        _ensureCheckRunning = false;
+      }
+    } catch(e){
+      console.warn('ensureModeCheckedAndStart error', e);
+      // fallback: allow play but ensure controls re-enabled
+      await loadGrid(mode);
+      setControlsDisabled(false);
+      _ensureCheckRunning = false;
+    }
+
+    // short polling for late login/leaderboard presence: if user logs in quickly, re-run check
+    const start = Date.now();
+    const maxWait = 8000;
+    let lastSeen = null;
+    const interval = setInterval(async ()=>{
+      try {
+        const localUser = (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') ? window.LEADERBOARD.getLocalUser() : JSON.parse(localStorage.getItem('lb_local_user_v1') || 'null');
+        const lbReady = window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function';
+        const seen = JSON.stringify({ u: localUser ? (localUser.user_id || localUser.pseudo || '') : '', lb:!!lbReady });
+        if(seen !== lastSeen){
+          lastSeen = seen;
+          const check2 = await checkUserPlayedToday(modeString);
+          if(check2 && check2.exists){
+            clearInterval(interval);
+            showAlreadyPlayedModal(check2, modeString);
+            _ensureCheckRunning = false;
+            // leave controls disabled
+            return;
+          }
+        }
+        if(Date.now() - start > maxWait){ clearInterval(interval); return; }
+      } catch(err){ console.warn('Polling check error', err); if(Date.now() - start > maxWait){ clearInterval(interval); } }
+    }, 600);
+  }
+
+  // helper escape
+  function escapeHtml(s){ if(s===undefined||s===null) return ''; return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m]); }
 
   // debug helper
   window._testSubmitFill = async function(points=7){
@@ -787,11 +920,14 @@
       }
       buildPlayerIndex();
 
-      // 2) load initial grid (WTA)
-      await loadGrid(mode);
-
-      // 3) wire up UI events
-      btnToggle.addEventListener('click', ()=> loadGrid(mode === 'WTA' ? 'ATP' : 'WTA'));
+      // wire up UI events (mode toggle should trigger the check)
+      btnToggle.addEventListener('click', async ()=>{
+        const newMode = (mode === 'WTA') ? 'ATP' : 'WTA';
+        mode = newMode;
+        // immediately disable controls while check runs
+        setControlsDisabled(true);
+        await ensureModeCheckedAndStart();
+      });
       btnGiveUp.addEventListener('click', onGiveUp);
       btnReset.addEventListener('click', onReset);
       btnCancel.addEventListener('click', closeModal);
@@ -800,25 +936,14 @@
       playerInput.addEventListener('keydown', onInputKeyDown);
       scoreClose.addEventListener('click', ()=> scoreOverlay.style.display = 'none');
 
-      // init leaderboard panel if library present (or poll will do it)
-      if (lbContainer) {
-        const initLb = () => {
-          if (window.LEADERBOARD && window.LEADERBOARD.createLeaderboardPanel) {
-            try {
-              lbContainer.dataset.gameId = 'fill_grid';
-              window.LEADERBOARD.createLeaderboardPanel(lbContainer);
-              console.info('[LB] leaderboard panel created');
-            } catch(e){ console.warn('[LB] createLeaderboardPanel error', e); }
-          } else {
-            setTimeout(initLb, 200);
-          }
-        };
-        initLb();
-      }
+      // initial check & load (ensures duplicate check on page load)
+      await ensureModeCheckedAndStart();
 
       console.info('[INIT] done');
     } catch (err) {
       console.error('Init failed', err);
+      // fallback: try to load grid directly
+      try { await loadGrid(mode); setControlsDisabled(false); } catch(e){}
     }
   })();
 
