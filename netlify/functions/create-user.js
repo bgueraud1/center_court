@@ -76,9 +76,13 @@ module.exports.handler = async function(event) {
 
   // 2) insert user
   try {
+    // league must be "Future F15" for new users
+    const league = "Future F15";
+
     const insertObj = {
       pseudo: pseudo,
       password_hash: password_hash,
+      league: league,
       created_at: new Date().toISOString()
     };
 
