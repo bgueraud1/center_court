@@ -725,9 +725,14 @@ async function handleAuthSubmit() {
       if (json && json.ok && json.user) {
         const u = { id: json.user.id, pseudo: json.user.pseudo };
         persistLocalUser(u);
-        authFeedback.textContent = 'Connecté';
-        closeAuthModal();
-        renderUserPanel();
+try {
+  if (window.LEADERBOARD && typeof window.LEADERBOARD.setLocalUser === 'function') {
+    window.LEADERBOARD.setLocalUser(u);
+  }
+  // also try our generic sync
+  syncLocalUserToExternalLB();
+} catch(e){ console.warn('post-login sync failed', e); }
+renderUserPanel();
         showToast('Connecté');
         // try flush queue / start game recalc
         try { startGame(); flushScoreQueue && flushScoreQueue(); } catch(e){ }
@@ -1104,20 +1109,26 @@ async function performLogout({ reload = false } = {}) {
   console.info('[LOGOUT] done');
   return true;
 }
-
 function renderUserPanel(){
   const dropdownExisting = userPanel.querySelector('.user-dropdown');
   if(dropdownExisting) dropdownExisting.remove();
 
+  // 1) Try library first (standard)
   let localUser = null;
   try {
     if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
-      localUser = window.LEADERBOARD.getLocalUser() || null;
+      try { localUser = window.LEADERBOARD.getLocalUser() || null; } catch(e){ console.warn('LB.getLocalUser threw', e); localUser = null; }
     }
   } catch (e) {
     console.warn('getLocalUser threw', e);
   }
 
+  // 2) Fallback to localStorage (persisted source of truth)
+  if (!localUser) {
+    try { localUser = readLocalUser(); } catch(e){ localUser = null; }
+  }
+
+  // 3) If still not found, ensure UI shows Connect
   if(localUser && (localUser.pseudo || localUser.email || localUser.id || localUser.user_id)){
     const name = localUser.pseudo || localUser.email || localUser.id || localUser.user_id;
     userBox.textContent = name;
@@ -1128,6 +1139,51 @@ function renderUserPanel(){
     userBox.onclick = toggleUserDropdown;
   }
 }
+
+function syncLocalUserToExternalLB() {
+  try {
+    const user = readLocalUser();
+    if (!user) return false;
+
+    // possible setter names used by third-party libs
+    const setterNames = [
+      'setLocalUser', 'setUser', 'set_current_user', 'setCurrentUser',
+      'authSetUser', 'setAuthenticatedUser', 'setProfile'
+    ];
+
+    if (!window.LEADERBOARD) {
+      // nothing to sync yet
+      return false;
+    }
+
+    for (const name of setterNames) {
+      if (typeof window.LEADERBOARD[name] === 'function') {
+        try {
+          window.LEADERBOARD[name](user);
+          console.info('[SYNC] synced user to window.LEADERBOARD.'+name, user);
+          return true;
+        } catch (e) {
+          console.warn('[SYNC] calling window.LEADERBOARD.'+name+' failed', e);
+        }
+      }
+    }
+
+    // as last resort, if LB has a plain object property we can set
+    try {
+      if (window.LEADERBOARD && (typeof window.LEADERBOARD === 'object')) {
+        // don't overwrite methods — just set a private key to help libs pick it up
+        window.LEADERBOARD.__localUser = user;
+        console.info('[SYNC] set window.LEADERBOARD.__localUser');
+        return true;
+      }
+    } catch(e){ /* ignore */ }
+
+  } catch (e) {
+    console.warn('syncLocalUserToExternalLB error', e);
+  }
+  return false;
+}
+
 
 function toggleUserDropdown(e){
   e.stopPropagation();
@@ -1212,12 +1268,50 @@ dd.appendChild(btnCreate);
   }, 10);
 }
 
-/* Initialize user panel after DOM ready and after eventual LB lib ready */
 (function watchForLbToRenderUser(){
+  // initial render from our persisted user/local stub
   renderUserPanel();
-  // if LB defines an event/callback to notify auth change, you can hook it here.
-  // poll once to update pseudo if LB becomes available shortly after load:
-  const t = setInterval(()=>{ renderUserPanel(); if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser==='function') { clearInterval(t); } }, 400);
+
+  // try immediate sync once (in case stub exists)
+  try { syncLocalUserToExternalLB(); } catch(e){}
+
+  // watch for the external LB lib to appear / be replaced
+  const maxMillis = 8000; // watch for up to 8s (adjust if needed)
+  const start = Date.now();
+  let lastRef = window.LEADERBOARD; // likely the stub or undefined
+
+  const poll = setInterval(()=> {
+    // if LB introduced or replaced (reference change) -> try syncing user
+    if (window.LEADERBOARD !== lastRef) {
+      lastRef = window.LEADERBOARD;
+      console.info('[WATCH] window.LEADERBOARD changed — attempting sync');
+      try { syncLocalUserToExternalLB(); } catch(e){ console.warn('sync failed', e); }
+      // re-render panel to reflect actual lib state
+      try { renderUserPanel(); } catch(e){ }
+    } else {
+      // also attempt sync in case LB exists but didn't receive user earlier
+      if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
+        // prefer the library's user if available; otherwise push our persisted user
+        try {
+          const libUser = window.LEADERBOARD.getLocalUser();
+          if (!libUser) {
+            syncLocalUserToExternalLB();
+            renderUserPanel();
+          } else {
+            renderUserPanel();
+            clearInterval(poll);
+            return;
+          }
+        } catch(e){ /* ignore */ }
+      }
+    }
+
+    if (Date.now() - start > maxMillis) {
+      clearInterval(poll);
+      // final render
+      try { renderUserPanel(); } catch(e){ }
+    }
+  }, 350);
 })();
 
 /* ---------------------------
