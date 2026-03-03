@@ -600,15 +600,15 @@ function handleGuess(name){
     const points = scoreForGuessNumber(guesses.length);
     score += points; document.getElementById('score').textContent = score;
     revealAnswer(true, points);
-    // auto-restart after short delay
-    setTimeout(()=> performModeCheckAndStart(), 1200);
+    // auto-restart after short delay -> re-run preflight for current mode
+    setTimeout(()=> performModeCheckAndStart().catch(()=>{}), 1200);
     return;
   }
 
   if(remaining <= 0){
     revealAnswer(false, 0);
-    // auto-restart after short delay
-    setTimeout(()=> performModeCheckAndStart(), 1200);
+    // auto-restart after short delay -> re-run preflight for current mode
+    setTimeout(()=> performModeCheckAndStart().catch(()=>{}), 1200);
   }
 }
 
@@ -761,11 +761,6 @@ function applyTourTheme(){
 
 /* ---------------------------
    USER PANEL (top-right)
-   - shows pseudo if connected, or "Connect" if not
-   - clicking opens small dropdown with relevant options:
-     - if connected: Log out
-     - if not: Log In, Create Account
-   - uses window.LEADERBOARD.* if available, otherwise graceful fallback
 ---------------------------- */
 const userBox = document.getElementById('userBox');
 const userPanel = document.getElementById('userPanel');
@@ -798,7 +793,6 @@ function renderUserPanel(){
   if(newId !== lastKnownLocalUserId){
     lastKnownLocalUserId = newId;
     // re-evaluate mode availability immediately
-    // (do not block UI while rendering dropdown; performModeCheckAndStart handles disabling while checking)
     performModeCheckAndStart().catch(e => console.warn('performModeCheckAndStart error', e));
   }
 }
@@ -819,7 +813,6 @@ function toggleUserDropdown(e){
   try { localUser = (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') ? window.LEADERBOARD.getLocalUser() : null; } catch (e) { localUser = null; }
 
   if(localUser && (localUser.pseudo || localUser.user_id)){
-    // connected: show Log Out
     const btnLogout = document.createElement('button');
     btnLogout.type='button';
     btnLogout.textContent = 'Log out';
@@ -832,7 +825,6 @@ function toggleUserDropdown(e){
           await window.LEADERBOARD.signOut();
           showToast('Logged out');
         } else {
-          // fallback: clear local storage keys that LB might use and reload
           try{ localStorage.removeItem('lb_score_queue_v1'); }catch(e){}
           showToast('Logged out (local)');
         }
@@ -840,20 +832,16 @@ function toggleUserDropdown(e){
         console.error('Logout failed', e);
         showToast('Logout failed');
       } finally {
-        // re-render panel (small delay to allow library to update)
         setTimeout(renderUserPanel, 300);
-        // re-check modes after logout
         setTimeout(()=> performModeCheckAndStart().catch(()=>{}), 400);
       }
     };
     dd.appendChild(btnLogout);
   } else {
-    // not connected: show Log In and Create Account
     const btnLogin = document.createElement('button');
     btnLogin.type='button';
     btnLogin.textContent = 'Log In';
     btnLogin.onclick = () => {
-      // try multiple possible entry points in leaderboard lib
       if(window.LEADERBOARD){
         if(typeof window.LEADERBOARD.openLogin === 'function') return window.LEADERBOARD.openLogin();
         if(typeof window.LEADERBOARD.login === 'function') return window.LEADERBOARD.login();
@@ -893,7 +881,6 @@ function toggleUserDropdown(e){
 
 /* ---------------------------
    Update selectedCountry display:
-   - show country code only when COTD is ON
 ---------------------------- */
 function updateSelectedCountryDisplay(){
   const el = document.getElementById('selectedCountry');
@@ -905,10 +892,7 @@ function updateSelectedCountryDisplay(){
 }
 
 /* ---------------------------
-   Check whether connected user already has a score for this mode/date
-   - calls updated leaderboard endpoint with check_existing=1
-   - returns { exists: boolean, rows: [...] }
-   - unchanged from previous implementation
+   Check whether connected user already has a score for this mode/day
 ---------------------------- */
 async function checkUserPlayedToday(mode){
   let localUser = null;
@@ -937,20 +921,75 @@ async function checkUserPlayedToday(mode){
 }
 
 /* ---------------------------
+   Helper: wait until leaderboard getLocalUser is available (or timeout)
+   - returns:
+     - user object if function is available and returns user (could be null if not logged in)
+     - undefined if function never became available within timeout
+---------------------------- */
+function waitForLeaderboardUser(timeout = 4000, interval = 200){
+  return new Promise(resolve => {
+    // immediate check
+    try {
+      if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function'){
+        const u = window.LEADERBOARD.getLocalUser();
+        resolve(u); return;
+      }
+    } catch(e){
+      // ignore, fallback to polling
+    }
+    const start = Date.now();
+    const t = setInterval(() => {
+      try {
+        if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function'){
+          clearInterval(t);
+          const u = window.LEADERBOARD.getLocalUser();
+          resolve(u);
+          return;
+        }
+      } catch(e){
+        // swallow
+      }
+      if(Date.now() - start > timeout){
+        clearInterval(t);
+        resolve(undefined);
+      }
+    }, interval);
+  });
+}
+
+/* ---------------------------
    NEW: performModeCheckAndStart
-   - called immediately on page load and on any mode change (tour/level/COTD)
-   - it runs checkUserPlayedToday(mode) and:
-     - if exists -> blocks the game (disables input/button) and shows modal with details
-     - if not exists -> calls startGame() to initialise a playable round
+   - called on page load and on mode change
+   - DISABLES the input until verification is done
 ---------------------------- */
 async function performModeCheckAndStart(){
-  // Precompute mode string exactly as used for submits
+  // Mode string used for check/submits
   const mode = (cotdEnabled ? `${currentTour}_by_country` : `${currentTour}_top${levelTopN}`);
 
-  // temporarily disable UI while we check to avoid user guessing during the request
+  // disable UI while verifying
   guessInput.disabled = true;
   document.getElementById('guessBtn').disabled = true;
+  suggestionsList.style.display = 'none';
 
+  // Wait briefly for leaderboard library to expose getLocalUser (so we can check as a connected user).
+  // If the function is not present within timeout, we give up verifying and allow play (cannot verify).
+  const lbUser = await waitForLeaderboardUser(4000);
+
+  if(lbUser === undefined){
+    // library didn't appear in time -> allow play but inform
+    console.warn('Leaderboard lib/getLocalUser not available within timeout; allowing play.');
+    // start the game without blocking; startGame will enable inputs
+    await startGame();
+    return;
+  }
+
+  // If library present but returns null -> not logged in -> no check required
+  if(lbUser === null){
+    await startGame();
+    return;
+  }
+
+  // library present and user object available -> perform server check
   try {
     const check = await checkUserPlayedToday(mode);
     if(check && check.exists){
@@ -968,7 +1007,6 @@ async function performModeCheckAndStart(){
 
       title.textContent = 'Already completed';
       text.textContent = `You have already completed this variant today (${mode}). You cannot replay the same variant today.`;
-      // include brief details if available
       let infoHtml = `<div style="text-align:left;margin-top:12px;color:var(--muted)">`;
       if(check.rows && check.rows.length){
         for(const r of check.rows.slice(0,3)){
@@ -983,36 +1021,28 @@ async function performModeCheckAndStart(){
       modal.setAttribute('aria-hidden','false');
       document.getElementById('closeModalBtn').onclick = function(){ modal.classList.remove('show'); modal.setAttribute('aria-hidden','true'); };
 
-      // update UI (country banner etc) to reflect blocked state
+      // Update UI
       updateSelectedCountryDisplay();
       renderCotdBanner();
       renderCountryText();
       clearGuessesTable();
       return;
     } else {
-      // no existing score: allow the game to start
+      // no existing score: allow play
       gameBlockedDueToExisting = false;
-      await startGame(); // startGame will set gameStarted=true and enable inputs
+      await startGame();
       return;
     }
   } catch(e){
     console.warn('Error in performModeCheckAndStart', e);
-    // on any error, allow play (fail-open) but inform the user
-    gameBlockedDueToExisting = false;
+    // fail-open: allow play
     await startGame();
-    showToast('Unable to verify prior play — continuing.');
-  } finally {
-    // ensure UI reflects final state (if startGame enabled it will enable inputs)
+    showToast('Impossible de vérifier l\'historique — le jeu est disponible', 3000);
   }
 }
 
 /* ---------------------------
    Start Game (initializes the round, assumes preflight check done)
-   - chooses the target (dailyMap if present) for the exact combo (tour+level) or by_country if COTD ON
-   - resets remaining and guesses, keeps score
-   - clears table and updates display
-   - clears guessedNames set
-   NOTE: this function no longer calls checkUserPlayedToday; that check is performed earlier
 ---------------------------- */
 async function startGame(){
   remaining = MAX_TRIES;
@@ -1081,9 +1111,8 @@ function pickRandomTargetFromPool(tour, topN, fixedByCountry = null){
 
 /* ---------------------------
    Robust leaderboard submit helpers
-   - waitForLeaderboard: poll for window.LEADERBOARD
-   - queue in localStorage if LB not ready or submit fails
-   - flushScoreQueue when LB becomes ready
+   (unchanged from previous)...
+   -- keep same helpers: pushToScoreQueue, popScoreQueue, readScoreQueue, waitForLeaderboard, trySubmitEntryToLB, flushScoreQueue, submitScoreToLeaderboard
 ---------------------------- */
 
 const LB_QUEUE_KEY = 'lb_score_queue_v1';
@@ -1112,7 +1141,6 @@ function readScoreQueue(){
   catch(e){ return []; }
 }
 
-/** Poll until window.LEADERBOARD is ready or timeout (ms). */
 function waitForLeaderboard(timeout = 5000, interval = 200){
   return new Promise((resolve) => {
     if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function') return resolve(true);
@@ -1127,11 +1155,6 @@ function waitForLeaderboard(timeout = 5000, interval = 200){
   });
 }
 
-/** Replace existing trySubmitEntryToLB with this improved version.
- *  - treats only res.ok === true (or res.success === true) as success
- *  - when submitScore responds with ok:false, tries a direct fetch fallback
- *  - logs everything so you see Network / Console evidence
- */
 async function trySubmitEntryToLB(entry){
   const gameId = entry.gameId || 'guess_player';
   const points = Number(entry.points) || 0;
@@ -1140,7 +1163,6 @@ async function trySubmitEntryToLB(entry){
   const mode = options.mode || null;
   const meta = options.meta || null;
 
-  // 1) library attempt
   if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
     try {
       console.info('[LB] calling window.LEADERBOARD.submitScore', { gameId, points, options });
@@ -1158,7 +1180,6 @@ async function trySubmitEntryToLB(entry){
     console.warn('[LB] window.LEADERBOARD.submitScore not available; using server fallback');
   }
 
-  // 2) fallback to server-side submit
   const fallbackEndpoint = '/.netlify/functions/submit-score';
   const payload = {
     game_id: gameId,
@@ -1196,7 +1217,6 @@ async function trySubmitEntryToLB(entry){
   }
 }
 
-/** Flush local queue while LB is ready. */
 async function flushScoreQueue(){
   const queue = readScoreQueue();
   if(!queue || queue.length === 0) return;
@@ -1220,20 +1240,15 @@ async function flushScoreQueue(){
   }
 }
 
-/** Main helper to submit score (robust). 
- *  points: number; meta: object; extra: {displayName}
- */
 async function submitScoreToLeaderboard(points, meta = {}, extra = {}){
   const options = { mode: (cotdEnabled ? `${currentTour}_by_country` : `${currentTour}_top${levelTopN}`),
                     meta: JSON.stringify(meta || {}), displayName: (extra.displayName || null) };
 
-  // Try fast path: wait a short time for LB to be ready
   const ready = await waitForLeaderboard(3000);
   if(ready){
     const ok = await trySubmitEntryToLB({ points, options });
     if(ok){
       console.info('Score successfully submitted to leaderboard (fast path).');
-      // flush queue if any
       setTimeout(flushScoreQueue, 250);
       return;
     } else {
@@ -1243,7 +1258,6 @@ async function submitScoreToLeaderboard(points, meta = {}, extra = {}){
       return;
     }
   } else {
-    // Not ready: queue it and schedule flush when LB init completes
     pushToScoreQueue({ points, options });
     showToast('Leaderboard unavailable — score queued', 2000);
     setTimeout(flushScoreQueue, 1000);
@@ -1269,6 +1283,10 @@ async function submitScoreToLeaderboard(points, meta = {}, extra = {}){
 ---------------------------- */
 document.addEventListener('DOMContentLoaded', async ()=>{
   try{
+    // ensure input is disabled immediately until preflight check runs
+    guessInput.disabled = true;
+    document.getElementById('guessBtn').disabled = true;
+
     const okPlayers = await loadPlayersCatalog();
     if(!okPlayers){ alert('Players catalog missing or malformed.'); return; }
     await loadGeocodes();
