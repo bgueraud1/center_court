@@ -210,6 +210,25 @@
     </div>
   </div>
 
+  <!-- Auth modal (login / register) -->
+<div id="authModal" class="modal" role="dialog" aria-modal="true" aria-hidden="true" style="pointer-events:none;opacity:0;">
+  <div class="modal-card" style="max-width:460px">
+    <h2 id="authTitle">Connect</h2>
+    <div style="margin-top:10px;text-align:left">
+      <label style="display:block;color:var(--muted);font-weight:700;margin-bottom:6px">Pseudo</label>
+      <input id="authPseudo" type="text" placeholder="Votre pseudo" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#fff" />
+      <label style="display:block;color:var(--muted);font-weight:700;margin:10px 0 6px">Mot de passe</label>
+      <input id="authPassword" type="password" placeholder="Mot de passe" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#fff" />
+      <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">
+        <button id="authCancel" class="ghost">Annuler</button>
+        <button id="authAction" class="primary">Se connecter</button>
+      </div>
+      <div id="authFeedback" style="color:var(--muted);margin-top:12px;font-size:0.9rem"></div>
+      <div style="margin-top:10px;color:var(--muted);font-size:0.9rem">Pas de compte ? <a href="#" id="switchToRegister" style="color:var(--accent-strong)">Créer un compte</a></div>
+    </div>
+  </div>
+</div>
+
   <div id="modal" class="modal" role="dialog" aria-modal="true" aria-hidden="true">
     <div class="modal-card">
       <div class="big-check" id="modalIcon"><svg width="56" height="56" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" stroke="rgba(22,163,74,0.35)" stroke-width="2" fill="transparent"/><path d="M6 12.2l3.1 3.1L18 6.4" stroke="#16a34a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
@@ -609,6 +628,217 @@ function handleGuess(name){
   }
 }
 
+/* --------- Auth client: SHA256, modal, login/register & lightweight LEADERBOARD stub --------- */
+
+/** sha256 hex (Web Crypto API) */
+async function sha256Hex(message) {
+  const enc = new TextEncoder();
+  const data = enc.encode(message);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/* --- Auth modal control --- */
+const authModal = document.getElementById('authModal');
+const authTitle = document.getElementById('authTitle');
+const authPseudo = document.getElementById('authPseudo');
+const authPassword = document.getElementById('authPassword');
+const authAction = document.getElementById('authAction');
+const authCancel = document.getElementById('authCancel');
+const authFeedback = document.getElementById('authFeedback');
+const switchToRegister = document.getElementById('switchToRegister');
+
+function openAuthModal(mode = 'login') {
+  // mode: 'login' or 'register'
+  authModal.classList.add('show');
+  authModal.style.pointerEvents = 'auto';
+  authModal.style.opacity = '1';
+  authModal.setAttribute('aria-hidden', 'false');
+  authModal.dataset.mode = mode;
+  authFeedback.textContent = '';
+  authPseudo.value = '';
+  authPassword.value = '';
+  if (mode === 'login') {
+    authTitle.textContent = 'Se connecter';
+    authAction.textContent = 'Se connecter';
+    switchToRegister.style.display = '';
+  } else {
+    authTitle.textContent = 'Créer un compte';
+    authAction.textContent = 'Créer';
+    switchToRegister.style.display = 'none';
+  }
+  authPseudo.focus();
+}
+
+function closeAuthModal() {
+  authModal.classList.remove('show');
+  authModal.style.pointerEvents = 'none';
+  authModal.style.opacity = '0';
+  authModal.setAttribute('aria-hidden', 'true');
+}
+
+/* cancel behavior */
+authCancel.addEventListener('click', (e) => { e.preventDefault(); closeAuthModal(); });
+
+/* switch to register link */
+switchToRegister.addEventListener('click', (e) => { e.preventDefault(); openAuthModal('register'); });
+
+/* Handle Enter on password field */
+authPassword.addEventListener('keydown', (e) => { if (e.key === 'Enter') authAction.click(); });
+
+/* --- call create-user or check-user Netlify functions --- */
+async function handleAuthSubmit() {
+  const mode = authModal.dataset.mode || 'login';
+  const pseudo = (authPseudo.value || '').trim();
+  const password = (authPassword.value || '');
+  if (!pseudo || !password) { authFeedback.textContent = 'Pseudo et mot de passe requis'; return; }
+
+  authAction.disabled = true;
+  authFeedback.textContent = (mode === 'login') ? 'Connexion…' : 'Création…';
+
+  try {
+    const password_hash = await sha256Hex(password); // produce hex SHA256
+    const payload = { pseudo, password_hash };
+
+    const endpoint = (mode === 'login') ? '/.netlify/functions/check-user' : '/.netlify/functions/create-user';
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      credentials: 'same-origin'
+    });
+
+    const text = await res.text().catch(()=>null);
+    let json = null;
+    try { json = text ? JSON.parse(text) : null; } catch(e) { json = { raw: text }; }
+
+    if (!res.ok) {
+      authFeedback.textContent = json && json.error ? (`Erreur: ${json.error}`) : ('Erreur serveur');
+      authAction.disabled = false;
+      return;
+    }
+
+    // Success: for check-user we expect { ok:true, user: { id, pseudo } }
+    // for create-user we expect inserted array
+    if (mode === 'login') {
+      if (json && json.ok && json.user) {
+        const u = { id: json.user.id, pseudo: json.user.pseudo };
+        persistLocalUser(u);
+        authFeedback.textContent = 'Connecté';
+        closeAuthModal();
+        renderUserPanel();
+        showToast('Connecté');
+        // try flush queue / start game recalc
+        try { startGame(); flushScoreQueue && flushScoreQueue(); } catch(e){ }
+      } else {
+        authFeedback.textContent = (json && json.error) ? json.error : 'Identifiants invalides';
+        authAction.disabled = false;
+      }
+    } else {
+      // register: create-user returns inserted array
+      if (json && json.ok && json.inserted) {
+        // inserted is array with inserted row(s)
+        const inserted = Array.isArray(json.inserted) ? json.inserted[0] : json.inserted;
+        const u = { id: inserted && inserted.id ? inserted.id : null, pseudo: inserted && inserted.pseudo ? inserted.pseudo : pseudo };
+        persistLocalUser(u);
+        authFeedback.textContent = 'Compte créé et connecté';
+        closeAuthModal();
+        renderUserPanel();
+        showToast('Compte créé');
+        try { startGame(); } catch(e){}
+      } else {
+        authFeedback.textContent = (json && json.error) ? json.error : 'Erreur création';
+        authAction.disabled = false;
+      }
+    }
+  } catch (err) {
+    console.error('auth submit error', err);
+    authFeedback.textContent = 'Erreur réseau';
+    authAction.disabled = false;
+  } finally {
+    authAction.disabled = false;
+  }
+}
+authAction.addEventListener('click', (e) => { e.preventDefault(); handleAuthSubmit(); });
+
+
+/* --- local persistence for "logged in" user --- */
+const LOCAL_USER_KEY = 'lb_current_user';
+function persistLocalUser(u) {
+  try { localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(u)); } catch(e){ }
+  // expose to window.LEADERBOARD stub too
+  if (window.LEADERBOARD && typeof window.LEADERBOARD.setLocalUser === 'function') {
+    try { window.LEADERBOARD.setLocalUser(u); } catch(e){}
+  }
+}
+function readLocalUser() {
+  try { const s = localStorage.getItem(LOCAL_USER_KEY); return s ? JSON.parse(s) : null; } catch(e){ return null; }
+}
+function clearLocalUser() {
+  try { localStorage.removeItem(LOCAL_USER_KEY); } catch(e){}
+  if (window.LEADERBOARD && typeof window.LEADERBOARD.setLocalUser === 'function') {
+    try { window.LEADERBOARD.setLocalUser(null); } catch(e){}
+  }
+}
+
+/* --- lightweight LEADERBOARD stub to integrate with the page expectations --- */
+(function ensureLeaderboardStub(){
+  if (!window.LEADERBOARD) window.LEADERBOARD = {};
+  const LB = window.LEADERBOARD;
+
+  // getLocalUser
+  LB.getLocalUser = LB.getLocalUser || function(){ return readLocalUser(); };
+
+  // setLocalUser (used by our auth flow)
+  LB.setLocalUser = LB.setLocalUser || function(u){ try { if(u) localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(u)); else localStorage.removeItem(LOCAL_USER_KEY); } catch(e){} };
+
+  // logout
+  LB.logout = LB.logout || async function(){
+    // call server logout if present and clear LocalUser
+    try { await fetch('/.netlify/functions/logout', { method: 'POST', credentials: 'same-origin' }).catch(()=>null); } catch(e){}
+    clearLocalUser();
+    // also clear score queue to be safe
+    try { localStorage.removeItem('lb_score_queue_v1'); } catch(e){}
+    return true;
+  };
+
+  // simple submitScore fallback: calls submit-score server function
+  LB.submitScore = LB.submitScore || async function(gameId, points, options = {}) {
+    const payload = {
+      game_id: gameId || 'guess_player',
+      points: Number(points) || 0,
+      pseudo: (options && options.displayName) ? options.displayName : (readLocalUser() && readLocalUser().pseudo) ? readLocalUser().pseudo : null,
+      mode: options && options.mode ? options.mode : null,
+      meta: options && options.meta ? options.meta : null
+    };
+    try {
+      const resp = await fetch('/.netlify/functions/submit-score', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const txt = await resp.text().catch(()=>null);
+      let j = null;
+      try { j = txt ? JSON.parse(txt) : null; } catch(e){ j = { raw: txt }; }
+      if (resp.ok) return { ok:true, data: j };
+      return { ok:false, data: j };
+    } catch (e) {
+      console.error('LB.submitScore network error', e);
+      return { ok:false, error: String(e) };
+    }
+  };
+
+  // convenience: openLogin / openRegister so third-party code can still call them
+  LB.openLogin = LB.openLogin || function(){ openAuthModal('login'); };
+  LB.openRegister = LB.openRegister || function(){ openAuthModal('register'); };
+
+  // initialize from persisted user
+  const existing = readLocalUser();
+  if (existing) try { LB.setLocalUser(existing); } catch(e){}
+})();
+
 /* reveal */
 function revealAnswer(won, gainedPoints){
   const modal = document.getElementById('modal');
@@ -920,29 +1150,24 @@ function toggleUserDropdown(e){
     dd.appendChild(btnLogout);
   } else {
     // not connected: show Log In and Create Account
-    const btnLogin = document.createElement('button');
-    btnLogin.type='button';
-    btnLogin.textContent = 'Log In';
-    btnLogin.onclick = () => {
-      // try multiple possible entry points in leaderboard lib
-      if(window.LEADERBOARD){
-        if(typeof window.LEADERBOARD.openLogin === 'function') return window.LEADERBOARD.openLogin();
-        if(typeof window.LEADERBOARD.login === 'function') return window.LEADERBOARD.login();
-        if(typeof window.LEADERBOARD.showAuth === 'function') return window.LEADERBOARD.showAuth();
-      }
-      showToast('Login not available from this page');
-    };
-    dd.appendChild(btnLogin);
+    // not connected: show Log In and Create Account
+const btnLogin = document.createElement('button');
+btnLogin.type='button';
+btnLogin.textContent = 'Log In';
+btnLogin.onclick = () => {
+  openAuthModal('login');
+};
+dd.appendChild(btnLogin);
 
-    const btnCreate = document.createElement('button');
-    btnCreate.type='button';
-    btnCreate.textContent = 'Create account';
-    btnCreate.onclick = () => {
-      if(window.LEADERBOARD && typeof window.LEADERBOARD.openRegister === 'function') return window.LEADERBOARD.openRegister();
-      if(window.LEADERBOARD && typeof window.LEADERBOARD.register === 'function') return window.LEADERBOARD.register();
-      showToast('Register not available from this page');
-    };
-    dd.appendChild(btnCreate);
+const btnCreate = document.createElement('button');
+btnCreate.type='button';
+btnCreate.textContent = 'Create account';
+btnCreate.onclick = () => {
+  openAuthModal('register');
+};
+dd.appendChild(btnCreate);
+
+   
   }
 
   userPanel.appendChild(dd);
