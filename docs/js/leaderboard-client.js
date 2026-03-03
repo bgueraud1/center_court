@@ -3,7 +3,7 @@
 // submitScore, fetchLeaderboard, createLeaderboardPanel, getLocalUser, getOrCreateAnonId
 // Also provides auth functions that call your Netlify functions:
 //  - POST /.netlify/functions/create-user  (body: { pseudo, password_hash })
-//  - POST /.netlify/functions/check-user   (body: { pseudo, password_hash })
+//  - POST /.netlify/functions/check_user   (body: { pseudo, password_hash })
 
 (function(){
   // --- utils ---
@@ -402,8 +402,8 @@
   async function performServerLogin(pseudo, password){
     try {
       const hash = await sha256Hex(password);
-      // IMPORTANT: use dash 'check-user' (matches your Netlify function file check-user.js)
-      const res = await callNetlifyFunction('/.netlify/functions/check-user', { pseudo, password_hash: hash });
+      // IMPORTANT: use dash 'check_user' (matches your Netlify function file check_user.js)
+      const res = await callNetlifyFunction('/.netlify/functions/check_user', { pseudo, password_hash: hash });
       if (!res.ok) {
         const body = res.body || {};
         if (body && body.error) {
@@ -417,7 +417,7 @@
       }
       const b = res.body || {};
       if (b.ok && b.user && (b.user.id || b.user.pseudo)) {
-        // user object expected from check-user
+        // user object expected from check_user
         saveLocalSession({ id: b.user.id || b.user.ID || '', pseudo: b.user.pseudo || pseudo });
         return true;
       } else if (b.ok && b.user_id) {
