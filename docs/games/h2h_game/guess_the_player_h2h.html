@@ -418,10 +418,36 @@ function appendGuessRowSimple(guess){ const tbody = document.querySelector('#gue
 /* ---------------------------
   Local user helpers (session)
 ---------------------------- */
+/* ---------------------------
+  Local user helpers (session)
+  -> Prefer window.LEADERBOARD.getLocalUser() if available,
+     fallback to lb_user_v1 or legacy LB_LOCAL_USER_KEY.
+----------------------------*/
 function getLocalUserFromLibOrStorage(){
-  try { if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function'){ const u = window.LEADERBOARD.getLocalUser(); if(u && u.pseudo) return { pseudo: u.pseudo, password_hash: u.password_hash || null, user_id: u.user_id || u.id || null }; } } catch(e){}
-  try { const raw = localStorage.getItem(LB_LOCAL_USER_KEY); if(raw) return JSON.parse(raw); } catch(e){}
-  return null;
+  try {
+    if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
+      const u = window.LEADERBOARD.getLocalUser();
+      if (u && u.pseudo) {
+        return {
+          pseudo: u.pseudo,
+          user_id: u.id || u.user_id || null,
+          id: u.id || u.user_id || null
+        };
+      }
+    }
+  } catch(e){ /* ignore */ }
+
+  // fallback to storage keys (support both new key and legacy key)
+  try {
+    const raw = localStorage.getItem('lb_user_v1') || localStorage.getItem(LB_LOCAL_USER_KEY) || null;
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    return {
+      pseudo: o.pseudo || o.username || '',
+      user_id: o.id || o.user_id || null,
+      id: o.id || o.user_id || null
+    };
+  } catch(e) { return null; }
 }
 
 /* ---------------------------
@@ -456,17 +482,22 @@ function toggleUserDropdown(anchor){
   if(existing){ existing.remove(); return; }
   const dd = document.createElement('div'); dd.className='user-dropdown';
   const btnLogout = document.createElement('button'); btnLogout.type='button'; btnLogout.textContent='Log out';
-  btnLogout.onclick = async ()=>{
-    try{
-      if(window.LEADERBOARD && typeof window.LEADERBOARD.logout === 'function'){ await window.LEADERBOARD.logout(); showToast('Logged out'); }
-      else if(window.LEADERBOARD && typeof window.LEADERBOARD.signOut === 'function'){ await window.LEADERBOARD.signOut(); showToast('Logged out'); }
-      else { localStorage.removeItem(LB_LOCAL_USER_KEY); showToast('Logged out (local)'); }
-    }catch(e){ console.warn('Logout failed', e); showToast('Logout failed'); }
-    dd.remove();
-    renderLbBox(); updateLBStatusUI();
-    // re-check mode after logout (might unblock)
-    setTimeout(()=> ensureModeCheckedAndStart(), 400);
-  };
+  btnLogout.onclick = async ()=> {
+  try {
+    // try to call leaderboard library logout if available
+    if (window.LEADERBOARD && typeof window.LEADERBOARD.logout === 'function') {
+      await window.LEADERBOARD.logout();
+    }
+  } catch(e){ console.warn('LEADERBOARD.logout failed', e); }
+
+  // remove minimal session stored by our flow and notify
+  try { localStorage.removeItem('lb_user_v1'); } catch(e){}
+  try { window.dispatchEvent(new Event('lb:auth-changed')); } catch(e){}
+
+  dd.remove();
+  renderLbBox(); if (typeof updateLBStatusUI === 'function') updateLBStatusUI();
+  setTimeout(()=> ensureModeCheckedAndStart(), 400);
+};
   dd.appendChild(btnLogout);
   anchor.parentElement.appendChild(dd);
   // close on outside click
@@ -928,6 +959,9 @@ async function loadSelectedPlayers(){ const j = await fetchJson(SELECTED_PLAYERS
 /* ---------------------------
   LB Modal login/signup server wrappers
 ----------------------------*/
+/* ---------------------------
+  Server-side signup (no storing password_hash locally)
+----------------------------*/
 async function signupServer(pseudo, password){
   if(!pseudo || !password) return { ok:false, error:'missing' };
   const password_hash = await hashStringSHA256Hex(String(password));
@@ -940,12 +974,24 @@ async function signupServer(pseudo, password){
     const text = await resp.text().catch(()=>null);
     let parsed = null;
     try { parsed = text ? JSON.parse(text) : null; } catch(e){ parsed = text; }
+
     if (resp.ok) {
-      const local = { pseudo: pseudo.trim(), password_hash };
-      try { localStorage.setItem(LB_LOCAL_USER_KEY, JSON.stringify(local)); } catch(e){}
-      try{ if(window.LEADERBOARD && typeof window.LEADERBOARD.setLocalUser === 'function') window.LEADERBOARD.setLocalUser(local); } catch(e){}
-      renderLbBox(); updateLBStatusUI();
-      return { ok:true, user: local };
+      // create-user returns { ok:true, inserted: [...] } (PostgREST style)
+      const insertedRow = parsed && parsed.inserted && Array.isArray(parsed.inserted) && parsed.inserted[0] ? parsed.inserted[0] : null;
+      const userId = insertedRow ? (insertedRow.id ?? insertedRow.ID ?? insertedRow.Id) : null;
+
+      // Save *only* minimal session in key used by leaderboard-client ('lb_user_v1')
+      const session = { id: userId ? String(userId) : '', pseudo: pseudo.trim() };
+      try { localStorage.setItem('lb_user_v1', JSON.stringify(session)); } catch(e){ console.warn('Cannot persist session', e); }
+
+      // notify other modules
+      try { window.dispatchEvent(new Event('lb:auth-changed')); } catch(e){}
+
+      // keep legacy key for compatibility (optional)
+      try { localStorage.removeItem(LB_LOCAL_USER_KEY); } catch(e){}
+
+      renderLbBox(); if (typeof updateLBStatusUI === 'function') updateLBStatusUI();
+      return { ok:true, user: session };
     } else {
       return { ok:false, status: resp.status, detail: parsed };
     }
@@ -953,6 +999,12 @@ async function signupServer(pseudo, password){
     return { ok:false, error: String(err) };
   }
 }
+
+
+
+/* ---------------------------
+  Server-side login (no storing password_hash locally)
+----------------------------*/
 async function loginServer(pseudo, password){
   if(!pseudo || !password) return { ok:false, error:'missing' };
   const password_hash = await hashStringSHA256Hex(String(password));
@@ -965,13 +1017,21 @@ async function loginServer(pseudo, password){
     const text = await resp.text().catch(()=>null);
     let parsed = null;
     try { parsed = text ? JSON.parse(text) : null; } catch(e){ parsed = text; }
+
     if (resp.ok) {
-      const user = (parsed && parsed.user) ? parsed.user : { pseudo };
-      const local = { pseudo: user.pseudo || pseudo.trim(), password_hash };
-      try { localStorage.setItem(LB_LOCAL_USER_KEY, JSON.stringify(local)); } catch(e){}
-      try{ if(window.LEADERBOARD && typeof window.LEADERBOARD.setLocalUser === 'function') window.LEADERBOARD.setLocalUser(local); } catch(e){}
-      renderLbBox(); updateLBStatusUI();
-      return { ok:true, user: local };
+      // check-user returns { ok:true, user: { id, pseudo } }
+      const user = parsed && parsed.user ? parsed.user : null;
+      const session = { id: user ? String(user.id) : '', pseudo: user ? (user.pseudo || pseudo.trim()) : pseudo.trim() };
+
+      // store minimal session only
+      try { localStorage.setItem('lb_user_v1', JSON.stringify(session)); } catch(e){ console.warn('Cannot persist session', e); }
+
+      // notify other modules
+      try { window.dispatchEvent(new Event('lb:auth-changed')); } catch(e){}
+
+      try { localStorage.removeItem(LB_LOCAL_USER_KEY); } catch(e){}
+      renderLbBox(); if (typeof updateLBStatusUI === 'function') updateLBStatusUI();
+      return { ok:true, user: session };
     } else {
       return { ok:false, status: resp.status, detail: parsed };
     }
@@ -979,7 +1039,6 @@ async function loginServer(pseudo, password){
     return { ok:false, error: String(err) };
   }
 }
-
 /* open/close modal */
 function openLBModal(){ openLBModalAndTab('login'); }
 function closeLBModal(){ const m = document.getElementById('lbModal'); try { if(document.activeElement) document.activeElement.blur(); } catch(e){} m.classList.remove('show'); setTimeout(()=> m.setAttribute('aria-hidden','true'), 120); }
@@ -1040,13 +1099,29 @@ async function init(){
   await ensureModeCheckedAndStart();
 
   // watch login state
-  let lastUserId = null;
-  setInterval(async ()=>{ let localUser = null; try{ localUser = getLocalUserFromLibOrStorage(); }catch(e){ localUser=null; } const id = localUser ? (localUser.user_id || localUser.pseudo || '') : ''; if(id !== lastUserId){ lastUserId = id; renderLbBox(); updateLBStatusUI && updateLBStatusUI(); await ensureModeCheckedAndStart(); } }, 1200);
+// listen to global auth changes: update UI automatically
+window.addEventListener('lb:auth-changed', async () => {
+  try {
+    renderLbBox();
+    if (typeof updateLBStatusUI === 'function') updateLBStatusUI();
+    // re-check current mode because login status may change whether user already played
+    await ensureModeCheckedAndStart();
+  } catch(e){ console.warn('auth-changed handler error', e); }
+});
 }
 init();
 
-(function(){ try{ const raw = localStorage.getItem(LB_LOCAL_USER_KEY); if(raw){ const o=JSON.parse(raw); if(o && o.pseudo) document.getElementById('lb-status').textContent = 'Connected'; } }catch(e){} renderLbBox(); updateLBStatusUI && updateLBStatusUI(); })();
-
+(function(){
+  try{
+    // if session present under new key, mark UI connected
+    const raw = localStorage.getItem('lb_user_v1') || localStorage.getItem(LB_LOCAL_USER_KEY);
+    if(raw){
+      document.getElementById('lb-status').textContent = 'Connected';
+    }
+  }catch(e){}
+  renderLbBox();
+  if (typeof updateLBStatusUI === 'function') updateLBStatusUI();
+})();
 </script>
 </body>
 </html>
