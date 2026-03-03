@@ -767,6 +767,89 @@ function applyTourTheme(){
 const userBox = document.getElementById('userBox');
 const userPanel = document.getElementById('userPanel');
 
+
+// logout helper: try library logout, call optional server endpoint, clear storage, update UI
+async function performLogout({ reload = false } = {}) {
+  console.info('[LOGOUT] start');
+
+  // 1) try various leaderboard/library methods (lib may expose different names)
+  try {
+    if (window.LEADERBOARD) {
+      const candidateFns = ['logout', 'signOut', 'signout', 'disconnect', 'signOff', 'signoff'];
+      for (const fn of candidateFns) {
+        if (typeof window.LEADERBOARD[fn] === 'function') {
+          try {
+            const res = window.LEADERBOARD[fn]();
+            // support sync or promise
+            if (res && typeof res.then === 'function') await res;
+            console.info(`[LOGOUT] called window.LEADERBOARD.${fn}`);
+            break;
+          } catch (e) {
+            console.warn(`[LOGOUT] window.LEADERBOARD.${fn} threw`, e);
+          }
+        }
+      }
+    } else {
+      console.info('[LOGOUT] window.LEADERBOARD not present');
+    }
+  } catch (e) {
+    console.warn('[LOGOUT] error while calling LB methods', e);
+  }
+
+  // 2) call optional server-side logout endpoint (no-op if not present)
+  try {
+    await fetch('/.netlify/functions/logout', { method: 'POST', credentials: 'same-origin' }).catch(()=>null);
+    console.info('[LOGOUT] called server logout endpoint (if exists)');
+  } catch (e) {
+    console.warn('[LOGOUT] server logout endpoint failed', e);
+  }
+
+  // 3) clear common local/session storage keys the app or libs may use
+  try {
+    const likelyKeys = [
+      'lb_score_queue_v1',            // your own queue key
+      'lb_current_user', 'leaderboard_user', 'local_user', 'user',
+      'auth', 'access_token', 'refresh_token',
+      'supabase.auth.token', 'supabase.auth.session', 'sb:token',
+      'supabase.auth.user'
+    ];
+    for (const k of likelyKeys) {
+      try { localStorage.removeItem(k); } catch(e) {}
+      try { sessionStorage.removeItem(k); } catch(e) {}
+    }
+    // remove any other keys that look like tokens/sessions (best-effort)
+    try {
+      for (const k of Object.keys(localStorage)) {
+        if (/token|auth|session|user|lb/i.test(k)) {
+          try { localStorage.removeItem(k); } catch(e) {}
+        }
+      }
+      for (const k of Object.keys(sessionStorage)) {
+        if (/token|auth|session|user|lb/i.test(k)) {
+          try { sessionStorage.removeItem(k); } catch(e) {}
+        }
+      }
+    } catch(e){ /* ignore */ }
+  } catch (e) {
+    console.warn('[LOGOUT] clearing storage failed', e);
+  }
+
+  // 4) small UI update & restart behaviour
+  try {
+    showToast('Logged out', 1400);
+    // re-render user panel (will show "Connect")
+    try { renderUserPanel(); } catch(e){ console.warn('renderUserPanel threw', e); }
+    // re-check game state (unblock play if previously blocked)
+    try { startGame(); } catch(e){ /* ignore */ }
+    if (reload) setTimeout(()=> location.reload(), 300);
+  } catch (e) {
+    console.warn('[LOGOUT] ui update failed', e);
+  }
+
+  console.info('[LOGOUT] done');
+  return true;
+}
+
 function renderUserPanel(){
   const dropdownExisting = userPanel.querySelector('.user-dropdown');
   if(dropdownExisting) dropdownExisting.remove();
@@ -811,29 +894,29 @@ function toggleUserDropdown(e){
     const btnLogout = document.createElement('button');
     btnLogout.type='button';
     btnLogout.textContent = 'Log out';
-    btnLogout.onclick = async () => {
-      try {
-        if(window.LEADERBOARD && typeof window.LEADERBOARD.logout === 'function'){
-          await window.LEADERBOARD.logout();
-          showToast('Logged out');
-        } else if(window.LEADERBOARD && typeof window.LEADERBOARD.signOut === 'function'){
-          await window.LEADERBOARD.signOut();
-          showToast('Logged out');
-        } else {
-          // fallback: clear local storage keys that LB might use and reload
-          try{ localStorage.removeItem('lb_score_queue_v1'); }catch(e){}
-          showToast('Logged out (local)');
-        }
-      } catch(e){
-        console.error('Logout failed', e);
-        showToast('Logout failed');
-      } finally {
-        // re-render panel (small delay to allow library to update)
-        setTimeout(renderUserPanel, 300);
-        // if we blocked the game earlier, re-check
-        startGame();
-      }
-    };
+    btnLogout.onclick = async (ev) => {
+  ev.stopPropagation();
+  // disable the button to avoid double-clicks
+  btnLogout.disabled = true;
+  try {
+    await performLogout({ reload: false });
+    // close dropdown
+    const d = userPanel.querySelector('.user-dropdown');
+    if (d) d.remove();
+    userBox.setAttribute('aria-expanded','false');
+    // ensure the panel reflects logged-out state
+    setTimeout(renderUserPanel, 150);
+  } catch (e) {
+    console.error('Logout failed', e);
+    showToast('Logout failed');
+    btnLogout.disabled = false;
+  } finally {
+    // re-enable in case of failure (or let UI re-render)
+    btnLogout.disabled = false;
+    // ensure game state updated
+    try { startGame(); } catch(e) {}
+  }
+};
     dd.appendChild(btnLogout);
   } else {
     // not connected: show Log In and Create Account
