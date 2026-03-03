@@ -50,66 +50,16 @@
   .toast{position:fixed;right:18px;bottom:18px;background:rgba(0,0,0,0.7);color:#fff;padding:10px 14px;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,0.6);display:none;z-index:220}
   .lb-card{margin-left:auto;display:flex;gap:8px;align-items:center}
   #lb-status{color:var(--muted);font-size:0.9rem;margin-left:8px}
-  /* prettier user badge: circular avatar + pseudo text */
-.user-badge{
-  display:flex;
-  align-items:center;
-  gap:10px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
-  padding:8px 12px;
-  border-radius:999px;
-  border:1px solid rgba(255,255,255,0.06);
-  color:#fff;
-  box-shadow: 0 6px 18px rgba(2,6,23,0.55);
-}
-
-/* small avatar circle with initials */
-.user-badge .lb-avatar{
-  width:34px;
-  height:34px;
-  border-radius:50%;
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  font-weight:700;
-  font-size:13px;
-  color:white;
-  background: linear-gradient(135deg,#2b8af6,#7b5cf6);
-  box-shadow: 0 4px 12px rgba(43,138,246,0.18), inset 0 -2px 6px rgba(0,0,0,0.12);
-}
-
-/* nicer pseudo text */
-.user-badge .lb-name{
-  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-  font-weight:700;
-  font-size:14px;
-  letter-spacing:0.2px;
-  color: #fff;
-  max-width:160px;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
-}
-
-/* small logout button styling inside the badge area */
-.user-badge .lb-logout-btn{
-  margin-left:6px;
-  padding:6px 8px;
-  border-radius:8px;
-  border:1px solid rgba(255,255,255,0.04);
-  background:transparent;
-  color:var(--muted);
-  font-weight:600;
-  cursor:pointer;
-}
-
-/* status text */
-#lb-status{ color:var(--muted); font-size:0.95rem; margin-left:12px; min-width:92px; text-align:right; }
-
+  .user-badge{ display:flex; align-items:center; gap:10px; background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)); padding:8px 12px; border-radius:999px; border:1px solid rgba(255,255,255,0.06); color:#fff; box-shadow: 0 6px 18px rgba(2,6,23,0.55); }
+  .user-badge .lb-avatar{ width:34px; height:34px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; color:white; background: linear-gradient(135deg,#2b8af6,#7b5cf6); box-shadow: 0 4px 12px rgba(43,138,246,0.18), inset 0 -2px 6px rgba(0,0,0,0.12); }
+  .user-badge .lb-name{ font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; font-weight:700; font-size:14px; letter-spacing:0.2px; color: #fff; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .user-badge .lb-logout-btn{ margin-left:6px; padding:6px 8px; border-radius:8px; border:1px solid rgba(255,255,255,0.04); background:transparent; color:var(--muted); font-weight:600; cursor:pointer; }
   @media (max-width:880px){ input[type="text"]{min-width:140px} .chip{font-size:0.85rem} th,td{padding:8px;font-size:0.9rem} }
 </style>
 </head>
 <body>
+  <script src="/js/leaderboard-client.js" defer></script>
+
   <div class="wrap">
     <header style="align-items:flex-start">
       <div><h1>Guess the Player</h1><div class="sub">H2H game — Answers are updated daily.</div></div>
@@ -117,10 +67,10 @@
       <!-- LB area -->
       <div class="lb-card card" aria-hidden="false" style="margin-left:auto;align-items:center">
         <div id="lbDisplay" style="display:none" class="user-badge" role="status" aria-live="polite">
-  <div class="lb-avatar" id="lbAvatar">??</div>
-  <div class="lb-name" id="lbName">Me</div>
-  <button id="lbLogout" class="lb-logout-btn" title="Log out">Log out</button>
-</div>
+          <div class="lb-avatar" id="lbAvatar">??</div>
+          <div class="lb-name" id="lbName">Me</div>
+          <button id="lbLogout" class="lb-logout-btn" title="Log out">Log out</button>
+        </div>
 
         <button id="lbOpenBtn" class="ghost">Log in / Sign up</button>
         <div id="lb-status">Not connected</div>
@@ -141,8 +91,7 @@
         </div>
       </div>
 
-      <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
-      </div>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center"></div>
     </div>
 
     <div class="game-meta" style="margin-top:18px">
@@ -180,7 +129,7 @@
     </div>
   </div>
 
-  <!-- Login / Sign up modal (password now REQUIRED) -->
+  <!-- Login / Sign up modal (password required) -->
   <div id="lbModal" class="modal" role="dialog" aria-modal="true" aria-hidden="true">
     <div class="modal-card" style="max-width:420px">
       <div style="display:flex;gap:8px;justify-content:center;margin-bottom:12px">
@@ -224,8 +173,8 @@ const GEOCODES_JSON = '/tools/geocodes_combined.json';
 const H2H_BY_PLAYER_BASE = '/data/h2h_by_player/';
 
 const LB_QUEUE_KEY = 'lb_score_queue_guess6_v1';
-const LB_USERS_KEY = 'lb_users_v1'; // map pseudo -> password_hash
 const LB_LOCAL_USER_KEY = 'lb_local_user_v1'; // { pseudo, password_hash }
+const GAME_ID = 'guess_player_h2h'; // as requested
 
 /* ---------------------------
   STATE
@@ -240,6 +189,7 @@ let currentLevel = 'easy';
 let remaining = 15;
 let score = 0;
 let gameStarted = false;
+let gameBlockedDueToExisting = false; // <-- important for pre-check block
 let guesses = [];
 let guessedNames = new Set();
 
@@ -250,37 +200,6 @@ let preloadedCount = 0;
 /* ---------------------------
   UTIL
 ---------------------------- */
-
-
-
-
-// --- Ensure a sane default mode is selected (ATP + easy) and UI reflects it
-function ensureDefaultModeUI(){
-  // set defaults if undefined / empty
-  if (!currentTour) currentTour = 'ATP';
-  if (!currentLevel) currentLevel = 'easy';
-
-  // update tour buttons
-  const btnATP = document.getElementById('btnATP');
-  const btnWTA = document.getElementById('btnWTA');
-  if (btnATP) btnATP.classList.toggle('active', currentTour === 'ATP');
-  if (btnWTA) btnWTA.classList.toggle('active', currentTour === 'WTA');
-
-  // update difficulty segment buttons
-  const segBtns = document.querySelectorAll('.seg-btn');
-  segBtns.forEach(b => {
-    const lvl = b.dataset.level;
-    if (lvl) b.classList.toggle('active', lvl === currentLevel);
-  });
-
-  // update labels in header
-  const tourLabel = document.getElementById('tourLabel');
-  const levelLabel = document.getElementById('levelLabel');
-  if (tourLabel) tourLabel.textContent = currentTour;
-  if (levelLabel) levelLabel.textContent = currentLevel.charAt(0).toUpperCase() + currentLevel.slice(1);
-}
-
-
 function showToast(msg, t=2000){ const el=document.getElementById('toast'); el.textContent=msg; el.style.display='block'; setTimeout(()=>el.style.display='none', t); }
 function escapeHtml(s){ if(s===undefined||s===null) return ''; return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m]); }
 function norm(s){ return s ? s.normalize().replace(/[\u0300-\u036f]/g,'').toLowerCase() : ''; }
@@ -467,39 +386,12 @@ function clearGuessesTable(){ document.querySelector('#guessesTable tbody').inne
 function appendGuessRowSimple(guess){ const tbody = document.querySelector('#guessesTable tbody'); const tr = document.createElement('tr'); const idx = guesses.length; const tdIndex = document.createElement('td'); tdIndex.textContent = idx; const tdName = document.createElement('td'); tdName.textContent = guess.full_name || ''; tr.appendChild(tdIndex); tr.appendChild(tdName); tbody.prepend(tr); }
 
 /* ---------------------------
-  LB local users helpers (new: map of users)
+  Local user helpers (session)
 ---------------------------- */
-function readLocalUsers(){ try { return JSON.parse(localStorage.getItem(LB_USERS_KEY) || '{}'); } catch(e){ return {}; } }
-function writeLocalUsers(obj){ try { localStorage.setItem(LB_USERS_KEY, JSON.stringify(obj)); } catch(e){} }
 function getLocalUserFromLibOrStorage(){
-  try { if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function'){ const u = window.LEADERBOARD.getLocalUser(); if(u && u.pseudo) return { pseudo: u.pseudo, password_hash: u.password_hash || null }; } } catch(e){}
+  try { if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function'){ const u = window.LEADERBOARD.getLocalUser(); if(u && u.pseudo) return { pseudo: u.pseudo, password_hash: u.password_hash || null, user_id: u.user_id || u.id || null }; } } catch(e){}
   try { const raw = localStorage.getItem(LB_LOCAL_USER_KEY); if(raw) return JSON.parse(raw); } catch(e){}
   return null;
-}
-async function setLocalUserAndPersist(pseudo, password){
-  if(!pseudo || !password) return false;
-  const users = readLocalUsers();
-  const passHash = await hashStringSHA256Hex(String(password));
-  // on signup path this function also writes users map; on login path users should already contain pseudo.
-  users[pseudo] = passHash;
-  writeLocalUsers(users);
-  const obj = { pseudo: pseudo.trim(), password_hash: passHash };
-  try { localStorage.setItem(LB_LOCAL_USER_KEY, JSON.stringify(obj)); } catch(e){}
-  try { if(window.LEADERBOARD && typeof window.LEADERBOARD.setLocalUser === 'function') window.LEADERBOARD.setLocalUser(obj); } catch(e){}
-  updateLBStatusUI();
-  return true;
-}
-function setLocalUserFromStored(pseudo, passwordHash){
-  if(!pseudo || !passwordHash) return false;
-  const obj = { pseudo: pseudo.trim(), password_hash: passwordHash };
-  try { localStorage.setItem(LB_LOCAL_USER_KEY, JSON.stringify(obj)); } catch(e){}
-  try { if(window.LEADERBOARD && typeof window.LEADERBOARD.setLocalUser === 'function') window.LEADERBOARD.setLocalUser(obj); } catch(e){}
-  updateLBStatusUI(); return true;
-}
-function clearLocalUser(){
-  try { localStorage.removeItem(LB_LOCAL_USER_KEY); } catch(e){}
-  try { if(window.LEADERBOARD && typeof window.LEADERBOARD.clearLocalUser === 'function') window.LEADERBOARD.clearLocalUser(); } catch(e){}
-  updateLBStatusUI();
 }
 function updateLBStatusUI(){
   const st = document.getElementById('lb-status');
@@ -509,6 +401,8 @@ function updateLBStatusUI(){
   if(u && u.pseudo){
     st.textContent = 'Connected';
     document.getElementById('lbName').textContent = u.pseudo;
+    const initials = u.pseudo.split(/\s+/).map(x=>x[0]).slice(0,2).join('').toUpperCase();
+    document.getElementById('lbAvatar').textContent = initials || '??';
     disp.style.display = 'flex';
     openBtn.style.display = 'none';
   } else {
@@ -518,159 +412,114 @@ function updateLBStatusUI(){
   }
 }
 
-
 /* ---------------------------
-  leaderboard submission (unchanged from previous: tries lib then fallback etc.)
-  (code omitted in this paste for brevity in explanation - full implementation remains same as before)
+  Check whether user played today (pre-check)
+  Calls the server endpoint /.netlify/functions/leaderboard?check_existing=1...
+  Returns { exists: boolean, rows: [...] }
 ----------------------------*/
+async function checkUserPlayedToday(mode){
+  // attempt to get localUser (can be from LB lib or local key)
+  let localUser = getLocalUserFromLibOrStorage();
+  if(!localUser) return { exists:false };
 
-/* We'll reuse the previous robust submission code — for brevity I keep it but it behaves the same:
-   - try library submitScore (non-blocking)
-   - always try server fallback (Netlify function)
-   - on failure push to local queue LB_QUEUE_KEY
-   - flushQueue tries server even if library missing
-*/
-
-/* Implementations of: readScoreQueue, pushScoreQueue, popScoreQueue, trySubmitEntryToLB, flushScoreQueue, submitScoreToLeaderboard
-   (I reuse the logic provided earlier — identical behaviour) */
-
-function readScoreQueue(){ try { return JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]'); } catch(e){ return []; } }
-function pushScoreQueue(entry){ try { const q = readScoreQueue(); q.push(Object.assign({ts: (new Date()).toISOString()}, entry)); localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q)); console.info('[LB-QUEUE] queued', entry); } catch(e){ console.warn('[LB-QUEUE] push error', e); } }
-function popScoreQueue(){ try { const q = readScoreQueue(); if(!q||q.length===0) return null; q.shift(); localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q)); return true; } catch(e){ console.warn('[LB-QUEUE] pop error', e); return null; } }
-
-async function trySubmitEntryToLB(entry){
-  const gameId = entry.gameId || 'guess_player_h2h_6m';
-  const points = Number(entry.points) || 0;
-  const options = entry.options || {};
-  const pseudo = options.displayName || options.pseudo || null;
-  const meta = options.meta || null;
-
-  console.info('[LB-TRY] start', { gameId, points, pseudo });
-
-  if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
-    try { console.info('[LB-TRY] calling library', { gameId, points, options }); const res = await window.LEADERBOARD.submitScore(gameId, points, options); console.info('[LB-TRY] library response', res); } catch(err){ console.warn('[LB-TRY] library threw', err); }
-  } else {
-    console.info('[LB-TRY] library not available (will fallback to server)');
-  }
-
-  const fallbackEndpoint = `${location.origin}/.netlify/functions/submit-score`;
-  const payload = {
-    game_id: gameId,
-    points: points,
-    pseudo: pseudo,
-    mode: options.mode || null,
-    meta: (typeof meta === 'string' ? meta : (meta ? JSON.stringify(meta) : null)),
-    ts: (new Date()).toISOString()
-  };
-
+  const userId = localUser.user_id || localUser.id || null;
+  const pseudo = localUser.pseudo || null;
+  const dateStr = new Date().toISOString().slice(0,10); // YYYY-MM-DD
+  let qs = `?game_id=${encodeURIComponent(GAME_ID)}&date=${encodeURIComponent(dateStr)}&check_existing=1&mode=${encodeURIComponent(mode)}`;
+  if(userId) qs += `&user_id=${encodeURIComponent(userId)}`;
+  if(pseudo) qs += `&pseudo=${encodeURIComponent(pseudo)}`;
   try {
-    console.info('[LB-FALLBACK] POST', fallbackEndpoint, payload);
-    const resp = await fetch(fallbackEndpoint, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    const text = await resp.text().catch(()=>null);
-    let parsed = null;
-    try { parsed = text ? JSON.parse(text) : null; } catch(e){ parsed = text; }
-    console.info('[LB-FALLBACK] resp', resp.status, parsed);
-    if(resp.ok){ console.info('[LB-FALLBACK] server insert OK', parsed); return true; }
-    if(resp.status === 409 || (parsed && parsed.detail && parsed.detail.code === '23505')){ console.info('[LB-FALLBACK] duplicate - treat success', parsed); return true; }
-    console.warn('[LB-FALLBACK] server non-ok', resp.status, parsed); return false;
-  } catch(err){
-    console.error('[LB-FALLBACK] fetch error', err); return false;
+    const res = await fetch(`/.netlify/functions/leaderboard${qs}`, { credentials: 'same-origin' });
+    if(!res.ok) return { exists:false };
+    const j = await res.json();
+    if(j && j.ok && j.exists) return { exists:true, rows: j.rows || [] };
+    return { exists:false, rows: j.rows || [] };
+  } catch(e){
+    console.warn('checkUserPlayedToday error', e);
+    return { exists:false };
   }
 }
 
-async function flushScoreQueue(){
-  const q = readScoreQueue();
-  if(!q || q.length === 0) return;
-  for(let i=0;i<50;i++){
-    const arr = readScoreQueue();
-    if(!arr || arr.length === 0) break;
-    const entry = arr[0];
-    const ok = await trySubmitEntryToLB(entry);
-    if(ok){ popScoreQueue(); console.info('[LB-QUEUE] flushed one entry'); }
-    else { console.warn('[LB-QUEUE] flush failed for first entry — stop trying now'); break; }
+/* ---------------------------
+  showAlreadyPlayedModal (pre-check result)
+----------------------------*/
+function showAlreadyPlayedModal(check, mode){
+  gameBlockedDueToExisting = true;
+  gameStarted = false;
+  guessInput.disabled = true;
+  document.getElementById('guessBtn').disabled = true;
+  suggestionsList.style.display = 'none';
+
+  const modal = document.getElementById('modal');
+  const title = document.getElementById('modalTitle');
+  const text = document.getElementById('modalText');
+  const details = document.getElementById('modalDetails');
+
+  title.textContent = 'Already completed';
+  text.textContent = `You have already completed this variant today (${mode}). You cannot replay the same variant today.`;
+
+  let infoHtml = `<div style="text-align:left;margin-top:12px;color:var(--muted)">`;
+  if(check && check.rows && check.rows.length){
+    for(const r of check.rows.slice(0,5)){
+      infoHtml += `<div style="margin-bottom:6px"><strong>Points:</strong> ${r.points || 0} — <strong>Mode:</strong> ${r.mode || '—'} — <strong>At:</strong> ${r.created_at || '—'}</div>`;
+    }
+  } else {
+    infoHtml += `<div>No details available.</div>`;
   }
-}
-
-async function submitScoreToLeaderboard(points, meta = {}, extra = {}){
-  const localUser = getLocalUserFromLibOrStorage();
-  const displayName = extra.displayName || extra.pseudo || (localUser && localUser.pseudo) || null;
-  const modeString = `${currentTour}_h2h_${currentLevel}`;
-  const options = { mode: modeString, meta: JSON.stringify(meta || {}), displayName };
-  const ok = await trySubmitEntryToLB({ gameId:'guess_player_h2h_6m', points, options });
-  if(ok){ console.info('[LB] Score submitted immediate'); setTimeout(flushScoreQueue, 250); return; }
-  pushScoreQueue({ gameId:'guess_player_h2h_6m', points, options });
-  console.info('[LB] Score queued for retry'); setTimeout(flushScoreQueue, 1000);
+  infoHtml += `</div>`;
+  details.innerHTML = infoHtml;
+  modal.classList.add('show');
+  modal.setAttribute('aria-hidden','false');
+  document.getElementById('closeModalBtn').onclick = function(){ modal.classList.remove('show'); modal.setAttribute('aria-hidden','true'); };
 }
 
 /* ---------------------------
-  revealRound (submits to LB). Fix ARIA focus issue by blurring before hiding.
----------------------------- */
-async function revealRound(won, points){
-  const modal = document.getElementById('modal'); const title=document.getElementById('modalTitle'); const text=document.getElementById('modalText'); const details=document.getElementById('modalDetails');
-  if(won){ title.textContent='You won!'; text.textContent=`You earned ${points} points.`; } else { title.textContent='Round over'; text.textContent='No points this time.'; }
-  const tname = escapeHtml(target && (target.full_name || (target.player && target.player.full_name)) || '—');
-  details.innerHTML = `<div style="font-weight:700">Target: ${tname}</div>`;
-  modal.classList.add('show'); modal.setAttribute('aria-hidden','false'); setTimeout(()=>{ try{ document.getElementById('closeModalBtn').focus(); }catch(e){} }, 40);
-  document.getElementById('closeModalBtn').onclick = ()=>{
-    try { if(document.activeElement) document.activeElement.blur(); } catch(e){}
-    modal.classList.remove('show'); setTimeout(()=> modal.setAttribute('aria-hidden','true'), 120);
-  };
+  Start game (does NOT perform DB check).
+  The authoritative check is done by ensureModeCheckedAndStart().
+----------------------------*/
+function startRound(){
+  gameBlockedDueToExisting = false;
+  remaining = 15; guesses = []; guessedNames.clear();
+  document.getElementById('remaining').textContent = remaining;
+  document.getElementById('score').textContent = score;
+  document.getElementById('levelLabel').textContent = currentLevel.charAt(0).toUpperCase() + currentLevel.slice(1);
+  document.getElementById('tourLabel').textContent = currentTour;
+  clearGuessesTable();
 
-  const meta = {
-    won: !!won,
-    guesses_count: guesses.length,
-    target_id: target && (target.player_id || target.playerId || (target.player && target.player.player_id)) ? String(target.player_id || target.playerId || (target.player && target.player.player_id)) : null,
-    level: currentLevel,
-    tour: currentTour
-  };
-
-  try { await submitScoreToLeaderboard(points || 0, meta, {}); console.info('[LB] submitScoreToLeaderboard called from revealRound'); } catch(e){ console.error('[LB] submit failed', e); }
-}
-
-/* ---------------------------
-  main guess handler
----------------------------- */
-async function handleGuessSubmission(name){
-  if(!gameStarted){ showToast('Round not started'); return; }
-  if(remaining <= 0){ showToast('No tries left'); return; }
-  const guess = findPlayerByName(name);
-  if(!guess){ showToast('Name not found in catalog'); return; }
-  guesses.push(guess); guessedNames.add((guess.full_name||'').trim()); appendGuessRowSimple(guess);
-  remaining--; document.getElementById('remaining').textContent = remaining;
-
-  const guessPid = guess.player_id || guess.playerId || null;
-  const targetPid = target && (target.player_id || target.playerId || (target.player && target.player.player_id)) ? String(target.player_id || target.playerId || (target.player && target.player.player_id)) : null;
-  if(guessPid) await loadPerPlayerH2H(String(guessPid)).catch(()=>null);
-  if(targetPid) await loadPerPlayerH2H(String(targetPid)).catch(()=>null);
-
-  const h2h = (targetPid && guessPid) ? composeH2H(targetPid, guessPid) : null;
-  updateTablesWithGuess(guess, h2h);
-
-  const sameId = (guessPid && targetPid && String(guessPid) === String(targetPid));
-  const sameName = (!guessPid && !targetPid && norm(guess.full_name||'') === norm(target.full_name||''));
-  if(sameId || sameName){
-    const points = Math.max(10, 100 - (guesses.length-1)*10);
-    score += points; document.getElementById('score').textContent = score;
-    await revealRound(true, points); setTimeout(startRound, 1000); return;
+  // pick target
+  let picked = null;
+  if(selectedPlayers){
+    // try mode keys lowercased and same
+    const poolKey1 = currentTour.toLowerCase();
+    const arr = selectedPlayers[poolKey1] || selectedPlayers[currentTour] || selectedPlayers[poolKey1.toUpperCase()] || [];
+    if(Array.isArray(arr)){
+      picked = arr.find(x => x.level === currentLevel) || arr[Math.floor(Math.random()*arr.length)];
+      if(picked && picked.player) picked = picked.player;
+    }
   }
+  if(!picked){
+    const pool = playersCatalog.filter(p => (String(p.source||'').toUpperCase() === currentTour));
+    picked = pool.length ? pool[Math.floor(Math.random()*pool.length)] : (playersCatalog[0] || null);
+  }
+  if(!picked){ showToast('No target available'); return; }
+  target = picked;
+  gameStarted = true;
+  guessInput.disabled = false;
+  document.getElementById('guessBtn').disabled = false;
 
-  if(remaining <= 0 || guesses.length >= 15){ await revealRound(false, 0); setTimeout(startRound, 1000); }
+  // preload target h2h and some other files
+  const tid = target && (target.player_id || target.playerId || (target.player && target.player.player_id)) ? String(target.player_id || target.playerId || (target.player && target.player.player_id)) : null;
+  (async ()=>{
+    if(tid){ document.getElementById('preloadStatus').textContent = `Loading H2H for target...`; await loadPerPlayerH2H(tid).catch(()=>null); }
+    await loadSelectedPlayerFiles(6);
+    ensureOutputSkeleton();
+    document.getElementById('preloadStatus').textContent = `Round started — make up to 15 guesses. Good luck!`;
+  })();
 }
 
 /* ---------------------------
-  startRound / helpers
----------------------------- */
-function pickTargetFromSelected(mode, level){
-  if(!selectedPlayers) return null;
-  const arr = selectedPlayers[mode] || selectedPlayers[mode.toLowerCase()] || [];
-  const found = (Array.isArray(arr)) ? arr.find(x => x.level === level) : null;
-  return found ? found.player : null;
-}
+  Preload selected players helper
+----------------------------*/
 async function loadSelectedPlayerFiles(limit = 6){
   if(!selectedPlayers) return;
   const ids = new Set();
@@ -705,35 +554,266 @@ function extractPossiblePlayerId(item){
   if(item.player && item.player.raw && item.player.raw.player_id) return String(item.player.raw.player_id);
   return null;
 }
-async function startRound(){
-  remaining = 15; guesses = []; guessedNames.clear(); document.getElementById('remaining').textContent = remaining; clearGuessesTable();
-  if(!selectedPlayers){ const ok = await loadSelectedPlayers(); if(!ok){ showToast('selected_players.json missing'); return; } }
-  const picked = pickTargetFromSelected(currentTour.toLowerCase(), currentLevel) || pickTargetFromSelected(currentTour, currentLevel) || null;
-  if(picked){
-    const enriched = playersCatalog.find(p=>p.player_id && picked.player_id && String(p.player_id) === String(picked.player_id)) || playersCatalog.find(p=>p.full_name && picked.full_name && p.full_name.trim().toLowerCase() === picked.full_name.trim().toLowerCase()) || picked;
-    target = enriched;
-  } else {
-    const pool = playersCatalog.filter(p => (String(p.source||'').toUpperCase()===currentTour));
-    target = pool.length ? pool[Math.floor(Math.random()*pool.length)] : (playersCatalog[0] || null);
-  }
-  if(!target){ showToast('No target available'); return; }
-  gameStarted = true;
-  document.getElementById('tourLabel').textContent = currentTour;
-  document.getElementById('levelLabel').textContent = currentLevel.charAt(0).toUpperCase()+currentLevel.slice(1);
 
-  const tid = target && (target.player_id || target.playerId || (target.player && target.player.player_id)) ? String(target.player_id || target.playerId || (target.player && target.player.player_id)) : null;
-  if(tid){ document.getElementById('preloadStatus').textContent = `Loading H2H for target...`; await loadPerPlayerH2H(tid).catch(()=>null); }
-  await loadSelectedPlayerFiles(6); ensureOutputSkeleton(); document.getElementById('preloadStatus').textContent = `Round started — make up to 15 guesses. Good luck!`;
+/* ---------------------------
+  Leaderboard robust submit helpers
+  - try library first
+  - fallback to server
+  - treat duplicate (409 / 23505 / duplicate message) as handled (do not open modal)
+  - queue locally when offline / failed
+----------------------------*/
+function readScoreQueue(){ try { return JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]'); } catch(e){ return []; } }
+function pushScoreQueue(entry){ try { const q = readScoreQueue(); q.push(Object.assign({ts: (new Date()).toISOString()}, entry)); localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q)); console.info('[LB-QUEUE] queued', entry); } catch(e){ console.warn('[LB-QUEUE] push error', e); } }
+function popScoreQueue(){ try { const q = readScoreQueue(); if(!q||q.length===0) return null; q.shift(); localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q)); return true; } catch(e){ console.warn('[LB-QUEUE] pop error', e); return null; } }
+
+function waitForLeaderboard(timeout = 5000, interval = 200){
+  return new Promise((resolve) => {
+    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function') return resolve(true);
+    const start = Date.now();
+    const t = setInterval(() => {
+      if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){ clearInterval(t); resolve(true); }
+      else if(Date.now() - start > timeout){ clearInterval(t); resolve(false); }
+    }, interval);
+  });
+}
+
+async function trySubmitEntryToLB(entry){
+  const gameId = entry.gameId || GAME_ID;
+  const points = Number(entry.points) || 0;
+  const options = entry.options || {};
+  const pseudo = options.displayName || options.pseudo || null;
+  const mode = options.mode || null;
+  const meta = options.meta || null;
+
+  // 1) library attempt
+  if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+    try {
+      console.info('[LB] calling window.LEADERBOARD.submitScore', { gameId, points, options });
+      const res = await window.LEADERBOARD.submitScore(gameId, points, options);
+      console.info('[LB] submitScore response', res);
+      if(res && (res.ok === true || res.success === true || res.status === 'ok')){ console.info('[LB] library confirmed success — done.'); return true; }
+      // if lib explicitly says already_submitted_local — treat as handled: sync UI but do not error
+      if(res && res.ok === false && res.error && String(res.error).toLowerCase().includes('already_submitted')){ console.warn('[LB] library reports already submitted locally. Notifying and syncing.'); showToast('Score already submitted (duplicate)'); setTimeout(()=> ensureModeCheckedAndStart(), 400); return true; }
+      console.warn('[LB] library returned non-success — will try server fallback', res);
+    } catch(err){
+      console.error('[LB] submitScore threw', err);
+    }
+  } else {
+    console.warn('[LB] window.LEADERBOARD.submitScore not available; using server fallback');
+  }
+
+  // 2) fallback to server-side submit
+  const fallbackEndpoint = '/.netlify/functions/submit-score';
+  const payload = {
+    game_id: gameId,
+    points: points,
+    pseudo: pseudo,
+    mode: mode,
+    meta: (typeof meta === 'string' ? meta : (meta ? JSON.stringify(meta) : null)),
+    ts: (new Date()).toISOString()
+  };
+
+  try {
+    console.info('[LB-FALLBACK] POST', fallbackEndpoint, payload);
+    const resp = await fetch(fallbackEndpoint, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const text = await resp.text().catch(()=>null);
+    let parsed = null; try { parsed = text ? JSON.parse(text) : null; } catch(e){ parsed = text; }
+    console.info('[LB-FALLBACK] response status', resp.status, parsed || text);
+
+    if (resp.ok){
+      console.info('[LB-FALLBACK] success', parsed);
+      return true;
+    } else {
+      // Duplicate detection: 409 or Postgres 23505 -> treat as handled (do not retry)
+      if(resp.status === 409 || (parsed && parsed.detail && (parsed.detail.code === 23505 || String(parsed.detail.code) === '23505')) || (parsed && parsed.error && String(parsed.error).toLowerCase().includes('duplicate'))){
+        console.warn('[LB-FALLBACK] server indicates duplicate entry for today — dropping queued item and syncing UI.');
+        showToast('Score already present (duplicate)');
+        setTimeout(()=> ensureModeCheckedAndStart(), 400);
+        return true;
+      }
+      console.warn('[LB-FALLBACK] server returned non-OK', resp.status, parsed || text);
+      return false;
+    }
+  } catch(fetchErr){
+    console.error('[LB-FALLBACK] fetch error', fetchErr);
+    return false;
+  }
+}
+
+async function flushScoreQueue(){
+  const queue = readScoreQueue();
+  if(!queue || queue.length === 0) return;
+  const ready = await waitForLeaderboard(5000);
+  if(!ready) { console.info('Leaderboard not ready; will keep queue for later flush'); return; }
+  for(let i=0;i<50;i++){
+    const q = readScoreQueue();
+    if(!q || q.length === 0) break;
+    const entry = q[0];
+    const ok = await trySubmitEntryToLB(entry);
+    if(ok){ popScoreQueue(); showToast('Score submitted / duplicate handled', 1400); }
+    else { console.warn('Submit failed for queued entry — stop flush now'); break; }
+  }
+}
+
+async function submitScoreToLeaderboard(points, meta = {}, extra = {}){
+  const localUser = getLocalUserFromLibOrStorage();
+  const displayName = extra.displayName || extra.pseudo || (localUser && localUser.pseudo) || null;
+  const modeString = `${currentTour}_h2h_${currentLevel}`;
+  const options = { mode: modeString, meta: JSON.stringify(meta || {}), displayName };
+  const ready = await waitForLeaderboard(3000);
+  if(ready){
+    const ok = await trySubmitEntryToLB({ gameId: GAME_ID, points, options });
+    if(ok){ console.info('Score submitted (fast path).'); setTimeout(flushScoreQueue, 250); return; } else { console.warn('Fast path submit failed; queueing the score for retry.'); pushScoreQueue({ gameId: GAME_ID, points, options }); showToast('Score queued for retry', 2000); return; }
+  } else {
+    pushScoreQueue({ gameId: GAME_ID, points, options }); showToast('Leaderboard unavailable — score queued', 2000); setTimeout(flushScoreQueue, 1000);
+  }
+}
+
+/* watch LB init */
+(function watchForLeaderboardInit(){
+  if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+    setTimeout(flushScoreQueue, 300);
+    setTimeout(()=> ensureModeCheckedAndStart(), 400);
+    return;
+  }
+  const poll = setInterval(() => {
+    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+      clearInterval(poll);
+      setTimeout(flushScoreQueue, 200);
+      setTimeout(()=> ensureModeCheckedAndStart(), 300);
+    }
+  }, 250);
+})();
+
+/* ---------------------------
+  ensureModeCheckedAndStart
+  - authoritative pre-check that queries the DB before allowing play
+  - if user not yet known, start game but poll for LB/getLocalUser for a short window and re-check if user appears
+----------------------------*/
+let _ensureCheckRunning = false;
+async function ensureModeCheckedAndStart(){
+  if(_ensureCheckRunning) return;
+  _ensureCheckRunning = true;
+  const mode = `${currentTour}_h2h_${currentLevel}`;
+
+  // Update UI labels
+  document.getElementById('levelLabel').textContent = currentLevel.charAt(0).toUpperCase() + currentLevel.slice(1);
+  document.getElementById('tourLabel').textContent = currentTour;
+  document.getElementById('preloadStatus').textContent = 'Checking if you already played this variant today...';
+
+  // Optimistic reset of block & disable inputs until check completes
+  gameBlockedDueToExisting = false;
+  guessInput.disabled = true;
+  document.getElementById('guessBtn').disabled = true;
+
+  try {
+    const check = await checkUserPlayedToday(mode);
+    if(check && check.exists){
+      showAlreadyPlayedModal(check, mode);
+      _ensureCheckRunning = false;
+      return;
+    } else {
+      // no row detected -> start round but continue polling for a short window in case the LB library / getLocalUser appears
+      startRound();
+    }
+  } catch(e){
+    console.warn('ensureModeCheckedAndStart initial check error', e);
+    // fallback: allow play
+    startRound();
+  }
+
+  // Poll for presence of local user / LB lib for a short period and re-check once if state changes
+  const start = Date.now();
+  const maxWait = 8000; // ms
+  let lastSeen = null;
+  const interval = setInterval(async ()=>{
+    try {
+      const localUser = getLocalUserFromLibOrStorage();
+      const lbReady = window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function';
+      const seen = JSON.stringify({ u: localUser ? (localUser.user_id || localUser.pseudo || '') : '', lb:!!lbReady });
+      if(seen !== lastSeen){
+        lastSeen = seen;
+        const check2 = await checkUserPlayedToday(mode);
+        if(check2 && check2.exists){
+          clearInterval(interval);
+          showAlreadyPlayedModal(check2, mode);
+          _ensureCheckRunning = false;
+          return;
+        }
+      }
+      if(Date.now() - start > maxWait){ clearInterval(interval); _ensureCheckRunning = false; return; }
+    } catch(err){ console.warn('Polling check error', err); if(Date.now() - start > maxWait){ clearInterval(interval); _ensureCheckRunning = false; return; } }
+  }, 600);
 }
 
 /* ---------------------------
-  LB Modal logic (LOGIN / SIGNUP) — server-backed
-  Replaces the previous local-only modal handler.
-  Requires Netlify functions:
-    POST /.netlify/functions/create-user  { pseudo, password_hash }
-    POST /.netlify/functions/check-user   { pseudo, password_hash }
+  revealRound (submit to LB but DO NOT show blocking modal if duplicate)
 ----------------------------*/
+async function revealRound(won, points){
+  const modal = document.getElementById('modal'); const title=document.getElementById('modalTitle'); const text=document.getElementById('modalText'); const details=document.getElementById('modalDetails');
+  if(won){ title.textContent='You won!'; text.textContent=`You earned ${points} points.`; } else { title.textContent='Round over'; text.textContent='No points this time.'; }
+  const tname = escapeHtml(target && (target.full_name || (target.player && target.player.full_name)) || '—');
+  details.innerHTML = `<div style="font-weight:700">Target: ${tname}</div>`;
+  modal.classList.add('show'); modal.setAttribute('aria-hidden','false'); setTimeout(()=>{ try{ document.getElementById('closeModalBtn').focus(); }catch(e){} }, 40);
+  document.getElementById('closeModalBtn').onclick = ()=>{ try { if(document.activeElement) document.activeElement.blur(); } catch(e){} modal.classList.remove('show'); setTimeout(()=> modal.setAttribute('aria-hidden','true'), 120); };
 
+  const meta = {
+    won: !!won,
+    guesses_count: guesses.length,
+    target_id: target && (target.player_id || target.playerId || (target.player && target.player.player_id)) ? String(target.player_id || target.playerId || (target.player && target.player.player_id)) : null,
+    level: currentLevel,
+    tour: currentTour
+  };
+
+  try { await submitScoreToLeaderboard(points || 0, meta, {}); console.info('[LB] submitScoreToLeaderboard called from revealRound'); } catch(e){ console.error('[LB] submit failed', e); }
+}
+
+/* ---------------------------
+  main guess handler
+----------------------------*/
+async function handleGuessSubmission(name){
+  if(!gameStarted){ showToast('Round not started'); return; }
+  if(gameBlockedDueToExisting){ showToast('You have already completed this variant today'); return; }
+  if(remaining <= 0){ showToast('No tries left'); return; }
+  const guess = findPlayerByName(name);
+  if(!guess){ showToast('Name not found in catalog'); return; }
+  guesses.push(guess); guessedNames.add((guess.full_name||'').trim()); appendGuessRowSimple(guess);
+  remaining--; document.getElementById('remaining').textContent = remaining;
+
+  const guessPid = guess.player_id || guess.playerId || null;
+  const targetPid = target && (target.player_id || target.playerId || (target.player && target.player.player_id)) ? String(target.player_id || target.playerId || (target.player && target.player.player_id)) : null;
+  if(guessPid) await loadPerPlayerH2H(String(guessPid)).catch(()=>null);
+  if(targetPid) await loadPerPlayerH2H(String(targetPid)).catch(()=>null);
+
+  const h2h = (targetPid && guessPid) ? composeH2H(targetPid, guessPid) : null;
+  updateTablesWithGuess(guess, h2h);
+
+  const sameId = (guessPid && targetPid && String(guessPid) === String(targetPid));
+  const sameName = (!guessPid && !targetPid && norm(guess.full_name||'') === norm(target.full_name||''));
+  if(sameId || sameName){
+    const points = Math.max(10, 100 - (guesses.length-1)*10);
+    score += points; document.getElementById('score').textContent = score;
+    await revealRound(true, points); setTimeout(()=> ensureModeCheckedAndStart(), 900); return;
+  }
+
+  if(remaining <= 0 || guesses.length >= 15){ await revealRound(false, 0); setTimeout(()=> ensureModeCheckedAndStart(), 900); }
+}
+
+/* ---------------------------
+  Pick / load selected players JSON
+----------------------------*/
+async function loadSelectedPlayers(){ const j = await fetchJson(SELECTED_PLAYERS_JSON); if(!j) return false; selectedPlayers = j; selectedPlayers.atp = selectedPlayers.atp || selectedPlayers.ATP || selectedPlayers.atp || []; selectedPlayers.wta = selectedPlayers.wta || selectedPlayers.WTA || selectedPlayers.wta || []; return true; }
+
+/* ---------------------------
+  LB Modal login/signup server wrappers
+  - created earlier in your file; we reuse them
+----------------------------*/
 async function signupServer(pseudo, password){
   if(!pseudo || !password) return { ok:false, error:'missing' };
   const password_hash = await hashStringSHA256Hex(String(password));
@@ -747,7 +827,6 @@ async function signupServer(pseudo, password){
     let parsed = null;
     try { parsed = text ? JSON.parse(text) : null; } catch(e){ parsed = text; }
     if (resp.ok) {
-      // Save local session (we keep password_hash locally so submit-score can send it)
       const local = { pseudo: pseudo.trim(), password_hash };
       try { localStorage.setItem(LB_LOCAL_USER_KEY, JSON.stringify(local)); } catch(e){}
       try{ if(window.LEADERBOARD && typeof window.LEADERBOARD.setLocalUser === 'function') window.LEADERBOARD.setLocalUser(local); } catch(e){}
@@ -760,7 +839,6 @@ async function signupServer(pseudo, password){
     return { ok:false, error: String(err) };
   }
 }
-
 async function loginServer(pseudo, password){
   if(!pseudo || !password) return { ok:false, error:'missing' };
   const password_hash = await hashStringSHA256Hex(String(password));
@@ -774,7 +852,6 @@ async function loginServer(pseudo, password){
     let parsed = null;
     try { parsed = text ? JSON.parse(text) : null; } catch(e){ parsed = text; }
     if (resp.ok) {
-      // server confirms credentials -> persist local session
       const user = (parsed && parsed.user) ? parsed.user : { pseudo };
       const local = { pseudo: user.pseudo || pseudo.trim(), password_hash };
       try { localStorage.setItem(LB_LOCAL_USER_KEY, JSON.stringify(local)); } catch(e){}
@@ -789,15 +866,7 @@ async function loginServer(pseudo, password){
   }
 }
 
-/* helper: get local session (tries leaderboard lib first, then storage) */
-function getLocalUserFromLibOrStorage(){
-  try { if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function'){ const u = window.LEADERBOARD.getLocalUser(); if(u && u.pseudo) return { pseudo: u.pseudo, password_hash: u.password_hash || null }; } } catch(e){}
-  try { const raw = localStorage.getItem(LB_LOCAL_USER_KEY); if(raw) return JSON.parse(raw); } catch(e){}
-  return null;
-}
-
-
-/* open/close modal (keep existing accessibility behavior) */
+/* open/close modal */
 function openLBModal(){
   const m = document.getElementById('lbModal'); m.classList.add('show'); m.setAttribute('aria-hidden','false');
   const stored = (function(){ try{const s=localStorage.getItem(LB_LOCAL_USER_KEY); return s?JSON.parse(s):null;}catch(e){return null;} })();
@@ -817,10 +886,7 @@ document.getElementById('lbLogout').addEventListener('click', ()=>{ try{ localSt
 document.getElementById('tabLogin').addEventListener('click', (e)=>{ document.getElementById('tabLogin').classList.add('active'); document.getElementById('tabSignup').classList.remove('active'); document.getElementById('lbModalMsg').textContent='Log in with your account (password required).'; });
 document.getElementById('tabSignup').addEventListener('click', (e)=>{ document.getElementById('tabSignup').classList.add('active'); document.getElementById('tabLogin').classList.remove('active'); document.getElementById('lbModalMsg').textContent='Sign up creates an account on the server (password required).'; });
 
-/* submit handler: calls server for sign up / login */
-/* ---------------------------
-   Modal submit -> server-backed signup/login
-   --------------------------- */
+/* modal submit -> server-backed signup/login */
 document.getElementById('lbModalSubmit').addEventListener('click', async () => {
   const pseudoRaw = (document.getElementById('lbModalPseudo').value || '');
   const pseudo = pseudoRaw.trim();
@@ -833,13 +899,10 @@ document.getElementById('lbModalSubmit').addEventListener('click', async () => {
   if (!pseudo) { msgEl.textContent = 'Display name is required.'; return; }
   if (!password) { msgEl.textContent = 'Password is required.'; return; }
 
-  // call server-side Netlify functions (client wrappers)
   if (isSignup) {
-    // sign up -> create user in DB
     msgEl.textContent = 'Creating account…';
     const res = await signupServer(pseudo, password);
     if (res && res.ok) {
-      // session already persisted by signupServer (LB_LOCAL_USER_KEY)
       msgEl.textContent = 'Account created. You are now logged in.';
       updateLBStatusUI();
       setTimeout(closeLBModal, 350);
@@ -855,11 +918,9 @@ document.getElementById('lbModalSubmit').addEventListener('click', async () => {
       return;
     }
   } else {
-    // login flow -> verify credentials on server
     msgEl.textContent = 'Logging in…';
     const res = await loginServer(pseudo, password);
     if (res && res.ok) {
-      // session persisted by loginServer
       msgEl.textContent = 'Login successful.';
       updateLBStatusUI();
       setTimeout(closeLBModal, 250);
@@ -875,29 +936,30 @@ document.getElementById('lbModalSubmit').addEventListener('click', async () => {
 
 /* ---------------------------
   bootstrap & init
----------------------------- */
+----------------------------*/
 async function init(){
-  document.getElementById('btnATP').addEventListener('click', ()=>{ if(currentTour!=='ATP'){ currentTour='ATP'; document.getElementById('tourLabel').textContent = currentTour; startRound(); }});
-  document.getElementById('btnWTA').addEventListener('click', ()=>{ if(currentTour!=='WTA'){ currentTour='WTA'; document.getElementById('tourLabel').textContent = currentTour; startRound(); }});
-  document.querySelectorAll('.seg-btn').forEach(btn=>btn.addEventListener('click',(e)=>{ document.querySelectorAll('.seg-btn').forEach(b=>b.classList.remove('active')); e.currentTarget.classList.add('active'); currentLevel = e.currentTarget.dataset.level; document.getElementById('levelLabel').textContent = currentLevel.charAt(0).toUpperCase()+currentLevel.slice(1); ensureOutputSkeleton(); startRound(); }));
+  document.getElementById('btnATP').addEventListener('click', async ()=>{ if(currentTour!=='ATP'){ currentTour='ATP'; document.getElementById('tourLabel').textContent = currentTour; await ensureModeCheckedAndStart(); }});
+  document.getElementById('btnWTA').addEventListener('click', async ()=>{ if(currentTour!=='WTA'){ currentTour='WTA'; document.getElementById('tourLabel').textContent = currentTour; await ensureModeCheckedAndStart(); }});
+  document.querySelectorAll('.seg-btn').forEach(btn=>btn.addEventListener('click', async (e)=>{ document.querySelectorAll('.seg-btn').forEach(b=>b.classList.remove('active')); e.currentTarget.classList.add('active'); currentLevel = e.currentTarget.dataset.level; document.getElementById('levelLabel').textContent = currentLevel.charAt(0).toUpperCase()+currentLevel.slice(1); ensureOutputSkeleton(); await ensureModeCheckedAndStart(); }));
   document.getElementById('guessBtn').addEventListener('click', ()=>{ const v = guessInput.value.trim(); if(!v) return showToast('Type a name'); handleGuessSubmission(v); guessInput.value=''; suggestionsList.style.display='none'; });
   document.getElementById('closeModalBtn').addEventListener('click', ()=>{ const mm = document.getElementById('modal'); try{ if(document.activeElement) document.activeElement.blur(); }catch(e){} mm.classList.remove('show'); setTimeout(()=> mm.setAttribute('aria-hidden','true'), 120); });
 
+  // load assets
   const okCatalog = await loadPlayersCatalog();
   if(!okCatalog){ alert('players_catalog.json missing or malformed'); return; }
   await loadGeocodes();
   await loadSelectedPlayers();
-  await loadSelectedPlayerFiles(6);
+
   updateLBStatusUI();
-  ensureDefaultModeUI(); // <-- important: set UI & vars before startRound
   ensureOutputSkeleton();
-  startRound();
+  // DO NOT call startRound directly — do the pre-check
+  await ensureModeCheckedAndStart();
 
-
+  // watch login state changes and re-check
+  let lastUserId = null;
+  setInterval(async ()=>{ let localUser = null; try{ localUser = getLocalUserFromLibOrStorage(); }catch(e){ localUser=null; } const id = localUser ? (localUser.user_id || localUser.pseudo || localUser.email || '') : ''; if(id !== lastUserId){ lastUserId = id; updateLBStatusUI(); await ensureModeCheckedAndStart(); } }, 1200);
 }
 init();
-
-async function loadSelectedPlayers(){ const j = await fetchJson(SELECTED_PLAYERS_JSON); if(!j) return false; selectedPlayers = j; selectedPlayers.atp = selectedPlayers.atp || selectedPlayers.ATP || selectedPlayers.atp || []; selectedPlayers.wta = selectedPlayers.wta || selectedPlayers.WTA || selectedPlayers.wta || []; return true; }
 
 /* bootstrap local user display */
 (function(){ try{ const raw = localStorage.getItem(LB_LOCAL_USER_KEY); if(raw){ const o=JSON.parse(raw); if(o && o.pseudo) document.getElementById('lbName').textContent = o.pseudo; } }catch(e){} updateLBStatusUI(); })();
