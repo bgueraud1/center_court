@@ -253,7 +253,7 @@ let dailyList = [];  // array of candidate objects (up to 8)
 
 /* runtime state */
 let gameStarted = false;
-let gameBlockedDueToExisting = false; // new flag to block gameplay when already played
+let gameBlockedDueToExisting = false; // block gameplay when already played
 
 /* guessed names this round (excluded from suggestions) */
 let guessedNames = new Set();
@@ -379,8 +379,8 @@ function setSuggestionHighlight(idx){
   }
 }
 
-guessInput.addEventListener('input', ()=>{ updateSuggestions(); });
-guessInput.addEventListener('focus', ()=>{ updateSuggestions(); });
+guessInput.addEventListener('input', ()=>{ if(!gameBlockedDueToExisting) updateSuggestions(); });
+guessInput.addEventListener('focus', ()=>{ if(!gameBlockedDueToExisting) updateSuggestions(); });
 
 document.addEventListener('click',(e)=>{ if(!document.querySelector('.suggestions')?.contains(e.target)) suggestionsList.style.display='none'; });
 
@@ -597,19 +597,67 @@ function handleGuess(name){
     const points = scoreForGuessNumber(guesses.length);
     score += points; document.getElementById('score').textContent = score;
     revealAnswer(true, points);
-    // auto-restart after short delay
-    setTimeout(()=> startGame(), 1200);
+    // after revealing, re-check mode (we might now have created a DB row); use checkAndStart
+    setTimeout(()=> checkAndStart(), 1200);
     return;
   }
 
   if(remaining <= 0){
     revealAnswer(false, 0);
-    // auto-restart after short delay
-    setTimeout(()=> startGame(), 1200);
+    // after round over, re-check (checkAndStart will either unblock or show already-played modal)
+    setTimeout(()=> checkAndStart(), 1200);
   }
 }
 
 /* reveal */
+function revealAnswer(won, gainedPoints){
+  const modal = document.getElementById('modal');
+  const title = document.getElementById('modalTitle');
+  const text = document.getElementById('modalText');
+  const details = document.getElementById('modalDetails');
+
+  // message visible in the modal
+  if(won){
+    title.textContent = 'You won!';
+    text.textContent = `You earned ${gainedPoints} points this round.`;
+  } else {
+    title.textContent = 'Round over';
+    text.textContent = 'No points this time — new round will start.';
+  }
+
+  // --- Prepare data for leaderboard submit ---
+  const pointsToSend = Number(gainedPoints) || 0;
+
+  // try to infer a local pseudo as before
+  let displayName = null;
+  try {
+    if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
+      const localUser = window.LEADERBOARD.getLocalUser();
+      if (localUser && localUser.pseudo) displayName = localUser.pseudo;
+    }
+  } catch(e){
+    console.warn('getLocalUser threw', e);
+  }
+  const displayNameInput = document.querySelector('#lb-pseudo') || document.querySelector('#someDisplayNameInput');
+  if (!displayName && displayNameInput) displayName = (displayNameInput.value || '').trim() || null;
+
+  // call robust helper (defined below)
+  try {
+    submitScoreToLeaderboard(pointsToSend, { won }, { displayName });
+    console.info('[LB] submitScoreToLeaderboard called', { pointsToSend, displayName, won });
+  } catch (e) {
+    console.error('[LB] submitScoreToLeaderboard threw', e);
+  }
+
+  // --- show target details in modal (unchanged) ---
+  const targetHtml = `<div style="text-align:left;margin-top:12px"><h3 style="margin:0 0 6px 0;color:#fff">${target.full_name} <span style="color:var(--muted);font-size:0.9rem">(${target.source || ''})</span></h3><ul style="color:var(--muted);padding-left:18px"><li>Country: ${(target.represented_country) ? `<strong style="color:#fff">${target.represented_country}</strong>` : '—'}</li><li>Birth: ${(target.birthplace || '—')} (${target.birth_date || '—'})</li><li>Age: ${(target.age!=null ? target.age : '—')}</li><li>Career best: ${(isFinite(target.rank) ? target.rank : '—')}</li><li>Height: ${(target.height_cm!=null ? target.height_cm + ' cm' : '—')}</li></ul></div>`;
+  details.innerHTML = targetHtml;
+  modal.classList.add('show');
+  modal.setAttribute('aria-hidden','false');
+
+  document.getElementById('closeModalBtn').onclick = function(){ modal.classList.remove('show'); modal.setAttribute('aria-hidden','true'); };
+}
+
 
 /* ---------------------------
    Country text rendering (paragraphs may be strings or objects with subtitle/text)
@@ -710,11 +758,6 @@ function applyTourTheme(){
 
 /* ---------------------------
    USER PANEL (top-right)
-   - shows pseudo if connected, or "Connect" if not
-   - clicking opens small dropdown with relevant options:
-     - if connected: Log out
-     - if not: Log In, Create Account
-   - uses window.LEADERBOARD.* if available, otherwise graceful fallback
 ---------------------------- */
 const userBox = document.getElementById('userBox');
 const userPanel = document.getElementById('userPanel');
@@ -782,8 +825,8 @@ function toggleUserDropdown(e){
       } finally {
         // re-render panel (small delay to allow library to update)
         setTimeout(renderUserPanel, 300);
-        // if we blocked the game earlier, re-check
-        startGame();
+        // re-evaluate current mode now we're logged out (unblock if appropriate)
+        setTimeout(()=> checkAndStart(), 500);
       }
     };
     dd.appendChild(btnLogout);
@@ -834,7 +877,6 @@ function toggleUserDropdown(e){
 /* Initialize user panel after DOM ready and after eventual LB lib ready */
 (function watchForLbToRenderUser(){
   renderUserPanel();
-  // if LB defines an event/callback to notify auth change, you can hook it here.
   // poll once to update pseudo if LB becomes available shortly after load:
   const t = setInterval(()=>{ renderUserPanel(); if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser==='function') { clearInterval(t); } }, 400);
 })();
@@ -884,15 +926,50 @@ async function checkUserPlayedToday(mode){
 }
 
 /* ---------------------------
+   Helper to show the "already played" modal and set block state
+---------------------------- */
+function showAlreadyPlayedModal(check, mode){
+  gameBlockedDueToExisting = true;
+  gameStarted = false;
+  // disable inputs
+  guessInput.disabled = true;
+  document.getElementById('guessBtn').disabled = true;
+  suggestionsList.style.display = 'none';
+
+  const modal = document.getElementById('modal');
+  const title = document.getElementById('modalTitle');
+  const text = document.getElementById('modalText');
+  const details = document.getElementById('modalDetails');
+
+  title.textContent = 'Already completed';
+  text.textContent = `You have already completed this variant today (${mode}). You cannot replay the same variant today.`;
+
+  let infoHtml = `<div style="text-align:left;margin-top:12px;color:var(--muted)">`;
+  if(check && check.rows && check.rows.length){
+    for(const r of check.rows.slice(0,5)){
+      infoHtml += `<div style="margin-bottom:6px"><strong>Points:</strong> ${r.points || 0} — <strong>Mode:</strong> ${r.mode || '—'} — <strong>At:</strong> ${r.created_at || '—'}</div>`;
+    }
+  } else {
+    infoHtml += `<div>No details available.</div>`;
+  }
+  infoHtml += `</div>`;
+  details.innerHTML = infoHtml;
+  modal.classList.add('show');
+  modal.setAttribute('aria-hidden','false');
+
+  document.getElementById('closeModalBtn').onclick = function(){ modal.classList.remove('show'); modal.setAttribute('aria-hidden','true'); };
+}
+
+/* ---------------------------
    Start Game (automatic)
    - chooses the target (dailyMap if present) for the exact combo (tour+level) or by_country if COTD ON
    - resets remaining and guesses, keeps score
    - clears table and updates display
    - clears guessedNames set
-   - NEW: if connected user already completed this mode today, block play and show modal
+   - THIS function NO LONGER checks for existing DB row; that check is done earlier via checkAndStart()
 ---------------------------- */
-async function startGame(){
-  // reset block flag
+function startGame(){
+  // reset block flag (but do not re-check here)
   gameBlockedDueToExisting = false;
 
   remaining = MAX_TRIES;
@@ -929,51 +1006,7 @@ async function startGame(){
     if(pick.country) fixedCountry = pick.country;
   }
 
-  // compute mode string exactly as used for submits
-  const mode = (cotdEnabled ? `${currentTour}_by_country` : `${currentTour}_top${levelTopN}`);
-
-  // NEW: If user connected and already has a score for this mode today -> block replay
-  try {
-    const check = await checkUserPlayedToday(mode);
-    if(check.exists){
-      gameBlockedDueToExisting = true;
-      gameStarted = false;
-      // disable input and button
-      guessInput.disabled = true;
-      document.getElementById('guessBtn').disabled = true;
-
-      // show modal telling user it's already completed
-      const modal = document.getElementById('modal');
-      const title = document.getElementById('modalTitle');
-      const text = document.getElementById('modalText');
-      const details = document.getElementById('modalDetails');
-
-      title.textContent = 'Already completed';
-      text.textContent = `You have already completed this variant today (${mode}). You cannot replay the same variant today.`;
-      // include brief details if available
-      let infoHtml = `<div style="text-align:left;margin-top:12px;color:var(--muted)">`;
-      if(check.rows && check.rows.length){
-        for(const r of check.rows.slice(0,3)){
-          infoHtml += `<div style="margin-bottom:6px"><strong>Points:</strong> ${r.points || 0} — <strong>Mode:</strong> ${r.mode || '—'} — <strong>At:</strong> ${r.created_at || '—'}</div>`;
-        }
-      }
-      infoHtml += `</div>`;
-      details.innerHTML = infoHtml;
-      modal.classList.add('show');
-      modal.setAttribute('aria-hidden','false');
-      document.getElementById('closeModalBtn').onclick = function(){ modal.classList.remove('show'); modal.setAttribute('aria-hidden','true'); };
-      updateSelectedCountryDisplay();
-      renderCotdBanner();
-      renderCountryText();
-      clearGuessesTable();
-      return; // stop startGame flow: game remains blocked
-    }
-  } catch(e){
-    console.warn('Error checking existing score', e);
-    // fallback: allow play
-  }
-
-  // No existing score -> enable play
+  // No existing score check here: checkAndStart has already done it.
   gameStarted = true;
   gameBlockedDueToExisting = false;
   guessInput.disabled = false;
@@ -1003,15 +1036,9 @@ function pickRandomTargetFromPool(tour, topN, fixedByCountry = null){
   return {chosen, country};
 }
 
-
-
 /* ---------------------------
    Robust leaderboard submit helpers
-   - waitForLeaderboard: poll for window.LEADERBOARD
-   - queue in localStorage if LB not ready or submit fails
-   - flushScoreQueue when LB becomes ready
-   ---------------------------- */
-
+---------------------------- */
 const LB_QUEUE_KEY = 'lb_score_queue_v1';
 
 function pushToScoreQueue(entry){
@@ -1057,110 +1084,14 @@ function waitForLeaderboard(timeout = 5000, interval = 200){
  *  - treats only res.ok === true (or res.success === true) as success
  *  - when submitScore responds with ok:false, tries a direct fetch fallback
  *  - logs everything so you see Network / Console evidence
-
- 
-
-/* ---------------------------
-   revealAnswer (updated)
-   - before submitting we re-check if user already completed this mode today.
----------------------------- */
-async function revealAnswer(won, gainedPoints){
-  const modal = document.getElementById('modal');
-  const title = document.getElementById('modalTitle');
-  const text = document.getElementById('modalText');
-  const details = document.getElementById('modalDetails');
-
-  // compute mode string exactly as used for submits
-  const mode = (cotdEnabled ? `${currentTour}_by_country` : `${currentTour}_top${levelTopN}`);
-
-  // Check if the connected user already has a score for this mode today
-  try {
-    const check = await checkUserPlayedToday(mode);
-    if (check.exists) {
-      // Show "already completed" modal and do NOT submit/queue
-      title.textContent = 'Already completed';
-      text.textContent = `You already completed this variant today (${mode}). Your recent attempt will not overwrite the existing score.`;
-      let infoHtml = `<div style="text-align:left;margin-top:12px;color:var(--muted)">`;
-      if (check.rows && check.rows.length) {
-        for (const r of check.rows.slice(0,3)) {
-          infoHtml += `<div style="margin-bottom:6px"><strong>Points:</strong> ${r.points || 0} — <strong>Mode:</strong> ${r.mode || '—'} — <strong>At:</strong> ${r.created_at || '—'}</div>`;
-        }
-      }
-      infoHtml += `</div>`;
-      details.innerHTML = infoHtml;
-      modal.classList.add('show');
-      modal.setAttribute('aria-hidden','false');
-      document.getElementById('closeModalBtn').onclick = function(){ modal.classList.remove('show'); modal.setAttribute('aria-hidden','true'); };
-      return;
-    }
-  } catch (e) {
-    console.warn('re-check before submit failed, will try to submit anyway', e);
-    // proceed: try to submit if check fails (fallback)
-  }
-
-  // --- Normal flow: show winning/losing modal and submit score ---
-  if(won){
-    title.textContent = 'You won!';
-    text.textContent = `You earned ${gainedPoints} points this round.`;
-  } else {
-    title.textContent = 'Round over';
-    text.textContent = 'No points this time — new round will start.';
-  }
-
-  // prepare points and displayName
-  const pointsToSend = Number(gainedPoints) || 0;
-  let displayName = null;
-  try {
-    if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
-      const localUser = window.LEADERBOARD.getLocalUser();
-      if (localUser && localUser.pseudo) displayName = localUser.pseudo;
-    }
-  } catch(e){
-    console.warn('getLocalUser threw', e);
-  }
-  const displayNameInput = document.querySelector('#lb-pseudo') || document.querySelector('#someDisplayNameInput');
-  if (!displayName && displayNameInput) displayName = (displayNameInput.value || '').trim() || null;
-
-  // robust submit (this function will itself re-check before queuing/submitting)
-  try {
-    await submitScoreToLeaderboard(pointsToSend, { won }, { displayName });
-    console.info('[LB] submitScoreToLeaderboard called', { pointsToSend, displayName, won });
-  } catch (e) {
-    console.error('[LB] submitScoreToLeaderboard threw', e);
-  }
-
-  // show target details as before
-  const targetHtml = `<div style="text-align:left;margin-top:12px"><h3 style="margin:0 0 6px 0;color:#fff">${target.full_name} <span style="color:var(--muted);font-size:0.9rem">(${target.source || ''})</span></h3><ul style="color:var(--muted);padding-left:18px"><li>Country: ${(target.represented_country) ? `<strong style="color:#fff">${target.represented_country}</strong>` : '—'}</li><li>Birth: ${(target.birthplace || '—')} (${target.birth_date || '—'})</li><li>Age: ${(target.age!=null ? target.age : '—')}</li><li>Career best: ${(isFinite(target.rank) ? target.rank : '—')}</li><li>Height: ${(target.height_cm!=null ? target.height_cm + ' cm' : '—')}</li></ul></div>`;
-  details.innerHTML = targetHtml;
-  modal.classList.add('show');
-  modal.setAttribute('aria-hidden','false');
-
-  document.getElementById('closeModalBtn').onclick = function(){ modal.classList.remove('show'); modal.setAttribute('aria-hidden','true'); };
-}
-
-/* ---------------------------
-   trySubmitEntryToLB (updated)
-   - before attempting to submit we check if an entry for this user/mode/date already exists.
-   - returns: true on success, 'exists' if the server already has an entry, false on failure.
----------------------------- */
+ */
 async function trySubmitEntryToLB(entry){
   const gameId = entry.gameId || 'guess_player';
   const points = Number(entry.points) || 0;
   const options = entry.options || {};
   const pseudo = options.displayName || options.pseudo || null;
-  const mode = options.mode || (cotdEnabled ? `${currentTour}_by_country` : `${currentTour}_top${levelTopN}`);
+  const mode = options.mode || null;
   const meta = options.meta || null;
-
-  // QUICK: if the connected user already has an entry for this mode today, skip submit
-  try {
-    const check = await checkUserPlayedToday(mode);
-    if (check.exists) {
-      console.info('[LB] skip submit — already exists for this user/mode/date', { mode });
-      return 'exists';
-    }
-  } catch (e) {
-    console.warn('[LB] check before submit failed, continuing with submission attempt', e);
-  }
 
   // 1) library attempt
   if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
@@ -1218,10 +1149,7 @@ async function trySubmitEntryToLB(entry){
   }
 }
 
-/* ---------------------------
-   flushScoreQueue (updated)
-   - when flushing queued entries, handle the 'exists' result specially (drop from queue)
----------------------------- */
+/** Flush local queue while LB is ready. */
 async function flushScoreQueue(){
   const queue = readScoreQueue();
   if(!queue || queue.length === 0) return;
@@ -1230,19 +1158,14 @@ async function flushScoreQueue(){
     console.info('Leaderboard not ready; will keep queue for later flush');
     return;
   }
-  // attempt to submit sequentially (max 10)
   for(let i=0;i<10;i++){
     const q = readScoreQueue();
     if(!q || q.length === 0) break;
     const entry = q[0];
     const ok = await trySubmitEntryToLB(entry);
-    if(ok === true){
+    if(ok){
       popScoreQueue();
       showToast('Score submitted to leaderboard', 2000);
-    } else if (ok === 'exists') {
-      // server already has a record for this user/mode/date -> remove from queue
-      popScoreQueue();
-      showToast('Score already exists for today — skipped', 2000);
     } else {
       console.warn('Submit failed for queued entry — stop flush now');
       break;
@@ -1250,39 +1173,21 @@ async function flushScoreQueue(){
   }
 }
 
-
-/* ---------------------------
-   submitScoreToLeaderboard (updated)
-   - re-checks before attempting to submit or queue the score.
----------------------------- */
+/** Main helper to submit score (robust). 
+ *  points: number; meta: object; extra: {displayName}
+ */
 async function submitScoreToLeaderboard(points, meta = {}, extra = {}){
   const options = { mode: (cotdEnabled ? `${currentTour}_by_country` : `${currentTour}_top${levelTopN}`),
                     meta: JSON.stringify(meta || {}), displayName: (extra.displayName || null) };
-
-  // First: check if user already played this mode today. If yes, do not submit nor queue.
-  try {
-    const check = await checkUserPlayedToday(options.mode);
-    if (check.exists) {
-      console.info('[LB] Not submitting: user already completed this mode today', options.mode);
-      showToast('You already completed this variant today — not submitting', 2500);
-      return;
-    }
-  } catch (e) {
-    console.warn('[LB] pre-submit existence check failed, will try to submit/queue anyway', e);
-    // fallback: continue
-  }
 
   // Try fast path: wait a short time for LB to be ready
   const ready = await waitForLeaderboard(3000);
   if(ready){
     const ok = await trySubmitEntryToLB({ points, options });
-    if(ok === true){
+    if(ok){
       console.info('Score successfully submitted to leaderboard (fast path).');
       // flush queue if any
       setTimeout(flushScoreQueue, 250);
-      return;
-    } else if (ok === 'exists') {
-      console.info('Score exists on server — nothing to do.');
       return;
     } else {
       console.warn('Fast path submit failed; queueing the score for retry.');
@@ -1313,6 +1218,55 @@ async function submitScoreToLeaderboard(points, meta = {}, extra = {}){
 })();
 
 /* ---------------------------
+   Helper: mode string as used for check/submits
+---------------------------- */
+function getModeString(){
+  return (cotdEnabled ? `${currentTour}_by_country` : `${currentTour}_top${levelTopN}`);
+}
+
+/* ---------------------------
+   NEW: checkAndStart(mode?) 
+   - performs checkUserPlayedToday(mode) immediately and either:
+     - shows already-played modal + disables game, or
+     - calls startGame() to begin a playable round
+---------------------------- */
+async function checkAndStart(modeArg){
+  const mode = modeArg || getModeString();
+
+  // ensure UI reflects current settings
+  document.getElementById('levelLabel').textContent = `Top ${levelTopN}`;
+  document.getElementById('tourLabel').textContent = currentTour;
+  updateSelectedCountryDisplay();
+  renderCotdBanner();
+  renderCountryText();
+
+  // Reset any previous blocking state so the check result is authoritative
+  gameBlockedDueToExisting = false;
+  guessInput.disabled = true;
+  document.getElementById('guessBtn').disabled = true;
+
+  try {
+    const check = await checkUserPlayedToday(mode);
+    if(check && check.exists){
+      // show blocking modal and keep game disabled
+      showAlreadyPlayedModal(check, mode);
+      // ensure table is empty and suggestions disabled
+      clearGuessesTable();
+      suggestionsList.style.display = 'none';
+      return;
+    } else {
+      // not played yet -> start the game
+      startGame();
+      return;
+    }
+  } catch(e){
+    console.warn('checkAndStart error', e);
+    // fallback: allow play
+    startGame();
+  }
+}
+
+/* ---------------------------
    Wiring & Init
 ---------------------------- */
 document.addEventListener('DOMContentLoaded', async ()=>{
@@ -1330,33 +1284,38 @@ document.addEventListener('DOMContentLoaded', async ()=>{
     renderCountryText();
     renderUserPanel();
 
-    // wire events -> on any change, (re)start the round automatically
-    document.getElementById('btnATP').addEventListener('click', ()=>{ if(currentTour !== 'ATP'){ currentTour='ATP'; document.getElementById('tourLabel').textContent=currentTour; applyTourTheme(); startGame(); } });
-    document.getElementById('btnWTA').addEventListener('click', ()=>{ if(currentTour !== 'WTA'){ currentTour='WTA'; document.getElementById('tourLabel').textContent=currentTour; applyTourTheme(); startGame(); } });
+    // wire events -> on any change, re-check and start/lock the round automatically
+    document.getElementById('btnATP').addEventListener('click', async ()=>{ 
+      if(currentTour !== 'ATP'){ currentTour='ATP'; document.getElementById('tourLabel').textContent=currentTour; applyTourTheme(); await checkAndStart(); }
+    });
+    document.getElementById('btnWTA').addEventListener('click', async ()=>{ 
+      if(currentTour !== 'WTA'){ currentTour='WTA'; document.getElementById('tourLabel').textContent=currentTour; applyTourTheme(); await checkAndStart(); }
+    });
 
     document.querySelectorAll('.seg-btn').forEach(btn=>{
-      btn.addEventListener('click', (e)=>{
+      btn.addEventListener('click', async (e)=>{
         const newTop = Number(e.currentTarget.dataset.top);
         if(newTop !== levelTopN){
           document.querySelectorAll('.seg-btn').forEach(b=>b.classList.remove('active'));
           e.currentTarget.classList.add('active');
           levelTopN = newTop;
           document.getElementById('levelLabel').textContent = `Top ${levelTopN}`;
-          startGame();
+          await checkAndStart();
         }
       });
     });
 
-    document.getElementById('cotdToggle').addEventListener('click', ()=>{
+    document.getElementById('cotdToggle').addEventListener('click', async ()=>{
       cotdEnabled = !cotdEnabled;
       document.getElementById('cotdToggle').textContent = cotdEnabled ? 'ON' : 'OFF';
       renderCotdBanner();
       renderCountryText();
-      startGame();
+      await checkAndStart();
     });
 
     // Guess handling
-    document.getElementById('guessBtn').addEventListener('click', ()=>{
+    document.getElementById('guessBtn').addEventListener('click', ()=>{ 
+      if(gameBlockedDueToExisting){ showToast('You have already completed this variant today'); return; }
       const name = guessInput.value;
       if(!name) { showToast('Type a name before guessing'); return; }
       handleGuessSafe(name);
@@ -1364,8 +1323,23 @@ document.addEventListener('DOMContentLoaded', async ()=>{
       suggestionsList.style.display = 'none';
     });
 
-    // initial auto-start
-    startGame();
+    // initial auto-check & start for default mode (ATP Top20) once assets are loaded
+    await checkAndStart();
+
+    // lightweight watcher: if user login state changes (connect/disconnect), re-check mode.
+    let lastUserId = null;
+    setInterval(async ()=>{
+      let localUser = null;
+      try{ localUser = window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function' ? window.LEADERBOARD.getLocalUser() : null; }catch(e){ localUser=null; }
+      const id = localUser ? (localUser.user_id || localUser.id || localUser.pseudo || localUser.email || '') : '';
+      if(id !== lastUserId){
+        lastUserId = id;
+        renderUserPanel();
+        // re-check current mode on login state change
+        await checkAndStart();
+      }
+    }, 1200);
+
   }catch(err){
     console && console.error && console.error(err);
     showToast('Initialization error');
