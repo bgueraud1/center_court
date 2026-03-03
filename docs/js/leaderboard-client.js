@@ -1,6 +1,9 @@
 // docs/js/leaderboard-client.js
-// Minimal leaderboard client (no <script> wrapper) - pure JS file.
-// Expose window.LEADERBOARD with submitScore, fetchLeaderboard, createLeaderboardPanel, getLocalUser, getOrCreateAnonId
+// Minimal leaderboard client - exposes window.LEADERBOARD with:
+// submitScore, fetchLeaderboard, createLeaderboardPanel, getLocalUser, getOrCreateAnonId
+// Also provides auth functions that call your Netlify functions:
+//  - POST /.netlify/functions/create-user  (body: { pseudo, password_hash })
+//  - POST /.netlify/functions/check_user   (body: { pseudo, password_hash })
 
 (function(){
   // --- utils ---
@@ -16,8 +19,8 @@
   }
 
   // --- storage keys ---
-  const LB_USER_KEY = 'lb_user_v1';
-  const LB_ANON_KEY = 'lb_anon_v1';
+  const LB_USER_KEY = 'lb_user_v1';        // stores only minimal user session: { id, pseudo }
+  const LB_ANON_KEY = 'lb_anon_v1';        // anonymous id for non-logged users
   const LB_LAST_SUB_PREFIX = 'lb_last_submit_';
 
   // --- anon id ---
@@ -30,19 +33,19 @@
     return id;
   }
 
-  // --- local user simple store ---
-  async function signupOrLoginLocal(pseudo, password){
-    const hash = await sha256Hex(password);
-    const obj = { pseudo: String(pseudo).trim(), password_hash: hash };
-    localStorage.setItem(LB_USER_KEY, JSON.stringify(obj));
-    return obj;
+  // --- minimal session store (only id + pseudo) ---
+  function saveLocalSession(userObj){
+    // userObj should be { id: <string|number>, pseudo: <string> }
+    if (!userObj || !userObj.id) return;
+    const s = { id: String(userObj.id), pseudo: String(userObj.pseudo || '') };
+    localStorage.setItem(LB_USER_KEY, JSON.stringify(s));
   }
   function getLocalUser(){
     const s = localStorage.getItem(LB_USER_KEY);
     if (!s) return null;
     try { return JSON.parse(s); } catch(e) { return null; }
   }
-  function logoutLocal(){ localStorage.removeItem(LB_USER_KEY); }
+  function clearLocalSession(){ localStorage.removeItem(LB_USER_KEY); }
 
   // --- local duplicate-guard ---
   function hasSubmittedTodayLocally(gameId){
@@ -57,8 +60,25 @@
     localStorage.setItem(key, today);
   }
 
+  // --- HTTP helper for Netlify functions ---
+  async function callNetlifyFunction(path, bodyObj){
+    try {
+      const resp = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bodyObj)
+      });
+      const txt = await resp.text();
+      let json;
+      try { json = txt ? JSON.parse(txt) : {}; } catch(e) { json = { ok:false, error: 'invalid_json', raw: txt }; }
+      return { ok: resp.ok, status: resp.status, body: json };
+    } catch (err) {
+      return { ok:false, status: 0, body: { ok:false, error:'network', detail: String(err) } };
+    }
+  }
+
   // --- submitScore -> calls Netlify function POST /.netlify/functions/submit-score
-  /* ---- submit function ----
+  /*
    - gameId: string
    - points: number
    - options.meta: optional string or object
@@ -69,34 +89,28 @@
   */
   async function submitScore(gameId, points, options = {}){
     const user = getLocalUser();
-    // prefer anon_id passed in options only if provided; otherwise use/create local anon id
     const anonIdFromOpts = options.anon_id || null;
     const anonId = anonIdFromOpts || getOrCreateAnonId();
     const metaOpt = options.meta || null;
     const modeOpt = options.mode || null;
     const displayNameOpt = options.displayName || null;
 
-    // local guard: already submitted today.
     if (hasSubmittedTodayLocally(gameId)) {
       return { ok:false, error:'already_submitted_local' };
     }
 
-    // build payload
     const payload = { game_id: gameId, points: Number(points) };
     if (user) {
-      // if local "logged" user, include pseudo + password_hash if present
+      // include user id and pseudo (server-side submit-score prefers user_id if provided)
+      payload.user_id = user.id;
       payload.pseudo = user.pseudo;
-      if (user.password_hash) payload.password_hash = user.password_hash;
-      // if your backend expects user_id instead, change here to include user.id
     } else {
-      // anonymous path: include anon_id and optional pseudo for display
       payload.anon_id = anonId;
       if (displayNameOpt) payload.pseudo = String(displayNameOpt).slice(0,50);
     }
 
     if (modeOpt) payload.mode = String(modeOpt).slice(0,50);
 
-    // meta: if object -> stringify
     if (metaOpt) {
       if (typeof metaOpt === 'object') payload.meta = JSON.stringify(metaOpt);
       else payload.meta = String(metaOpt);
@@ -114,7 +128,6 @@
       try { data = text ? JSON.parse(text) : {}; } catch(e){ data = { ok:false, error:'invalid_json_from_server', raw:text }; }
 
       if (r.ok && data && data.ok) {
-        // mark locally to prevent repeated submits from same browser
         markSubmittedTodayLocally(gameId);
       }
 
@@ -124,7 +137,6 @@
       return { ok:false, error:'network', detail: String(err) };
     }
   }
-
 
   // --- fetchLeaderboard -> GET /.netlify/functions/leaderboard?date=YYYY-MM-DD&game_id=...
   async function fetchLeaderboard(dateISO, gameId, limit=50){
@@ -143,15 +155,11 @@
     }
   }
 
-  // --- small auth modal (DOM) helper ---
+  // --- small auth modal (DOM) helper, in English ---
   function openAuthModal(defaultAction = 'login'){
     // returns a Promise that resolves with { action: 'login'|'register', pseudo, password } or null if cancelled
     return new Promise((resolve) => {
-      // avoid multiple modals
-      if (document.getElementById('lb-auth-modal')) {
-        resolve(null);
-        return;
-      }
+      if (document.getElementById('lb-auth-modal')) { resolve(null); return; }
 
       const overlay = document.createElement('div');
       overlay.id = 'lb-auth-modal';
@@ -167,30 +175,29 @@
       overlay.style.zIndex = '99999';
 
       const panel = document.createElement('div');
-      panel.style.width = '320px';
+      panel.style.width = '360px';
       panel.style.padding = '16px';
       panel.style.borderRadius = '8px';
       panel.style.background = '#fff';
-      panel.style.boxShadow = '0 6px 20px rgba(0,0,0,0.12)';
+      panel.style.boxShadow = '0 8px 30px rgba(2,6,23,0.12)';
       panel.style.fontFamily = 'system-ui, sans-serif';
       panel.style.color = '#111';
 
       panel.innerHTML = `
-        <div style="font-weight:600;margin-bottom:8px">Connexion / Inscription</div>
+        <div style="font-weight:700;margin-bottom:10px;font-size:16px">Sign In / Sign Up</div>
         <div style="margin-bottom:8px">
-          <input id="lb-modal-pseudo" placeholder="Pseudo" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd" />
+          <input id="lb-modal-pseudo" placeholder="Username" style="width:100%;padding:10px;border-radius:6px;border:1px solid #ddd" />
         </div>
         <div style="margin-bottom:12px">
-          <input id="lb-modal-pass" type="password" placeholder="Mot de passe" style="width:100%;padding:8px;border-radius:6px;border:1px solid #ddd" />
+          <input id="lb-modal-pass" type="password" placeholder="Password" style="width:100%;padding:10px;border-radius:6px;border:1px solid #ddd" />
         </div>
         <div style="display:flex;gap:8px;justify-content:flex-end">
-          <button id="lb-modal-cancel" style="padding:8px 10px;border-radius:6px;background:transparent;border:1px solid #ccc">Annuler</button>
-          <button id="lb-modal-register" style="padding:8px 10px;border-radius:6px;background:#eee;border:1px solid #ddd">S'inscrire</button>
-          <button id="lb-modal-login" style="padding:8px 10px;border-radius:6px;background:#0b84ff;color:#fff;border:0">Se connecter</button>
+          <button id="lb-modal-cancel" style="padding:8px 10px;border-radius:6px;background:transparent;border:1px solid #ccc">Cancel</button>
+          <button id="lb-modal-register" style="padding:8px 10px;border-radius:6px;background:#f0f0f0;border:1px solid #ddd">Sign Up</button>
+          <button id="lb-modal-login" style="padding:8px 10px;border-radius:6px;background:#2563eb;color:#fff;border:0">Sign In</button>
         </div>
-        <div style="margin-top:8px;font-size:12px;color:#666">Les comptes sont stockés localement (pour l'instant).</div>
+        <div style="margin-top:10px;font-size:12px;color:#666">Accounts are created and validated with the server.</div>
       `;
-
       overlay.appendChild(panel);
       document.body.appendChild(overlay);
 
@@ -200,7 +207,7 @@
       const btnLogin = document.getElementById('lb-modal-login');
       const btnRegister = document.getElementById('lb-modal-register');
 
-      // prefills
+      // prefill with existing minimal session if present
       const existing = getLocalUser();
       if (existing) inpPseudo.value = existing.pseudo || '';
 
@@ -218,7 +225,7 @@
         const pseudo = inpPseudo.value.trim();
         const password = inpPass.value;
         if (!pseudo || !password) {
-          alert('Entrer pseudo et mot de passe.');
+          alert('Please enter username and password.');
           return;
         }
         cleanupAndResolve({ action: 'login', pseudo, password });
@@ -228,13 +235,12 @@
         const pseudo = inpPseudo.value.trim();
         const password = inpPass.value;
         if (!pseudo || !password) {
-          alert('Entrer pseudo et mot de passe.');
+          alert('Please enter username and password.');
           return;
         }
         cleanupAndResolve({ action: 'register', pseudo, password });
       });
 
-      // focus
       setTimeout(()=>inpPass.focus(), 50);
     });
   }
@@ -245,16 +251,16 @@
     containerEl.innerHTML = `
       <div style="display:flex;gap:8px;align-items:center">
         <div id="lb-auth" style="display:flex;gap:8px;align-items:center">
-          <input id="lb-pseudo" placeholder="Pseudo (optionnel)" style="padding:6px;border-radius:6px" />
-          <input id="lb-pass" type="password" placeholder="Mot de passe (inscription/login)" style="padding:6px;border-radius:6px" />
-          <button id="lb-login" style="padding:6px 8px;border-radius:6px">Login / Signup</button>
-          <button id="lb-logout" style="padding:6px 8px;border-radius:6px;display:none">Logout</button>
+          <input id="lb-pseudo" placeholder="Username (optional)" style="padding:6px;border-radius:6px" />
+          <input id="lb-pass" type="password" placeholder="Password (for sign in/up)" style="padding:6px;border-radius:6px" />
+          <button id="lb-login" style="padding:6px 8px;border-radius:6px">Sign In / Sign Up</button>
+          <button id="lb-logout" style="padding:6px 8px;border-radius:6px;display:none">Sign Out</button>
         </div>
         <div style="margin-left:auto">
-          <button id="lb-refresh" style="padding:6px 8px;border-radius:6px">Refresh LB</button>
+          <button id="lb-refresh" style="padding:6px 8px;border-radius:6px">Refresh</button>
         </div>
       </div>
-      <div id="lb-list" style="margin-top:10px">Chargement...</div>
+      <div id="lb-list" style="margin-top:10px">Loading...</div>
     `;
     const btnLogin = containerEl.querySelector('#lb-login');
     const btnLogout = containerEl.querySelector('#lb-logout');
@@ -264,14 +270,39 @@
     btnLogin.onclick = async () => {
       const p = inputPseudo.value.trim();
       const pw = inputPass.value;
-      if (!p || !pw) return alert('Entrer pseudo et mot de passe (au moins) pour enregistrer');
-      await signupOrLoginLocal(p, pw);
-      updateAuthUi(containerEl);
-      // notify
-      window.dispatchEvent(new Event('lb:auth-changed'));
-      alert('Connecté localement (pseudo enregistré).');
+      // If the user filled both fields, try server login first; otherwise open modal
+      if (p && pw) {
+        const success = await performServerLogin(p, pw);
+        if (success) {
+          updateAuthUi(containerEl);
+          alert('Signed in.');
+        }
+      } else {
+        // open modal
+        const res = await openAuthModal('login');
+        if (!res) return;
+        if (res.action === 'login') {
+          const ok = await performServerLogin(res.pseudo, res.password);
+          if (ok) {
+            updateAuthUi(containerEl);
+            alert('Signed in.');
+          }
+        } else if (res.action === 'register') {
+          const ok = await performServerSignup(res.pseudo, res.password);
+          if (ok) {
+            updateAuthUi(containerEl);
+            alert('Account created and signed in.');
+          }
+        }
+      }
     };
-    btnLogout.onclick = () => { logoutLocal(); updateAuthUi(containerEl); window.dispatchEvent(new Event('lb:auth-changed')); };
+
+    btnLogout.onclick = () => {
+      clearLocalSession();
+      updateAuthUi(containerEl);
+      window.dispatchEvent(new Event('lb:auth-changed'));
+    };
+
     containerEl.querySelector('#lb-refresh').onclick = () => refreshLeaderboard(containerEl.dataset.gameId, containerEl);
 
     updateAuthUi(containerEl);
@@ -299,11 +330,11 @@
 
   async function refreshLeaderboard(gameId, containerEl){
     const display = containerEl.querySelector('#lb-list');
-    display.innerHTML = 'Chargement...';
+    display.innerHTML = 'Loading...';
     const dateISO = (new Date()).toISOString().slice(0,10);
     const data = await fetchLeaderboard(dateISO, gameId, 200);
     if (!data || !data.leaderboard) {
-      display.innerHTML = 'Erreur de chargement';
+      display.innerHTML = 'Failed to load leaderboard';
       return;
     }
     // aggregate by user (client-side)
@@ -317,48 +348,112 @@
     });
     const arr = Object.values(map).sort((a,b)=>b.total-a.total);
     const rowsHtml = arr.map((u,i) => `<div style="padding:6px;border-bottom:1px solid rgba(0,0,0,0.06)"><strong>#${i+1} ${u.name}</strong> — ${u.total} pts</div>`).join('');
-    display.innerHTML = rowsHtml || '<div>Aucun score aujourd\'hui</div>';
+    display.innerHTML = rowsHtml || '<div>No scores today</div>';
+  }
+
+  // --- server signup / login integration ---
+  async function performServerSignup(pseudo, password){
+    try {
+      const hash = await sha256Hex(password);
+      // call your Netlify function create-user
+      const res = await callNetlifyFunction('/.netlify/functions/create-user', { pseudo, password_hash: hash });
+      if (!res.ok) {
+        // server returned non-200, try to surface server message if present
+        const body = res.body || {};
+        if (body.error) {
+          alert(`Sign up failed: ${body.error}${body.detail ? ' - ' + JSON.stringify(body.detail) : ''}`);
+        } else {
+          alert('Sign up failed (server error).');
+        }
+        return false;
+      }
+      // parse body: create-user returns { ok:true, inserted: [...] } on success
+      const b = res.body || {};
+      if (b.ok && Array.isArray(b.inserted) && b.inserted.length > 0) {
+        // take first inserted row
+        const u = b.inserted[0];
+        saveLocalSession({ id: u.id || u.ID || u.id?.toString?.() || '', pseudo: u.pseudo || pseudo });
+        window.dispatchEvent(new Event('lb:auth-changed'));
+        return true;
+      } else {
+        // maybe create-user returned specific error in body
+        if (b.error) {
+          alert('Sign up error: ' + (b.error || 'unknown'));
+        } else {
+          alert('Sign up failed: unexpected server response.');
+        }
+        return false;
+      }
+    } catch (e) {
+      console.error('performServerSignup error', e);
+      alert('Sign up failed (network or client error).');
+      return false;
+    }
+  }
+
+  async function performServerLogin(pseudo, password){
+    try {
+      const hash = await sha256Hex(password);
+      // call your Netlify function check_user
+      const res = await callNetlifyFunction('/.netlify/functions/check_user', { pseudo, password_hash: hash });
+      if (!res.ok) {
+        const body = res.body || {};
+        if (body.error) {
+          // check_user returns 401 for invalid credentials
+          alert(`Sign in failed: ${body.error}${body.detail ? ' - ' + JSON.stringify(body.detail) : ''}`);
+        } else {
+          alert('Sign in failed (server error).');
+        }
+        return false;
+      }
+      const b = res.body || {};
+      if (b.ok && b.user && b.user.id) {
+        saveLocalSession({ id: b.user.id, pseudo: b.user.pseudo || pseudo });
+        window.dispatchEvent(new Event('lb:auth-changed'));
+        return true;
+      } else {
+        if (b.error) {
+          alert('Sign in error: ' + b.error);
+        } else {
+          alert('Sign in failed: unexpected server response.');
+        }
+        return false;
+      }
+    } catch (e) {
+      console.error('performServerLogin error', e);
+      alert('Sign in failed (network or client error).');
+      return false;
+    }
   }
 
   // --- Auth integration functions exposed to page ---
   async function _openLoginPrompt(){
-    // shows modal, returns user obj or null
     const res = await openAuthModal('login');
     if (!res) return null;
-    // using local signup/login helper for now (stores locally)
-    try {
-      const obj = await signupOrLoginLocal(res.pseudo, res.password);
-      // notify listeners
-      window.dispatchEvent(new Event('lb:auth-changed'));
-      return obj;
-    } catch (e) {
-      console.error('login error', e);
-      return null;
+    if (res.action === 'login') {
+      const ok = await performServerLogin(res.pseudo, res.password);
+      return ok ? getLocalUser() : null;
+    } else if (res.action === 'register') {
+      const ok = await performServerSignup(res.pseudo, res.password);
+      return ok ? getLocalUser() : null;
     }
+    return null;
   }
 
   async function _openRegisterPrompt(){
     const res = await openAuthModal('register');
     if (!res) return null;
-    try {
-      const obj = await signupOrLoginLocal(res.pseudo, res.password);
-      window.dispatchEvent(new Event('lb:auth-changed'));
-      return obj;
-    } catch (e) {
-      console.error('register error', e);
-      return null;
+    if (res.action === 'register') {
+      const ok = await performServerSignup(res.pseudo, res.password);
+      return ok ? getLocalUser() : null;
     }
+    return null;
   }
 
   function _logoutAndNotify(){
-    try {
-      logoutLocal();
-      window.dispatchEvent(new Event('lb:auth-changed'));
-      return true;
-    } catch (e) {
-      console.warn('logout failed', e);
-      return false;
-    }
+    clearLocalSession();
+    window.dispatchEvent(new Event('lb:auth-changed'));
+    return true;
   }
 
   // export API
@@ -369,7 +464,7 @@
     getLocalUser,
     getOrCreateAnonId,
 
-    // auth shims expected by pages
+    // auth functions expected by pages
     openLogin: _openLoginPrompt,
     login: _openLoginPrompt,
     showAuth: _openLoginPrompt,
@@ -377,9 +472,7 @@
     openRegister: _openRegisterPrompt,
     register: _openRegisterPrompt,
 
-    // logout names
     logout: _logoutAndNotify,
-    signOut: _logoutAndNotify,
-    signoff: _logoutAndNotify
+    signOut: _logoutAndNotify
   };
 })();
