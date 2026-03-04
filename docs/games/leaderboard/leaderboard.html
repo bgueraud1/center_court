@@ -97,7 +97,6 @@
 
       <div class="controls" style="margin-left:8px">
         <!-- kept for layout parity; actual user box above -->
-        <!-- empty placeholder so original markup expecting .controls remains valid -->
       </div>
     </header>
 
@@ -311,11 +310,9 @@ async function performLogout({ reload = false } = {}) {
    - uses window.LEADERBOARD.* if available, otherwise graceful fallback
 ---------------------------- */
 
-// ---------- USER PANEL (corrigé) ----------
+/* ---------- USER PANEL (corrigé) ---------- */
 function renderUserPanel(){
   // NOTE: we intentionally DO NOT remove an existing dropdown here.
-  // Removing it caused the "appear briefly then disappear" bug when this function
-  // ran again while the dropdown was open.
   const dropdownExisting = userPanel.querySelector('.user-dropdown');
 
   // Try to read local user from the same places as before
@@ -341,7 +338,8 @@ function renderUserPanel(){
   // (re)bind toggle handler - harmless even if assigned multiple times
   userBox.onclick = toggleUserDropdown;
 }
-// ---------- helper: wait for LEADERBOARD ----------
+
+/* ---------- helper: wait for LEADERBOARD ---------- */
 function waitForLeaderboard(timeoutMs = 3000, intervalMs = 150) {
   return new Promise((resolve) => {
     if (window.LEADERBOARD && typeof window.LEADERBOARD === 'object') return resolve(window.LEADERBOARD);
@@ -359,93 +357,7 @@ function waitForLeaderboard(timeoutMs = 3000, intervalMs = 150) {
   });
 }
 
-// ---------- use this helper in the dropdown handlers ----------
-/* when creating the Login button: */
-btnLogin.onclick = async () => {
-  // 1) try immediate call if available
-  if (window.LEADERBOARD && typeof window.LEADERBOARD.openLogin === 'function') {
-    return window.LEADERBOARD.openLogin();
-  }
-  // 2) otherwise wait shortly for the module to appear (index.html loads it sometimes later)
-  showToast('Waiting for auth module…', 2000);
-  const lb = await waitForLeaderboard(3000);
-  if (lb && typeof lb.openLogin === 'function') {
-    return lb.openLogin();
-  }
-  // 3) fallback: try openAuthModal from this file if present (keeps behaviour usable)
-  if (typeof openAuthModal === 'function') {
-    const res = await openAuthModal('login');
-    if (!res) return;
-    if (res.action === 'login') {
-      const ok = await performServerLogin(res.pseudo, res.password);
-      if (ok) {
-        showToast('Signed in', 1200);
-        renderUserPanel();
-        try { window.dispatchEvent(new Event('lb:auth-changed')); } catch(e){}
-      }
-    } else if (res.action === 'register') {
-      const ok = await performServerSignup(res.pseudo, res.password, res.tour, res.country);
-      if (ok) {
-        showToast('Account created', 1200);
-        renderUserPanel();
-        try { window.dispatchEvent(new Event('lb:auth-changed')); } catch(e){}
-      }
-    }
-    return;
-  }
-  // final fallback: meaningful message
-  showToast('Login not available from this page', 2200);
-};
-
-/* similarly for register/create account button: */
-btnCreate.onclick = async () => {
-  if (window.LEADERBOARD && typeof window.LEADERBOARD.openRegister === 'function') {
-    return window.LEADERBOARD.openRegister();
-  }
-  showToast('Waiting for auth module…', 2000);
-  const lb = await waitForLeaderboard(3000);
-  if (lb && typeof lb.openRegister === 'function') {
-    return lb.openRegister();
-  }
-  if (typeof openAuthModal === 'function') {
-    const res = await openAuthModal('register');
-    if (res && res.action === 'register') {
-      const ok = await performServerSignup(res.pseudo, res.password, res.tour, res.country);
-      if (ok) {
-        showToast('Account created', 1200);
-        renderUserPanel();
-        try { window.dispatchEvent(new Event('lb:auth-changed')); } catch(e){}
-      }
-    }
-    return;
-  }
-  showToast('Register not available from this page', 2200);
-};
-
-/* logout button: */
-btnLogout.onclick = async (ev) => {
-  ev && ev.stopPropagation && ev.stopPropagation();
-  // try LEADERBOARD logout first
-  if (window.LEADERBOARD && typeof window.LEADERBOARD.logout === 'function') {
-    try {
-      window.LEADERBOARD.logout();
-      showToast('Logged out', 1200);
-      renderUserPanel();
-      try { window.dispatchEvent(new Event('lb:auth-changed')); } catch(e){}
-      return;
-    } catch(e){ console.warn('LEADERBOARD.logout threw', e); }
-  }
-  // else fallback to performLogout (existing function)
-  await performLogout({ reload: false });
-  renderUserPanel();
-  try { window.dispatchEvent(new Event('lb:auth-changed')); } catch(e){}
-};
-// Small tweak: keep calling renderUserPanel but do NOT forcibly remove dropdown if user opened it.
-(function watchForLbToRenderUser(){
-  renderUserPanel();
-  const t = setInterval(()=>{ renderUserPanel(); if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser==='function') { clearInterval(t); } }, 400);
-})();
-
+/* toggleUserDropdown: create buttons and attach handlers here (no global button refs) */
 function toggleUserDropdown(e){
   e && e.stopPropagation && e.stopPropagation();
   const existing = userPanel.querySelector('.user-dropdown');
@@ -468,24 +380,21 @@ function toggleUserDropdown(e){
     btnLogout.textContent = 'Log out';
     btnLogout.onclick = async (ev) => {
       ev && ev.stopPropagation && ev.stopPropagation();
-      // disable the button to avoid double-clicks
-      btnLogout.disabled = true;
-      try {
+      // try LEADERBOARD logout first
+      if (window.LEADERBOARD && typeof window.LEADERBOARD.logout === 'function') {
+        try {
+          await window.LEADERBOARD.logout();
+        } catch(e){ console.warn('LEADERBOARD.logout threw', e); }
+      } else {
+        // fallback to our performLogout
         await performLogout({ reload: false });
-        // close dropdown
-        const d = userPanel.querySelector('.user-dropdown');
-        if (d) d.remove();
-        userBox.setAttribute('aria-expanded','false');
-        // ensure the panel reflects logged-out state
-        setTimeout(renderUserPanel, 150);
-      } catch (e) {
-        console.error('Logout failed', e);
-        showToast('Logout failed');
-        btnLogout.disabled = false;
-      } finally {
-        // re-enable in case of failure (or let UI re-render)
-        btnLogout.disabled = false;
       }
+      // close dropdown and refresh UI
+      const d = userPanel.querySelector('.user-dropdown');
+      if (d) d.remove();
+      userBox.setAttribute('aria-expanded','false');
+      setTimeout(renderUserPanel, 120);
+      try { window.dispatchEvent(new Event('lb:auth-changed')); } catch(e){}
     };
     dd.appendChild(btnLogout);
   } else {
@@ -493,24 +402,87 @@ function toggleUserDropdown(e){
     const btnLogin = document.createElement('button');
     btnLogin.type='button';
     btnLogin.textContent = 'Log In';
-    btnLogin.onclick = () => {
-      // try multiple possible entry points in leaderboard lib
+    btnLogin.onclick = async () => {
+      // 1) immediate LEADERBOARD method if available
       if(window.LEADERBOARD){
         if(typeof window.LEADERBOARD.openLogin === 'function') return window.LEADERBOARD.openLogin();
         if(typeof window.LEADERBOARD.login === 'function') return window.LEADERBOARD.login();
         if(typeof window.LEADERBOARD.showAuth === 'function') return window.LEADERBOARD.showAuth();
       }
-      showToast('Login not available from this page');
+      // 2) wait shortly for module to appear (index.html sometimes loads it later)
+      showToast('Waiting for auth module…', 1600);
+      const lb = await waitForLeaderboard(3000);
+      if(lb){
+        if(typeof lb.openLogin === 'function') return lb.openLogin();
+        if(typeof lb.login === 'function') return lb.login();
+        if(typeof lb.showAuth === 'function') return lb.showAuth();
+      }
+      // 3) fallback to local modal + server helpers if present
+      if (typeof openAuthModal === 'function') {
+        const res = await openAuthModal('login');
+        if (!res) return;
+        if (res.action === 'login') {
+          if (typeof performServerLogin === 'function') {
+            const ok = await performServerLogin(res.pseudo, res.password);
+            if (ok) {
+              showToast('Signed in', 1200);
+              renderUserPanel();
+              try { window.dispatchEvent(new Event('lb:auth-changed')); } catch(e){}
+            }
+          } else {
+            showToast('Login not available from this page', 2200);
+          }
+        } else if (res.action === 'register') {
+          if (typeof performServerSignup === 'function') {
+            const ok = await performServerSignup(res.pseudo, res.password, res.tour, res.country);
+            if (ok) {
+              showToast('Account created', 1200);
+              renderUserPanel();
+              try { window.dispatchEvent(new Event('lb:auth-changed')); } catch(e){}
+            }
+          } else {
+            showToast('Register not available from this page', 2200);
+          }
+        }
+        return;
+      }
+      // final fallback
+      showToast('Login not available from this page', 2200);
     };
     dd.appendChild(btnLogin);
 
     const btnCreate = document.createElement('button');
     btnCreate.type='button';
     btnCreate.textContent = 'Create account';
-    btnCreate.onclick = () => {
-      if(window.LEADERBOARD && typeof window.LEADERBOARD.openRegister === 'function') return window.LEADERBOARD.openRegister();
-      if(window.LEADERBOARD && typeof window.LEADERBOARD.register === 'function') return window.LEADERBOARD.register();
-      showToast('Register not available from this page');
+    btnCreate.onclick = async () => {
+      if(window.LEADERBOARD){
+        if(typeof window.LEADERBOARD.openRegister === 'function') return window.LEADERBOARD.openRegister();
+        if(typeof window.LEADERBOARD.register === 'function') return window.LEADERBOARD.register();
+      }
+      showToast('Waiting for auth module…', 1600);
+      const lb = await waitForLeaderboard(3000);
+      if(lb){
+        if(typeof lb.openRegister === 'function') return lb.openRegister();
+        if(typeof lb.register === 'function') return lb.register();
+      }
+      if (typeof openAuthModal === 'function') {
+        const res = await openAuthModal('register');
+        if (!res) return;
+        if (res.action === 'register') {
+          if (typeof performServerSignup === 'function') {
+            const ok = await performServerSignup(res.pseudo, res.password, res.tour, res.country);
+            if (ok) {
+              showToast('Account created', 1200);
+              renderUserPanel();
+              try { window.dispatchEvent(new Event('lb:auth-changed')); } catch(e){}
+            }
+          } else {
+            showToast('Register not available from this page', 2200);
+          }
+        }
+        return;
+      }
+      showToast('Register not available from this page', 2200);
     };
     dd.appendChild(btnCreate);
   }
@@ -532,7 +504,11 @@ function toggleUserDropdown(e){
   }, 10);
 }
 
-/* initialize user panel (polls once in case LB lib loads after page) */
+// Poll for LB lib and render user panel; do not forcibly remove dropdown
+(function watchForLbToRenderUser(){
+  renderUserPanel();
+  const t = setInterval(()=>{ renderUserPanel(); if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser==='function') { clearInterval(t); } }, 400);
+})();
 
 /* ---------- normalize server payloads ---------- */
 function normalizeUsers(rawUsers){
