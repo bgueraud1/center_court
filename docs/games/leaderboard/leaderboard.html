@@ -31,6 +31,8 @@
   .user-chip button{background:transparent;border:1px solid rgba(255,255,255,0.04);padding:6px;border-radius:8px;color:var(--muted);cursor:pointer}
   .src-path{font-family:monospace;font-size:13px;color:var(--muted)}
   @media (max-width:880px){ th,td{padding:8px;font-size:13px} .flag{display:none} }
+  /* small toast placeholder */
+  #lb-toast { position: fixed; right: 20px; bottom: 20px; background: rgba(0,0,0,0.6); padding:10px 14px; border-radius:8px; color:#fff; font-weight:700; display:none; z-index:9999; }
 </style>
 </head>
 <body>
@@ -73,7 +75,7 @@
               <th data-key="total" title="Sort by total">#</th>
               <th data-key="pseudo">User</th>
               <th data-key="league">League</th>
-              <!-- Tour removed; row colored by tour class (ATP/WTA) -->
+              <!-- Tour column removed; coloring now by row class -->
               <th data-key="total">Total</th>
               <th data-key="guess_player">Guess Player</th>
               <th data-key="guess_player_h2h">H2H</th>
@@ -87,7 +89,10 @@
     </div>
   </div>
 
+  <div id="lb-toast" role="status" aria-live="polite"></div>
+
 <script>
+/* ---------- utilities ---------- */
 const FALLBACK_JSON = '/tools/users_leaderboard.json';
 const TABLE = document.getElementById('tbl');
 const TBODY = TABLE.querySelector('tbody');
@@ -112,13 +117,28 @@ function fmt(n){
 }
 function escapeHtml(s){ if(s===undefined||s===null) return ''; return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m]); }
 
-/* robust local user detection (inspired by your game's index.html) */
+/* small showToast stub copied from game (minimal) */
+function showToast(msg, duration = 1500){
+  try {
+    const t = document.getElementById('lb-toast');
+    if(!t) return;
+    t.textContent = String(msg);
+    t.style.display = 'block';
+    t.style.opacity = '1';
+    setTimeout(()=> {
+      t.style.transition = 'opacity .25s';
+      t.style.opacity = '0';
+      setTimeout(()=> t.style.display='none', 300);
+    }, duration);
+  } catch(e){}
+}
+
+/* robust local user detection: try same keys / checks as in your index.html (so behaviour identical) */
 function getLocalUserNormalized(){
   try { if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function'){ const u = window.LEADERBOARD.getLocalUser(); if(u && (u.id || u.user_id || u.pseudo || u.username)) return { id: u.id || u.user_id || null, pseudo: u.pseudo || u.username || u.name || null }; } } catch(e){}
 
-  const candidates = [
-    'lb_user_v1','lb_local_user_v1','lb_user','lb_current_user','leaderboard_user','local_user','user','auth_user'
-  ];
+  // try common keys (same idea as the game's logic)
+  const candidates = ['lb_user_v1','lb_local_user_v1','lb_user','lb_current_user','leaderboard_user','local_user','user','auth_user'];
   for(const k of candidates){
     try {
       const raw = localStorage.getItem(k);
@@ -134,7 +154,7 @@ function getLocalUserNormalized(){
   return null;
 }
 
-/* flag helper (cached) */
+/* country flag helper (cached) */
 function countryToFlagUrlCached(countryName){
   if(!countryName) return '';
   try {
@@ -155,62 +175,152 @@ function countryToFlagUrlCached(countryName){
   return '';
 }
 
-/* Render user box (connect + robust logout) */
+/* ---------- performLogout (copied from your index.html, identical behaviour) ---------- */
+async function performLogout({ reload = false } = {}) {
+  console.info('[LOGOUT] start');
+
+  // 1) try various leaderboard/library methods (lib may expose different names)
+  try {
+    if (window.LEADERBOARD) {
+      const candidateFns = ['logout', 'signOut', 'signout', 'disconnect', 'signOff', 'signoff'];
+      for (const fn of candidateFns) {
+        if (typeof window.LEADERBOARD[fn] === 'function') {
+          try {
+            const res = window.LEADERBOARD[fn]();
+            // support sync or promise
+            if (res && typeof res.then === 'function') await res;
+            console.info(`[LOGOUT] called window.LEADERBOARD.${fn}`);
+            break;
+          } catch (e) {
+            console.warn(`[LOGOUT] window.LEADERBOARD.${fn} threw`, e);
+          }
+        }
+      }
+    } else {
+      console.info('[LOGOUT] window.LEADERBOARD not present');
+    }
+  } catch (e) {
+    console.warn('[LOGOUT] error while calling LB methods', e);
+  }
+
+  // 2) call optional server-side logout endpoint (no-op if not present)
+  try {
+    await fetch('/.netlify/functions/logout', { method: 'POST', credentials: 'same-origin' }).catch(()=>null);
+    console.info('[LOGOUT] called server logout endpoint (if present)');
+  } catch(e){ console.warn('[LOGOUT] server logout failed', e); }
+
+  // 3) clear tokens & local/session storage keys (best-effort)
+  try {
+    const likelyKeys = ['lb_score_queue_v1','lb_current_user','leaderboard_user','local_user','user','auth','access_token','refresh_token','supabase.auth.token','supabase.auth.session','lb_user_v1','lb_local_user_v1'];
+    for (const k of likelyKeys) {
+      try { localStorage.removeItem(k); } catch(e){}
+      try { sessionStorage.removeItem(k); } catch(e){}
+    }
+    try {
+      for (const k of Object.keys(localStorage)) {
+        if (/token|auth|session|user|lb/i.test(k)) {
+          try { localStorage.removeItem(k); } catch(e){}
+        }
+      }
+      for (const k of Object.keys(sessionStorage)) {
+        if (/token|auth|session|user|lb/i.test(k)) {
+          try { sessionStorage.removeItem(k); } catch(e){}
+        }
+      }
+    } catch(e){ /* ignore */ }
+  } catch (e) {
+    console.warn('[LOGOUT] clearing storage failed', e);
+  }
+
+  // 4) UI update & optional reload
+  try {
+    showToast('Logged out', 1200);
+    // re-render user panel (this page uses renderUserBox)
+    try { renderUserBox(); } catch(e){ /* ignore */ }
+    if (reload) setTimeout(()=> location.reload(), 300);
+  } catch (e) {
+    console.warn('[LOGOUT] ui update failed', e);
+  }
+
+  console.info('[LOGOUT] done');
+  return true;
+}
+
+/* ---------- renderUserBox: copied login/create handlers from your index.html (identical behaviour) ---------- */
 function renderUserBox(){
   localUser = getLocalUserNormalized();
   userBox.innerHTML = '';
-  if(localUser && (localUser.id || localUser.pseudo)){
+
+  // Dropdown wrapper in the game uses userPanel, but here we render a small card similar to your game panel
+  const userPanel = document.createElement('div');
+  userPanel.className = 'user-panel';
+  userPanel.style.display = 'inline-block';
+
+  // Build content area
+  const dd = document.createElement('div');
+  dd.style.display = 'flex';
+  dd.style.flexDirection = 'column';
+  dd.style.gap = '8px';
+
+  if(localUser && (localUser.pseudo || localUser.id)){
+    // connected: show username + Log out (uses performLogout from above)
     const chip = document.createElement('div');
     chip.className = 'user-chip';
+    chip.style.display = 'inline-flex';
+    chip.style.alignItems = 'center';
+    chip.style.gap = '8px';
     chip.innerHTML = `<span style="opacity:0.95">${escapeHtml(localUser.pseudo || localUser.id)}</span>`;
-    const btnOut = document.createElement('button');
-    btnOut.textContent = 'Sign out';
-    btnOut.onclick = async () => {
+    const btnLogout = document.createElement('button');
+    btnLogout.type='button';
+    btnLogout.textContent = 'Sign out';
+    btnLogout.onclick = async (ev) => {
+      ev && ev.stopPropagation && ev.stopPropagation();
+      btnLogout.disabled = true;
       try {
-        if(window.LEADERBOARD){
-          const candidateFns = ['logout','signOut','signout','disconnect','signOff','signoff'];
-          for(const fn of candidateFns){
-            if(typeof window.LEADERBOARD[fn] === 'function'){
-              try { const res = window.LEADERBOARD[fn](); if(res && typeof res.then === 'function') await res; } catch(e){}
-            }
-          }
-        }
-      } catch(e){}
-      // best-effort server logout
-      try { await fetch('/.netlify/functions/logout',{ method:'POST' }).catch(()=>null); } catch(e){}
-      // clear many likely keys
-      const likelyKeys = ['lb_score_queue_v1','lb_current_user','leaderboard_user','local_user','user','auth','access_token','refresh_token','supabase.auth.token','supabase.auth.session','lb_user_v1','lb_local_user_v1'];
-      try { for(const k of likelyKeys){ try{ localStorage.removeItem(k); }catch(e){} try{ sessionStorage.removeItem(k); }catch(e){} } } catch(e){}
+        await performLogout({ reload: false });
+      } catch(e){
+        console.warn('performLogout failed', e);
+      } finally {
+        btnLogout.disabled = false;
+      }
+      // refresh data after logout
       renderUserBox();
-      await loadData();
+      loadData();
     };
-    chip.appendChild(btnOut);
-    userBox.appendChild(chip);
+    chip.appendChild(btnLogout);
+    dd.appendChild(chip);
   } else {
-    const btn = document.createElement('button');
-    btn.className = 'btn';
-    btn.textContent = 'Connect';
-    btn.onclick = async () => {
-      try {
-        if(window.LEADERBOARD){
-          if(typeof window.LEADERBOARD.openLogin === 'function') return window.LEADERBOARD.openLogin();
-          if(typeof window.LEADERBOARD.login === 'function') return window.LEADERBOARD.login();
-          if(typeof window.LEADERBOARD.showAuth === 'function') return window.LEADERBOARD.showAuth();
-        }
-        alert('Login not available from this page');
-      } catch(e){ console.warn('Login attempt failed', e); }
-      setTimeout(()=> loadData(), 200);
+    // not connected: show Log In and Create Account (copied from index.html)
+    const btnLogin = document.createElement('button');
+    btnLogin.type='button';
+    btnLogin.textContent = 'Log In';
+    btnLogin.onclick = () => {
+      // try multiple possible entry points in leaderboard lib
+      if(window.LEADERBOARD){
+        if(typeof window.LEADERBOARD.openLogin === 'function') return window.LEADERBOARD.openLogin();
+        if(typeof window.LEADERBOARD.login === 'function') return window.LEADERBOARD.login();
+        if(typeof window.LEADERBOARD.showAuth === 'function') return window.LEADERBOARD.showAuth();
+      }
+      showToast('Login not available from this page');
     };
-    userBox.appendChild(btn);
-    const hint = document.createElement('div');
-    hint.className = 'small';
-    hint.style.marginTop = '6px';
-    hint.textContent = 'Log in to view your league by default';
-    userBox.appendChild(hint);
+    dd.appendChild(btnLogin);
+
+    const btnCreate = document.createElement('button');
+    btnCreate.type='button';
+    btnCreate.textContent = 'Create account';
+    btnCreate.onclick = () => {
+      if(window.LEADERBOARD && typeof window.LEADERBOARD.openRegister === 'function') return window.LEADERBOARD.openRegister();
+      if(window.LEADERBOARD && typeof window.LEADERBOARD.register === 'function') return window.LEADERBOARD.register();
+      showToast('Register not available from this page');
+    };
+    dd.appendChild(btnCreate);
   }
+
+  userPanel.appendChild(dd);
+  userBox.appendChild(userPanel);
 }
 
-/* normalize server payloads (be tolerant) */
+/* ---------- normalize server payloads ---------- */
 function normalizeUsers(rawUsers){
   if(!Array.isArray(rawUsers)) return [];
   return rawUsers.map(u => {
@@ -251,7 +361,7 @@ function normalizeUsers(rawUsers){
   });
 }
 
-/* call netlify function leaderboard-aggregate */
+/* ---------- call the Netlify function leaderboard-aggregate ---------- */
 async function fetchLeaderboardAggregate(scope='league', time='week'){
   const local = getLocalUserNormalized();
   const params = new URLSearchParams();
@@ -268,7 +378,7 @@ async function fetchLeaderboardAggregate(scope='league', time='week'){
   return await r.json();
 }
 
-/* main loader */
+/* ---------- main loader ---------- */
 async function loadData(){
   titleView.textContent = 'Loading…';
   TBODY.innerHTML = '';
@@ -280,15 +390,11 @@ async function loadData(){
     if (j && j.ok && Array.isArray(j.users)) {
       const users = normalizeUsers(j.users);
       DATA = { week: j.week || (new Date()).toISOString().slice(0,10), users };
-      // attempt to set currentLeagueFilter from returned users (find me)
       if(localUser && Array.isArray(DATA.users)){
         const me = DATA.users.find(u => (u.user_id && String(u.user_id) === String(localUser.id)) || (u.pseudo && localUser.pseudo && u.pseudo === localUser.pseudo));
         if(me){
-          // only set filter if valid non-empty league
           if(me.league) currentLeagueFilter = me.league;
           if(me.league_id) currentLeagueIdFilter = String(me.league_id);
-        } else {
-          // do not set currentLeagueFilter to empty string; keep previous or null
         }
       }
       renderTable();
@@ -316,7 +422,7 @@ async function loadData(){
   }
 }
 
-/* build rows: apply league filter ONLY if we have a non-empty league value */
+/* ---------- table build & render ---------- */
 function buildRows(){
   if(!DATA || !Array.isArray(DATA.users)) return [];
   const timeKey = (currentTime === 'week') ? 'week' : 'all';
@@ -354,7 +460,7 @@ function buildRows(){
     return obj;
   });
 
-  // only filter by league if we actually know the league name (non-empty string)
+  // only filter by league if we actually know the league non-empty
   if(currentScope === 'league' && currentLeagueFilter && String(currentLeagueFilter).trim() !== ''){
     rows = rows.filter(r => r.league === currentLeagueFilter && (currentLeagueIdFilter ? String(r.league_id) === String(currentLeagueIdFilter) : true));
   }
@@ -401,7 +507,7 @@ function renderTable(){
   titleView.textContent = `${scopeLabel} — ${timeLabel}`;
 }
 
-/* UI wiring */
+/* ---------- UI wiring ---------- */
 document.getElementById('btnScopeLeague').addEventListener('click', async ()=>{
   currentScope = 'league';
   document.getElementById('btnScopeLeague').classList.add('active');

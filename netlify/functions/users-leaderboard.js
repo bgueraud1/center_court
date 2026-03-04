@@ -27,14 +27,14 @@ module.exports.handler = async function(event) {
   const qs = event.queryStringParameters || {};
   const user_id = qs.user_id || null;
   const pseudo = qs.pseudo || null;
-  const scope = (qs.scope || 'league').toLowerCase(); // league or global
-  const time = (qs.time || 'week').toLowerCase(); // week or all
+  const scope = (qs.scope || 'league').toLowerCase();
+  const time = (qs.time || 'week').toLowerCase();
 
   function weekBoundsIsoUTC(){
     const dt = new Date();
     const day = dt.getUTCDay();
     const diff = (day + 6) % 7;
-    dt.setUTCDate(dt.getUTCDate() - diff); // monday UTC
+    dt.setUTCDate(dt.getUTCDate() - diff); // monday
     const monday = new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate()));
     const sunday = new Date(monday);
     sunday.setUTCDate(monday.getUTCDate() + 6);
@@ -106,7 +106,7 @@ module.exports.handler = async function(event) {
       users = rr.ok ? await rr.json() : [];
     }
 
-    // fetch scores for those users (chunked), week -> range filter
+    // fetch scores for those users (week -> range filter)
     let scores = [];
     if(Array.isArray(users) && users.length > 0){
       const ids = users.map(u => u.id).filter(Boolean);

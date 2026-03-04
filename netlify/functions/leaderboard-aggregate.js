@@ -22,17 +22,17 @@ module.exports.handler = async function(event) {
   if (!SUPABASE_URL || !SUPABASE_KEY) return jsonResponse(500, { error: "Server misconfigured", detail: "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY" });
 
   const qs = event.queryStringParameters || {};
-  const scope = (qs.scope || 'league').toLowerCase(); // league | global
-  const time = (qs.time || 'week').toLowerCase();     // week | all
+  const scope = (qs.scope || 'league').toLowerCase();
+  const time = (qs.time || 'week').toLowerCase();
   const userIdParam = qs.user_id || null;
   const pseudoParam = qs.pseudo || null;
 
-  // monday and sunday in UTC (ISO yyyy-mm-dd)
+  // compute monday and sunday UTC ISO
   function weekBoundsIsoUTC(){
     const dt = new Date();
     const day = dt.getUTCDay(); // 0..6 Sun..Sat
     const diff = (day + 6) % 7;
-    dt.setUTCDate(dt.getUTCDate() - diff); // now Monday UTC
+    dt.setUTCDate(dt.getUTCDate() - diff); // monday
     const monday = new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate()));
     const sunday = new Date(monday);
     sunday.setUTCDate(monday.getUTCDate() + 6);
@@ -42,7 +42,7 @@ module.exports.handler = async function(event) {
   const { monday: weekMonday, sunday: weekSunday } = weekBoundsIsoUTC();
 
   try {
-    // 1) if scope=league and we have user_id or pseudo -> fetch that user's league & league_id
+    // 1) find league by user_id or pseudo if possible
     let targetLeague = null;
     let targetLeagueId = null;
     if (scope === 'league' && (userIdParam || pseudoParam)) {
@@ -67,7 +67,7 @@ module.exports.handler = async function(event) {
       }
     }
 
-    // 2) fetch users: either all users (global) or users in the target league (+ league_id)
+    // 2) fetch users (league-specific or global)
     let users = [];
     if (scope === 'league' && targetLeague) {
       const q = new URL(`${SUPABASE_URL.replace(/\/$/,'')}/rest/v1/users`);
@@ -93,7 +93,7 @@ module.exports.handler = async function(event) {
       users = r.ok ? await r.json() : [];
     }
 
-    // 3) build ids list and fetch scores for these users (chunked)
+    // 3) fetch scores for these users (chunked). For time=week use range monday..sunday inclusive
     const ids = (Array.isArray(users) ? users.map(u => u.id).filter(Boolean) : []);
     let scores = [];
     if (ids.length > 0) {
@@ -104,7 +104,6 @@ module.exports.handler = async function(event) {
         qS.searchParams.set('select','id,user_id,pseudo,game_id,points,created_day,mode');
         qS.searchParams.set('user_id', `in.(${chunk.join(',')})`);
         if (time === 'week') {
-          // use range monday..sunday inclusive
           qS.searchParams.set('created_day', `gte.${encodeURIComponent(weekMonday)}`);
           qS.searchParams.append('created_day', `lte.${encodeURIComponent(weekSunday)}`);
         }
@@ -117,11 +116,9 @@ module.exports.handler = async function(event) {
           console.warn('scores fetch chunk failed', rs.status);
         }
       }
-    } else {
-      scores = [];
     }
 
-    // 4) aggregate server-side
+    // 4) aggregate server-side and return normalized shape
     const map = new Map();
     function ensureKey(k, fallbackPseudo=''){
       if (!k) return null;
@@ -178,7 +175,7 @@ module.exports.handler = async function(event) {
       league_id: u.league_id,
       tour: u.tour,
       country: u.country,
-      scores: { week: Number(u.totals_week || 0), alltime: Number(u.totals_all || 0) },
+      totals: { week: Number(u.totals_week || 0), all: Number(u.totals_all || 0) },
       by_game: {
         guess_player: { week: Number(u.by_game.guess_player_week || 0), alltime: Number(u.by_game.guess_player_all || 0) },
         guess_player_h2h: { week: Number(u.by_game.guess_player_h2h_week || 0), alltime: Number(u.by_game.guess_player_h2h_all || 0) },
