@@ -187,54 +187,90 @@ function renderUserBox(){
   }
 }
 
+
+
+
+
+
+
+
+
+
+
+
+// ---------- paste here ----------
+/* normalize reading of the logged user from leaderboard-client or localStorage */
+function getLocalUserNormalized(){
+  try {
+    if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
+      const u = window.LEADERBOARD.getLocalUser();
+      if (u && (u.id || u.user_id || u.pseudo)) {
+        return { id: u.id || u.user_id || null, pseudo: u.pseudo || null };
+      }
+    }
+  } catch(e){/* ignore */ }
+
+  try {
+    const raw = localStorage.getItem('lb_user_v1') || localStorage.getItem('lb_local_user_v1') || localStorage.getItem('lb_user');
+    if (raw) {
+      const o = JSON.parse(raw);
+      return { id: o.id || o.user_id || null, pseudo: o.pseudo || o.username || null };
+    }
+  } catch(e){ /* ignore */ }
+  return null;
+}
+
+/* call the Netlify function leaderboard-aggregate with proper params */
+async function fetchLeaderboardAggregate(scope='league', time='week'){
+  const local = getLocalUserNormalized();
+  const params = new URLSearchParams();
+  params.set('scope', scope === 'global' ? 'global' : 'league');
+  params.set('time', time === 'all' ? 'all' : 'week');
+  if (local && local.id) params.set('user_id', local.id);
+  const url = '/.netlify/functions/leaderboard-aggregate?' + params.toString();
+  const r = await fetch(url, { cache: 'no-cache' });
+  if (!r.ok) {
+    const txt = await r.text().catch(()=>null);
+    throw new Error('leaderboard-aggregate error: ' + r.status + ' — ' + txt);
+  }
+  return await r.json();
+}
+// ---------- end paste ----------
+
 /* Main data loader:
    - If not forcing fallback: try to read /tools/supabase_config.json -> then query Supabase REST
    - Otherwise or on failure: load FALLBACK_JSON
 */
 // Remplacer l'ancienne loadData par cette version :
-async function loadData(forceFallback=false){
+async function loadData(){
   titleView.textContent = 'Loading…';
   TBODY.innerHTML = '';
-  renderUserBox();
-  localUser = getLocalUser();
+  renderUserBox(); // ton UI
+  localUser = getLocalUserNormalized();
 
-  // prefer server-side Netlify function that aggregates data securely
-  const userParam = localUser && (localUser.id || localUser.user_id) ? `&user_id=${encodeURIComponent(localUser.id || localUser.user_id)}` : '';
-  const scopeParam = `scope=${encodeURIComponent(currentScope)}`;
-  const timeParam = `time=${encodeURIComponent(currentTime === 'week' ? 'week' : 'all')}`;
-  const url = `/.netlify/functions/users-leaderboard?${scopeParam}&${timeParam}${userParam}`;
-
-  srcPathEl.textContent = url;
-
+  // try calling netlify function leaderboard-aggregate first
   try {
-    const resp = await fetch(url, {cache:'no-cache'});
-    if (resp.ok) {
-      const j = await resp.json();
-      if (j && j.ok && Array.isArray(j.users)) {
-        DATA = { week: j.week || (new Date()).toISOString().slice(0,10), users: j.users };
-        // set default league filter if available
-        if(localUser && Array.isArray(DATA.users)){
-          const me = DATA.users.find(u => (u.user_id && String(u.user_id) === String(localUser.id || localUser.user_id)) || (u.pseudo && localUser.pseudo && u.pseudo === localUser.pseudo));
-          if(me && me.league) currentLeagueFilter = me.league;
-          if(me && me.league_id !== undefined) currentLeagueIdFilter = String(me.league_id);
+    const j = await fetchLeaderboardAggregate(currentScope === 'global' ? 'global' : 'league', currentTime === 'all' ? 'all' : 'week');
+    if (j && j.ok && Array.isArray(j.users)) {
+      DATA = { week: j.week || (new Date()).toISOString().slice(0,10), users: j.users };
+      // default league filters from returned users (find me)
+      if(localUser && Array.isArray(DATA.users)){
+        const me = DATA.users.find(u => (u.user_id && String(u.user_id) === String(localUser.id)) || (u.pseudo && localUser.pseudo && u.pseudo === localUser.pseudo));
+        if(me){
+          currentLeagueFilter = me.league || currentLeagueFilter;
+          currentLeagueIdFilter = me.league_id !== undefined && me.league_id !== null ? String(me.league_id) : currentLeagueIdFilter;
         }
-        renderTable();
-        return;
-      } else {
-        console.warn('users-leaderboard returned unexpected payload', j);
-        TBODY.innerHTML = '<tr><td colspan="8" class="empty">No data returned from server function.</td></tr>';
-        titleView.textContent = 'No data';
-        return;
       }
+      renderTable();
+      return;
     } else {
-      console.warn('users-leaderboard function returned', resp.status);
-      // fallback to static json if provided
+      console.warn('leaderboard-aggregate returned unexpected payload', j);
     }
-  } catch(e){
-    console.warn('Call to users-leaderboard failed', e);
+  } catch(err){
+    console.warn('leaderboard-aggregate call failed', err);
   }
 
-  // fallback: try existing build JSON (if you still have it)
+  // fallback static JSON if you still want that behavior
   try {
     const r = await fetch(FALLBACK_JSON, {cache:'no-cache'});
     if(!r.ok){ TBODY.innerHTML = '<tr><td colspan="8" class="empty">Data not found. Provide server function or '+FALLBACK_JSON+'</td></tr>'; titleView.textContent='No data'; return; }
@@ -253,15 +289,8 @@ async function loadData(forceFallback=false){
     return;
   }
 }
-/* loadFromSupabase: performs the GETs needed.
-   Strategy:
-   - If currentScope === 'league' and we have a league & league_id for user:
-       - GET users where league=eq.L & league_id=eq.LID
-       - GET scores where user_id=in.(id1,id2) [and if time=week -> created_day=eq.weekMonday]
-   - If Global:
-       - GET users (all) and GET scores (all or week) (we fetch reasonably sized sets and aggregate)
-   Implementation chooses an approach balancing number of requests and simplicity.
-*/
+
+
 async function loadFromSupabase(baseUrl, anonKey){
   const headers = {
     'apikey': anonKey,
