@@ -27,6 +27,9 @@
   .empty{color:var(--muted)}
   .controls-line{display:flex;gap:10px;align-items:center;margin-bottom:8px}
   .note{color:var(--muted);font-size:13px;margin-top:8px}
+  .user-chip{display:inline-flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.00));font-weight:700}
+  .user-chip button{background:transparent;border:1px solid rgba(255,255,255,0.04);padding:6px;border-radius:8px;color:var(--muted);cursor:pointer}
+  .src-path{font-family:monospace;font-size:13px;color:var(--muted)}
   @media (max-width:880px){ th,td{padding:8px;font-size:13px} .flag{display:none} }
 </style>
 </head>
@@ -55,12 +58,19 @@
     </div>
 
     <div id="board" class="card">
-      <div id="titleView" style="margin-bottom:8px;font-weight:700">Loading…</div>
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div id="titleView" style="margin-bottom:8px;font-weight:700">Loading…</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button id="btnRetry" class="btn">Retry</button>
+          <button id="btnForceFallback" class="btn">Force fallback</button>
+        </div>
+      </div>
+
       <div style="overflow:auto">
         <table id="tbl" aria-live="polite">
           <thead>
             <tr>
-              <th data-key="rank">#</th>
+              <th data-key="total" title="Sort by total">#</th>
               <th data-key="pseudo">User</th>
               <th data-key="league">League</th>
               <th data-key="tour">Tour</th>
@@ -73,17 +83,17 @@
           <tbody></tbody>
         </table>
       </div>
-      <div class="note">If no data appears, ensure the site build provides <code>/tools/supabase_config.json</code> (with anon key) or <code>/tools/users_leaderboard.json</code>.</div>
+      <div class="note">If no data appears, provide <code>/tools/supabase_config.json</code> with {"url":"https://your-project.supabase.co","anon":"anon-key"} or generate <code>/tools/users_leaderboard.json</code>.</div>
     </div>
   </div>
 
 <script>
 /*
-Leaderboard page:
-- Defaults to user's league + this week.
-- Tries to fetch from Supabase using /tools/supabase_config.json (must contain {"url":"...","anon":"..."}).
-- If config missing -> falls back to /tools/users_leaderboard.json (CI-generated).
-- Aggregates scores by user (prefers user_id match, else pseudo).
+Improved leaderboard loader:
+- Attempts to load /tools/supabase_config.json then fetch supabase data.
+- If missing or failing, falls back to /tools/users_leaderboard.json.
+- Adds Connect button and auto-reloads data on lb:auth-changed event.
+- Exposes Retry / Force fallback controls for troubleshooting.
 */
 
 const CONFIG_PATH = '/tools/supabase_config.json';
@@ -92,144 +102,201 @@ const TABLE = document.getElementById('tbl');
 const TBODY = TABLE.querySelector('tbody');
 const titleView = document.getElementById('titleView');
 const srcPathEl = document.getElementById('srcPath');
+const userBox = document.getElementById('userBox');
 
 let DATA = null;
-let currentScope = 'league'; // default to league per requirement
-let currentTime = 'week';    // default to this week
+let currentScope = 'league';
+let currentTime = 'week';
 let sortKey = 'total';
 let sortDesc = true;
 let currentLeagueFilter = null;
 let localUser = null;
 
-// helpers
+// helper functions
 function fmt(n){ return (n===null||n===undefined)? '—' : Number(n).toLocaleString(); }
 function escapeHtml(s){ if(s===undefined||s===null) return ''; return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m]); }
-
 function getLocalUser(){
-  try {
-    if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') return window.LEADERBOARD.getLocalUser();
-  } catch(e){}
-  try { const raw = localStorage.getItem('lb_local_user_v1'); if(raw) return JSON.parse(raw); } catch(e){}
+  try { if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') return window.LEADERBOARD.getLocalUser(); } catch(e){}
+  try { const raw = localStorage.getItem('lb_user_v1') || localStorage.getItem('lb_local_user_v1') || localStorage.getItem('lb_user_v1'); if(raw) return JSON.parse(raw); } catch(e){}
   return null;
 }
-
-// compute monday string (YYYY-MM-DD) for "this week" (local time)
 function mondayOfDate(d){
   const dt = new Date(d);
-  const day = dt.getDay(); // 0..6 Sun..Sat
-  const diff = (day + 6) % 7; // days since Monday
+  const day = dt.getDay();
+  const diff = (day + 6) % 7;
   dt.setDate(dt.getDate() - diff);
   return dt.toISOString().slice(0,10);
 }
 
+// flag resolver (lightweight, non-blocking)
 function countryToFlagUrlCached(countryName){
   if(!countryName) return '';
-  const key = 'flag_'+countryName;
-  const val = localStorage.getItem(key);
-  if(val) return val;
-  // trigger background resolve (non-blocking)
-  fetch('https://restcountries.com/v3.1/name/' + encodeURIComponent(countryName) + '?fullText=true').then(r=>r.ok?r.json():null).then(j=>{
-    if(j && j[0] && j[0].cca2){
-      const code = j[0].cca2.toLowerCase();
-      const url = `https://flagcdn.com/w20/${code}.png`;
-      try { localStorage.setItem(key, url); } catch(e){}
-      // rerender table to show flags
-      renderTable();
-    }
-  }).catch(()=>{});
+  try {
+    const key = 'flag_'+countryName;
+    const val = localStorage.getItem(key);
+    if(val) return val;
+    // fetch best-effort, do not block rendering
+    fetch('https://restcountries.com/v3.1/name/' + encodeURIComponent(countryName) + '?fullText=true')
+      .then(r => r.ok ? r.json() : null)
+      .then(j => {
+        if(j && j[0] && j[0].cca2){
+          const code = j[0].cca2.toLowerCase();
+          const url = `https://flagcdn.com/w20/${code}.png`;
+          try { localStorage.setItem(key, url); } catch(e){}
+          renderTable(); // re-render to show flag
+        }
+      }).catch(()=>{});
+  } catch(e){}
   return '';
 }
 
-// Fetch supabase config then data, or fallback to build JSON
-async function loadData(){
-  srcPathEl.textContent = CONFIG_PATH + ' (fallback: ' + FALLBACK_JSON + ')';
+// UI: render user box (connect / show user)
+function renderUserBox(){
   localUser = getLocalUser();
-  if(localUser && localUser.pseudo) document.getElementById('userBox').textContent = localUser.pseudo;
-
-  // Try to load supabase_config.json
-  try {
-    const cfgResp = await fetch(CONFIG_PATH, {cache:'no-cache'});
-    if(cfgResp.ok){
-      const cfg = await cfgResp.json();
-      if(cfg && cfg.url && cfg.anon){
-        try {
-          const rows = await loadFromSupabase(cfg.url, cfg.anon);
-          DATA = rows;
-          // if local user, set default league to their league if present
-          if(localUser){
-            const me = DATA.users.find(u => (u.user_id && localUser.user_id && u.user_id === localUser.user_id) || (u.pseudo && localUser.pseudo && u.pseudo === localUser.pseudo));
-            if(me && me.league) currentLeagueFilter = me.league;
-          }
-          renderTable();
+  userBox.innerHTML = '';
+  if(localUser && localUser.pseudo){
+    const chip = document.createElement('div');
+    chip.className = 'user-chip';
+    chip.innerHTML = `<span style="opacity:0.9">${escapeHtml(localUser.pseudo)}</span>`;
+    const btnOut = document.createElement('button');
+    btnOut.textContent = 'Sign out';
+    btnOut.onclick = async () => {
+      try { if(window.LEADERBOARD && typeof window.LEADERBOARD.logout === 'function') window.LEADERBOARD.logout(); } catch(e){ localStorage.removeItem('lb_user_v1'); localStorage.removeItem('lb_local_user_v1'); }
+      renderUserBox();
+      // reload data to update league default, etc.
+      await loadData(true);
+    };
+    chip.appendChild(btnOut);
+    userBox.appendChild(chip);
+  } else {
+    const btn = document.createElement('button');
+    btn.className = 'btn';
+    btn.textContent = 'Connect';
+    btn.onclick = async () => {
+      try {
+        // prefer modal API if available
+        if(window.LEADERBOARD && typeof window.LEADERBOARD.openLogin === 'function'){
+          await window.LEADERBOARD.openLogin();
+        } else if(window.LEADERBOARD && typeof window.LEADERBOARD.login === 'function'){
+          await window.LEADERBOARD.login();
+        } else {
+          alert('Login not available (library missing).');
           return;
-        } catch(err){
-          console.warn('Supabase fetch failed', err);
         }
+      } catch(e){
+        console.warn('login error', e);
       }
-    } else {
-      console.info('No supabase_config.json (status ' + cfgResp.status + ') — falling back to build JSON');
+      // after login we reload data (lb:auth-changed also triggers loadData)
+      setTimeout(()=> loadData(true), 200);
+    };
+    userBox.appendChild(btn);
+    // small hint
+    const hint = document.createElement('div');
+    hint.className = 'small';
+    hint.style.marginTop = '6px';
+    hint.textContent = 'Log in to see your league by default';
+    userBox.appendChild(hint);
+  }
+}
+
+// load data orchestration
+async function loadData(forceFallback=false){
+  // update UI
+  titleView.textContent = 'Loading…';
+  TBODY.innerHTML = '';
+  renderUserBox();
+  localUser = getLocalUser();
+
+  // set src path display
+  srcPathEl.textContent = forceFallback ? FALLBACK_JSON : (CONFIG_PATH + ' (fallback: ' + FALLBACK_JSON + ')');
+
+  // Try supabase config (unless force fallback)
+  if(!forceFallback){
+    try {
+      const cfgResp = await fetch(CONFIG_PATH, {cache:'no-cache'});
+      if(cfgResp.ok){
+        const cfg = await cfgResp.json();
+        if(cfg && cfg.url && cfg.anon){
+          // attempt to load from supabase
+          try {
+            DATA = await loadFromSupabase(cfg.url.replace(/\/$/,''), cfg.anon);
+            // if logged user, use their league as default
+            if(localUser && DATA && Array.isArray(DATA.users)){
+              const me = DATA.users.find(u => (u.user_id && localUser.user_id && u.user_id === localUser.user_id) || (u.pseudo && localUser.pseudo && u.pseudo === localUser.pseudo));
+              if(me && me.league) currentLeagueFilter = me.league;
+            }
+            titleView.textContent = 'Loaded from Supabase';
+            renderTable();
+            return;
+          } catch(supErr){
+            console.warn('Supabase fetch failed', supErr);
+            // continue to fallback path
+          }
+        } else {
+          console.info('supabase_config.json found but invalid shape, falling back');
+        }
+      } else {
+        console.info('No supabase_config.json (status ' + cfgResp.status + ') — falling back');
+      }
+    } catch(e){
+      console.warn('Error fetching supabase_config.json', e);
     }
-  } catch(e){
-    console.warn('Error fetching supabase_config.json', e);
   }
 
-  // Fallback: try build-time JSON
+  // Fallback to static build JSON
   try {
     const r = await fetch(FALLBACK_JSON, {cache:'no-cache'});
-    if(!r.ok){ TBODY.innerHTML = '<tr><td colspan="8" class="empty">Data not found. Provide /tools/supabase_config.json or generate '+FALLBACK_JSON+'</td></tr>'; titleView.textContent='No data'; return; }
+    if(!r.ok){
+      titleView.textContent = 'No data';
+      TBODY.innerHTML = `<tr><td colspan="8" class="empty">Data not found. Provide <code>/tools/supabase_config.json</code> or generate <code>${FALLBACK_JSON}</code>.</td></tr>`;
+      return;
+    }
     const j = await r.json();
     DATA = j;
-    // default league filter same logic
-    if(localUser){
+    if(localUser && DATA && Array.isArray(DATA.users)){
       const me = DATA.users.find(u => (u.user_id && localUser.user_id && u.user_id === localUser.user_id) || (u.pseudo && localUser.pseudo && u.pseudo === localUser.pseudo));
       if(me && me.league) currentLeagueFilter = me.league;
     }
+    titleView.textContent = 'Loaded from build JSON';
     renderTable();
     return;
   } catch(err){
     console.error('Fallback JSON load failed', err);
-    TBODY.innerHTML = '<tr><td colspan="8" class="empty">Failed to load data. Configure supabase_config.json or generate users_leaderboard.json</td></tr>';
-    titleView.textContent='Error';
+    titleView.textContent = 'Error';
+    TBODY.innerHTML = `<tr><td colspan="8" class="empty">Failed to load data. Provide <code>/tools/supabase_config.json</code> or <code>${FALLBACK_JSON}</code>.</td></tr>`;
     return;
   }
 }
 
-// Load raw users and scores from Supabase and aggregate client-side.
-// Returns object shaped like { week: 'YYYY-MM-DD', users: [ {id,user_id,pseudo,league,tour,country, scores:{alltime,week}, by_game:{...}} ] }
+// Load from Supabase (PostgREST) and build DATA shape
 async function loadFromSupabase(baseUrl, anonKey){
-  // Basic header for PostgREST
   const headers = {
     'apikey': anonKey,
     'Authorization': 'Bearer ' + anonKey,
     'Accept': 'application/json'
   };
 
-  // Fetch users
-  const usersResp = await fetch(`${baseUrl}/rest/v1/users?select=id,user_id,pseudo,league,country,tour`, {headers});
+  // load users
+  const usersResp = await fetch(`${baseUrl}/rest/v1/users?select=id,user_id,pseudo,league,country,tour`, { headers });
   if(!usersResp.ok) throw new Error('users fetch failed: '+usersResp.status);
   const users = await usersResp.json();
 
-  // Determine this-week monday
-  const today = new Date();
-  const weekMonday = mondayOfDate(today);
+  // week
+  const weekMonday = mondayOfDate(new Date());
 
-  // Fetch scores for week and all-time; we will fetch all scores (limit high) and filter client-side to be robust
-  // If you have huge data, prefer server aggregate; but this is simpler for now.
-  const scoresResp = await fetch(`${baseUrl}/rest/v1/scores?select=id,user_id,pseudo,game_id,points,created_day,mode&limit=20000`, {headers});
+  // load scores (limit reasonably high)
+  const scoresResp = await fetch(`${baseUrl}/rest/v1/scores?select=id,user_id,pseudo,game_id,points,created_day,mode&limit=20000`, { headers });
   if(!scoresResp.ok) throw new Error('scores fetch failed: '+scoresResp.status);
   const scores = await scoresResp.json();
 
-  // Aggregate:
-  // Map by user id or pseudo fallback
+  // aggregate (same logic as before)
   function keyForRow(row){
     if(row.user_id && String(row.user_id).trim() !== '') return 'id:'+String(row.user_id);
     if(row.pseudo && String(row.pseudo).trim() !== '') return 'pseudo:'+String(row.pseudo).trim().toLowerCase();
     return null;
   }
 
-  const map = new Map(); // key -> aggregated object
-
-  // initialize map entries from users list
+  const map = new Map();
   for(const u of users){
     const k = u.user_id && String(u.user_id).trim() !== '' ? 'id:'+String(u.user_id) : 'pseudo:' + (u.pseudo||'').toLowerCase();
     map.set(k, {
@@ -248,7 +315,6 @@ async function loadFromSupabase(baseUrl, anonKey){
     });
   }
 
-  // helper to ensure an entry exists for anonymous scorers (not present in users)
   function ensureKey(k, fallbackPseudo=''){
     if(!k) return null;
     if(!map.has(k)){
@@ -265,20 +331,16 @@ async function loadFromSupabase(baseUrl, anonKey){
     return map.get(k);
   }
 
-  // accumulate scores
   for(const s of scores){
     const k = keyForRow(s) || (s.pseudo ? 'pseudo:' + s.pseudo.toLowerCase() : null);
     if(!k) continue;
     const ent = ensureKey(k, s.pseudo || '');
     const pts = Number(s.points || 0);
-    // all-time
     ent.totals.all += pts;
-    // per game all-time
     if(s.game_id === 'guess_player') ent.by_game.guess_player.alltime += pts;
     else if(s.game_id === 'guess_player_h2h') ent.by_game.guess_player_h2h.alltime += pts;
-    else if(s.game_id === 'gill_the_grid' || s.game_id === 'fill_grid' || s.game_id === 'gill_the_grid') ent.by_game.gill_the_grid.alltime += pts;
+    else if(s.game_id === 'gill_the_grid' || s.game_id === 'fill_grid') ent.by_game.gill_the_grid.alltime += pts;
 
-    // week?
     if(s.created_day === weekMonday){
       ent.totals.week += pts;
       if(s.game_id === 'guess_player') ent.by_game.guess_player.week += pts;
@@ -287,33 +349,28 @@ async function loadFromSupabase(baseUrl, anonKey){
     }
   }
 
-  // produce users array from map
-  const usersArr = Array.from(map.values()).map(u=>{
-    // Normal shape used by page
-    return {
-      id: u.id,
-      user_id: u.user_id,
-      pseudo: u.pseudo,
-      league: u.league,
-      tour: u.tour,
-      country: u.country,
-      scores: { alltime: Number(u.totals.all), week: Number(u.totals.week) },
-      by_game: {
-        guess_player: { alltime: Number(u.by_game.guess_player.alltime), week: Number(u.by_game.guess_player.week) },
-        guess_player_h2h: { alltime: Number(u.by_game.guess_player_h2h.alltime), week: Number(u.by_game.guess_player_h2h.week) },
-        gill_the_grid: { alltime: Number(u.by_game.gill_the_grid.alltime), week: Number(u.by_game.gill_the_grid.week) }
-      }
-    };
-  });
+  const usersArr = Array.from(map.values()).map(u => ({
+    id: u.id,
+    user_id: u.user_id,
+    pseudo: u.pseudo,
+    league: u.league,
+    tour: u.tour,
+    country: u.country,
+    scores: { alltime: Number(u.totals.all), week: Number(u.totals.week) },
+    by_game: {
+      guess_player: { alltime: Number(u.by_game.guess_player.alltime), week: Number(u.by_game.guess_player.week) },
+      guess_player_h2h: { alltime: Number(u.by_game.guess_player_h2h.alltime), week: Number(u.by_game.guess_player_h2h.week) },
+      gill_the_grid: { alltime: Number(u.by_game.gill_the_grid.alltime), week: Number(u.by_game.gill_the_grid.week) }
+    }
+  }));
 
   return { week: weekMonday, users: usersArr };
 }
 
-// Build rows, filter and sort then render
+// Table build & render
 function buildRows(){
   if(!DATA || !Array.isArray(DATA.users)) return [];
   const timeKey = (currentTime === 'week') ? 'week' : 'alltime';
-  // map into internal row structure with sortVals
   let rows = DATA.users.map(u => {
     const total_all = Number((u.scores && u.scores.alltime) || 0);
     const total_week = Number((u.scores && u.scores.week) || 0);
@@ -347,12 +404,10 @@ function buildRows(){
     return obj;
   });
 
-  // scope filter
   if(currentScope === 'league' && currentLeagueFilter){
     rows = rows.filter(r => r.league === currentLeagueFilter);
   }
 
-  // sort
   rows.sort((a,b)=>{
     const ka = a.sortVals[sortKey] || 0;
     const kb = b.sortVals[sortKey] || 0;
@@ -360,7 +415,7 @@ function buildRows(){
     return sortDesc ? (kb - ka) : (ka - kb);
   });
 
-  // rank (dense ranking)
+  // dense ranking
   let rank = 0, last = null;
   rows.forEach((r, i)=>{
     const v = r.sortVals[sortKey] || 0;
@@ -397,12 +452,11 @@ function renderTable(){
   titleView.textContent = `${scopeLabel} — ${timeLabel}`;
 }
 
-// Buttons wiring
+// Wire buttons & headers
 document.getElementById('btnScopeLeague').addEventListener('click', ()=>{
   currentScope = 'league';
   document.getElementById('btnScopeLeague').classList.add('active');
   document.getElementById('btnScopeGlobal').classList.remove('active');
-  // attempt to set league from localUser if available
   if(localUser && localUser.pseudo && DATA){
     const me = DATA.users.find(u => (u.user_id && localUser.user_id && u.user_id === localUser.user_id) || (u.pseudo && localUser.pseudo && u.pseudo === localUser.pseudo));
     if(me && me.league) currentLeagueFilter = me.league;
@@ -429,23 +483,40 @@ document.getElementById('btnTimeAll').addEventListener('click', ()=>{
   renderTable();
 });
 
-// sorting headers
+let lastSortKey = sortKey;
 Array.from(TABLE.querySelectorAll('thead th')).forEach(th=>{
   th.addEventListener('click', ()=>{
     const key = th.dataset.key || 'total';
-    sortKey = key;
-    // toggle direction only if same key otherwise default descending
-    sortDesc = (sortKey === key) ? !sortDesc : true;
+    if(key === lastSortKey){
+      sortDesc = !sortDesc;
+    } else {
+      sortKey = key;
+      sortDesc = true;
+      lastSortKey = key;
+    }
     renderTable();
   });
 });
 
-// initial UI state: highlight default buttons (league + week)
+// Retry / Force fallback wiring
+document.getElementById('btnRetry').addEventListener('click', ()=> loadData(false));
+document.getElementById('btnForceFallback').addEventListener('click', ()=> loadData(true));
+
+// Listen for auth changes (library fires 'lb:auth-changed' in leaderboard-client)
+window.addEventListener('lb:auth-changed', async ()=>{
+  renderUserBox();
+  // re-load data to pick up user's league and permission
+  await loadData(false);
+});
+
+// initial UI state
 document.getElementById('btnScopeLeague').classList.add('active');
 document.getElementById('btnTimeWeek').classList.add('active');
+renderUserBox();
 
-// Load
+// initial load
 loadData();
+
 </script>
 </body>
 </html>
