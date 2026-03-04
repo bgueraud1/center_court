@@ -48,8 +48,13 @@ module.exports.handler = async function(event) {
     if (scope === 'league' && (userIdParam || pseudoParam)) {
       const qUser = new URL(`${SUPABASE_URL.replace(/\/$/,'')}/rest/v1/users`);
       qUser.searchParams.set('select', 'id,pseudo,league,league_id');
-      if(userIdParam) qUser.searchParams.set('id', `eq.${encodeURIComponent(userIdParam)}`);
-      else if(pseudoParam) qUser.searchParams.set('pseudo', `eq.${encodeURIComponent(pseudoParam)}`);
+      if (userIdParam) {
+        // id equality (id is typically a uuid) -- no encodeURIComponent here; URLSearchParams will encode
+        qUser.searchParams.set('id', `eq.${userIdParam}`);
+      } else if (pseudoParam) {
+        // use case-insensitive match to avoid capitalization mismatches
+        qUser.searchParams.set('pseudo', `ilike.${pseudoParam}`);
+      }
       qUser.searchParams.set('limit', '1');
 
       const ru = await fetch(qUser.toString(), {
@@ -72,8 +77,9 @@ module.exports.handler = async function(event) {
     if (scope === 'league' && targetLeague) {
       const q = new URL(`${SUPABASE_URL.replace(/\/$/,'')}/rest/v1/users`);
       q.searchParams.set('select','id,pseudo,league,league_id,tour,country');
-      q.searchParams.set('league', `eq.${encodeURIComponent(targetLeague)}`);
-      if (targetLeagueId !== null) q.searchParams.set('league_id', `eq.${encodeURIComponent(targetLeagueId)}`);
+      // no encodeURIComponent: URLSearchParams will do the encoding
+      q.searchParams.set('league', `eq.${targetLeague}`);
+      if (targetLeagueId !== null) q.searchParams.set('league_id', `eq.${targetLeagueId}`);
       q.searchParams.set('limit','5000');
       const r = await fetch(q.toString(), { method:'GET', headers:{ 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Accept':'application/json' }});
       if (r.ok) users = await r.json();
@@ -104,8 +110,9 @@ module.exports.handler = async function(event) {
         qS.searchParams.set('select','id,user_id,pseudo,game_id,points,created_day,mode');
         qS.searchParams.set('user_id', `in.(${chunk.join(',')})`);
         if (time === 'week') {
-          qS.searchParams.set('created_day', `gte.${encodeURIComponent(weekMonday)}`);
-          qS.searchParams.append('created_day', `lte.${encodeURIComponent(weekSunday)}`);
+          // do not double-encode the dates
+          qS.searchParams.set('created_day', `gte.${weekMonday}`);
+          qS.searchParams.append('created_day', `lte.${weekSunday}`);
         }
         qS.searchParams.set('limit', '20000');
         const rs = await fetch(qS.toString(), { method:'GET', headers:{ 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Accept':'application/json' }});
