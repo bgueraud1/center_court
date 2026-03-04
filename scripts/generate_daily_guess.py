@@ -323,7 +323,7 @@ def is_player_complete(p):
     return True
 
 
-def filter_valid_players(players, require_birth_after_year=1980):
+def filter_valid_players(players, require_birth_after_year=1985):
     out = []
     for p in players:
         if not p.get('full_name'): continue

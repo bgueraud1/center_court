@@ -64,7 +64,7 @@ jobs:
           python -m pip install --upgrade pip
           # ajouter d'autres dépendances si nécessaires
 
-      - name: Generate birthday_today.json and game assets (daily_guess, players_catalog, geocodes_combined)
+      - name: Generate birthday_today.json and game assets (daily_guess, players_catalog, geocodes_combined, selected_players, fill_the_grid)
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
           set -euxo pipefail
@@ -86,13 +86,30 @@ jobs:
             --out-players "${BUILD_DIR}/tools/players_catalog.json" \
             --out-geocodes "${BUILD_DIR}/tools/geocodes_combined.json" || true
 
+          # NEW ADDITION: run the H2H daily selection script (produit docs/selected_players.json)
+          # Ce script (generate_daily_guess_h2h.py) écrit par défaut dans docs/selected_players.json
+          python scripts/generate_daily_guess_h2h.py || true
+
+          # NEW: generate aggregates and grids for "fill the grid" game
+          # generate_pre_json_grid.py écrit aggregate_ATP_reduced.json et aggregate_WTA_reduced.json dans docs/games
+          python scripts/generate_pre_json_grid.py || true
+
+          # generate_grid.py lit les aggregates et écrit fill_the_grid_ATP.json et fill_the_grid_WTA.json dans docs/games
+          python scripts/generate_grid.py || true
+
           echo ">>> After generation: listing possible locations"
           echo "BUILD_DIR/tools:"
           ls -la "${BUILD_DIR}/tools" || true
+          echo "docs:"
+          ls -la docs || true
           echo "docs/tools:"
           ls -la docs/tools || true
           echo "site_static/tools:"
           ls -la site_static/tools || true
+          echo "docs/games:"
+          ls -la docs/games || true
+          echo "site_static/games:"
+          ls -la site_static/games || true
 
       - name: Copy into site_static/tools (for site serving)
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
@@ -100,6 +117,8 @@ jobs:
           set -euxo pipefail
           mkdir -p site_static/tools
           mkdir -p docs/tools
+          mkdir -p docs/games
+          mkdir -p site_static/games
 
           # birthday_today.json (canonical)
           if [ -f "${BUILD_DIR}/tools/birthday_today.json" ]; then
@@ -141,8 +160,49 @@ jobs:
             echo "Aucun geocodes_combined.json généré trouvé"
           fi
 
+          # NEW: selected_players.json from generate_daily_guess_h2h.py
+          # The script writes docs/selected_players.json by default; mirror it into docs/tools and site_static/tools
+          if [ -f "${BUILD_DIR}/tools/selected_players.json" ]; then
+            cp -v "${BUILD_DIR}/tools/selected_players.json" docs/tools/selected_players.json || true
+            cp -v "${BUILD_DIR}/tools/selected_players.json" site_static/tools/selected_players.json || true
+          elif [ -f "docs/selected_players.json" ]; then
+            cp -v "docs/selected_players.json" docs/tools/selected_players.json || true
+            cp -v "docs/selected_players.json" site_static/tools/selected_players.json || true
+          elif [ -f "docs/tools/selected_players.json" ]; then
+            cp -v "docs/tools/selected_players.json" site_static/tools/selected_players.json || true
+          else
+            echo "Aucun selected_players.json généré trouvé"
+          fi
+
+          # NEW: copy fill the grid outputs and aggregates (docs/games -> site_static/games)
+          # Aggregates (generate_pre_json_grid.py)
+          if [ -f "docs/games/aggregate_ATP_reduced.json" ]; then
+            cp -v "docs/games/aggregate_ATP_reduced.json" site_static/games/aggregate_ATP_reduced.json || true
+          else
+            echo "Aucun docs/games/aggregate_ATP_reduced.json trouvé"
+          fi
+          if [ -f "docs/games/aggregate_WTA_reduced.json" ]; then
+            cp -v "docs/games/aggregate_WTA_reduced.json" site_static/games/aggregate_WTA_reduced.json || true
+          else
+            echo "Aucun docs/games/aggregate_WTA_reduced.json trouvé"
+          fi
+
+          # Fill-the-grid outputs (generate_grid.py)
+          if [ -f "docs/games/fill_the_grid_ATP.json" ]; then
+            cp -v "docs/games/fill_the_grid_ATP.json" site_static/games/fill_the_grid_ATP.json || true
+          else
+            echo "Aucun docs/games/fill_the_grid_ATP.json trouvé"
+          fi
+          if [ -f "docs/games/fill_the_grid_WTA.json" ]; then
+            cp -v "docs/games/fill_the_grid_WTA.json" site_static/games/fill_the_grid_WTA.json || true
+          else
+            echo "Aucun docs/games/fill_the_grid_WTA.json trouvé"
+          fi
+
           ls -la docs/tools || true
           ls -la site_static/tools || true
+          ls -la docs/games || true
+          ls -la site_static/games || true
 
       - name: Commit new generated JSON (whitelist safe commit)
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
@@ -155,8 +215,12 @@ jobs:
           git config user.email "$GIT_AUTHOR_EMAIL"
 
           # Stage canonical generated files from docs/tools and their site_static copies
-          git add -f docs/tools/birthday_today.json docs/tools/daily_guess.json docs/tools/players_catalog.json docs/tools/geocodes_combined.json || true
-          git add -f site_static/tools/birthday_today.json site_static/tools/daily_guess.json site_static/tools/players_catalog.json site_static/tools/geocodes_combined.json || true
+          git add -f docs/tools/birthday_today.json docs/tools/daily_guess.json docs/tools/players_catalog.json docs/tools/geocodes_combined.json docs/tools/selected_players.json || true
+          git add -f site_static/tools/birthday_today.json site_static/tools/daily_guess.json site_static/tools/players_catalog.json site_static/tools/geocodes_combined.json site_static/tools/selected_players.json || true
+
+          # NEW: stage generated games aggregates and fill-the-grid outputs (docs/games and site_static/games)
+          git add -f docs/games/aggregate_ATP_reduced.json docs/games/aggregate_WTA_reduced.json docs/games/fill_the_grid_ATP.json docs/games/fill_the_grid_WTA.json || true
+          git add -f site_static/games/aggregate_ATP_reduced.json site_static/games/aggregate_WTA_reduced.json site_static/games/fill_the_grid_ATP.json site_static/games/fill_the_grid_WTA.json || true
 
           # Safety: abort if index.html or other manual files would be staged
           if git diff --cached --name-only | grep -Eiq '(^|/)index\.html$'; then
@@ -168,7 +232,7 @@ jobs:
           if [ -n "$(git diff --cached --name-only)" ]; then
             echo "Files staged to commit:"
             git diff --cached --name-only || true
-            git commit -m "ci(daily): update generated tools (birthday_today, daily_guess, players_catalog, geocodes)" || true
+            git commit -m "ci(daily): update generated tools (birthday_today, daily_guess, players_catalog, geocodes, selected_players, fill_the_grid outputs & aggregates)" || true
           else
             echo "No generated changes to commit"
           fi
