@@ -25,11 +25,11 @@ module.exports.handler = async function(event) {
   const scope = (qs.scope || 'league').toLowerCase(); // league | global
   const time = (qs.time || 'week').toLowerCase();     // week | all
   const userIdParam = qs.user_id || null;
+  const pseudoParam = qs.pseudo || null;
 
-  // compute monday (UTC) ISO date for "this week"
   function mondayIsoUTC(){
     const dt = new Date();
-    const day = dt.getUTCDay(); // 0..6 Sun..Sat
+    const day = dt.getUTCDay();
     const diff = (day + 6) % 7;
     dt.setUTCDate(dt.getUTCDate() - diff);
     return dt.toISOString().slice(0,10);
@@ -37,13 +37,14 @@ module.exports.handler = async function(event) {
   const weekMonday = mondayIsoUTC();
 
   try {
-    // 1) if scope=league and we have user_id -> fetch that user's league & league_id
+    // 1) if scope=league and we have user_id or pseudo -> fetch that user's league & league_id
     let targetLeague = null;
     let targetLeagueId = null;
-    if (scope === 'league' && userIdParam) {
+    if (scope === 'league' && (userIdParam || pseudoParam)) {
       const qUser = new URL(`${SUPABASE_URL.replace(/\/$/,'')}/rest/v1/users`);
       qUser.searchParams.set('select', 'id,pseudo,league,league_id');
-      qUser.searchParams.set('id', `eq.${encodeURIComponent(userIdParam)}`);
+      if(userIdParam) qUser.searchParams.set('id', `eq.${encodeURIComponent(userIdParam)}`);
+      else if(pseudoParam) qUser.searchParams.set('pseudo', `eq.${encodeURIComponent(pseudoParam)}`);
       qUser.searchParams.set('limit', '1');
 
       const ru = await fetch(qUser.toString(), {
@@ -57,7 +58,6 @@ module.exports.handler = async function(event) {
           targetLeagueId = (arr[0].league_id !== undefined && arr[0].league_id !== null) ? String(arr[0].league_id) : null;
         }
       } else {
-        // If user lookup fails, we still attempt global or fallback - but log
         console.warn('user lookup for league failed', ru.status);
       }
     }
@@ -74,7 +74,6 @@ module.exports.handler = async function(event) {
       if (r.ok) users = await r.json();
       else {
         console.warn('users-by-league fetch failed', r.status);
-        // fallback: fetch all users (global)
         const qa = new URL(`${SUPABASE_URL.replace(/\/$/,'')}/rest/v1/users`);
         qa.searchParams.set('select','id,pseudo,league,league_id,tour,country');
         qa.searchParams.set('limit','5000');
@@ -82,7 +81,6 @@ module.exports.handler = async function(event) {
         users = ra.ok ? await ra.json() : [];
       }
     } else {
-      // global
       const q = new URL(`${SUPABASE_URL.replace(/\/$/,'')}/rest/v1/users`);
       q.searchParams.set('select','id,pseudo,league,league_id,tour,country');
       q.searchParams.set('limit','5000');
@@ -111,11 +109,10 @@ module.exports.handler = async function(event) {
         }
       }
     } else {
-      // if no users (edge case), optionally fetch scores without user filter (but we avoid returning massive data)
       scores = [];
     }
 
-    // 4) aggregate server-side
+    // 4) aggregate server-side into format compatible with client (totals + by_game with all/week)
     const map = new Map();
     function ensureKey(k, fallbackPseudo=''){
       if (!k) return null;
@@ -125,7 +122,6 @@ module.exports.handler = async function(event) {
       return map.get(k);
     }
 
-    // initialize from users
     for (const u of users){
       const k = u.id ? 'id:'+String(u.id) : 'pseudo:'+String((u.pseudo||'').toLowerCase());
       const ent = ensureKey(k, u.pseudo||'');
@@ -138,7 +134,6 @@ module.exports.handler = async function(event) {
       ent.country = u.country || '';
     }
 
-    // accumulate scores
     for (const s of scores){
       const k = s.user_id ? 'id:'+String(s.user_id) : (s.pseudo ? 'pseudo:'+String(s.pseudo).toLowerCase() : null);
       if (!k) continue;
@@ -147,14 +142,11 @@ module.exports.handler = async function(event) {
       ent.user_id = ent.user_id || (s.user_id || null);
       ent.pseudo = ent.pseudo || (s.pseudo || '');
       const pts = Number(s.points || 0);
-      // for 'week' request we only fetched week rows; but to be safe track both:
       if (time === 'week') {
         ent.totals_week += pts;
-        // also add to all for parity (we don't have all-time rows here)
         ent.totals_all += pts;
       } else {
         ent.totals_all += pts;
-        ent.totals_week += 0; // not counted here
       }
       const gid = (s.game_id || '').toLowerCase();
       if (gid === 'guess_player') {
@@ -169,7 +161,6 @@ module.exports.handler = async function(event) {
       }
     }
 
-    // build return array
     const usersArr = Array.from(map.values()).map(u => ({
       id: u.id,
       user_id: u.user_id,
@@ -178,7 +169,8 @@ module.exports.handler = async function(event) {
       league_id: u.league_id,
       tour: u.tour,
       country: u.country,
-      scores: { week: Number(u.totals_week || 0), alltime: Number(u.totals_all || 0) },
+      // return "totals" and "by_game" shaped for the client
+      totals: { week: Number(u.totals_week || 0), all: Number(u.totals_all || 0) },
       by_game: {
         guess_player: { week: Number(u.by_game.guess_player_week || 0), alltime: Number(u.by_game.guess_player_all || 0) },
         guess_player_h2h: { week: Number(u.by_game.guess_player_h2h_week || 0), alltime: Number(u.by_game.guess_player_h2h_all || 0) },
@@ -186,7 +178,7 @@ module.exports.handler = async function(event) {
       }
     }));
 
-    return jsonResponse(200, { ok:true, week: weekMonday, users: usersArr, meta: { scope, time, requested_user_id: userIdParam } });
+    return jsonResponse(200, { ok:true, week: weekMonday, users: usersArr, meta: { scope, time, requested_user_id: userIdParam, requested_pseudo: pseudoParam } });
   } catch (err) {
     console.error('leaderboard-aggregate error', String(err));
     return jsonResponse(500, { error: 'Server error', detail: String(err) });

@@ -73,7 +73,7 @@
               <th data-key="total" title="Sort by total">#</th>
               <th data-key="pseudo">User</th>
               <th data-key="league">League</th>
-              <th data-key="tour">Tour</th>
+              <!-- Tour column removed; coloring now by row class -->
               <th data-key="total">Total</th>
               <th data-key="guess_player">Guess Player</th>
               <th data-key="guess_player_h2h">H2H</th>
@@ -88,15 +88,6 @@
   </div>
 
 <script>
-/*
-  Behavior:
-  - Load supabase_config.json -> use anon key to GET users & scores from Supabase
-  - If missing or failing -> fallback to build JSON
-  - Default view = league & league_id of logged user (if logged), for current week
-  - Options: All time, Global
-  - Requires window.LEADERBOARD.getLocalUser() to return { id, pseudo, ... } or local storage lb_user_v1
-*/
-
 const CONFIG_PATH = '/tools/supabase_config.json';
 const FALLBACK_JSON = '/tools/users_leaderboard.json';
 const TABLE = document.getElementById('tbl');
@@ -114,13 +105,38 @@ let currentLeagueFilter = null;
 let currentLeagueIdFilter = null;
 let localUser = null;
 
-function fmt(n){ return (n===null||n===undefined)? '—' : Number(n).toLocaleString(); }
+function fmt(n){
+  // For numeric cells: show 0 instead of NA/— when value missing.
+  if(n === null || n === undefined) return '0';
+  if(n === '' || (typeof n === 'number' && isNaN(n))) return '0';
+  const num = Number(n);
+  if(!isNaN(num)) return num.toLocaleString();
+  return String(n);
+}
 function escapeHtml(s){ if(s===undefined||s===null) return ''; return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m]); }
-function getLocalUser(){
-  try { if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') return window.LEADERBOARD.getLocalUser(); } catch(e){}
-  try { const raw = localStorage.getItem('lb_user_v1') || localStorage.getItem('lb_local_user_v1') || localStorage.getItem('lb_user_v1'); if(raw) return JSON.parse(raw); } catch(e){}
+
+/* robust local user detection: try many keys (inspired by index.html approach). */
+function getLocalUserNormalized(){
+  try { if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function'){ const u = window.LEADERBOARD.getLocalUser(); if(u && (u.id || u.user_id || u.pseudo || u.username)) return { id: u.id || u.user_id || null, pseudo: u.pseudo || u.username || u.name || null }; } } catch(e){}
+
+  const candidates = [
+    'lb_user_v1','lb_local_user_v1','lb_user','lb_current_user','leaderboard_user','local_user','user','auth_user'
+  ];
+  for(const k of candidates){
+    try {
+      const raw = localStorage.getItem(k);
+      if(!raw) continue;
+      const o = JSON.parse(raw);
+      if(o){
+        const id = o.id || o.user_id || o.userId || o.uid || o._id || null;
+        const pseudo = o.pseudo || o.username || o.name || o.email || null;
+        if(id || pseudo) return { id: id || null, pseudo: pseudo || null };
+      }
+    } catch(e){}
+  }
   return null;
 }
+
 function mondayOfDate(d){
   const dt = new Date(d);
   const day = dt.getDay();
@@ -128,6 +144,7 @@ function mondayOfDate(d){
   dt.setDate(dt.getDate() - diff);
   return dt.toISOString().slice(0,10);
 }
+
 function countryToFlagUrlCached(countryName){
   if(!countryName) return '';
   try {
@@ -150,16 +167,37 @@ function countryToFlagUrlCached(countryName){
 
 /* Render user box (connect / user + sign out) */
 function renderUserBox(){
-  localUser = getLocalUser();
+  localUser = getLocalUserNormalized();
   userBox.innerHTML = '';
-  if(localUser && (localUser.id || localUser.user_id || localUser.pseudo)){
+  if(localUser && (localUser.id || localUser.pseudo)){
     const chip = document.createElement('div');
     chip.className = 'user-chip';
-    chip.innerHTML = `<span style="opacity:0.95">${escapeHtml(localUser.pseudo || localUser.user_id || localUser.id)}</span>`;
+    chip.innerHTML = `<span style="opacity:0.95">${escapeHtml(localUser.pseudo || localUser.id)}</span>`;
     const btnOut = document.createElement('button');
     btnOut.textContent = 'Sign out';
     btnOut.onclick = async () => {
-      try { if(window.LEADERBOARD && typeof window.LEADERBOARD.logout === 'function') await window.LEADERBOARD.logout(); } catch(e){ localStorage.removeItem('lb_user_v1'); localStorage.removeItem('lb_local_user_v1'); }
+      // best-effort sign out: call leaderboard lib if present, call logout endpoint, clear many keys
+      try {
+        if(window.LEADERBOARD){
+          const fns = ['logout','signOut','signout','disconnect'];
+          for(const fn of fns){
+            if(typeof window.LEADERBOARD[fn] === 'function'){
+              try { const res = window.LEADERBOARD[fn](); if(res && typeof res.then === 'function') await res; } catch(e){}
+            }
+          }
+        }
+      } catch(e){}
+
+      try { await fetch('/.netlify/functions/logout',{ method:'POST', credentials:'same-origin' }).catch(()=>null); } catch(e){}
+
+      // clear common local/session storage keys (best-effort)
+      const likelyKeys = ['lb_score_queue_v1','lb_current_user','leaderboard_user','local_user','user','auth','access_token','refresh_token','supabase.auth.token','supabase.auth.session','sb:token','supabase.auth.user','lb_user_v1','lb_local_user_v1'];
+      try {
+        for(const k of likelyKeys){ try{ localStorage.removeItem(k); }catch(e){} try{ sessionStorage.removeItem(k); }catch(e){} }
+        // also remove keys that look like tokens
+        for(const k of Object.keys(localStorage)){ if(/token|auth|session|user|lb/i.test(k)) try{ localStorage.removeItem(k) }catch(e){} }
+      } catch(e){}
+      // refresh UI
       renderUserBox();
       await loadData();
     };
@@ -175,7 +213,6 @@ function renderUserBox(){
         else if(window.LEADERBOARD && typeof window.LEADERBOARD.login === 'function') await window.LEADERBOARD.login();
         else alert('Login not available (leaderboard client missing).');
       } catch(e){ console.warn('Login attempt failed', e); }
-      // reload data after login
       setTimeout(()=> loadData(), 200);
     };
     userBox.appendChild(btn);
@@ -188,36 +225,46 @@ function renderUserBox(){
 }
 
 
+/* ---------- helper: normalize different server payload shapes ---------- */
+function normalizeUsers(rawUsers){
+  if(!Array.isArray(rawUsers)) return [];
+  return rawUsers.map(u => {
+    const totals_all = Number((u.totals && (u.totals.all !== undefined ? u.totals.all : u.totals)) || (u.scores && (u.scores.alltime !== undefined ? u.scores.alltime : u.scores.all)) || 0);
+    const totals_week = Number((u.totals && (u.totals.week !== undefined ? u.totals.week : u.totals)) || (u.scores && (u.scores.week !== undefined ? u.scores.week : 0)) || 0);
 
-
-
-
-
-
-
-
-
-
-// ---------- paste here ----------
-/* normalize reading of the logged user from leaderboard-client or localStorage */
-function getLocalUserNormalized(){
-  try {
-    if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
-      const u = window.LEADERBOARD.getLocalUser();
-      if (u && (u.id || u.user_id || u.pseudo)) {
-        return { id: u.id || u.user_id || null, pseudo: u.pseudo || null };
+    function readByGame(g, key){
+      if(!g) return { alltime:0, week:0 };
+      // support either {guess_player: {alltime:.., week:..}} OR {guess_player: <num>}
+      const val = g[key];
+      if(typeof val === 'object' && val !== null){
+        return { alltime: Number(val.alltime || 0), week: Number(val.week || 0) };
+      } else {
+        const num = Number(val || 0);
+        return { alltime: num, week: num };
       }
     }
-  } catch(e){/* ignore */ }
 
-  try {
-    const raw = localStorage.getItem('lb_user_v1') || localStorage.getItem('lb_local_user_v1') || localStorage.getItem('lb_user');
-    if (raw) {
-      const o = JSON.parse(raw);
-      return { id: o.id || o.user_id || null, pseudo: o.pseudo || o.username || null };
-    }
-  } catch(e){ /* ignore */ }
-  return null;
+    const byg = u.by_game || u.byGame || {};
+    const gp = readByGame(byg, 'guess_player');
+    const h2h = readByGame(byg, 'guess_player_h2h');
+    const gg = readByGame(byg, 'gill_the_grid') || readByGame(byg, 'fill_grid');
+
+    return {
+      id: u.id || u.user_id || null,
+      user_id: u.user_id || u.id || null,
+      pseudo: u.pseudo || u.username || u.name || '',
+      league: u.league || '',
+      league_id: (u.league_id !== undefined && u.league_id !== null) ? String(u.league_id) : '',
+      tour: (u.tour || '').toUpperCase(),
+      country: u.country || '',
+      totals: { all: totals_all, week: totals_week },
+      by_game: {
+        guess_player: { alltime: gp.alltime, week: gp.week },
+        guess_player_h2h: { alltime: h2h.alltime, week: h2h.week },
+        gill_the_grid: { alltime: gg.alltime, week: gg.week }
+      }
+    };
+  });
 }
 
 /* call the Netlify function leaderboard-aggregate with proper params */
@@ -227,6 +274,7 @@ async function fetchLeaderboardAggregate(scope='league', time='week'){
   params.set('scope', scope === 'global' ? 'global' : 'league');
   params.set('time', time === 'all' ? 'all' : 'week');
   if (local && local.id) params.set('user_id', local.id);
+  if (local && local.pseudo) params.set('pseudo', local.pseudo);
   const url = '/.netlify/functions/leaderboard-aggregate?' + params.toString();
   const r = await fetch(url, { cache: 'no-cache' });
   if (!r.ok) {
@@ -235,24 +283,21 @@ async function fetchLeaderboardAggregate(scope='league', time='week'){
   }
   return await r.json();
 }
-// ---------- end paste ----------
 
-/* Main data loader:
-   - If not forcing fallback: try to read /tools/supabase_config.json -> then query Supabase REST
-   - Otherwise or on failure: load FALLBACK_JSON
-*/
-// Remplacer l'ancienne loadData par cette version :
+/* Main data loader */
 async function loadData(){
   titleView.textContent = 'Loading…';
   TBODY.innerHTML = '';
-  renderUserBox(); // ton UI
+  renderUserBox();
   localUser = getLocalUserNormalized();
 
   // try calling netlify function leaderboard-aggregate first
   try {
     const j = await fetchLeaderboardAggregate(currentScope === 'global' ? 'global' : 'league', currentTime === 'all' ? 'all' : 'week');
     if (j && j.ok && Array.isArray(j.users)) {
-      DATA = { week: j.week || (new Date()).toISOString().slice(0,10), users: j.users };
+      // normalize server payloads to client-friendly shape
+      const users = normalizeUsers(j.users);
+      DATA = { week: j.week || (new Date()).toISOString().slice(0,10), users };
       // default league filters from returned users (find me)
       if(localUser && Array.isArray(DATA.users)){
         const me = DATA.users.find(u => (u.user_id && String(u.user_id) === String(localUser.id)) || (u.pseudo && localUser.pseudo && u.pseudo === localUser.pseudo));
@@ -270,12 +315,13 @@ async function loadData(){
     console.warn('leaderboard-aggregate call failed', err);
   }
 
-  // fallback static JSON if you still want that behavior
+  // fallback static JSON
   try {
     const r = await fetch(FALLBACK_JSON, {cache:'no-cache'});
-    if(!r.ok){ TBODY.innerHTML = '<tr><td colspan="8" class="empty">Data not found. Provide server function or '+FALLBACK_JSON+'</td></tr>'; titleView.textContent='No data'; return; }
+    if(!r.ok){ TBODY.innerHTML = '<tr><td colspan="7" class="empty">Data not found. Provide server function or '+FALLBACK_JSON+'</td></tr>'; titleView.textContent='No data'; return; }
     const j = await r.json();
-    DATA = j;
+    // fallback JSON may already be in old shape; normalize it too
+    DATA = { week: j.week || (new Date()).toISOString().slice(0,10), users: normalizeUsers(j.users || j) };
     if(localUser){
       const me = DATA.users.find(u => (u.user_id && localUser.user_id && u.user_id === localUser.user_id) || (u.pseudo && localUser.pseudo && u.pseudo === localUser.pseudo));
       if(me && me.league) currentLeagueFilter = me.league;
@@ -284,226 +330,26 @@ async function loadData(){
     return;
   } catch(err){
     console.error('Fallback JSON load failed', err);
-    TBODY.innerHTML = '<tr><td colspan="8" class="empty">Failed to load data. Configure server function or generate '+FALLBACK_JSON+'</td></tr>';
+    TBODY.innerHTML = '<tr><td colspan="7" class="empty">Failed to load data. Configure server function or generate '+FALLBACK_JSON+'</td></tr>';
     titleView.textContent='Error';
     return;
   }
 }
 
-
-async function loadFromSupabase(baseUrl, anonKey){
-  const headers = {
-    'apikey': anonKey,
-    'Authorization': 'Bearer ' + anonKey,
-    'Accept': 'application/json'
-  };
-
-  // helper: fetch users for specific league+league_id
-  async function fetchUsersByLeague(league, league_id){
-    const q = new URL(baseUrl + '/rest/v1/users');
-    q.searchParams.set('select', 'id,pseudo,league,league_id,tour,country');
-    q.searchParams.set('league', `eq.${encodeURIComponent(league)}`);
-    if(league_id !== undefined && league_id !== null && String(league_id) !== '') {
-      q.searchParams.set('league_id', `eq.${encodeURIComponent(league_id)}`);
-    }
-    q.searchParams.set('limit','1000');
-    const r = await fetch(q.toString(), { headers });
-    if(!r.ok) throw new Error('users fetch failed: '+r.status);
-    return await r.json();
-  }
-
-  // helper: fetch many scores using PostgREST filters. Accepts optional userIds array and optional created_day filter
-  async function fetchScores(opts = {}){
-    const { userIds, onlyDay } = opts;
-    const q = new URL(baseUrl + '/rest/v1/scores');
-    // select relevant columns
-    q.searchParams.set('select', 'id,user_id,pseudo,game_id,points,created_day,mode');
-    q.searchParams.set('limit','20000'); // safety cap
-    if(Array.isArray(userIds) && userIds.length > 0){
-      // build in list: user_id=in.(id1,id2)
-      const list = userIds.map(id => String(id)).join(',');
-      q.searchParams.set('user_id', `in.(${encodeURIComponent(list)})`);
-    }
-    if(onlyDay) q.searchParams.set('created_day', `eq.${encodeURIComponent(onlyDay)}`);
-    const r = await fetch(q.toString(), { headers });
-    if(!r.ok) throw new Error('scores fetch failed: '+r.status);
-    return await r.json();
-  }
-
-  // convenience: fetch all users (capped)
-  async function fetchAllUsers(){
-    const q = new URL(baseUrl + '/rest/v1/users');
-    q.searchParams.set('select', 'id,pseudo,league,league_id,tour,country');
-    q.searchParams.set('limit','5000');
-    const r = await fetch(q.toString(), { headers });
-    if(!r.ok) throw new Error('users fetch failed: '+r.status);
-    return await r.json();
-  }
-
-  // Determine week Monday
-  const weekMonday = mondayOfDate(new Date());
-
-  // If we have logged user id, try to fetch user's row to get league & league_id (if not already set)
-  let loggedUserRow = null;
-  const local = getLocalUser();
-  if(local && (local.id || local.user_id)){
-    const uid = encodeURIComponent(local.id || local.user_id);
-    const q = new URL(baseUrl + '/rest/v1/users');
-    q.searchParams.set('select', 'id,pseudo,league,league_id,tour,country');
-    q.searchParams.set('id', `eq.${uid}`);
-    q.searchParams.set('limit','1');
-    const rr = await fetch(q.toString(), { headers });
-    if(rr.ok){
-      const arr = await rr.json();
-      if(Array.isArray(arr) && arr.length>0) loggedUserRow = arr[0];
-    } // else ignore error and continue
-  }
-
-  // Decide which users to fetch depending on scope
-  let usersToAggregate = [];
-  if(currentScope === 'league'){
-    // want league + league_id of logged user
-    const league = (loggedUserRow && loggedUserRow.league) ? loggedUserRow.league : currentLeagueFilter;
-    const league_id = (loggedUserRow && (loggedUserRow.league_id !== undefined)) ? String(loggedUserRow.league_id) : currentLeagueIdFilter;
-    if(!league){
-      // if we cannot determine a league, fallback to all users (global)
-      usersToAggregate = await fetchAllUsers();
-    } else {
-      // fetch users that share league (+ league_id if present)
-      try {
-        usersToAggregate = await fetchUsersByLeague(league, league_id);
-        // set currentLeagueFilter for rendering
-        currentLeagueFilter = league;
-        currentLeagueIdFilter = league_id !== undefined ? String(league_id) : null;
-      } catch(e){
-        // fallback to all users
-        console.warn('fetchUsersByLeague failed, falling back to all users', e);
-        usersToAggregate = await fetchAllUsers();
-      }
-    }
-  } else {
-    // Global: fetch all users
-    usersToAggregate = await fetchAllUsers();
-  }
-
-  // At this point we have a users list; build user id list for score fetch
-  const userIds = usersToAggregate.map(u => u.id).filter(Boolean);
-
-  // Fetch scores for either week or alltime
-  let scores = [];
-  try {
-    if(currentTime === 'week'){
-      // Only this week: use created_day = weekMonday
-      // if we have many userIds, we filter by them; otherwise fetch only by day and aggregate for all users
-      if(userIds.length > 0){
-        scores = await fetchScores({ userIds, onlyDay: weekMonday });
-      } else {
-        // no userIds -> fetch all scores for the week (cap still applies)
-        const q = new URL(baseUrl + '/rest/v1/scores');
-        q.searchParams.set('select', 'id,user_id,pseudo,game_id,points,created_day,mode');
-        q.searchParams.set('created_day', `eq.${encodeURIComponent(weekMonday)}`);
-        q.searchParams.set('limit','20000');
-        const r = await fetch(q.toString(), { headers });
-        if(!r.ok) throw new Error('scores fetch failed: '+r.status);
-        scores = await r.json();
-      }
-    } else {
-      // all time: fetch scores for the users (or everything if no specific users)
-      if(userIds.length > 0){
-        scores = await fetchScores({ userIds });
-      } else {
-        const q = new URL(baseUrl + '/rest/v1/scores');
-        q.searchParams.set('select', 'id,user_id,pseudo,game_id,points,created_day,mode');
-        q.searchParams.set('limit','20000');
-        const r = await fetch(q.toString(), { headers });
-        if(!r.ok) throw new Error('scores fetch failed: '+r.status);
-        scores = await r.json();
-      }
-    }
-  } catch(e){
-    console.warn('scores fetch failed', e);
-    // scores stays empty -> will render zeros
-  }
-
-  // Aggregate: map by user id (or pseudo fallback)
-  const map = new Map();
-  function ensureKey(k, fallbackPseudo = ''){
-    if(!k) return null;
-    if(!map.has(k)){
-      map.set(k, {
-        id: null, user_id: null, pseudo: fallbackPseudo || '', league:'', league_id:null, tour:'', country:'',
-        by_game: { guess_player:0, guess_player_h2h:0, gill_the_grid:0 },
-        totals: 0
-      });
-    }
-    return map.get(k);
-  }
-
-  // Initialize map with usersToAggregate
-  for(const u of usersToAggregate){
-    const k = u.id ? 'id:'+String(u.id) : 'pseudo:' + (u.pseudo||'').toLowerCase();
-    const ent = ensureKey(k, u.pseudo || '');
-    ent.id = u.id || null;
-    ent.user_id = u.id || null;
-    ent.pseudo = u.pseudo || '';
-    ent.league = u.league || '';
-    ent.league_id = (u.league_id !== undefined && u.league_id !== null) ? String(u.league_id) : null;
-    ent.tour = (u.tour || '').toUpperCase();
-    ent.country = u.country || '';
-  }
-
-  // Accumulate scores
-  for(const s of scores){
-    const uid = s.user_id || null;
-    const k = uid ? 'id:'+String(uid) : (s.pseudo ? 'pseudo:'+String(s.pseudo).toLowerCase() : null);
-    if(!k) continue;
-    const ent = ensureKey(k, s.pseudo || '');
-    ent.id = ent.id || (s.user_id || null);
-    ent.user_id = ent.user_id || (s.user_id || null);
-    ent.pseudo = ent.pseudo || (s.pseudo || '');
-    const pts = Number(s.points || 0);
-    ent.totals += pts;
-    const gid = (s.game_id || '').toLowerCase();
-    if(gid === 'guess_player') ent.by_game.guess_player += pts;
-    else if(gid === 'guess_player_h2h') ent.by_game.guess_player_h2h += pts;
-    else if(gid === 'gill_the_grid' || gid === 'fill_grid' || gid === 'gill_the_grid') ent.by_game.gill_the_grid += pts;
-  }
-
-  // Build final users array
-  const usersArr = Array.from(map.values()).map(u => ({
-    id: u.id,
-    user_id: u.user_id,
-    pseudo: u.pseudo,
-    league: u.league,
-    league_id: u.league_id,
-    tour: u.tour,
-    country: u.country,
-    totals: { all: u.totals, week: u.totals }, // we fetched scores according to currentTime, so both fields can be same for now
-    by_game: {
-      guess_player: { alltime: u.by_game.guess_player, week: u.by_game.guess_player },
-      guess_player_h2h: { alltime: u.by_game.guess_player_h2h, week: u.by_game.guess_player_h2h },
-      gill_the_grid: { alltime: u.by_game.gill_the_grid, week: u.by_game.gill_the_grid }
-    }
-  }));
-
-  // Return shape similar to previous implementation
-  return { week: mondayOfDate(new Date()), users: usersArr };
-}
-
-/* Table build & render (same display format as before) */
+/* Table build & render */
 function buildRows(){
   if(!DATA || !Array.isArray(DATA.users)) return [];
   const timeKey = (currentTime === 'week') ? 'week' : 'all';
   let rows = DATA.users.map(u => {
-    const total_all = Number((u.totals && u.totals.all) || u.totals || 0);
-    const total_week = Number((u.totals && u.totals.week) || u.totals || 0);
+    const total_all = Number((u.totals && u.totals.all) || 0);
+    const total_week = Number((u.totals && u.totals.week) || 0);
     const bygame = u.by_game || {};
-    const gp_all = Number((bygame.guess_player && bygame.guess_player.alltime) || bygame.guess_player || 0);
-    const gp_week = Number((bygame.guess_player && bygame.guess_player.week) || bygame.guess_player || 0);
-    const h2h_all = Number((bygame.guess_player_h2h && bygame.guess_player_h2h.alltime) || bygame.guess_player_h2h || 0);
-    const h2h_week = Number((bygame.guess_player_h2h && bygame.guess_player_h2h.week) || bygame.guess_player_h2h || 0);
-    const gg_all = Number((bygame.gill_the_grid && bygame.gill_the_grid.alltime) || bygame.gill_the_grid || 0);
-    const gg_week = Number((bygame.gill_the_grid && bygame.gill_the_grid.week) || bygame.gill_the_grid || 0);
+    const gp_all = Number((bygame.guess_player && bygame.guess_player.alltime) || 0);
+    const gp_week = Number((bygame.guess_player && bygame.guess_player.week) || 0);
+    const h2h_all = Number((bygame.guess_player_h2h && bygame.guess_player_h2h.alltime) || 0);
+    const h2h_week = Number((bygame.guess_player_h2h && bygame.guess_player_h2h.week) || 0);
+    const gg_all = Number((bygame.gill_the_grid && bygame.gill_the_grid.alltime) || 0);
+    const gg_week = Number((bygame.gill_the_grid && bygame.gill_the_grid.week) || 0);
     const obj = {
       id: u.id,
       user_id: u.user_id,
@@ -528,7 +374,6 @@ function buildRows(){
     return obj;
   });
 
-  // scope filter: in practice DATA already filtered for league when loaded, but allow explicit filtering too
   if(currentScope === 'league' && currentLeagueFilter){
     rows = rows.filter(r => r.league === currentLeagueFilter && (currentLeagueIdFilter ? String(r.league_id) === String(currentLeagueIdFilter) : true));
   }
@@ -552,7 +397,7 @@ function buildRows(){
 
 function renderTable(){
   const rows = buildRows();
-  if(!rows || rows.length === 0){ TBODY.innerHTML = '<tr><td colspan="8" class="empty">No users found</td></tr>'; titleView.textContent = 'No data'; return; }
+  if(!rows || rows.length === 0){ TBODY.innerHTML = '<tr><td colspan="7" class="empty">No users found</td></tr>'; titleView.textContent = 'No data'; return; }
   TBODY.innerHTML = '';
   rows.forEach(r=>{
     const tr = document.createElement('tr');
@@ -563,7 +408,6 @@ function renderTable(){
       <td>${r.rank}</td>
       <td><div style="display:flex;align-items:center;gap:8px">${flagHtml}<span class="pseudo">${escapeHtml(r.pseudo)}</span></div></td>
       <td>${escapeHtml(r.league||'—')} ${r.league_id ? '(id:'+escapeHtml(r.league_id)+')' : ''}</td>
-      <td>${escapeHtml(r.tour||'—')}</td>
       <td style="font-weight:800">${fmt(r.sortVals.total)}</td>
       <td>${fmt(r.sortVals.guess_player)}</td>
       <td>${fmt(r.sortVals.guess_player_h2h)}</td>
@@ -581,7 +425,7 @@ document.getElementById('btnScopeLeague').addEventListener('click', async ()=>{
   currentScope = 'league';
   document.getElementById('btnScopeLeague').classList.add('active');
   document.getElementById('btnScopeGlobal').classList.remove('active');
-  await loadData(); // reload to fetch only league users
+  await loadData();
 });
 document.getElementById('btnScopeGlobal').addEventListener('click', async ()=>{
   currentScope = 'global';
@@ -614,7 +458,6 @@ Array.from(TABLE.querySelectorAll('thead th')).forEach(th=>{
 document.getElementById('btnRetry').addEventListener('click', ()=> loadData(false));
 document.getElementById('btnForceFallback').addEventListener('click', ()=> loadData(true));
 
-/* Listen to login/logout events emitted by leaderboard-client.js */
 window.addEventListener('lb:auth-changed', async ()=>{
   renderUserBox();
   await loadData();

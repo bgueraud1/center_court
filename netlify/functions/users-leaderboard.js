@@ -1,11 +1,4 @@
 // netlify/functions/users-leaderboard.js
-// GET-only: returns aggregated leaderboard data (week / alltime) for either "league" or "global".
-// Query params:
-//   user_id (optional)  -> used to determine the user's league/league_id if scope=league
-//   scope=league|global (default: league)
-//   time=week|all (default: week)
-// NOTE: uses PostgREST endpoints (/rest/v1/users and /rest/v1/scores) with service role key.
-
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -33,10 +26,10 @@ module.exports.handler = async function(event) {
 
   const qs = event.queryStringParameters || {};
   const user_id = qs.user_id || null;
+  const pseudo = qs.pseudo || null;
   const scope = (qs.scope || 'league').toLowerCase(); // league or global
   const time = (qs.time || 'week').toLowerCase(); // week or all
 
-  // compute week monday (UTC)
   function mondayOfTodayISO(){
     const dt = new Date();
     const day = dt.getUTCDay();
@@ -47,13 +40,14 @@ module.exports.handler = async function(event) {
   const weekMonday = mondayOfTodayISO();
 
   try {
-    // 1) If scope=league and user_id provided -> fetch that user row to get league & league_id
+    // find user's league by id or pseudo
     let targetLeague = null;
     let targetLeagueId = null;
-    if(scope === 'league' && user_id){
+    if(scope === 'league' && (user_id || pseudo)){
       const qUser = new URL(`${SUPABASE_URL.replace(/\/$/,'')}/rest/v1/users`);
       qUser.searchParams.set('select','id,pseudo,league,league_id,tour,country');
-      qUser.searchParams.set('id', `eq.${encodeURIComponent(user_id)}`);
+      if(user_id) qUser.searchParams.set('id', `eq.${encodeURIComponent(user_id)}`);
+      else qUser.searchParams.set('pseudo', `eq.${encodeURIComponent(pseudo)}`);
       qUser.searchParams.set('limit','1');
 
       const ru = await fetch(qUser.toString(), {
@@ -74,7 +68,7 @@ module.exports.handler = async function(event) {
       }
     }
 
-    // 2) fetch users: either those in league (if determined) or all users (global)
+    // fetch users
     let users = [];
     if(scope === 'league' && targetLeague){
       const qu = new URL(`${SUPABASE_URL.replace(/\/$/,'')}/rest/v1/users`);
@@ -84,14 +78,9 @@ module.exports.handler = async function(event) {
       qu.searchParams.set('limit','2000');
       const rUsers = await fetch(qu.toString(), {
         method: 'GET',
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`,
-          'Accept': 'application/json'
-        }
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Accept':'application/json' }
       });
       if(!rUsers.ok){
-        // fallback: fetch all users
         console.warn('users-by-league failed, fallback to all users', rUsers.status);
         const qa = new URL(`${SUPABASE_URL.replace(/\/$/,'')}/rest/v1/users`);
         qa.searchParams.set('select','id,pseudo,league,league_id,tour,country');
@@ -102,7 +91,6 @@ module.exports.handler = async function(event) {
         users = await rUsers.json();
       }
     } else {
-      // global: fetch all users
       const qa = new URL(`${SUPABASE_URL.replace(/\/$/,'')}/rest/v1/users`);
       qa.searchParams.set('select','id,pseudo,league,league_id,tour,country');
       qa.searchParams.set('limit','5000');
@@ -110,11 +98,10 @@ module.exports.handler = async function(event) {
       users = rr.ok ? await rr.json() : [];
     }
 
-    // 3) fetch scores: either for those users (by user_id in (...)) and filtered by created_day if time=week, else all
+    // fetch scores for those users (chunked)
     let scores = [];
     if(Array.isArray(users) && users.length > 0){
       const ids = users.map(u => u.id).filter(Boolean);
-      // chunk if necessary (PostgREST in list)
       const chunkSize = 700;
       for(let i=0;i<ids.length;i+=chunkSize){
         const chunk = ids.slice(i, i+chunkSize);
@@ -123,21 +110,17 @@ module.exports.handler = async function(event) {
         qS.searchParams.set('user_id', `in.(${encodeURIComponent(chunk.join(','))})`);
         if(time === 'week') qS.searchParams.set('created_day', `eq.${encodeURIComponent(weekMonday)}`);
         qS.searchParams.set('limit','20000');
-        const rs = await fetch(qS.toString(), { method:'GET', headers: { 'apikey': SUPABASE_KEY, 'Authorization':`Bearer ${SUPABASE_KEY}`, 'Accept':'application/json' }});
+        const rs = await fetch(qS.toString(), { method:'GET', headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Accept':'application/json' }});
         if(rs.ok){
           const arr = await rs.json();
           scores = scores.concat(arr || []);
         } else {
-          // keep going, but log
           console.warn('scores fetch chunk failed', rs.status);
         }
       }
-    } else {
-      // no users found: optionally fetch recent scores (but return empty set)
-      scores = [];
     }
 
-    // 4) aggregate client-side (server aggregated)
+    // aggregate
     const map = new Map();
     function ensureKey(k, fallbackPseudo=''){
       if(!k) return null;
@@ -147,7 +130,6 @@ module.exports.handler = async function(event) {
       return map.get(k);
     }
 
-    // init from users
     for(const u of users){
       const k = u.id ? 'id:'+String(u.id) : 'pseudo:'+String((u.pseudo||'').toLowerCase());
       const ent = ensureKey(k, u.pseudo||'');
