@@ -311,30 +311,125 @@ async function performLogout({ reload = false } = {}) {
    - uses window.LEADERBOARD.* if available, otherwise graceful fallback
 ---------------------------- */
 
+// ---------- USER PANEL (corrigé) ----------
 function renderUserPanel(){
+  // NOTE: we intentionally DO NOT remove an existing dropdown here.
+  // Removing it caused the "appear briefly then disappear" bug when this function
+  // ran again while the dropdown was open.
   const dropdownExisting = userPanel.querySelector('.user-dropdown');
-  if(dropdownExisting) dropdownExisting.remove();
 
-  let localUser = null;
+  // Try to read local user from the same places as before
+  let detectedLocal = null;
   try {
     if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
-      localUser = window.LEADERBOARD.getLocalUser() || null;
+      detectedLocal = window.LEADERBOARD.getLocalUser() || null;
     }
   } catch (e) {
     console.warn('getLocalUser threw', e);
   }
 
-  if(localUser && (localUser.pseudo || localUser.email || localUser.id || localUser.user_id)){
-    const name = localUser.pseudo || localUser.email || localUser.id || localUser.user_id;
+  // Set the button label (don't touch dropdown if it exists)
+  if(detectedLocal && (detectedLocal.pseudo || detectedLocal.email || detectedLocal.id || detectedLocal.user_id)){
+    const name = detectedLocal.pseudo || detectedLocal.email || detectedLocal.id || detectedLocal.user_id;
     userBox.textContent = name;
-    userBox.setAttribute('aria-expanded','false');
-    userBox.onclick = toggleUserDropdown;
+    userBox.setAttribute('aria-expanded', dropdownExisting ? 'true' : 'false');
   } else {
-    // if not connected, show Connect (keeps visual parity with index.html)
     userBox.textContent = 'Connect';
-    userBox.onclick = toggleUserDropdown;
+    userBox.setAttribute('aria-expanded', dropdownExisting ? 'true' : 'false');
   }
+
+  // (re)bind toggle handler - harmless even if assigned multiple times
+  userBox.onclick = toggleUserDropdown;
 }
+
+// toggleUserDropdown stays same, but keep as reference to ensure behaviour unchanged
+function toggleUserDropdown(e){
+  e && e.stopPropagation && e.stopPropagation();
+  const existing = userPanel.querySelector('.user-dropdown');
+  if(existing){
+    existing.remove();
+    userBox.setAttribute('aria-expanded','false');
+    return;
+  }
+  const dd = document.createElement('div');
+  dd.className = 'user-dropdown';
+  dd.setAttribute('role','menu');
+
+  let localUser = null;
+  try { localUser = (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') ? window.LEADERBOARD.getLocalUser() : null; } catch (e) { localUser = null; }
+
+  if(localUser && (localUser.pseudo || localUser.user_id)){
+    // connected: show Log Out
+    const btnLogout = document.createElement('button');
+    btnLogout.type='button';
+    btnLogout.textContent = 'Log out';
+    btnLogout.onclick = async (ev) => {
+      ev && ev.stopPropagation && ev.stopPropagation();
+      btnLogout.disabled = true;
+      try {
+        await performLogout({ reload: false });
+        const d = userPanel.querySelector('.user-dropdown');
+        if (d) d.remove();
+        userBox.setAttribute('aria-expanded','false');
+        setTimeout(renderUserPanel, 150);
+      } catch (e) {
+        console.error('Logout failed', e);
+        showToast('Logout failed');
+        btnLogout.disabled = false;
+      } finally {
+        btnLogout.disabled = false;
+      }
+    };
+    dd.appendChild(btnLogout);
+  } else {
+    // not connected: show Log In and Create Account
+    const btnLogin = document.createElement('button');
+    btnLogin.type='button';
+    btnLogin.textContent = 'Log In';
+    btnLogin.onclick = () => {
+      if(window.LEADERBOARD){
+        if(typeof window.LEADERBOARD.openLogin === 'function') return window.LEADERBOARD.openLogin();
+        if(typeof window.LEADERBOARD.login === 'function') return window.LEADERBOARD.login();
+        if(typeof window.LEADERBOARD.showAuth === 'function') return window.LEADERBOARD.showAuth();
+      }
+      showToast('Login not available from this page');
+    };
+    dd.appendChild(btnLogin);
+
+    const btnCreate = document.createElement('button');
+    btnCreate.type='button';
+    btnCreate.textContent = 'Create account';
+    btnCreate.onclick = () => {
+      if(window.LEADERBOARD && typeof window.LEADERBOARD.openRegister === 'function') return window.LEADERBOARD.openRegister();
+      if(window.LEADERBOARD && typeof window.LEADERBOARD.register === 'function') return window.LEADERBOARD.register();
+      showToast('Register not available from this page');
+    };
+    dd.appendChild(btnCreate);
+  }
+
+  userPanel.appendChild(dd);
+  userBox.setAttribute('aria-expanded','true');
+
+  // click outside to close
+  setTimeout(()=> {
+    const onDoc = (ev) => {
+      if(!userPanel.contains(ev.target)){
+        const d = userPanel.querySelector('.user-dropdown');
+        if(d) d.remove();
+        userBox.setAttribute('aria-expanded','false');
+        document.removeEventListener('click', onDoc);
+      }
+    };
+    document.addEventListener('click', onDoc);
+  }, 10);
+}
+
+// initialize user panel (polls once in case LB lib loads after page)
+// Small tweak: keep calling renderUserPanel but do NOT forcibly remove dropdown if user opened it.
+(function watchForLbToRenderUser(){
+  renderUserPanel();
+  const t = setInterval(()=>{ renderUserPanel(); if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser==='function') { clearInterval(t); } }, 400);
+})();
 
 function toggleUserDropdown(e){
   e && e.stopPropagation && e.stopPropagation();
@@ -423,10 +518,6 @@ function toggleUserDropdown(e){
 }
 
 /* initialize user panel (polls once in case LB lib loads after page) */
-(function watchForLbToRenderUser(){
-  renderUserPanel();
-  const t = setInterval(()=>{ renderUserPanel(); if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser==='function') { clearInterval(t); } }, 400);
-})();
 
 /* ---------- normalize server payloads ---------- */
 function normalizeUsers(rawUsers){
