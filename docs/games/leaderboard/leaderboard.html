@@ -73,7 +73,7 @@
               <th data-key="total" title="Sort by total">#</th>
               <th data-key="pseudo">User</th>
               <th data-key="league">League</th>
-              <!-- Tour column removed; coloring now by row class -->
+              <!-- Tour removed; row colored by tour class (ATP/WTA) -->
               <th data-key="total">Total</th>
               <th data-key="guess_player">Guess Player</th>
               <th data-key="guess_player_h2h">H2H</th>
@@ -88,12 +88,10 @@
   </div>
 
 <script>
-const CONFIG_PATH = '/tools/supabase_config.json';
 const FALLBACK_JSON = '/tools/users_leaderboard.json';
 const TABLE = document.getElementById('tbl');
 const TBODY = TABLE.querySelector('tbody');
 const titleView = document.getElementById('titleView');
-const srcPathEl = document.getElementById('srcPath');
 const userBox = document.getElementById('userBox');
 
 let DATA = null;
@@ -106,7 +104,6 @@ let currentLeagueIdFilter = null;
 let localUser = null;
 
 function fmt(n){
-  // For numeric cells: show 0 instead of NA/— when value missing.
   if(n === null || n === undefined) return '0';
   if(n === '' || (typeof n === 'number' && isNaN(n))) return '0';
   const num = Number(n);
@@ -115,7 +112,7 @@ function fmt(n){
 }
 function escapeHtml(s){ if(s===undefined||s===null) return ''; return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m]); }
 
-/* robust local user detection: try many keys (inspired by index.html approach). */
+/* robust local user detection (inspired by your game's index.html) */
 function getLocalUserNormalized(){
   try { if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function'){ const u = window.LEADERBOARD.getLocalUser(); if(u && (u.id || u.user_id || u.pseudo || u.username)) return { id: u.id || u.user_id || null, pseudo: u.pseudo || u.username || u.name || null }; } } catch(e){}
 
@@ -137,14 +134,7 @@ function getLocalUserNormalized(){
   return null;
 }
 
-function mondayOfDate(d){
-  const dt = new Date(d);
-  const day = dt.getDay();
-  const diff = (day + 6) % 7;
-  dt.setDate(dt.getDate() - diff);
-  return dt.toISOString().slice(0,10);
-}
-
+/* flag helper (cached) */
 function countryToFlagUrlCached(countryName){
   if(!countryName) return '';
   try {
@@ -165,7 +155,7 @@ function countryToFlagUrlCached(countryName){
   return '';
 }
 
-/* Render user box (connect / user + sign out) */
+/* Render user box (connect + robust logout) */
 function renderUserBox(){
   localUser = getLocalUserNormalized();
   userBox.innerHTML = '';
@@ -176,28 +166,21 @@ function renderUserBox(){
     const btnOut = document.createElement('button');
     btnOut.textContent = 'Sign out';
     btnOut.onclick = async () => {
-      // best-effort sign out: call leaderboard lib if present, call logout endpoint, clear many keys
       try {
         if(window.LEADERBOARD){
-          const fns = ['logout','signOut','signout','disconnect'];
-          for(const fn of fns){
+          const candidateFns = ['logout','signOut','signout','disconnect','signOff','signoff'];
+          for(const fn of candidateFns){
             if(typeof window.LEADERBOARD[fn] === 'function'){
               try { const res = window.LEADERBOARD[fn](); if(res && typeof res.then === 'function') await res; } catch(e){}
             }
           }
         }
       } catch(e){}
-
-      try { await fetch('/.netlify/functions/logout',{ method:'POST', credentials:'same-origin' }).catch(()=>null); } catch(e){}
-
-      // clear common local/session storage keys (best-effort)
-      const likelyKeys = ['lb_score_queue_v1','lb_current_user','leaderboard_user','local_user','user','auth','access_token','refresh_token','supabase.auth.token','supabase.auth.session','sb:token','supabase.auth.user','lb_user_v1','lb_local_user_v1'];
-      try {
-        for(const k of likelyKeys){ try{ localStorage.removeItem(k); }catch(e){} try{ sessionStorage.removeItem(k); }catch(e){} }
-        // also remove keys that look like tokens
-        for(const k of Object.keys(localStorage)){ if(/token|auth|session|user|lb/i.test(k)) try{ localStorage.removeItem(k) }catch(e){} }
-      } catch(e){}
-      // refresh UI
+      // best-effort server logout
+      try { await fetch('/.netlify/functions/logout',{ method:'POST' }).catch(()=>null); } catch(e){}
+      // clear many likely keys
+      const likelyKeys = ['lb_score_queue_v1','lb_current_user','leaderboard_user','local_user','user','auth','access_token','refresh_token','supabase.auth.token','supabase.auth.session','lb_user_v1','lb_local_user_v1'];
+      try { for(const k of likelyKeys){ try{ localStorage.removeItem(k); }catch(e){} try{ sessionStorage.removeItem(k); }catch(e){} } } catch(e){}
       renderUserBox();
       await loadData();
     };
@@ -209,9 +192,12 @@ function renderUserBox(){
     btn.textContent = 'Connect';
     btn.onclick = async () => {
       try {
-        if(window.LEADERBOARD && typeof window.LEADERBOARD.openLogin === 'function') await window.LEADERBOARD.openLogin();
-        else if(window.LEADERBOARD && typeof window.LEADERBOARD.login === 'function') await window.LEADERBOARD.login();
-        else alert('Login not available (leaderboard client missing).');
+        if(window.LEADERBOARD){
+          if(typeof window.LEADERBOARD.openLogin === 'function') return window.LEADERBOARD.openLogin();
+          if(typeof window.LEADERBOARD.login === 'function') return window.LEADERBOARD.login();
+          if(typeof window.LEADERBOARD.showAuth === 'function') return window.LEADERBOARD.showAuth();
+        }
+        alert('Login not available from this page');
       } catch(e){ console.warn('Login attempt failed', e); }
       setTimeout(()=> loadData(), 200);
     };
@@ -224,8 +210,7 @@ function renderUserBox(){
   }
 }
 
-
-/* ---------- helper: normalize different server payload shapes ---------- */
+/* normalize server payloads (be tolerant) */
 function normalizeUsers(rawUsers){
   if(!Array.isArray(rawUsers)) return [];
   return rawUsers.map(u => {
@@ -234,7 +219,6 @@ function normalizeUsers(rawUsers){
 
     function readByGame(g, key){
       if(!g) return { alltime:0, week:0 };
-      // support either {guess_player: {alltime:.., week:..}} OR {guess_player: <num>}
       const val = g[key];
       if(typeof val === 'object' && val !== null){
         return { alltime: Number(val.alltime || 0), week: Number(val.week || 0) };
@@ -267,7 +251,7 @@ function normalizeUsers(rawUsers){
   });
 }
 
-/* call the Netlify function leaderboard-aggregate with proper params */
+/* call netlify function leaderboard-aggregate */
 async function fetchLeaderboardAggregate(scope='league', time='week'){
   const local = getLocalUserNormalized();
   const params = new URLSearchParams();
@@ -284,26 +268,27 @@ async function fetchLeaderboardAggregate(scope='league', time='week'){
   return await r.json();
 }
 
-/* Main data loader */
+/* main loader */
 async function loadData(){
   titleView.textContent = 'Loading…';
   TBODY.innerHTML = '';
   renderUserBox();
   localUser = getLocalUserNormalized();
 
-  // try calling netlify function leaderboard-aggregate first
   try {
     const j = await fetchLeaderboardAggregate(currentScope === 'global' ? 'global' : 'league', currentTime === 'all' ? 'all' : 'week');
     if (j && j.ok && Array.isArray(j.users)) {
-      // normalize server payloads to client-friendly shape
       const users = normalizeUsers(j.users);
       DATA = { week: j.week || (new Date()).toISOString().slice(0,10), users };
-      // default league filters from returned users (find me)
+      // attempt to set currentLeagueFilter from returned users (find me)
       if(localUser && Array.isArray(DATA.users)){
         const me = DATA.users.find(u => (u.user_id && String(u.user_id) === String(localUser.id)) || (u.pseudo && localUser.pseudo && u.pseudo === localUser.pseudo));
         if(me){
-          currentLeagueFilter = me.league || currentLeagueFilter;
-          currentLeagueIdFilter = me.league_id !== undefined && me.league_id !== null ? String(me.league_id) : currentLeagueIdFilter;
+          // only set filter if valid non-empty league
+          if(me.league) currentLeagueFilter = me.league;
+          if(me.league_id) currentLeagueIdFilter = String(me.league_id);
+        } else {
+          // do not set currentLeagueFilter to empty string; keep previous or null
         }
       }
       renderTable();
@@ -320,12 +305,7 @@ async function loadData(){
     const r = await fetch(FALLBACK_JSON, {cache:'no-cache'});
     if(!r.ok){ TBODY.innerHTML = '<tr><td colspan="7" class="empty">Data not found. Provide server function or '+FALLBACK_JSON+'</td></tr>'; titleView.textContent='No data'; return; }
     const j = await r.json();
-    // fallback JSON may already be in old shape; normalize it too
     DATA = { week: j.week || (new Date()).toISOString().slice(0,10), users: normalizeUsers(j.users || j) };
-    if(localUser){
-      const me = DATA.users.find(u => (u.user_id && localUser.user_id && u.user_id === localUser.user_id) || (u.pseudo && localUser.pseudo && u.pseudo === localUser.pseudo));
-      if(me && me.league) currentLeagueFilter = me.league;
-    }
     renderTable();
     return;
   } catch(err){
@@ -336,7 +316,7 @@ async function loadData(){
   }
 }
 
-/* Table build & render */
+/* build rows: apply league filter ONLY if we have a non-empty league value */
 function buildRows(){
   if(!DATA || !Array.isArray(DATA.users)) return [];
   const timeKey = (currentTime === 'week') ? 'week' : 'all';
@@ -374,7 +354,8 @@ function buildRows(){
     return obj;
   });
 
-  if(currentScope === 'league' && currentLeagueFilter){
+  // only filter by league if we actually know the league name (non-empty string)
+  if(currentScope === 'league' && currentLeagueFilter && String(currentLeagueFilter).trim() !== ''){
     rows = rows.filter(r => r.league === currentLeagueFilter && (currentLeagueIdFilter ? String(r.league_id) === String(currentLeagueIdFilter) : true));
   }
 
@@ -420,7 +401,7 @@ function renderTable(){
   titleView.textContent = `${scopeLabel} — ${timeLabel}`;
 }
 
-/* Buttons & UI wiring */
+/* UI wiring */
 document.getElementById('btnScopeLeague').addEventListener('click', async ()=>{
   currentScope = 'league';
   document.getElementById('btnScopeLeague').classList.add('active');

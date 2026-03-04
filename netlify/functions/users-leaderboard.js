@@ -30,14 +30,18 @@ module.exports.handler = async function(event) {
   const scope = (qs.scope || 'league').toLowerCase(); // league or global
   const time = (qs.time || 'week').toLowerCase(); // week or all
 
-  function mondayOfTodayISO(){
+  function weekBoundsIsoUTC(){
     const dt = new Date();
     const day = dt.getUTCDay();
     const diff = (day + 6) % 7;
-    dt.setUTCDate(dt.getUTCDate() - diff);
-    return dt.toISOString().slice(0,10);
+    dt.setUTCDate(dt.getUTCDate() - diff); // monday UTC
+    const monday = new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate()));
+    const sunday = new Date(monday);
+    sunday.setUTCDate(monday.getUTCDate() + 6);
+    function iso(d){ return d.toISOString().slice(0,10); }
+    return { monday: iso(monday), sunday: iso(sunday) };
   }
-  const weekMonday = mondayOfTodayISO();
+  const { monday: weekMonday, sunday: weekSunday } = weekBoundsIsoUTC();
 
   try {
     // find user's league by id or pseudo
@@ -78,7 +82,11 @@ module.exports.handler = async function(event) {
       qu.searchParams.set('limit','2000');
       const rUsers = await fetch(qu.toString(), {
         method: 'GET',
-        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Accept':'application/json' }
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': `Bearer ${SUPABASE_KEY}`,
+          'Accept': 'application/json'
+        }
       });
       if(!rUsers.ok){
         console.warn('users-by-league failed, fallback to all users', rUsers.status);
@@ -98,7 +106,7 @@ module.exports.handler = async function(event) {
       users = rr.ok ? await rr.json() : [];
     }
 
-    // fetch scores for those users (chunked)
+    // fetch scores for those users (chunked), week -> range filter
     let scores = [];
     if(Array.isArray(users) && users.length > 0){
       const ids = users.map(u => u.id).filter(Boolean);
@@ -108,7 +116,10 @@ module.exports.handler = async function(event) {
         const qS = new URL(`${SUPABASE_URL.replace(/\/$/,'')}/rest/v1/scores`);
         qS.searchParams.set('select','id,user_id,pseudo,game_id,points,created_day,mode');
         qS.searchParams.set('user_id', `in.(${encodeURIComponent(chunk.join(','))})`);
-        if(time === 'week') qS.searchParams.set('created_day', `eq.${encodeURIComponent(weekMonday)}`);
+        if(time === 'week'){
+          qS.searchParams.set('created_day', `gte.${encodeURIComponent(weekMonday)}`);
+          qS.searchParams.append('created_day', `lte.${encodeURIComponent(weekSunday)}`);
+        }
         qS.searchParams.set('limit','20000');
         const rs = await fetch(qS.toString(), { method:'GET', headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Accept':'application/json' }});
         if(rs.ok){

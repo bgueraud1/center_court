@@ -27,14 +27,19 @@ module.exports.handler = async function(event) {
   const userIdParam = qs.user_id || null;
   const pseudoParam = qs.pseudo || null;
 
-  function mondayIsoUTC(){
+  // monday and sunday in UTC (ISO yyyy-mm-dd)
+  function weekBoundsIsoUTC(){
     const dt = new Date();
-    const day = dt.getUTCDay();
+    const day = dt.getUTCDay(); // 0..6 Sun..Sat
     const diff = (day + 6) % 7;
-    dt.setUTCDate(dt.getUTCDate() - diff);
-    return dt.toISOString().slice(0,10);
+    dt.setUTCDate(dt.getUTCDate() - diff); // now Monday UTC
+    const monday = new Date(Date.UTC(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate()));
+    const sunday = new Date(monday);
+    sunday.setUTCDate(monday.getUTCDate() + 6);
+    function iso(d){ return d.toISOString().slice(0,10); }
+    return { monday: iso(monday), sunday: iso(sunday) };
   }
-  const weekMonday = mondayIsoUTC();
+  const { monday: weekMonday, sunday: weekSunday } = weekBoundsIsoUTC();
 
   try {
     // 1) if scope=league and we have user_id or pseudo -> fetch that user's league & league_id
@@ -98,7 +103,11 @@ module.exports.handler = async function(event) {
         const qS = new URL(`${SUPABASE_URL.replace(/\/$/,'')}/rest/v1/scores`);
         qS.searchParams.set('select','id,user_id,pseudo,game_id,points,created_day,mode');
         qS.searchParams.set('user_id', `in.(${chunk.join(',')})`);
-        if (time === 'week') qS.searchParams.set('created_day', `eq.${encodeURIComponent(weekMonday)}`);
+        if (time === 'week') {
+          // use range monday..sunday inclusive
+          qS.searchParams.set('created_day', `gte.${encodeURIComponent(weekMonday)}`);
+          qS.searchParams.append('created_day', `lte.${encodeURIComponent(weekSunday)}`);
+        }
         qS.searchParams.set('limit', '20000');
         const rs = await fetch(qS.toString(), { method:'GET', headers:{ 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Accept':'application/json' }});
         if (rs.ok) {
@@ -112,7 +121,7 @@ module.exports.handler = async function(event) {
       scores = [];
     }
 
-    // 4) aggregate server-side into format compatible with client (totals + by_game with all/week)
+    // 4) aggregate server-side
     const map = new Map();
     function ensureKey(k, fallbackPseudo=''){
       if (!k) return null;
@@ -169,8 +178,7 @@ module.exports.handler = async function(event) {
       league_id: u.league_id,
       tour: u.tour,
       country: u.country,
-      // return "totals" and "by_game" shaped for the client
-      totals: { week: Number(u.totals_week || 0), all: Number(u.totals_all || 0) },
+      scores: { week: Number(u.totals_week || 0), alltime: Number(u.totals_all || 0) },
       by_game: {
         guess_player: { week: Number(u.by_game.guess_player_week || 0), alltime: Number(u.by_game.guess_player_all || 0) },
         guess_player_h2h: { week: Number(u.by_game.guess_player_h2h_week || 0), alltime: Number(u.by_game.guess_player_h2h_all || 0) },
