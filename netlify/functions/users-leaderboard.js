@@ -50,8 +50,8 @@ module.exports.handler = async function(event) {
     if(scope === 'league' && (user_id || pseudo)){
       const qUser = new URL(`${SUPABASE_URL.replace(/\/$/,'')}/rest/v1/users`);
       qUser.searchParams.set('select','id,pseudo,league,league_id,tour,country');
-      if(user_id) qUser.searchParams.set('id', `eq.${encodeURIComponent(user_id)}`);
-      else qUser.searchParams.set('pseudo', `eq.${encodeURIComponent(pseudo)}`);
+      if(user_id) qUser.searchParams.set('id', `eq.${user_id}`);
+      else qUser.searchParams.set('pseudo', `ilike.${pseudo}`);
       qUser.searchParams.set('limit','1');
 
       const ru = await fetch(qUser.toString(), {
@@ -77,8 +77,8 @@ module.exports.handler = async function(event) {
     if(scope === 'league' && targetLeague){
       const qu = new URL(`${SUPABASE_URL.replace(/\/$/,'')}/rest/v1/users`);
       qu.searchParams.set('select','id,pseudo,league,league_id,tour,country');
-      qu.searchParams.set('league', `eq.${encodeURIComponent(targetLeague)}`);
-      if(targetLeagueId !== null) qu.searchParams.set('league_id', `eq.${encodeURIComponent(targetLeagueId)}`);
+      qu.searchParams.set('league', `eq.${targetLeague}`);
+      if(targetLeagueId !== null) qu.searchParams.set('league_id', `eq.${targetLeagueId}`);
       qu.searchParams.set('limit','2000');
       const rUsers = await fetch(qu.toString(), {
         method: 'GET',
@@ -115,10 +115,10 @@ module.exports.handler = async function(event) {
         const chunk = ids.slice(i, i+chunkSize);
         const qS = new URL(`${SUPABASE_URL.replace(/\/$/,'')}/rest/v1/scores`);
         qS.searchParams.set('select','id,user_id,pseudo,game_id,points,created_day,mode');
-        qS.searchParams.set('user_id', `in.(${encodeURIComponent(chunk.join(','))})`);
+        qS.searchParams.set('user_id', `in.(${chunk.join(',')})`);
         if(time === 'week'){
-          qS.searchParams.set('created_day', `gte.${encodeURIComponent(weekMonday)}`);
-          qS.searchParams.append('created_day', `lte.${encodeURIComponent(weekSunday)}`);
+          qS.searchParams.set('created_day', `gte.${weekMonday}`);
+          qS.searchParams.append('created_day', `lte.${weekSunday}`);
         }
         qS.searchParams.set('limit','20000');
         const rs = await fetch(qS.toString(), { method:'GET', headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Accept':'application/json' }});
