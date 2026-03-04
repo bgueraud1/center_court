@@ -38,9 +38,19 @@ module.exports.handler = async function(event) {
 
   const pseudo = body.pseudo ? String(body.pseudo).trim() : null;
   const password_hash = body.password_hash ? String(body.password_hash) : null;
+  const tour = body.tour ? String(body.tour).trim().toUpperCase() : null; // expected "ATP" or "WTA"
+  const country = body.country ? String(body.country).trim() : null;
 
   if (!pseudo || !password_hash) {
     return jsonResponse(400, { error: "Missing pseudo or password_hash" });
+  }
+
+  // validate tour & country
+  if (!tour || (tour !== 'ATP' && tour !== 'WTA')) {
+    return jsonResponse(400, { error: "Invalid tour", detail: "tour must be 'ATP' or 'WTA'" });
+  }
+  if (!country || country.length < 2) {
+    return jsonResponse(400, { error: "Invalid country", detail: "country must be provided" });
   }
 
   // 1) check existing pseudo
@@ -61,7 +71,6 @@ module.exports.handler = async function(event) {
     if (!r.ok) {
       const txt = await r.text().catch(()=>null);
       console.warn("User lookup failed", r.status, txt);
-      // Non fatal - but safer to abort
       return jsonResponse(500, { error: "User lookup failed", status: r.status, detail: txt });
     }
 
@@ -74,15 +83,16 @@ module.exports.handler = async function(event) {
     return jsonResponse(500, { error: "Server error", detail: String(e) });
   }
 
-  // 2) insert user
+  // 2) insert user (include tour & country)
   try {
-    // league must be "Future F15" for new users
     const league = "Future F15";
 
     const insertObj = {
       pseudo: pseudo,
       password_hash: password_hash,
       league: league,
+      tour: tour,
+      country: country,
       created_at: new Date().toISOString()
     };
 
