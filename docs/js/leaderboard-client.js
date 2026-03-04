@@ -35,17 +35,13 @@
 
   // --- minimal session store (only id + pseudo) ---
   function saveLocalSession(userObj){
-    // userObj should be { id: <string|number>, pseudo: <string> }
-    if (!userObj || !userObj.id) return;
-    const s = { id: String(userObj.id), pseudo: String(userObj.pseudo || '') };
-    localStorage.setItem(LB_USER_KEY, JSON.stringify(s));
-    // also notify immediately
-    try { window.dispatchEvent(new Event('lb:auth-changed')); } catch(e){}
-    // try update page-level UI helpers if present
-    try { if (typeof renderLbBox === 'function') renderLbBox(); } catch(e){}
-    try { if (typeof updateLBStatusUI === 'function') updateLBStatusUI(); } catch(e){}
-    try { if (typeof ensureModeCheckedAndStart === 'function') ensureModeCheckedAndStart(); } catch(e){}
-  }
+  if (!userObj || !userObj.id) return;
+  const s = { id: String(userObj.id), pseudo: String(userObj.pseudo || ''), tour: userObj.tour || null, country: userObj.country || null };
+  localStorage.setItem(LB_USER_KEY, JSON.stringify(s));
+  try { window.dispatchEvent(new Event('lb:auth-changed')); } catch(e){}
+  try { if (typeof renderLbBox === 'function') renderLbBox(); } catch(e){}
+  try { if (typeof ensureModeCheckedAndStart === 'function') ensureModeCheckedAndStart(); } catch(e){}
+}
   function getLocalUser(){
     const s = localStorage.getItem(LB_USER_KEY);
     if (!s) return null;
@@ -176,71 +172,91 @@
   })();
 
   function openAuthModal(defaultAction = 'login'){
-    return new Promise((resolve) => {
-      if (document.getElementById('lb-auth-modal')) { resolve(null); return; }
+  return new Promise((resolve) => {
+    if (document.getElementById('lb-auth-modal')) { resolve(null); return; }
 
-      const overlay = document.createElement('div');
-      overlay.id = 'lb-auth-modal';
-      overlay.className = 'lb-dark-overlay';
+    const overlay = document.createElement('div');
+    overlay.id = 'lb-auth-modal';
+    overlay.className = 'lb-dark-overlay';
 
-      const card = document.createElement('div');
-      card.className = 'lb-dark-card';
-      card.innerHTML = `
-        <h3>Sign in / Sign up</h3>
-        <div class="lb-field">
-          <label for="lb-modal-pseudo">Username</label>
-          <input id="lb-modal-pseudo" class="lb-dark-input" type="text" placeholder="Choose a username" />
+    const card = document.createElement('div');
+    card.className = 'lb-dark-card';
+    card.innerHTML = `
+      <h3>Sign in / Sign up</h3>
+      <div class="lb-field">
+        <label for="lb-modal-pseudo">Username</label>
+        <input id="lb-modal-pseudo" class="lb-dark-input" type="text" placeholder="Choose a username" />
+      </div>
+      <div class="lb-field">
+        <label for="lb-modal-pass">Password</label>
+        <input id="lb-modal-pass" class="lb-dark-input" type="password" placeholder="Enter a password" />
+      </div>
+      <div class="lb-field lb-field-inline" style="display:flex;gap:8px;align-items:center">
+        <div style="flex:1">
+          <label for="lb-modal-tour" style="color:#9aa6bd;font-size:13px;margin-bottom:6px;display:block">Tour</label>
+          <select id="lb-modal-tour" class="lb-dark-input" style="padding:8px 10px">
+            <option value="ATP">ATP</option>
+            <option value="WTA">WTA</option>
+          </select>
         </div>
-        <div class="lb-field">
-          <label for="lb-modal-pass">Password</label>
-          <input id="lb-modal-pass" class="lb-dark-input" type="password" placeholder="Enter a password" />
+        <div style="flex:1">
+          <label for="lb-modal-country" style="color:#9aa6bd;font-size:13px;margin-bottom:6px;display:block">Country</label>
+          <input id="lb-modal-country" class="lb-dark-input" type="text" placeholder="Country (English)" />
         </div>
-        <div class="lb-actions">
-          <button id="lb-modal-cancel" class="lb-btn lb-btn-ghost">Cancel</button>
-          <button id="lb-modal-register" class="lb-btn lb-btn-ghost">Sign Up</button>
-          <button id="lb-modal-login" class="lb-btn lb-btn-primary">Sign In</button>
-        </div>
-        <div class="lb-note">Accounts are created and validated with the server (Supabase).</div>
-      `;
-      overlay.appendChild(card);
-      document.body.appendChild(overlay);
+      </div>
+      <div class="lb-actions">
+        <button id="lb-modal-cancel" class="lb-btn lb-btn-ghost">Cancel</button>
+        <button id="lb-modal-register" class="lb-btn lb-btn-ghost">Sign Up</button>
+        <button id="lb-modal-login" class="lb-btn lb-btn-primary">Sign In</button>
+      </div>
+      <div class="lb-note">Accounts are created and validated with the server (Supabase).</div>
+    `;
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
 
-      const inp = document.getElementById('lb-modal-pseudo');
-      const pwd = document.getElementById('lb-modal-pass');
-      const btnCancel = document.getElementById('lb-modal-cancel');
-      const btnLogin = document.getElementById('lb-modal-login');
-      const btnRegister = document.getElementById('lb-modal-register');
+    const inp = document.getElementById('lb-modal-pseudo');
+    const pwd = document.getElementById('lb-modal-pass');
+    const selTour = document.getElementById('lb-modal-tour');
+    const countryInp = document.getElementById('lb-modal-country');
+    const btnCancel = document.getElementById('lb-modal-cancel');
+    const btnLogin = document.getElementById('lb-modal-login');
+    const btnRegister = document.getElementById('lb-modal-register');
 
-      // prefill pseudo if we have a local session
-      const existing = getLocalUser();
-      if (existing) inp.value = existing.pseudo || '';
+    // prefill pseudo if we have a local session
+    const existing = getLocalUser();
+    if (existing) {
+      inp.value = existing.pseudo || '';
+      if (existing.tour) selTour.value = existing.tour;
+      if (existing.country) countryInp.value = existing.country;
+    }
 
-      function cleanupAndResolve(result){
-        try { overlay.remove(); } catch(e){}
-        resolve(result);
-      }
+    function cleanupAndResolve(result){
+      try { overlay.remove(); } catch(e){}
+      resolve(result);
+    }
 
-      btnCancel.addEventListener('click', ()=> cleanupAndResolve(null));
-      overlay.addEventListener('click', (ev)=> { if (ev.target === overlay) cleanupAndResolve(null); });
+    btnCancel.addEventListener('click', ()=> cleanupAndResolve(null));
+    overlay.addEventListener('click', (ev)=> { if (ev.target === overlay) cleanupAndResolve(null); });
 
-      btnLogin.addEventListener('click', ()=> {
-        const pseudo = inp.value.trim();
-        const password = pwd.value;
-        if (!pseudo || !password) { alert('Please enter username and password.'); return; }
-        cleanupAndResolve({ action: 'login', pseudo, password });
-      });
-
-      btnRegister.addEventListener('click', ()=> {
-        const pseudo = inp.value.trim();
-        const password = pwd.value;
-        if (!pseudo || !password) { alert('Please enter username and password.'); return; }
-        cleanupAndResolve({ action: 'register', pseudo, password });
-      });
-
-      setTimeout(()=> pwd.focus(), 50);
+    btnLogin.addEventListener('click', ()=> {
+      const pseudo = inp.value.trim();
+      const password = pwd.value;
+      if (!pseudo || !password) { alert('Please enter username and password.'); return; }
+      cleanupAndResolve({ action: 'login', pseudo, password });
     });
-  }
 
+    btnRegister.addEventListener('click', ()=> {
+      const pseudo = inp.value.trim();
+      const password = pwd.value;
+      const tour = (selTour.value || 'ATP').toUpperCase();
+      const country = (countryInp.value || '').trim();
+      if (!pseudo || !password || !country) { alert('Please enter username, password and country.'); return; }
+      cleanupAndResolve({ action: 'register', pseudo, password, tour, country });
+    });
+
+    setTimeout(()=> pwd.focus(), 50);
+  });
+}
   // --- UI panel helper (simple) ---
   function createLeaderboardPanel(containerEl){
     if (!containerEl) return;
@@ -359,45 +375,44 @@
   }
 
   // --- server signup / login integration ---
-  async function performServerSignup(pseudo, password){
-    try {
-      const hash = await sha256Hex(password);
-      // call your Netlify function create-user
-      const res = await callNetlifyFunction('/.netlify/functions/create-user', { pseudo, password_hash: hash });
-      if (!res.ok) {
-        const body = res.body || {};
-        if (body.error) {
-          alert(`Sign up failed: ${body.error}${body.detail ? ' - ' + JSON.stringify(body.detail) : ''}`);
-        } else {
-          alert('Sign up failed (server error).');
-        }
-        return false;
-      }
-      const b = res.body || {};
-      // expect { ok:true, inserted: [...] } or similar
-      if (b.ok && Array.isArray(b.inserted) && b.inserted.length > 0) {
-        const u = b.inserted[0];
-        const idVal = u.id ?? u.ID ?? u.Id ?? '';
-        saveLocalSession({ id: idVal, pseudo: u.pseudo || pseudo });
-        return true;
-      } else if (b.ok && b.user && b.user.id) {
-        // fallback if your function returns user directly
-        saveLocalSession({ id: b.user.id, pseudo: b.user.pseudo || pseudo });
-        return true;
+  async function performServerSignup(pseudo, password, tour=null, country=null){
+  try {
+    const hash = await sha256Hex(password);
+    const payload = { pseudo, password_hash: hash, tour: (tour?String(tour).toUpperCase():'ATP'), country: (country?String(country):'') };
+    // call your Netlify function create-user
+    const res = await callNetlifyFunction('/.netlify/functions/create-user', payload);
+    if (!res.ok) {
+      const body = res.body || {};
+      if (body.error) {
+        alert(`Sign up failed: ${body.error}${body.detail ? ' - ' + JSON.stringify(body.detail) : ''}`);
       } else {
-        if (b.error) {
-          alert('Sign up error: ' + (b.error || 'unknown'));
-        } else {
-          alert('Sign up failed: unexpected server response.');
-        }
-        return false;
+        alert('Sign up failed (server error).');
       }
-    } catch (e) {
-      console.error('performServerSignup error', e);
-      alert('Sign up failed (network or client error).');
       return false;
     }
+    const b = res.body || {};
+    if (b.ok && Array.isArray(b.inserted) && b.inserted.length > 0) {
+      const u = b.inserted[0];
+      const idVal = u.id ?? u.ID ?? u.Id ?? '';
+      saveLocalSession({ id: idVal, pseudo: u.pseudo || pseudo, tour: u.tour || payload.tour, country: u.country || payload.country });
+      return true;
+    } else if (b.ok && b.user && b.user.id) {
+      saveLocalSession({ id: b.user.id, pseudo: b.user.pseudo || pseudo, tour: b.user.tour || payload.tour, country: b.user.country || payload.country });
+      return true;
+    } else {
+      if (b.error) {
+        alert('Sign up error: ' + (b.error || 'unknown'));
+      } else {
+        alert('Sign up failed: unexpected server response.');
+      }
+      return false;
+    }
+  } catch (e) {
+    console.error('performServerSignup error', e);
+    alert('Sign up failed (network or client error).');
+    return false;
   }
+}
 
   async function performServerLogin(pseudo, password){
     try {
@@ -447,7 +462,7 @@
       const ok = await performServerLogin(res.pseudo, res.password);
       return ok ? getLocalUser() : null;
     } else if (res.action === 'register') {
-      const ok = await performServerSignup(res.pseudo, res.password);
+  const ok = await performServerSignup(res.pseudo, res.password, res.tour, res.country);
       return ok ? getLocalUser() : null;
     }
     return null;

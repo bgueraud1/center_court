@@ -41,7 +41,7 @@ module.exports.handler = async function(event) {
 
   try {
     const q = new URL(`${SUPABASE_URL}/rest/v1/users`);
-    q.searchParams.set('select', 'id,pseudo');
+    q.searchParams.set('select', 'id,pseudo,tour,country');
     q.searchParams.set('pseudo', `eq.${encodeURIComponent(pseudo)}`);
     q.searchParams.set('password_hash', `eq.${encodeURIComponent(password_hash)}`);
 
@@ -65,7 +65,7 @@ module.exports.handler = async function(event) {
     if (Array.isArray(arr) && arr.length > 0) {
       // found
       const user = arr[0];
-      return jsonResponse(200, { ok: true, user: { id: user.id, pseudo: user.pseudo } });
+      return jsonResponse(200, { ok: true, user: { id: user.id, pseudo: user.pseudo, tour: user.tour, country: user.country } });
     } else {
       return jsonResponse(401, { ok: false, error: "Invalid credentials" });
     }
