@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Leaderboard — Users</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#071025;--muted:#9aa6bf;--card:#071428;--accent-blue:#d8f0ff;--accent-purple:#ebdfff}
+  body{background:linear-gradient(180deg,#071025,#081428);color:#e9f2ff;font-family:Inter,system-ui, -apple-system, "Segoe UI", Roboto, Arial;margin:0;padding:20px}
+  .wrap{max-width:1100px;margin:0 auto}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+  h1{margin:0;font-size:20px}
+  .controls{margin-left:auto;display:flex;gap:8px;align-items:center}
+  .btn{background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted);padding:8px 10px;border-radius:8px;cursor:pointer;font-weight:700}
+  .btn.active{color:#fff;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01))}
+  .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));padding:12px;border-radius:10px;border:1px solid rgba(255,255,255,0.03)}
+  .meta{color:var(--muted);font-size:13px;margin-top:6px}
+  table{width:100%;border-collapse:collapse;margin-top:12px}
+  th,td{padding:10px;text-align:left;border-bottom:1px dashed rgba(255,255,255,0.03);font-size:14px;vertical-align:middle}
+  thead th{color:var(--muted);font-weight:700;cursor:pointer;user-select:none}
+  tr.atp{background:linear-gradient(90deg, rgba(216,240,255,0.06), transparent)}
+  tr.wta{background:linear-gradient(90deg, rgba(235,223,255,0.05), transparent)}
+  .flag{width:22px;height:16px;display:inline-block;margin-right:8px;vertical-align:middle;object-fit:cover;border-radius:2px}
+  .pseudo{font-weight:700}
+  .small{font-size:13px;color:var(--muted)}
+  .empty{color:var(--muted)}
+  .controls-line{display:flex;gap:10px;align-items:center;margin-bottom:8px}
+  .note{color:var(--muted);font-size:13px;margin-top:8px}
+  @media (max-width:880px){ th,td{padding:8px;font-size:13px} .flag{display:none} }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>League Leaderboard</h1>
+        <div class="meta">Classement par league / global — choisit la fenêtre temporelle (semaine / all-time) et trie par colonne</div>
+      </div>
+      <div class="controls">
+        <div id="userBox" class="card" style="padding:8px 10px">—</div>
+      </div>
+    </header>
+
+    <div class="controls-line">
+      <div>
+        <button id="btnScopeLeague" class="btn">Par league</button>
+        <button id="btnScopeGlobal" class="btn active">Global</button>
+      </div>
+      <div>
+        <button id="btnTimeWeek" class="btn">Cette semaine</button>
+        <button id="btnTimeAll" class="btn active">All time</button>
+      </div>
+      <div style="margin-left:auto" class="small">Fichier source: <code id="srcPath">/tools/users_leaderboard.json</code></div>
+    </div>
+
+    <div id="board" class="card">
+      <div id="titleView" style="margin-bottom:8px;font-weight:700">Global — All time</div>
+      <div style="overflow:auto">
+        <table id="tbl">
+          <thead>
+            <tr>
+              <th data-key="rank">#</th>
+              <th data-key="pseudo">User</th>
+              <th data-key="league">League</th>
+              <th data-key="tour">Tour</th>
+              <th data-key="total" title="Total points (sum of the three games)">Total</th>
+              <th data-key="guess_player">Guess Player</th>
+              <th data-key="guess_player_h2h">H2H</th>
+              <th data-key="gill_the_grid">FillGrid</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="note">Clique sur un en-tête (Total / Guess Player / H2H / FillGrid) pour trier. Par défaut la page tente d'afficher la league de l'utilisateur connecté.</div>
+    </div>
+  </div>
+
+<script>
+/*
+Expected JSON file (example: /tools/users_leaderboard.json):
+
+{
+  "week": "2026-03-03",
+  "users": [
+    {
+      "id": "0548f90f-...",
+      "user_id": "",
+      "pseudo": "Davaidasha",
+      "league": "ATP_top20",          // or "Future F15" etc. (string)
+      "tour": "ATP",                 // "ATP" or "WTA"
+      "country": "France",           // English country name
+      "scores": {
+         "alltime": 250,
+         "week": 60
+      },
+      "by_game": {
+         "guess_player": {"alltime": 120, "week": 30},
+         "guess_player_h2h": {"alltime": 90, "week": 20},
+         "gill_the_grid": {"alltime": 40, "week": 10}
+      }
+    },
+    ...
+  ]
+}
+
+This page fetches that file and renders the leaderboard.
+*/
+
+const JSON_PATH = '/tools/users_leaderboard.json'; // -> ensure CI writes this file into site build
+const TABLE = document.getElementById('tbl');
+const TBODY = TABLE.querySelector('tbody');
+const titleView = document.getElementById('titleView');
+const srcPathEl = document.getElementById('srcPath');
+
+let DATA = null;
+let currentScope = 'global'; // 'league' or 'global'
+let currentTime = 'all'; // 'week' or 'all'
+let sortKey = 'total';
+let sortDesc = true;
+let currentLeagueFilter = null; // league name when scope==='league'
+let localUser = null;
+
+// helpers
+function fmt(n){ return (n===null||n===undefined)? '—' : Number(n).toLocaleString(); }
+function getLocalUser(){
+  try {
+    if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') return window.LEADERBOARD.getLocalUser();
+  } catch(e){}
+  try { const raw = localStorage.getItem('lb_local_user_v1'); if(raw) return JSON.parse(raw); } catch(e){}
+  return null;
+}
+function countryToFlagUrl(countryName){
+  // try from cache
+  if(!countryName) return '';
+  const key = 'flag_'+countryName;
+  const cached = localStorage.getItem(key);
+  if(cached) return cached;
+  // fetch restcountries
+  const url = 'https://restcountries.com/v3.1/name/' + encodeURIComponent(countryName) + '?fullText=true';
+  fetch(url).then(r=>r.ok?r.json():null).then(j=>{
+    if(j && j[0] && j[0].cca2){
+      const code = j[0].cca2.toLowerCase();
+      // flagcdn quick url (2-letter)
+      const flagUrl = `https://flagcdn.com/w20/${code}.png`;
+      localStorage.setItem(key, flagUrl);
+      // trigger small rerender
+      renderTable();
+    }
+  }).catch(()=>{});
+  return '';
+}
+
+// load JSON
+async function loadData(){
+  srcPathEl.textContent = JSON_PATH;
+  try{
+    const r = await fetch(JSON_PATH, {cache:'no-cache'});
+    if(!r.ok){ TBODY.innerHTML = '<tr><td colspan="8" class="empty">Données introuvables — vérifie que CI écrit ' + JSON_PATH + '</td></tr>'; return; }
+    DATA = await r.json();
+    document.getElementById('userBox').textContent = '—';
+    localUser = getLocalUser();
+    if(localUser && localUser.pseudo) document.getElementById('userBox').textContent = localUser.pseudo;
+    // default league filter: user's league if available
+    if(localUser && localUser.league) { currentLeagueFilter = localUser.league; currentScope='league'; document.getElementById('btnScopeLeague').classList.add('active'); document.getElementById('btnScopeGlobal').classList.remove('active'); }
+    else { currentScope='global'; document.getElementById('btnScopeGlobal').classList.add('active'); document.getElementById('btnScopeLeague').classList.remove('active'); }
+    renderTable();
+  }catch(err){
+    console.error(err);
+    TBODY.innerHTML = '<tr><td colspan="8" class="empty">Erreur lors du chargement.</td></tr>';
+  }
+}
+
+function buildRows(){
+  if(!DATA || !Array.isArray(DATA.users)) return [];
+  const all = DATA.users.map(u => {
+    const bygame = u.by_game || u.scores_by_game || {};
+    const total_all = (u.scores && u.scores.alltime) ? Number(u.scores.alltime) : (
+      ( (bygame.guess_player?.alltime||0) + (bygame.guess_player_h2h?.alltime||0) + (bygame.gill_the_grid?.alltime||0) )
+    );
+    const total_week = (u.scores && u.scores.week) ? Number(u.scores.week) : (
+      ( (bygame.guess_player?.week||0) + (bygame.guess_player_h2h?.week||0) + (bygame.gill_the_grid?.week||0) )
+    );
+    return {
+      id: u.id,
+      user_id: u.user_id || null,
+      pseudo: u.pseudo || u.user_id || '—',
+      league: u.league || '—',
+      tour: (u.tour || '').toUpperCase(),
+      country: u.country || '',
+      totals: { all: total_all, week: total_week },
+      by_game: {
+        guess_player: { all: Number(bygame.guess_player?.alltime || 0), week: Number(bygame.guess_player?.week || 0) },
+        guess_player_h2h: { all: Number(bygame.guess_player_h2h?.alltime || 0), week: Number(bygame.guess_player_h2h?.week || 0) },
+        gill_the_grid: { all: Number(bygame.gill_the_grid?.alltime || 0), week: Number(bygame.gill_the_grid?.week || 0) }
+      }
+    };
+  });
+
+  // filter scope
+  let rows = all;
+  if(currentScope === 'league' && currentLeagueFilter){
+    rows = rows.filter(r => r.league === currentLeagueFilter);
+  }
+
+  // choose timeframe value for sort
+  const timeKey = (currentTime === 'week') ? 'week' : 'all';
+
+  // compute key value for sorting
+  rows = rows.map(r => {
+    r.sortVals = {
+      total: r.totals[ timeKey ],
+      guess_player: r.by_game.guess_player[ timeKey ],
+      guess_player_h2h: r.by_game.guess_player_h2h[ timeKey ],
+      gill_the_grid: r.by_game.gill_the_grid[ timeKey ]
+    };
+    return r;
+  });
+
+  // sort
+  rows.sort((a,b)=>{
+    const ka = a.sortVals[sortKey] || 0;
+    const kb = b.sortVals[sortKey] || 0;
+    if(ka === kb) return a.pseudo.localeCompare(b.pseudo);
+    return sortDesc ? (kb - ka) : (ka - kb);
+  });
+
+  // assign rank
+  let rank = 0, lastVal = null;
+  rows.forEach((r, idx)=>{
+    const v = r.sortVals[sortKey] || 0;
+    if(idx === 0 || v !== lastVal){ rank = idx+1; lastVal = v; }
+    r.rank = rank;
+  });
+
+  return rows;
+}
+
+function renderTable(){
+  const rows = buildRows();
+  if(!rows || rows.length===0){ TBODY.innerHTML = '<tr><td colspan="8" class="empty">Aucun utilisateur</td></tr>'; return; }
+  TBODY.innerHTML = '';
+  rows.forEach(r=>{
+    const tr = document.createElement('tr');
+    tr.classList.add(r.tour === 'WTA' ? 'wta' : (r.tour === 'ATP' ? 'atp' : ''));
+    const flagUrl = countryToFlagUrl(r.country) || '';
+    const flagHtml = flagUrl ? `<img class="flag" src="${flagUrl}" alt="${r.country}"/>` : (r.country ? `<span class="small">${r.country}</span>` : '');
+    tr.innerHTML = `
+      <td>${r.rank}</td>
+      <td><span style="display:flex;align-items:center;gap:8px"><span style="display:inline-block">${flagHtml}</span><span class="pseudo">${escapeHtml(r.pseudo)}</span></span></td>
+      <td>${escapeHtml(r.league)}</td>
+      <td>${escapeHtml(r.tour||'—')}</td>
+      <td style="font-weight:800">${fmt(r.sortVals.total)}</td>
+      <td>${fmt(r.sortVals.guess_player)}</td>
+      <td>${fmt(r.sortVals.guess_player_h2h)}</td>
+      <td>${fmt(r.sortVals.gill_the_grid)}</td>
+    `;
+    TBODY.appendChild(tr);
+  });
+  // title
+  const scopeLabel = currentScope === 'global' ? 'Global' : (currentLeagueFilter || 'League');
+  const timeLabel = currentTime === 'all' ? 'All time' : 'Cette semaine';
+  titleView.textContent = `${scopeLabel} — ${timeLabel} (tri: ${sortKey}${sortDesc?' ↓':' ↑'})`;
+}
+
+// escape helper
+function escapeHtml(s){ if(s===undefined||s===null) return ''; return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m]); }
+
+// click handlers
+document.getElementById('btnScopeLeague').addEventListener('click', ()=>{
+  currentScope = 'league';
+  document.getElementById('btnScopeLeague').classList.add('active');
+  document.getElementById('btnScopeGlobal').classList.remove('active');
+  // if possible set league to current user's league from DATA
+  if(localUser && DATA && Array.isArray(DATA.users)){
+    const me = DATA.users.find(u => (u.user_id && localUser.user_id && u.user_id === localUser.user_id) || (u.pseudo && localUser.pseudo && u.pseudo === localUser.pseudo));
+    if(me) currentLeagueFilter = me.league;
+  }
+  renderTable();
+});
+document.getElementById('btnScopeGlobal').addEventListener('click', ()=>{
+  currentScope = 'global';
+  document.getElementById('btnScopeGlobal').classList.add('active');
+  document.getElementById('btnScopeLeague').classList.remove('active');
+  currentLeagueFilter = null;
+  renderTable();
+});
+document.getElementById('btnTimeWeek').addEventListener('click', ()=>{
+  currentTime = 'week';
+  document.getElementById('btnTimeWeek').classList.add('active');
+  document.getElementById('btnTimeAll').classList.remove('active');
+  renderTable();
+});
+document.getElementById('btnTimeAll').addEventListener('click', ()=>{
+  currentTime = 'all';
+  document.getElementById('btnTimeAll').classList.add('active');
+  document.getElementById('btnTimeWeek').classList.remove('active');
+  renderTable();
+});
+
+// sorting via headers
+Array.from(TABLE.querySelectorAll('thead th')).forEach(th=>{
+  th.addEventListener('click', ()=>{
+    const key = th.dataset.key || 'total';
+    // mapping keys: 'total' is total, other keys map directly
+    sortKey = (key === 'total') ? 'total' : key;
+    // toggle direction if same
+    sortDesc = !sortDesc;
+    renderTable();
+  });
+});
+
+loadData();
+</script>
+</body>
+</html>
