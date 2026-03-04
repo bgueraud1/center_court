@@ -341,90 +341,105 @@ function renderUserPanel(){
   // (re)bind toggle handler - harmless even if assigned multiple times
   userBox.onclick = toggleUserDropdown;
 }
-
-// toggleUserDropdown stays same, but keep as reference to ensure behaviour unchanged
-function toggleUserDropdown(e){
-  e && e.stopPropagation && e.stopPropagation();
-  const existing = userPanel.querySelector('.user-dropdown');
-  if(existing){
-    existing.remove();
-    userBox.setAttribute('aria-expanded','false');
-    return;
-  }
-  const dd = document.createElement('div');
-  dd.className = 'user-dropdown';
-  dd.setAttribute('role','menu');
-
-  let localUser = null;
-  try { localUser = (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') ? window.LEADERBOARD.getLocalUser() : null; } catch (e) { localUser = null; }
-
-  if(localUser && (localUser.pseudo || localUser.user_id)){
-    // connected: show Log Out
-    const btnLogout = document.createElement('button');
-    btnLogout.type='button';
-    btnLogout.textContent = 'Log out';
-    btnLogout.onclick = async (ev) => {
-      ev && ev.stopPropagation && ev.stopPropagation();
-      btnLogout.disabled = true;
-      try {
-        await performLogout({ reload: false });
-        const d = userPanel.querySelector('.user-dropdown');
-        if (d) d.remove();
-        userBox.setAttribute('aria-expanded','false');
-        setTimeout(renderUserPanel, 150);
-      } catch (e) {
-        console.error('Logout failed', e);
-        showToast('Logout failed');
-        btnLogout.disabled = false;
-      } finally {
-        btnLogout.disabled = false;
+// ---------- helper: wait for LEADERBOARD ----------
+function waitForLeaderboard(timeoutMs = 3000, intervalMs = 150) {
+  return new Promise((resolve) => {
+    if (window.LEADERBOARD && typeof window.LEADERBOARD === 'object') return resolve(window.LEADERBOARD);
+    const started = Date.now();
+    const t = setInterval(() => {
+      if (window.LEADERBOARD && typeof window.LEADERBOARD === 'object') {
+        clearInterval(t);
+        return resolve(window.LEADERBOARD);
       }
-    };
-    dd.appendChild(btnLogout);
-  } else {
-    // not connected: show Log In and Create Account
-    const btnLogin = document.createElement('button');
-    btnLogin.type='button';
-    btnLogin.textContent = 'Log In';
-    btnLogin.onclick = () => {
-      if(window.LEADERBOARD){
-        if(typeof window.LEADERBOARD.openLogin === 'function') return window.LEADERBOARD.openLogin();
-        if(typeof window.LEADERBOARD.login === 'function') return window.LEADERBOARD.login();
-        if(typeof window.LEADERBOARD.showAuth === 'function') return window.LEADERBOARD.showAuth();
+      if (Date.now() - started > timeoutMs) {
+        clearInterval(t);
+        return resolve(null);
       }
-      showToast('Login not available from this page');
-    };
-    dd.appendChild(btnLogin);
-
-    const btnCreate = document.createElement('button');
-    btnCreate.type='button';
-    btnCreate.textContent = 'Create account';
-    btnCreate.onclick = () => {
-      if(window.LEADERBOARD && typeof window.LEADERBOARD.openRegister === 'function') return window.LEADERBOARD.openRegister();
-      if(window.LEADERBOARD && typeof window.LEADERBOARD.register === 'function') return window.LEADERBOARD.register();
-      showToast('Register not available from this page');
-    };
-    dd.appendChild(btnCreate);
-  }
-
-  userPanel.appendChild(dd);
-  userBox.setAttribute('aria-expanded','true');
-
-  // click outside to close
-  setTimeout(()=> {
-    const onDoc = (ev) => {
-      if(!userPanel.contains(ev.target)){
-        const d = userPanel.querySelector('.user-dropdown');
-        if(d) d.remove();
-        userBox.setAttribute('aria-expanded','false');
-        document.removeEventListener('click', onDoc);
-      }
-    };
-    document.addEventListener('click', onDoc);
-  }, 10);
+    }, intervalMs);
+  });
 }
 
-// initialize user panel (polls once in case LB lib loads after page)
+// ---------- use this helper in the dropdown handlers ----------
+/* when creating the Login button: */
+btnLogin.onclick = async () => {
+  // 1) try immediate call if available
+  if (window.LEADERBOARD && typeof window.LEADERBOARD.openLogin === 'function') {
+    return window.LEADERBOARD.openLogin();
+  }
+  // 2) otherwise wait shortly for the module to appear (index.html loads it sometimes later)
+  showToast('Waiting for auth module…', 2000);
+  const lb = await waitForLeaderboard(3000);
+  if (lb && typeof lb.openLogin === 'function') {
+    return lb.openLogin();
+  }
+  // 3) fallback: try openAuthModal from this file if present (keeps behaviour usable)
+  if (typeof openAuthModal === 'function') {
+    const res = await openAuthModal('login');
+    if (!res) return;
+    if (res.action === 'login') {
+      const ok = await performServerLogin(res.pseudo, res.password);
+      if (ok) {
+        showToast('Signed in', 1200);
+        renderUserPanel();
+        try { window.dispatchEvent(new Event('lb:auth-changed')); } catch(e){}
+      }
+    } else if (res.action === 'register') {
+      const ok = await performServerSignup(res.pseudo, res.password, res.tour, res.country);
+      if (ok) {
+        showToast('Account created', 1200);
+        renderUserPanel();
+        try { window.dispatchEvent(new Event('lb:auth-changed')); } catch(e){}
+      }
+    }
+    return;
+  }
+  // final fallback: meaningful message
+  showToast('Login not available from this page', 2200);
+};
+
+/* similarly for register/create account button: */
+btnCreate.onclick = async () => {
+  if (window.LEADERBOARD && typeof window.LEADERBOARD.openRegister === 'function') {
+    return window.LEADERBOARD.openRegister();
+  }
+  showToast('Waiting for auth module…', 2000);
+  const lb = await waitForLeaderboard(3000);
+  if (lb && typeof lb.openRegister === 'function') {
+    return lb.openRegister();
+  }
+  if (typeof openAuthModal === 'function') {
+    const res = await openAuthModal('register');
+    if (res && res.action === 'register') {
+      const ok = await performServerSignup(res.pseudo, res.password, res.tour, res.country);
+      if (ok) {
+        showToast('Account created', 1200);
+        renderUserPanel();
+        try { window.dispatchEvent(new Event('lb:auth-changed')); } catch(e){}
+      }
+    }
+    return;
+  }
+  showToast('Register not available from this page', 2200);
+};
+
+/* logout button: */
+btnLogout.onclick = async (ev) => {
+  ev && ev.stopPropagation && ev.stopPropagation();
+  // try LEADERBOARD logout first
+  if (window.LEADERBOARD && typeof window.LEADERBOARD.logout === 'function') {
+    try {
+      window.LEADERBOARD.logout();
+      showToast('Logged out', 1200);
+      renderUserPanel();
+      try { window.dispatchEvent(new Event('lb:auth-changed')); } catch(e){}
+      return;
+    } catch(e){ console.warn('LEADERBOARD.logout threw', e); }
+  }
+  // else fallback to performLogout (existing function)
+  await performLogout({ reload: false });
+  renderUserPanel();
+  try { window.dispatchEvent(new Event('lb:auth-changed')); } catch(e){}
+};
 // Small tweak: keep calling renderUserPanel but do NOT forcibly remove dropdown if user opened it.
 (function watchForLbToRenderUser(){
   renderUserPanel();
