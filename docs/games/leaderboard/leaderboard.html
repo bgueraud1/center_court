@@ -6,7 +6,7 @@
 <title>Leaderboard</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
 <style>
-  :root{--bg:#071025;--muted:#9aa6bf;--card:#071428;--accent-blue:rgba(216,240,255,0.06);--accent-purple:rgba(235,223,255,0.05)}
+  :root{--bg:#071025;--muted:#9aa6bf;--card:#071428;--accent-blue:rgba(68,138,255,0.12);--accent-purple:rgba(200,150,255,0.10)}
   body{background:linear-gradient(180deg,#071025,#081428);color:#e9f2ff;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial;margin:0;padding:20px}
   .wrap{max-width:1100px;margin:0 auto}
   header{display:flex;align-items:center;gap:12px;margin-bottom:16px}
@@ -19,8 +19,9 @@
   table{width:100%;border-collapse:collapse;margin-top:12px}
   th,td{padding:10px;text-align:left;border-bottom:1px dashed rgba(255,255,255,0.03);font-size:14px;vertical-align:middle}
   thead th{color:var(--muted);font-weight:700;cursor:pointer;user-select:none}
-  tr.atp{background:linear-gradient(90deg,var(--accent-blue), transparent)}
-  tr.wta{background:linear-gradient(90deg,var(--accent-purple), transparent)}
+  /* stronger full-row background for ATP/WTA */
+  tbody tr.atp{ background: linear-gradient(90deg, var(--accent-blue), transparent); }
+  tbody tr.wta{ background: linear-gradient(90deg, var(--accent-purple), transparent); }
   .flag{width:22px;height:16px;display:inline-block;margin-right:8px;vertical-align:middle;object-fit:cover;border-radius:2px}
   .pseudo{font-weight:700}
   .small{font-size:13px;color:var(--muted)}
@@ -88,7 +89,7 @@
     <header style="position:relative">
       <div>
         <h1>Leaderboard</h1>
-        <div class="meta">Default: your league &amp; league_id — this week. Click headers to sort.</div>
+        <!-- meta text removed as requested -->
       </div>
 
       <!-- user panel: replaced markup to match index.html (button top-right) -->
@@ -111,7 +112,7 @@
         <button id="btnTimeWeek" class="btn">This week</button>
         <button id="btnTimeAll" class="btn">All time</button>
       </div>
-      <div style="margin-left:auto" class="small">Data source: <code id="srcPath">/tools/users_leaderboard.json</code></div>
+      <!-- Data source text removed as requested -->
     </div>
 
     <div id="board" class="card">
@@ -140,7 +141,9 @@
           <tbody></tbody>
         </table>
       </div>
-      <div class="note">If no data appears, provide <code>/tools/supabase_config.json</code> with {"url":"https://...","anon":"anon_key"} or a build JSON <code>/tools/users_leaderboard.json</code>.</div>
+
+      <!-- note removed as requested -->
+
     </div>
   </div>
 
@@ -305,11 +308,6 @@ async function performLogout({ reload = false } = {}) {
 
 /* ---------------------------
    USER PANEL & dropdown (copied from index.html)
-   - shows pseudo if connected, or "Connect" if not
-   - clicking opens small dropdown with relevant options:
-     - if connected: Log out
-     - if not: Log In, Create Account
-   - uses window.LEADERBOARD.* if available, otherwise graceful fallback
 ---------------------------- */
 
 /* ---------- USER PANEL (corrigé) ---------- */
@@ -680,13 +678,14 @@ function renderTable(){
   TBODY.innerHTML = '';
   rows.forEach(r=>{
     const tr = document.createElement('tr');
+    // color whole row by tour (ATP -> blue, WTA -> purple)
     if(r.tour === 'WTA') tr.classList.add('wta'); else if(r.tour === 'ATP') tr.classList.add('atp');
     const flagUrl = countryToFlagUrlCached(r.country) || '';
     const flagHtml = flagUrl ? `<img class="flag" src="${flagUrl}" alt="${escapeHtml(r.country)}">` : (r.country ? `<span class="small">${escapeHtml(r.country)}</span>` : '');
     tr.innerHTML = `
       <td>${r.rank}</td>
       <td><div style="display:flex;align-items:center;gap:8px">${flagHtml}<span class="pseudo">${escapeHtml(r.pseudo)}</span></div></td>
-      <td>${escapeHtml(r.league||'—')} ${r.league_id ? '(id:'+escapeHtml(r.league_id)+')' : ''}</td>
+      <td>${escapeHtml(r.league||'—')}</td>
       <td style="font-weight:800">${fmt(r.sortVals.total)}</td>
       <td>${fmt(r.sortVals.guess_player)}</td>
       <td>${fmt(r.sortVals.guess_player_h2h)}</td>
