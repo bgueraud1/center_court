@@ -205,41 +205,34 @@
  * filenames observed: "21805_D_Gavrilova.json" -> pattern: <id>_<name>.json
  * We'll try several variants to be robust.
  */
-/* Replace existing buildAdvancedCandidatesFor(player) with this improved version */
-function buildAdvancedCandidatesFor(player){
+/* Replace existing buildAdvancedCandidatesForVerbose(player) with this improved verbose version */
+function buildAdvancedCandidatesForVerbose(player){
+  console.log('buildAdvancedCandidatesForVerbose: player =', player);
   const pid = player && (player.player_id || player.id || player.pid) ? String(player.player_id || player.id || player.pid) : '';
   const slugVal = player && (player.slug || player.name_slug) ? String(player.slug || player.name_slug) : '';
   const nameRaw = player && (player.name || player.fullname) ? String(player.name || player.fullname).trim() : '';
 
-  // split into name parts to extract first & last
   const parts = nameRaw ? nameRaw.split(/\s+/) : [];
   const first = parts.length ? parts[0].replace(/[^A-Za-z0-9]/g,'') : '';
   const last = parts.length > 1 ? parts[parts.length-1].replace(/[^A-Za-z0-9]/g,'') : '';
-
-  // helper to capitalise first letter (useful if name in all lower/upper in source)
   const capitalize = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 
   const candidates = [];
 
-  // 1) Prefer id_First_Last (the new real format)
   if(pid && first && last){
-    // try several case variants (original, capitalized, lowercase)
     candidates.push(`general_advanced_stats/${pid}_${first}_${last}.json`);
     candidates.push(`general_advanced_stats/${pid}_${capitalize(first)}_${capitalize(last)}.json`);
     candidates.push(`general_advanced_stats/${pid}_${first.toLowerCase()}_${last.toLowerCase()}.json`);
-    // root-absolute variants
     candidates.push(`/general_advanced_stats/${pid}_${first}_${last}.json`);
-    candidates.push(`/general_advanced_stats/${pid}_${capitalize(first)}_${capitalize(last)}.json`);
   }
 
-  // 2) existing variants we already tried before (keep them)
   if(pid && slugVal){
     candidates.push(`general_advanced_stats/${pid}_${slugVal}.json`);
     candidates.push(`general_advanced_stats/${pid}_${slugVal.toLowerCase()}.json`);
     candidates.push(`/general_advanced_stats/${pid}_${slugVal}.json`);
   }
+
   if(pid && nameRaw){
-    // fallback id_FamilyName or id_First_initial_Last (D_Gavrilova)
     const initial = first ? first.charAt(0) : '';
     candidates.push(`general_advanced_stats/${pid}_${nameRaw.replace(/\s+/g,'_')}.json`);
     if(initial) candidates.push(`general_advanced_stats/${pid}_${initial}_${last}.json`);
@@ -247,7 +240,6 @@ function buildAdvancedCandidatesFor(player){
     candidates.push(`/general_advanced_stats/${pid}.json`);
   }
 
-  // 3) slugs / alternate locations (older layouts)
   if(slugVal){
     candidates.push(`general_advanced_stats/${slugVal}.json`);
     candidates.push(`general_advanced_stats/${slugVal.toLowerCase()}.json`);
@@ -255,30 +247,31 @@ function buildAdvancedCandidatesFor(player){
     candidates.push(`/players_atp/data/${slugVal}.advanced.json`);
   }
 
-  // 4) last resort: try name-only
   if(first && last){
     candidates.push(`general_advanced_stats/${first}_${last}.json`);
     candidates.push(`general_advanced_stats/${capitalize(first)}_${capitalize(last)}.json`);
   }
+
   if(nameRaw){
     candidates.push(`general_advanced_stats/${nameRaw.replace(/\s+/g,'_')}.json`);
   }
 
-  // final fallback: pid + sanitized
   if(pid){
     candidates.push(`/general_advanced_stats/${pid}_${nameRaw.replace(/[^A-Za-z0-9_]/g,'_')}.json`);
   }
 
-  // deduplicate preserving order
+  // dedupe and log
   const seen = new Set();
-  return candidates.filter(c => {
+  const uniq = candidates.filter(c => {
     if(!c) return false;
     if(seen.has(c)) return false;
     seen.add(c);
     return true;
   });
-}
 
+  console.log('buildAdvancedCandidatesForVerbose -> candidate list:', uniq);
+  return uniq;
+}
 /**
  * Render advanced stats into targetDiv using the JSON structure found in your example files.
  * English labels. Robust to missing keys.
