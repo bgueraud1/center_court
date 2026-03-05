@@ -176,9 +176,13 @@
           <div id="detailed-stats-container"></div>
         </div>
 
-        <div id="panel-advanced" class="panel" role="tabpanel" style="display:none; padding:12px;">
+        <!-- Panel Advanced (insert where other panels are) -->
+<div id="panel-advanced" class="panel" role="tabpanel" style="display:none; padding:12px;">
   <div id="advanced-loading" class="sub">Loading…</div>
   <div id="advanced-content" style="display:none;"></div>
+
+  <!-- area to show debug logs in-page (also logs go to console) -->
+  <div id="advanced-log" style="margin-top:10px;font-family:monospace;font-size:12px;color:#111;max-height:300px;overflow:auto;background:#f7f7f7;border:1px solid #ddd;padding:8px;display:none;"></div>
 </div>
 
         <div id="panel-scenarios" style="display:none; padding:8px;"></div>
@@ -196,6 +200,261 @@
   
 
 <script>
+
+  /* ---------- Advanced stats loader with verbose logging (paste into player.html) ---------- */
+
+/**
+ * Utility: append message to in-panel debug log AND console.
+ * type: 'info'|'warn'|'error'
+ */
+function advLog(msg, type='info'){
+  try{
+    const panelLog = document.getElementById('advanced-log');
+    if(panelLog){
+      panelLog.style.display = 'block';
+      const el = document.createElement('div');
+      el.textContent = `[${(new Date()).toLocaleTimeString()}] ${msg}`;
+      el.style.whiteSpace = 'pre-wrap';
+      panelLog.appendChild(el);
+      // keep scroll at bottom
+      panelLog.scrollTop = panelLog.scrollHeight;
+    }
+  }catch(e){}
+  if(type === 'warn') console.warn(msg);
+  else if(type === 'error') console.error(msg);
+  else console.log(msg);
+}
+
+/* Build candidate filenames including id_First_Last.json and variants */
+function buildAdvancedCandidatesForLogging(player){
+  advLog('Building candidates from player object');
+  console.log('player object for advanced tab:', player);
+  const pid = player && (player.player_id || player.id || player.pid) ? String(player.player_id || player.id || player.pid) : '';
+  const slug = player && (player.slug || player.name_slug) ? String(player.slug || player.name_slug) : '';
+  const nameRaw = player && (player.name || player.fullname) ? String(player.name || player.fullname).trim() : '';
+
+  const parts = nameRaw ? nameRaw.split(/\s+/) : [];
+  const first = parts.length ? parts[0].replace(/[^A-Za-z0-9]/g,'') : '';
+  const last = parts.length > 1 ? parts[parts.length-1].replace(/[^A-Za-z0-9]/g,'') : '';
+  const initial = first ? first.charAt(0) : '';
+
+  const capitalize = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+
+  const candidates = [];
+
+  // Prefer id_First_Last (ex: 315391_Caroline_Garcia.json)
+  if(pid && first && last){
+    candidates.push(`general_advanced_stats/${pid}_${first}_${last}.json`);
+    candidates.push(`general_advanced_stats/${pid}_${capitalize(first)}_${capitalize(last)}.json`);
+    candidates.push(`general_advanced_stats/${pid}_${first.toLowerCase()}_${last.toLowerCase()}.json`);
+    candidates.push(`/general_advanced_stats/${pid}_${first}_${last}.json`);
+    candidates.push(`/general_advanced_stats/${pid}_${capitalize(first)}_${capitalize(last)}.json`);
+  }
+
+  // fallback to id_initial_last (ex: 315391_C_Garcia.json)
+  if(pid && initial && last){
+    candidates.push(`general_advanced_stats/${pid}_${initial}_${last}.json`);
+    candidates.push(`/general_advanced_stats/${pid}_${initial}_${last}.json`);
+  }
+
+  // slug & other previous formats
+  if(pid && slug){
+    candidates.push(`general_advanced_stats/${pid}_${slug}.json`);
+    candidates.push(`/general_advanced_stats/${pid}_${slug}.json`);
+  }
+  if(pid){
+    candidates.push(`general_advanced_stats/${pid}.json`);
+    candidates.push(`/general_advanced_stats/${pid}.json`);
+  }
+
+  // name-only fallbacks
+  if(first && last){
+    candidates.push(`general_advanced_stats/${first}_${last}.json`);
+    candidates.push(`/general_advanced_stats/${first}_${last}.json`);
+  }
+  if(nameRaw){
+    candidates.push(`general_advanced_stats/${nameRaw.replace(/\s+/g,'_')}.json`);
+    candidates.push(`/general_advanced_stats/${nameRaw.replace(/\s+/g,'_')}.json`);
+  }
+
+  // also try encoded variants (in case of accents / spaces)
+  const encoded = (str) => encodeURI(str);
+  const more = candidates.map(c => encoded(c));
+  candidates.push(...more);
+
+  // dedupe but preserve order
+  const seen = new Set();
+  const uniq = candidates.filter(c => {
+    if(!c) return false;
+    if(seen.has(c)) return false;
+    seen.add(c);
+    return true;
+  });
+
+  advLog('Candidates to try (in order): ' + uniq.join(' ; '));
+  console.log('Candidates to try:', uniq);
+  return uniq;
+}
+
+/* Try a list of URLs sequentially, log status and return first parsed JSON */
+async function tryCandidatesSequentialAndLog(candidates){
+  advLog('Starting fetch attempts for candidates...');
+
+  // build expanded list with origin variants for each candidate
+  const origin = window.location.origin;
+  const expanded = [];
+  for(const c of candidates){
+    if(!c) continue;
+    if(/^https?:\/\//i.test(c)) { expanded.push(c); continue; }
+    // as-given (likely relative)
+    expanded.push(c);
+    // ensure leading slash variant
+    if(!c.startsWith('/')) expanded.push('/' + c);
+    // origin + path
+    expanded.push(origin + (c.startsWith('/') ? c : '/' + c));
+    // ./ variant (page relative)
+    expanded.push('./' + c);
+  }
+  // dedupe preserve order
+  const seen = new Set();
+  const uniq = expanded.filter(u => {
+    if(seen.has(u)) return false;
+    seen.add(u);
+    return true;
+  });
+
+  advLog('Expanded attempt list: ' + uniq.join(' ; '));
+
+  for(const url of uniq){
+    advLog('Trying fetch: ' + url);
+    console.log('fetching', url);
+    try{
+      const resp = await fetch(url, {cache: 'no-store', mode: 'cors'});
+      advLog(`-> status ${resp.status} ${resp.statusText} (content-type: ${resp.headers.get('content-type')})`);
+      if(!resp.ok){
+        // read small body for debug if possible
+        try{
+          const txt = await resp.text();
+          advLog(`   non-ok body (first 300 chars): ${txt.slice(0,300).replace(/\n/g,' ')}`);
+        }catch(e){}
+        continue;
+      }
+      // try parse JSON
+      try{
+        const data = await resp.json();
+        advLog('-> JSON parsed successfully from ' + url);
+        console.log('Parsed JSON from', url, data);
+        return { url, data, resp };
+      }catch(parseErr){
+        advLog('-> JSON parse error for ' + url + ' : ' + (parseErr && parseErr.message ? parseErr.message : String(parseErr)), 'error');
+        continue;
+      }
+    }catch(fetchErr){
+      advLog('-> Fetch error for ' + url + ' : ' + (fetchErr && fetchErr.message ? fetchErr.message : String(fetchErr)), 'error');
+      // Common: TypeError: Failed to fetch (CORS or file://)
+      continue;
+    }
+  }
+
+  advLog('No candidate succeeded (all attempts failed).', 'warn');
+  return null;
+}
+
+/* The main loader to call when opening the Advanced tab.
+   It logs playerData and writes status to the panel.
+*/
+async function loadAdvancedForPlayer(player){
+  try{
+    advLog('--- Opening Advanced statistics tab ---');
+    console.log('loadAdvancedForPlayer: player =', player);
+    advLog('player object: ' + JSON.stringify(player).slice(0,1000));
+
+    const panel = document.getElementById('panel-advanced');
+    if(!panel){
+      console.warn('panel-advanced not found in DOM');
+      return;
+    }
+    // show loading UI
+    const loader = panel.querySelector('#advanced-loading');
+    const content = panel.querySelector('#advanced-content');
+    const logdiv = panel.querySelector('#advanced-log');
+    if(loader) loader.style.display = 'block';
+    if(content) content.style.display = 'none';
+    if(logdiv) logdiv.style.display = 'block';
+
+    const candidates = buildAdvancedCandidatesForLogging(player);
+    // special debug: show an explicit example candidate for Caroline Garcia (id 315391)
+    const debugExample = `general_advanced_stats/315391_Caroline_Garcia.json`;
+    advLog('DEBUG example you can test directly in browser: ' + window.location.origin + '/' + debugExample);
+
+    const res = await tryCandidatesSequentialAndLog(candidates);
+    if(!res || !res.data){
+      if(loader) loader.style.display = 'none';
+      if(content) content.style.display = 'none';
+      // show message to user inside panel
+      panel.innerHTML = '<div style="padding:8px;color:#333">Advanced statistics are not available for this player (no JSON found). Check console/panel logs for attempted paths.</div>' + (panel.innerHTML || '');
+      advLog('Advanced stats: no JSON found for player (see attempts above).', 'warn');
+      return;
+    }
+
+    // hide loader, show content
+    if(loader) loader.style.display = 'none';
+    if(content) content.style.display = 'block';
+    // render minimal content + raw JSON toggle (you already have a renderer, but we'll inject minimal for debug)
+    const injected = `
+      <div style="font-weight:700;margin-bottom:6px">Advanced statistics (loaded from: ${res.url})</div>
+      <div style="margin-top:6px"><button id="adv-raw-btn" style="padding:6px">Toggle raw JSON</button></div>
+      <div id="adv-raw" style="display:none;margin-top:8px;max-height:360px;overflow:auto;border:1px solid #ddd;padding:8px;background:#fff"><pre>${escapeHtml(JSON.stringify(res.data, null, 2).slice(0,20000))}${String(JSON.stringify(res.data).length>20000 ? '…' : '')}</pre></div>
+    `;
+    content.innerHTML = injected;
+    const btn = content.querySelector('#adv-raw-btn');
+    if(btn){ btn.addEventListener('click', () => {
+      const p = content.querySelector('#adv-raw');
+      if(p) p.style.display = (p.style.display === 'none' ? 'block' : 'none');
+    }); }
+
+    advLog('Advanced JSON loaded and displayed (raw).');
+    return;
+  }catch(e){
+    advLog('Unexpected error in loadAdvancedForPlayer: ' + (e && e.message ? e.message : String(e)), 'error');
+    console.error(e);
+  }
+}
+
+/* small helper used by injected HTML above */
+function escapeHtml(s){
+  if(!s) return '';
+  return String(s).replace(/[&<>"]/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; });
+}
+
+/* Hook: make sure the button/tab click calls loadAdvancedForPlayer(combinedPlayerData).
+   Insert this where your tab click handling is : when target === 'panel-advanced'
+   (Below is a safe guard to attach if your existing code sets window.combinedPlayer or similar)
+*/
+(function attachAdvancedTabAutoHook(){
+  // find all .tab-btn and add listener once for panel-advanced opens if not already present
+  document.addEventListener('click', function(e){
+    const btn = e.target.closest && e.target.closest('.tab-btn');
+    if(!btn) return;
+    const target = btn.getAttribute('data-target');
+    if(target === 'panel-advanced'){
+      // try to find the player object in global scope — adjust if your app uses a different variable name
+      const player = window.combinedPlayer || window.playerData || window.player || (window.__player ? window.__player : null);
+      // log where we got player
+      advLog('Advanced tab clicked. Attempting to find playerData in known globals. Found? ' + (player ? 'yes' : 'no'));
+      if(!player){
+        // if you do keep player data in a local variable, replace the line above to pass it explicitly
+        console.warn('Player object not found in global scope (combinedPlayer/window.playerData). If you store playerData differently, call loadAdvancedForPlayer(player) explicitly.');
+        advLog('Player object not found in global scope. You may need to call loadAdvancedForPlayer(player) manually.', 'warn');
+        return;
+      }
+      // clear previous logs
+      try{ const l = document.getElementById('advanced-log'); if(l) l.innerHTML = ''; }catch(e){}
+      // call loader
+      loadAdvancedForPlayer(player);
+    }
+  });
+})();
 /* ---------------- common helpers ---------------- */
 
 /* ------------------ Advanced statistics (new) ------------------ */
