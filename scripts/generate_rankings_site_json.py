@@ -145,12 +145,12 @@ def process_one_csv(csv_path: Path, players_df: pd.DataFrame, prefix: str):
         # build player_url
         if prefix == "atp":
             if player_id:
-                player_url = f"/players_atp/{str(player_id)}-{slug}.html"
+                player_url = f"/players_atp/${str(player_id)}-${slug}"
             else:
                 player_url = f"/players_atp/{slug}.html"
         else:
             if player_id:
-                player_url = f"/players/{str(player_id)}-{slug}.html"
+                player_url = f"/players/{str(player_id)}-{slug}"
             else:
                 player_url = f"/players/{slug}.html"
 
