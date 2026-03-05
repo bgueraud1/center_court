@@ -809,68 +809,80 @@ function fetchJsonSafe(url){
   root.style.display = 'block';
 
   // tabs behavior
-  document.querySelectorAll('.tab-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      const target = btn.getAttribute('data-target');
-      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-      const tgt = document.getElementById(target); if(tgt) tgt.classList.add('active');
+  // ---------- tabs behavior (fixed for nested panels) ----------
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    // visual button state
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
 
-      if(target === 'panel-stats'){ initStatsSubtabs(combined); }
+    const target = btn.getAttribute('data-target');
+    const tgt = document.getElementById(target);
+    if(!tgt){
+      // fallback behaviour: try to activate by id directly if missing
+      console.warn('Tab target not found in DOM:', target);
+      return;
+    }
 
-      if(target === 'panel-advanced'){ 
-  // call the loader we added
-  if(typeof loadStatsSubpanel === 'function'){
-    loadStatsSubpanel('advanced', combined);
-  } else {
-    // fallback: try the global function we added
-    window.loadStatsSubpanel && window.loadStatsSubpanel('advanced', combined);
-  }
-}
+    // find the top-level panel: the ancestor panel whose parent is #player-root
+    let topPanel = tgt;
+    while(topPanel && topPanel.parentElement && topPanel.parentElement.id !== 'player-root'){
+      topPanel = topPanel.parentElement;
+    }
+    // if none found, fallback to the panel itself
+    if(!topPanel || !topPanel.classList || !topPanel.classList.contains('panel')){
+      topPanel = tgt;
+    }
 
-    });
+    // remove active from top-level panels (direct children of #player-root)
+    document.querySelectorAll('#player-root > .panel').forEach(p => p.classList.remove('active'));
+
+    // activate top-level panel (makes the container visible)
+    if(topPanel && topPanel.id) {
+      topPanel.classList.add('active');
+      // ensure style display toggles are applied
+      topPanel.style.display = 'block';
+      topPanel.style.visibility = 'visible';
+      topPanel.style.opacity = '1';
+    }
+
+    // inside this topPanel, deactivate any nested panels and activate the specific target
+    try {
+      const nestedPanels = topPanel.querySelectorAll('.panel');
+      nestedPanels.forEach(np => np.classList.remove('active'));
+    } catch(e){ /* ignore if no nested panels */ }
+
+    // activate the target panel (in case it's nested)
+    tgt.classList.add('active');
+    tgt.style.display = 'block';
+    tgt.style.visibility = 'visible';
+    tgt.style.opacity = '1';
+
+    // Accessibility attributes
+    document.querySelectorAll('.tab-btn').forEach(b => b.setAttribute('aria-selected','false'));
+    btn.setAttribute('aria-selected','true');
+
+    // If the visible top panel is the stats container, initialize subtabs
+    if(topPanel && topPanel.id === 'panel-stats'){
+      try { if(typeof initStatsSubtabs === 'function') initStatsSubtabs(combined); } catch(e){ console.warn('initStatsSubtabs error', e); }
+    }
+
+    // If the clicked tab is the advanced panel, call loader explicitly
+    if(target === 'panel-advanced'){
+      // call loader using local `combined` (in this scope combined exists)
+      try {
+        if(typeof loadAdvancedForPlayer === 'function'){
+          loadAdvancedForPlayer(combined);
+        } else if(typeof loadStatsSubpanel === 'function'){
+          loadStatsSubpanel('advanced', combined);
+        } else {
+          console.warn('No advanced loader function found.');
+        }
+      } catch(e){ console.error('Error calling advanced loader', e); }
+    }
+
   });
-
-  if(document.getElementById('panel-stats').classList.contains('active')){ initStatsSubtabs(combined); }
-
-  /* ------------------ Stats subtabs + lazy loaders ------------------ */
-
-  let statsSubtabsInitialized = false;
-  const statsLoadState = { detailed:false, scenarios:false, timeseries:false, maps:false };
-
-  function initStatsSubtabs(playerData){
-    if(statsSubtabsInitialized) return;
-    statsSubtabsInitialized = true;
-    const subtabs = document.getElementById('stats-subtabs');
-    subtabs.innerHTML = '';
-
-    const tabs = [
-      { id:'detailed', label:'Detailed statistics' },
-      { id:'scenarios', label:'Scenarios' },
-      { id:'timeseries', label:'Time Series' },
-      { id:'maps', label:'Maps' }
-    ];
-
-    tabs.forEach((t, idx) => {
-      const b = document.createElement('button');
-      b.className = 'subtab-btn' + (idx===0 ? ' active' : '');
-      b.textContent = t.label;
-      b.dataset.target = `panel-${t.id}`;
-      b.addEventListener('click', (e) => {
-        document.querySelectorAll('.subtab-btn').forEach(x => x.classList.remove('active'));
-        b.classList.add('active');
-        document.querySelectorAll('#stats-subpanels > div').forEach(d => d.style.display = 'none');
-        const tgt = document.getElementById(b.dataset.target);
-        if(tgt) tgt.style.display = 'block';
-        loadStatsSubpanel(t.id, playerData);
-      });
-      subtabs.appendChild(b);
-    });
-
-    document.getElementById('panel-detailed').style.display = 'block';
-    loadStatsSubpanel('detailed', playerData);
-  }
+});
 
   // try multiple candidate URLs sequentially
   function tryCandidatesSequential(candidates){
