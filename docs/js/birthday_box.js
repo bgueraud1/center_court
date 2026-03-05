@@ -81,7 +81,7 @@
         const a = document.createElement('a');
         // build a slug-ish filename (simple; mirrors generator logic)
         const slug = (e.full_name||'').toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9\-]/g,'');
-        a.href = (e.circuit || '').toUpperCase() === 'ATP' ? `/players_atp/${e.player_id}-${slug}.html` : `/players/${e.player_id}-${slug}.html`;
+        a.href = (e.circuit || '').toUpperCase() === 'ATP' ? `/players_atp/${e.player_id}-${slug}` : `/players/${e.player_id}-${slug}`;
         a.textContent = e.full_name || '(unknown)';
         a.style.textDecoration = 'none';
         name.appendChild(a);

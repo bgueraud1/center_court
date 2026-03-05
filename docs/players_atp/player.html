@@ -132,6 +132,8 @@
       <button class="tab-btn active" data-target="panel-matches" role="tab" aria-selected="true">Matches by year</button>
       <button class="tab-btn" data-target="panel-trophies" role="tab" aria-selected="false">Tournaments & best results</button>
       <button class="tab-btn" data-target="panel-stats" role="tab" aria-selected="false">Statistics</button>
+      <!-- add this button inside the .tabs div (near Matches/Statistics/Tournaments) -->
+      <button class="tab-btn" data-target="panel-advanced" role="tab" aria-selected="false">Advanced statistics</button>
     </div>
 
     <div id="panel-matches" class="panel active" role="tabpanel">
@@ -174,6 +176,11 @@
           <div id="detailed-stats-container"></div>
         </div>
 
+        <div id="panel-advanced" class="panel" role="tabpanel" style="display:none; padding:12px;">
+  <div id="advanced-loading" class="sub">Loading…</div>
+  <div id="advanced-content" style="display:none;"></div>
+</div>
+
         <div id="panel-scenarios" style="display:none; padding:8px;"></div>
         <div id="panel-timeseries" style="display:none; padding:8px;"></div>
         <div id="panel-maps" style="display:none; padding:8px;">
@@ -186,8 +193,216 @@
     </div>
   </div>
 
+  
+
 <script>
 /* ---------------- common helpers ---------------- */
+
+/* ------------------ Advanced statistics (new) ------------------ */
+
+/**
+ * Build candidates for advanced JSON discovery.
+ * filenames observed: "21805_D_Gavrilova.json" -> pattern: <id>_<name>.json
+ * We'll try several variants to be robust.
+ */
+function buildAdvancedCandidatesFor(player){
+  const pid = player && player.player_id ? String(player.player_id) : '';
+  const slugVal = (player && player.slug) ? String(player.slug) : '';
+  const nameRaw = (player && player.name) ? String(player.name) : '';
+  const nameUnderscore = nameRaw ? nameRaw.replace(/\s+/g,'_') : '';
+  const nameClean = nameRaw ? nameRaw.replace(/[^A-Za-z0-9_]/g,'_') : '';
+
+  const candidates = [];
+
+  // preferred folder
+  if(pid && slugVal){
+    candidates.push(`/general_advanced_stats/${pid}_${slugVal}.json`);
+    candidates.push(`/general_advanced_stats/${pid}_${slugVal.toLowerCase()}.json`);
+  }
+  if(pid && nameUnderscore){
+    candidates.push(`/general_advanced_stats/${pid}_${nameUnderscore}.json`);
+    candidates.push(`/general_advanced_stats/${pid}_${nameClean}.json`);
+  }
+  if(pid){
+    candidates.push(`/general_advanced_stats/${pid}.json`);
+    candidates.push(`/general_advanced_stats/${pid.toLowerCase()}.json`);
+  }
+  // try root-level variants (older placements)
+  if(slugVal){
+    candidates.push(`/players_atp/${slugVal}.advanced.json`);
+    candidates.push(`/players_atp/data/${slugVal}.advanced.json`);
+  }
+  // final fallback (no-op)
+  candidates.push(`/general_advanced_stats/${pid}_${nameUnderscore.toLowerCase()}.json`);
+  return candidates;
+}
+
+/**
+ * Render advanced stats into targetDiv using the JSON structure found in your example files.
+ * English labels. Robust to missing keys.
+ */
+function renderAdvancedStatsFrom(data, sourceUrl, targetDiv){
+  try{
+    if(!targetDiv) return;
+    // where to inject content
+    const container = targetDiv.querySelector('#advanced-content') || targetDiv;
+
+    // helpers (reuse existing smartNumberString / smartPercentFromFraction if available)
+    function safeGetMean(obj, key){
+      try{
+        if(!obj || !obj[key]) return null;
+        const v = obj[key].mean;
+        return (v === undefined ? null : v);
+      }catch(e){ return null; }
+    }
+
+    // --- RALLY / short stats ---
+    let html = `<div style="font-weight:700;margin-bottom:8px">Advanced statistics (source: ${escapeHtml(sourceUrl || '(inline)')})</div>`;
+
+    const small = data.small_stats || data.rally_stats || data.short_stats || null;
+    if(small && small.numeric){
+      const num = small.numeric;
+      html += `<div style="font-weight:600;margin-top:8px">Rally buckets (by point length)</div>`;
+      html += `<table class="bucket-table" style="margin-top:8px"><thead><tr><th>Bucket</th><th>Mean count</th><th>Share of points</th><th>Winners (mean)</th><th>Unforced errors (mean)</th><th>Forced errors (mean)</th></tr></thead><tbody>`;
+
+      // Short
+      const shortCount = safeGetMean(num, 'short_count') || safeGetMean(num, 'short_count') || null;
+      const pctShort = safeGetMean(num, 'pct_short');
+      const short_cg = safeGetMean(num, 'pct_short_cg') || safeGetMean(num, 'pct_short_cg_fp') || safeGetMean(num, 'pct_short_cg_fd_fp_combined') || null;
+      const short_fd = safeGetMean(num, 'pct_short_fd') || null;
+      const short_fp = safeGetMean(num, 'pct_short_fp') || null;
+
+      // Medium
+      const medCount = safeGetMean(num, 'medium_count') || null;
+      const pctMed = safeGetMean(num, 'pct_medium');
+      const med_cg = safeGetMean(num, 'pct_medium_cg') || null;
+      const med_fd = safeGetMean(num, 'pct_medium_fd') || null;
+      const med_fp = safeGetMean(num, 'pct_medium_fp') || null;
+
+      // Long
+      const longCount = safeGetMean(num, 'long_count') || null;
+      const pctLong = safeGetMean(num, 'pct_long');
+      const long_cg = safeGetMean(num, 'pct_long_cg') || null;
+      const long_fd = safeGetMean(num, 'pct_long_fd') || null;
+      const long_fp = safeGetMean(num, 'pct_long_fp') || null;
+
+      // helper formatting (use existing helpers if present)
+      const fmtNum = (v) => (v === null || v === undefined) ? '—' : smartNumberString(v);
+      const fmtPct = (v) => (v === null || v === undefined) ? '—' : smartPercentFromFraction(v/100 ? v/100 : v); // tolerate both fraction or already-% as decimal
+
+      // Note: in your sample JSON the pct_* keys seem to be expressed as percents in mean (e.g. 25.86) -> we try both conversions
+      function pctSmart(v){
+        if(v === null || v === undefined) return '—';
+        const n = Number(v);
+        if(isNaN(n)) return '—';
+        // heuristics: if value > 1 treat as percent (25.86) -> convert to fraction for smartPercentFromFraction
+        if(Math.abs(n) > 1) return smartPercentFromFraction(n/100);
+        return smartPercentFromFraction(n);
+      }
+
+      html += `<tr><td style="font-weight:700">Short (1–4 shots)</td><td>${escapeHtml(fmtNum(shortCount))}</td><td>${escapeHtml(pctSmart(pctShort))}</td><td>${escapeHtml(pctSmart(short_cg))}</td><td>${escapeHtml(pctSmart(short_fd))}</td><td>${escapeHtml(pctSmart(short_fp))}</td></tr>`;
+
+      html += `<tr><td style="font-weight:700">Medium (5–8 shots)</td><td>${escapeHtml(fmtNum(medCount))}</td><td>${escapeHtml(pctSmart(pctMed))}</td><td>${escapeHtml(pctSmart(med_cg))}</td><td>${escapeHtml(pctSmart(med_fd))}</td><td>${escapeHtml(pctSmart(med_fp))}</td></tr>`;
+
+      html += `<tr><td style="font-weight:700">Long (9+ shots)</td><td>${escapeHtml(fmtNum(longCount))}</td><td>${escapeHtml(pctSmart(pctLong))}</td><td>${escapeHtml(pctSmart(long_cg))}</td><td>${escapeHtml(pctSmart(long_fd))}</td><td>${escapeHtml(pctSmart(long_fp))}</td></tr>`;
+
+      html += `</tbody></table>`;
+    } else {
+      html += `<div class="no-data">Rally-level statistics not available.</div>`;
+    }
+
+    // --- STROKE STATS / big_stats ---
+    const big = data.big_stats || data.stroke_stats || null;
+    if(big && big.numeric){
+      html += `<div style="font-weight:600;margin-top:12px">Stroke statistics (aggregates)</div>`;
+      html += `<table class="stats-table" style="margin-top:8px"><thead><tr><th>Statistic</th><th>Mean</th><th>Std</th><th>Count</th></tr></thead><tbody>`;
+
+      const keys = Object.keys(big.numeric).sort();
+      keys.forEach(k => {
+        const node = big.numeric[k] || {};
+        const mean = node.mean !== undefined ? node.mean : null;
+        const std = node.std !== undefined ? node.std : null;
+        const cnt = node.non_null_samples !== undefined ? node.non_null_samples : node.count !== undefined ? node.count : null;
+        html += `<tr><td style="font-weight:700">${escapeHtml(k)}</td><td>${escapeHtml(smartNumberString(mean))}</td><td>${escapeHtml(smartNumberString(std))}</td><td>${escapeHtml(cnt===null?'—':String(cnt))}</td></tr>`;
+      });
+      html += `</tbody></table>`;
+    } else {
+      html += `<div class="no-data" style="margin-top:8px">Stroke-level statistics not available.</div>`;
+    }
+
+    // Raw JSON preview (toggle)
+    html += `<div style="margin-top:12px"><button id="adv-toggle-raw" class="tab-btn" style="padding:6px 8px">Toggle raw JSON</button><div id="adv-raw" style="display:none;margin-top:8px;max-height:360px;overflow:auto;border:1px solid var(--border);padding:8px;background:#fff"><pre class="muted-small">${escapeHtml(JSON.stringify(data, null, 2).slice(0,20000))}${String(JSON.stringify(data).length>20000 ? '…' : '')}</pre></div></div>`;
+
+    // inject
+    if(container){
+      container.innerHTML = html;
+      const btn = container.querySelector('#adv-toggle-raw');
+      if(btn){
+        btn.addEventListener('click', () => {
+          const pre = container.querySelector('#adv-raw');
+          if(pre) pre.style.display = (pre.style.display === 'none' ? 'block' : 'none');
+        });
+      }
+    }
+  }catch(e){
+    console.error('renderAdvancedStatsFrom error', e);
+    if(targetDiv) targetDiv.innerHTML = '<div class="no-data">Error rendering advanced statistics.</div>';
+  }
+}
+
+/* Integrate with existing loadStatsSubpanel by adding a new branch 'advanced'.
+   Put this right where loadStatsSubpanel handles other kinds (detailed/scenarios/timeseries/maps).
+*/
+(async function registerAdvancedHandler(){
+  // we patch the existing loadStatsSubpanel by wrapping original and adding support
+  const original = window.loadStatsSubpanel || null;
+  if(!original){
+    // if loadStatsSubpanel is not global, assume we can directly add case in the file near its definition.
+    // Otherwise nothing to do here.
+    return;
+  }
+  // No overwrite here; prefer to extend by calling original and then custom handling if not handled.
+  window.loadStatsSubpanel = async function(kind, playerData){
+    // if original already handles it (it will set statsLoadState[kind]) call it
+    if(kind !== 'advanced'){
+      return original(kind, playerData);
+    }
+    // Clean: emulate same patterns as original loadStatsSubpanel
+    if(window.statsLoadState && window.statsLoadState[kind]) return;
+    if(!window.statsLoadState) window.statsLoadState = {};
+    window.statsLoadState[kind] = true;
+
+    const pid = playerData.player_id;
+    const slugVal = playerData.slug || (window.slug || '');
+
+    const targetDiv = document.getElementById('panel-' + kind);
+    if(!targetDiv) return;
+
+    // loading UI
+    const inner = targetDiv.querySelector('#advanced-content');
+    if(inner){
+      inner.style.display = 'none';
+    }
+    const loader = targetDiv.querySelector('#advanced-loading');
+    if(loader) loader.style.display = 'block';
+
+    const candidates = buildAdvancedCandidatesFor(playerData);
+    const res = await tryCandidatesSequential(candidates);
+    if(!res || !res.data){
+      if(loader) loader.style.display = 'none';
+      targetDiv.innerHTML = '<div class="no-data">Advanced statistics are not available for this player.</div>';
+      console.warn('loadStatsSubpanel(advanced): no candidate succeeded', candidates);
+      return;
+    }
+
+    // render into the target panel
+    if(loader) loader.style.display = 'none';
+    if(inner) inner.style.display = 'block';
+    renderAdvancedStatsFrom(res.data, res.url, targetDiv);
+    return;
+  };
+})();
+
 function escapeHtml(s){
   if (s === null || s === undefined) return '';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
@@ -530,6 +745,16 @@ function fetchJsonSafe(url){
       const tgt = document.getElementById(target); if(tgt) tgt.classList.add('active');
 
       if(target === 'panel-stats'){ initStatsSubtabs(combined); }
+
+      if(target === 'panel-advanced'){ 
+  // call the loader we added
+  if(typeof loadStatsSubpanel === 'function'){
+    loadStatsSubpanel('advanced', combined);
+  } else {
+    // fallback: try the global function we added
+    window.loadStatsSubpanel && window.loadStatsSubpanel('advanced', combined);
+  }
+}
     });
   });
 

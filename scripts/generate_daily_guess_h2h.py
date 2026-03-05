@@ -11,12 +11,12 @@ import random
 from datetime import datetime, timezone
 import re
 
-ATP_CSV = "player_data_atp.csv"
-WTA_CSV = "player_data_wta.csv"
+ATP_CSV = "/player_data_atp.csv"
+WTA_CSV = "/player_data_wta.csv"
 OUT_DIR = "docs"
 OUT_JSON = os.path.join(OUT_DIR, "selected_players.json")
 
-BORN_AFTER_YEAR = 1980  # garder >= 1981
+BORN_AFTER_YEAR = 1985  # garder >= 1981
 
 def normalize_colname(h):
     if h is None:
