@@ -406,14 +406,46 @@ async function loadAdvancedForPlayer(player){
       <div style="margin-top:6px"><button id="adv-raw-btn" style="padding:6px">Toggle raw JSON</button></div>
       <div id="adv-raw" style="display:none;margin-top:8px;max-height:360px;overflow:auto;border:1px solid #ddd;padding:8px;background:#fff"><pre>${escapeHtml(JSON.stringify(res.data, null, 2).slice(0,20000))}${String(JSON.stringify(res.data).length>20000 ? '…' : '')}</pre></div>
     `;
-    content.innerHTML = injected;
-    const btn = content.querySelector('#adv-raw-btn');
-    if(btn){ btn.addEventListener('click', () => {
-      const p = content.querySelector('#adv-raw');
-      if(p) p.style.display = (p.style.display === 'none' ? 'block' : 'none');
-    }); }
+        // hide loader, show content
+    if(loader) loader.style.display = 'none';
+    if(content) content.style.display = 'block';
 
-    advLog('Advanced JSON loaded and displayed (raw).');
+    // Si le renderer existe, l'utiliser pour un joli rendu
+    if (typeof renderAdvancedStatsFrom === 'function') {
+      try {
+        // renderAdvancedStatsFrom(data, sourceUrl, targetDiv)
+        renderAdvancedStatsFrom(res.data, res.url, panel);
+      } catch (e) {
+        console.error('renderAdvancedStatsFrom failed:', e);
+        // fallback : afficher le raw JSON si le renderer casse
+        content.innerHTML = `
+          <div style="font-weight:700;margin-bottom:6px">Advanced statistics (loaded from: ${escapeHtml(res.url)})</div>
+          <div style="margin-top:6px"><button id="adv-raw-btn" style="padding:6px">Toggle raw JSON</button></div>
+          <div id="adv-raw" style="display:none;margin-top:8px;max-height:360px;overflow:auto;border:1px solid #ddd;padding:8px;background:#fff">
+            <pre>${escapeHtml(JSON.stringify(res.data, null, 2).slice(0,20000))}${String(JSON.stringify(res.data).length>20000 ? '…' : '')}</pre>
+          </div>`;
+        const btn = content.querySelector('#adv-raw-btn');
+        if (btn) btn.addEventListener('click', () => {
+          const p = content.querySelector('#adv-raw');
+          if (p) p.style.display = (p.style.display === 'none' ? 'block' : 'none');
+        });
+      }
+    } else {
+      // renderer introuvable : conserver le raw JSON (comportement actuel)
+      content.innerHTML = `
+        <div style="font-weight:700;margin-bottom:6px">Advanced statistics (loaded from: ${escapeHtml(res.url)})</div>
+        <div style="margin-top:6px"><button id="adv-raw-btn" style="padding:6px">Toggle raw JSON</button></div>
+        <div id="adv-raw" style="display:none;margin-top:8px;max-height:360px;overflow:auto;border:1px solid #ddd;padding:8px;background:#fff">
+          <pre>${escapeHtml(JSON.stringify(res.data, null, 2).slice(0,20000))}${String(JSON.stringify(res.data).length>20000 ? '…' : '')}</pre>
+        </div>`;
+      const btn = content.querySelector('#adv-raw-btn');
+      if (btn) btn.addEventListener('click', () => {
+        const p = content.querySelector('#adv-raw');
+        if (p) p.style.display = (p.style.display === 'none' ? 'block' : 'none');
+      });
+    }
+
+    advLog('Advanced JSON loaded and displayed (handled).');
     return;
   }catch(e){
     advLog('Unexpected error in loadAdvancedForPlayer: ' + (e && e.message ? e.message : String(e)), 'error');
