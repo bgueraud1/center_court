@@ -111,6 +111,32 @@
       .map-card { min-width:100%; height:360px; }
       .scenarios-grid { grid-template-columns: 1fr; }
     }
+
+
+
+    <style>
+/* Advanced statistics styling */
+.adv-grid { display:flex; gap:18px; align-items:flex-start; }
+.adv-left, .adv-right { background: #fff; border:1px solid #e6e6e6; border-radius:8px; padding:12px; box-shadow:0 1px 2px rgba(0,0,0,0.04); flex:1; }
+.adv-left { max-width:460px; min-width:320px; }
+.adv-h { font-size:15px; font-weight:700; margin-bottom:8px; color:#222; }
+.adv-sub { font-size:13px; color:#666; margin-bottom:10px; }
+.adv-table { width:100%; border-collapse:collapse; }
+.adv-table th, .adv-table td { padding:8px 6px; border-bottom:1px solid #f1f1f1; text-align:left; font-size:13px; }
+.adv-table th { font-weight:700; font-size:13px; color:#333; }
+.adv-badge { font-size:12px; padding:4px 6px; border-radius:6px; background:#f5f5f5; color:#333; display:inline-block; }
+.adv-mini-bar { height:10px; background:#eee; border-radius:6px; overflow:hidden; }
+.adv-mini-bar > i { display:block; height:100%; background:linear-gradient(90deg,#3b82f6,#60a5fa); }
+.adv-stat-row { display:flex; align-items:center; gap:8px; }
+.adv-left-chart, .adv-right-chart { height:180px; width:100%; }
+.adv-empty { color:#666; font-size:13px; padding:8px; }
+
+/* Responsive */
+@media (max-width:920px) {
+  .adv-grid { flex-direction:column; }
+  .adv-left { max-width:none; }
+}
+</style>
   </style>
   <!-- Plotly for maps (CDN) -->
   <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
@@ -270,115 +296,246 @@ function buildAdvancedCandidatesForVerbose(player){
   return uniq;
 }
 
+/* ---------- renderAdvancedStatsFrom (polished renderer) ---------- */
+/* Replaces previous renderer. Injects a two-column layout:
+   - left: rally buckets (table + bar chart)
+   - right: stroke stats (table + mini bars)
+*/
 function renderAdvancedStatsFrom(data, sourceUrl, targetDiv){
   try{
     if(!targetDiv) return;
-    // where to inject content
     const container = targetDiv.querySelector('#advanced-content') || targetDiv;
 
-    // helpers (reuse existing smartNumberString / smartPercentFromFraction if available)
-    function safeGetMean(obj, key){
-      try{
-        if(!obj || !obj[key]) return null;
-        const v = obj[key].mean;
-        return (v === undefined ? null : v);
-      }catch(e){ return null; }
+    // HELPERS (fallback implementations if project doesn't provide them)
+    function escapeHtml(s){
+      if(s === null || s === undefined) return '';
+      return String(s).replace(/[&<>"]/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; });
+    }
+    function smartNumberString(v){
+      if(v === null || v === undefined || isNaN(Number(v))) return '—';
+      const n = Number(v);
+      if(Math.abs(n) >= 1000) return Math.round(n).toLocaleString();
+      if(Math.abs(n) >= 10) return Math.round(n*10)/10; // one decimal if needed
+      return (Math.round(n*100)/100).toString();
+    }
+    function smartPercentFromFraction(f){
+      if(f === null || f === undefined || isNaN(Number(f))) return '—';
+      const n = Number(f);
+      // heuristics: if n > 1 likely a percent already
+      if(Math.abs(n) > 1) return (Math.round(n*10)/10) + '%';
+      return (Math.round(n*1000)/10) + '%'; // one decimal
     }
 
-    // --- RALLY / short stats ---
-    let html = `<div style="font-weight:700;margin-bottom:8px">Advanced statistics (source: ${escapeHtml(sourceUrl || '(inline)')})</div>`;
+    /* robust getter: tries many possible keys used across your JSON variants */
+    function getBucketVal(obj, prefix, suffixCandidates){
+      // prefix e.g. 'pct_short', suffixCandidates e.g. ['cg','fd','fp']
+      const res = {};
+      suffixCandidates.forEach(suf => {
+        const keys = [
+          `${prefix}_${suf}`,           // pct_short_cg
+          `${prefix}${suf.charAt(0).toUpperCase()+suf.slice(1)}`, // shortCg
+          `${prefix}_${suf.toUpperCase()}`, // pct_short_CG
+          `${prefix}${suf}`              // shortcg
+        ];
+        let found = null;
+        for(const k of keys){
+          // check numeric.mean path
+          if(obj && obj.numeric && obj.numeric[k] && obj.numeric[k].mean !== undefined){
+            found = obj.numeric[k].mean; break;
+          }
+          // check obj[k] directly
+          if(obj && obj[k] !== undefined){
+            found = obj[k]; break;
+          }
+        }
+        res[suf] = found;
+      });
+      return res;
+    }
 
+    // Extract small / rally stats
     const small = data.small_stats || data.rally_stats || data.short_stats || null;
+    const big = data.big_stats || data.stroke_stats || data.strokeStats || null;
+
+    // Build HTML header
+    let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                  <div style="font-weight:800;font-size:16px">Advanced statistics</div>
+                  <div style="font-size:12px;color:#666">Source: ${escapeHtml(sourceUrl || 'inline')}</div>
+                </div>`;
+
+    // Grid container
+    html += `<div class="adv-grid">`;
+
+    /* ---------- LEFT: Rally buckets ---------- */
+    html += `<div class="adv-left"><div class="adv-h">Rally buckets (by point length)</div>
+             <div class="adv-sub">Buckets: Short (1–4 shots), Medium (5–8), Long (9+). Values shown as means or shares.</div>`;
+
     if(small && small.numeric){
       const num = small.numeric;
-      html += `<div style="font-weight:600;margin-top:8px">Rally buckets (by point length)</div>`;
-      html += `<table class="bucket-table" style="margin-top:8px"><thead><tr><th>Bucket</th><th>Mean count</th><th>Share of points</th><th>Winners (mean)</th><th>Unforced errors (mean)</th><th>Forced errors (mean)</th></tr></thead><tbody>`;
 
-      // Short
-      const shortCount = safeGetMean(num, 'short_count') || safeGetMean(num, 'short_count') || null;
-      const pctShort = safeGetMean(num, 'pct_short');
-      const short_cg = safeGetMean(num, 'pct_short_cg') || safeGetMean(num, 'pct_short_cg_fp') || safeGetMean(num, 'pct_short_cg_fd_fp_combined') || null;
-      const short_fd = safeGetMean(num, 'pct_short_fd') || null;
-      const short_fp = safeGetMean(num, 'pct_short_fp') || null;
+      // Try to get counts & pct shares
+      const shortCount = (num.short_count && num.short_count.mean !== undefined) ? num.short_count.mean : (num.shortCount && num.shortCount.mean !== undefined ? num.shortCount.mean : null);
+      const midCount   = (num.medium_count && num.medium_count.mean !== undefined) ? num.medium_count.mean : (num.mediumCount && num.mediumCount.mean !== undefined ? num.mediumCount.mean : null);
+      const longCount  = (num.long_count && num.long_count.mean !== undefined) ? num.long_count.mean : (num.longCount && num.longCount.mean !== undefined ? num.longCount.mean : null);
 
-      // Medium
-      const medCount = safeGetMean(num, 'medium_count') || null;
-      const pctMed = safeGetMean(num, 'pct_medium');
-      const med_cg = safeGetMean(num, 'pct_medium_cg') || null;
-      const med_fd = safeGetMean(num, 'pct_medium_fd') || null;
-      const med_fp = safeGetMean(num, 'pct_medium_fp') || null;
+      // share percentages (several naming possibilities)
+      const pctShort = (num.pct_short && num.pct_short.mean !== undefined) ? num.pct_short.mean : (num.pctShort && num.pctShort.mean !== undefined ? num.pctShort.mean : null);
+      const pctMed   = (num.pct_medium && num.pct_medium.mean !== undefined) ? num.pct_medium.mean : (num.pctMedium && num.pctMedium.mean !== undefined ? num.pctMedium.mean : null);
+      const pctLong  = (num.pct_long && num.pct_long.mean !== undefined) ? num.pct_long.mean : (num.pctLong && num.pctLong.mean !== undefined ? num.pctLong.mean : null);
 
-      // Long
-      const longCount = safeGetMean(num, 'long_count') || null;
-      const pctLong = safeGetMean(num, 'pct_long');
-      const long_cg = safeGetMean(num, 'pct_long_cg') || null;
-      const long_fd = safeGetMean(num, 'pct_long_fd') || null;
-      const long_fp = safeGetMean(num, 'pct_long_fp') || null;
+      // winners / unforced / forced: look for many keys
+      const shortVals = getBucketVal(small, 'pct_short', ['cg','fd','fp']);
+      const medVals   = getBucketVal(small, 'pct_medium', ['cg','fd','fp']);
+      const longVals  = getBucketVal(small, 'pct_long', ['cg','fd','fp']);
 
-      // helper formatting (use existing helpers if present)
-      const fmtNum = (v) => (v === null || v === undefined) ? '—' : smartNumberString(v);
-      const fmtPct = (v) => (v === null || v === undefined) ? '—' : smartPercentFromFraction(v/100 ? v/100 : v); // tolerate both fraction or already-% as decimal
+      // Build table
+      html += `<table class="adv-table"><thead><tr><th>Bucket</th><th>Mean count</th><th>Share</th><th>Winners</th><th>Unforced errors</th><th>Forced errors</th></tr></thead><tbody>`;
+      html += `<tr><td style="font-weight:700">Short<br/><span style="font-weight:600;color:#666">1–4 shots</span></td>
+                <td>${escapeHtml(smartNumberString(shortCount))}</td>
+                <td>${escapeHtml(smartPercentFromFraction(pctShort>1?pctShort/100:pctShort))}</td>
+                <td>${escapeHtml(smartPercentFromFraction(shortVals.cg>1?shortVals.cg/100:shortVals.cg))}</td>
+                <td>${escapeHtml(smartPercentFromFraction(shortVals.fd>1?shortVals.fd/100:shortVals.fd))}</td>
+                <td>${escapeHtml(smartPercentFromFraction(shortVals.fp>1?shortVals.fp/100:shortVals.fp))}</td>
+              </tr>`;
 
-      // Note: in your sample JSON the pct_* keys seem to be expressed as percents in mean (e.g. 25.86) -> we try both conversions
-      function pctSmart(v){
-        if(v === null || v === undefined) return '—';
-        const n = Number(v);
-        if(isNaN(n)) return '—';
-        // heuristics: if value > 1 treat as percent (25.86) -> convert to fraction for smartPercentFromFraction
-        if(Math.abs(n) > 1) return smartPercentFromFraction(n/100);
-        return smartPercentFromFraction(n);
-      }
+      html += `<tr><td style="font-weight:700">Medium<br/><span style="font-weight:600;color:#666">5–8 shots</span></td>
+                <td>${escapeHtml(smartNumberString(midCount))}</td>
+                <td>${escapeHtml(smartPercentFromFraction(pctMed>1?pctMed/100:pctMed))}</td>
+                <td>${escapeHtml(smartPercentFromFraction(medVals.cg>1?medVals.cg/100:medVals.cg))}</td>
+                <td>${escapeHtml(smartPercentFromFraction(medVals.fd>1?medVals.fd/100:medVals.fd))}</td>
+                <td>${escapeHtml(smartPercentFromFraction(medVals.fp>1?medVals.fp/100:medVals.fp))}</td>
+              </tr>`;
 
-      html += `<tr><td style="font-weight:700">Short (1–4 shots)</td><td>${escapeHtml(fmtNum(shortCount))}</td><td>${escapeHtml(pctSmart(pctShort))}</td><td>${escapeHtml(pctSmart(short_cg))}</td><td>${escapeHtml(pctSmart(short_fd))}</td><td>${escapeHtml(pctSmart(short_fp))}</td></tr>`;
-
-      html += `<tr><td style="font-weight:700">Medium (5–8 shots)</td><td>${escapeHtml(fmtNum(medCount))}</td><td>${escapeHtml(pctSmart(pctMed))}</td><td>${escapeHtml(pctSmart(med_cg))}</td><td>${escapeHtml(pctSmart(med_fd))}</td><td>${escapeHtml(pctSmart(med_fp))}</td></tr>`;
-
-      html += `<tr><td style="font-weight:700">Long (9+ shots)</td><td>${escapeHtml(fmtNum(longCount))}</td><td>${escapeHtml(pctSmart(pctLong))}</td><td>${escapeHtml(pctSmart(long_cg))}</td><td>${escapeHtml(pctSmart(long_fd))}</td><td>${escapeHtml(pctSmart(long_fp))}</td></tr>`;
+      html += `<tr><td style="font-weight:700">Long<br/><span style="font-weight:600;color:#666">9+ shots</span></td>
+                <td>${escapeHtml(smartNumberString(longCount))}</td>
+                <td>${escapeHtml(smartPercentFromFraction(pctLong>1?pctLong/100:pctLong))}</td>
+                <td>${escapeHtml(smartPercentFromFraction(longVals.cg>1?longVals.cg/100:longVals.cg))}</td>
+                <td>${escapeHtml(smartPercentFromFraction(longVals.fd>1?longVals.fd/100:longVals.fd))}</td>
+                <td>${escapeHtml(smartPercentFromFraction(longVals.fp>1?longVals.fp/100:longVals.fp))}</td>
+              </tr>`;
 
       html += `</tbody></table>`;
-    } else {
-      html += `<div class="no-data">Rally-level statistics not available.</div>`;
-    }
 
-    // --- STROKE STATS / big_stats ---
-    const big = data.big_stats || data.stroke_stats || null;
-    if(big && big.numeric){
-      html += `<div style="font-weight:600;margin-top:12px">Stroke statistics (aggregates)</div>`;
-      html += `<table class="stats-table" style="margin-top:8px"><thead><tr><th>Statistic</th><th>Mean</th><th>Std</th><th>Count</th></tr></thead><tbody>`;
+      // prepare chart data arrays for winners/fd/fp (as numbers normalized to fraction 0..1)
+      function norm(v){ if(v === null || v === undefined || isNaN(Number(v))) return null; const n = Number(v); return (Math.abs(n) > 1 ? n/100 : n); }
+      const cats = ['Short','Medium','Long'];
+      const winners = [ norm(shortVals.cg), norm(medVals.cg), norm(longVals.cg) ];
+      const unf = [ norm(shortVals.fd), norm(medVals.fd), norm(longVals.fd) ];
+      const forced = [ norm(shortVals.fp), norm(medVals.fp), norm(longVals.fp) ];
 
-      const keys = Object.keys(big.numeric).sort();
-      keys.forEach(k => {
-        const node = big.numeric[k] || {};
-        const mean = node.mean !== undefined ? node.mean : null;
-        const std = node.std !== undefined ? node.std : null;
-        const cnt = node.non_null_samples !== undefined ? node.non_null_samples : node.count !== undefined ? node.count : null;
-        html += `<tr><td style="font-weight:700">${escapeHtml(k)}</td><td>${escapeHtml(smartNumberString(mean))}</td><td>${escapeHtml(smartNumberString(std))}</td><td>${escapeHtml(cnt===null?'—':String(cnt))}</td></tr>`;
-      });
-      html += `</tbody></table>`;
-    } else {
-      html += `<div class="no-data" style="margin-top:8px">Stroke-level statistics not available.</div>`;
-    }
+      html += `<div style="margin-top:10px"><div class="adv-left-chart" id="adv-buckets-chart"></div></div>`;
 
-    // Raw JSON preview (toggle)
-    html += `<div style="margin-top:12px"><button id="adv-toggle-raw" class="tab-btn" style="padding:6px 8px">Toggle raw JSON</button><div id="adv-raw" style="display:none;margin-top:8px;max-height:360px;overflow:auto;border:1px solid var(--border);padding:8px;background:#fff"><pre class="muted-small">${escapeHtml(JSON.stringify(data, null, 2).slice(0,20000))}${String(JSON.stringify(data).length>20000 ? '…' : '')}</pre></div></div>`;
+      // pass chart data to DOM after injection
+      container.innerHTML = html + `</div>`; // close adv-left, continue adv-right to be appended below
 
-    // inject
-    if(container){
-      container.innerHTML = html;
-      const btn = container.querySelector('#adv-toggle-raw');
-      if(btn){
-        btn.addEventListener('click', () => {
-          const pre = container.querySelector('#adv-raw');
-          if(pre) pre.style.display = (pre.style.display === 'none' ? 'block' : 'none');
-        });
+      // ---------- RIGHT: Stroke stats ----------
+      let rightHtml = `<div class="adv-right"><div class="adv-h">Stroke statistics (aggregates)</div>
+                       <div class="adv-sub">Mean / Std / Count across matches. Keys are the Infosys stroke metrics.</div>`;
+
+      if(big && big.numeric){
+        // Build rows from big.numeric keys
+        const keys = Object.keys(big.numeric).filter(k => k !== 'playerId').sort();
+        if(keys.length === 0){
+          rightHtml += `<div class="adv-empty">No stroke statistics available.</div>`;
+        } else {
+          // Build table header
+          rightHtml += `<table class="adv-table"><thead><tr><th>Statistic</th><th>Mean</th><th>Std</th><th>Count</th><th>Visual</th></tr></thead><tbody>`;
+          // choose top N to show (keep all but show mini-bar)
+          keys.forEach(k => {
+            const node = big.numeric[k] || {};
+            const mean = node.mean !== undefined ? node.mean : null;
+            const std = node.std !== undefined ? node.std : null;
+            const cnt = (node.non_null_samples !== undefined) ? node.non_null_samples : (node.count !== undefined ? node.count : null);
+            // compute bar length as normalized by some heuristic: use absolute mean / (mean+std) or scaled
+            const barVal = (mean === null || mean === undefined || isNaN(Number(mean))) ? 0 : Math.min(1, Math.abs(Number(mean)) / (Math.abs(Number(mean)) + (Math.abs(Number(std))||1)));
+            rightHtml += `<tr>
+                            <td style="font-weight:700">${escapeHtml(k)}</td>
+                            <td>${escapeHtml(smartNumberString(mean))}</td>
+                            <td>${escapeHtml(smartNumberString(std))}</td>
+                            <td>${escapeHtml(cnt === null ? '—' : String(cnt))}</td>
+                            <td style="min-width:120px"><div class="adv-mini-bar"><i style="width:${Math.round(barVal*100)}%"></i></div></td>
+                          </tr>`;
+          });
+          rightHtml += `</tbody></table>`;
+        }
+      } else {
+        rightHtml += `<div class="adv-empty">Stroke statistics not available.</div>`;
       }
+
+      rightHtml += `<div style="margin-top:10px"><div id="adv-strokes-chart" class="adv-right-chart"></div></div>`;
+      rightHtml += `</div>`; // close adv-right
+
+      // append rightHtml to container (we already wrote left portion)
+      container.innerHTML = container.innerHTML + rightHtml + `</div>`; // close adv-grid
+
+      // --- Render charts: prefer Plotly if present, else keep CSS bars ---
+      const usePlotly = (window.Plotly && typeof window.Plotly.newPlot === 'function');
+
+      // Buckets chart (grouped bars) : winners/unforced/forced by bucket
+      if(usePlotly){
+        try{
+          const traces = [
+            { x: cats, y: winners.map(v => v===null?0:v), name: 'Winners', type:'bar' },
+            { x: cats, y: unf.map(v => v===null?0:v), name: 'Unforced errors', type:'bar' },
+            { x: cats, y: forced.map(v => v===null?0:v), name: 'Forced errors', type:'bar' }
+          ];
+          const layout = { barmode:'group', margin:{t:20,l:40,r:12,b:40}, legend:{orientation:'h', y:-0.18}, yaxis:{tickformat:'.0%', range:[0, Math.max(0.2, Math.max(...(winners.concat(unf).concat(forced).filter(v=>v!==null))*1.2 || 0.2))} };
+          Plotly.newPlot('adv-buckets-chart', traces, layout, {displayModeBar:false});
+        }catch(e){ console.warn('Plotly buckets error', e); }
+      } else {
+        // If no Plotly, add readable percent labels to table (already present) — nothing else needed
+      }
+
+      // Strokes chart: horizontal bar for top 8 means (if Plotly)
+      if(usePlotly && big && big.numeric){
+        try{
+          // pick top 8 metrics by absolute mean
+          const stats = Object.entries(big.numeric).map(([k,v]) => ({k, mean: (v && v.mean!==undefined?Number(v.mean):null)})).filter(x => x.mean!==null && !isNaN(x.mean));
+          stats.sort((a,b)=> Math.abs(b.mean) - Math.abs(a.mean));
+          const top = stats.slice(0,8).reverse(); // reverse for horizontal chart
+          const names = top.map(x => x.k);
+          const values = top.map(x => x.mean);
+          const trace = [{ type:'bar', x: values, y: names, orientation:'h', marker:{color:'rgb(59,130,246)'} }];
+          const layout = { margin:{l:180,t:20,b:20,r:20}, xaxis:{title:'Mean'}, height: (names.length*34)+60 };
+          Plotly.newPlot('adv-strokes-chart', trace, layout, {displayModeBar:false});
+        }catch(e){ console.warn('Plotly strokes error', e); }
+      } // else keep mini-bars in table
+
+      // Done
+      return;
+    } else {
+      // small not available: render fallback layout with strokes only or message
+      html += `<div class="adv-empty">Rally (short) statistics not available.</div>`;
+      // right column
+      let rightHtml = `<div class="adv-right"><div class="adv-h">Stroke statistics (aggregates)</div>`;
+      if(big && big.numeric){
+        const keys = Object.keys(big.numeric).filter(k=>k!=='playerId').sort();
+        if(keys.length){
+          rightHtml += `<table class="adv-table"><thead><tr><th>Statistic</th><th>Mean</th><th>Std</th><th>Count</th></tr></thead><tbody>`;
+          keys.forEach(k => {
+            const node = big.numeric[k] || {};
+            const mean = node.mean !== undefined ? node.mean : null;
+            const std = node.std !== undefined ? node.std : null;
+            const cnt = (node.non_null_samples !== undefined) ? node.non_null_samples : (node.count !== undefined ? node.count : null);
+            rightHtml += `<tr><td style="font-weight:700">${escapeHtml(k)}</td><td>${escapeHtml(smartNumberString(mean))}</td><td>${escapeHtml(smartNumberString(std))}</td><td>${escapeHtml(cnt===null?'—':String(cnt))}</td></tr>`;
+          });
+          rightHtml += `</tbody></table>`;
+        } else {
+          rightHtml += `<div class="adv-empty">Stroke statistics not available.</div>`;
+        }
+      } else {
+        rightHtml += `<div class="adv-empty">Stroke statistics not available.</div>`;
+      }
+      rightHtml += `</div>`; // close adv-right
+      // finalize
+      container.innerHTML = html + rightHtml + `</div>`; // close adv-grid
+      return;
     }
   }catch(e){
     console.error('renderAdvancedStatsFrom error', e);
-    if(targetDiv) targetDiv.innerHTML = '<div class="no-data">Error rendering advanced statistics.</div>';
+    if(targetDiv) targetDiv.querySelector('#advanced-content').innerHTML = '<div class="adv-empty">Error rendering advanced statistics.</div>';
   }
 }
-
 /* Integrate with existing loadStatsSubpanel by adding a new branch 'advanced'.
    Put this right where loadStatsSubpanel handles other kinds (detailed/scenarios/timeseries/maps).
 */
