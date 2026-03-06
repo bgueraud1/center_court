@@ -185,6 +185,18 @@
             <div id="map-opponents" class="map-card"></div>
             <div id="map-hosts" class="map-card"></div>
           </div>
+
+          <!-- Advanced statistics panel (inserted) -->
+<div id="panel-advanced" class="panel" role="tabpanel" style="display:none; padding:8px;">
+  <!-- loader -->
+  <div id="advanced-loading" style="display:none;padding:8px;color:#666">Loading advanced statistics…</div>
+
+  <!-- content will be injected here (renderer uses #advanced-content) -->
+  <div id="advanced-content" style="display:none;"></div>
+
+  <!-- small debug log shown inside panel (hidden by default) -->
+  <div id="advanced-log" style="display:none; font-family:monospace;font-size:12px;color:#111;max-height:260px;overflow:auto;background:#f7f7f7;border:1px solid #ddd;padding:8px;margin-top:8px;display:none;"></div>
+</div>
         </div>
       </div>
     </div>
@@ -2332,6 +2344,36 @@ if(kind === 'advanced'){
     adv_log('Advanced tab code initialized (DOM ready).');
   }); // DOMContentLoaded
 })(); // IIFE
+
+// Safe fallback attach: ensures clicking the Advanced tab triggers the loader
+(function(){
+  const btn = document.querySelector('.tab-btn[data-target="panel-advanced"]');
+  if(!btn) return;
+  btn.addEventListener('click', function(e){
+    console.log('Advanced tab button clicked (fallback handler).');
+    const player = window.combinedPlayer || window.playerData || window.player || (typeof combined !== 'undefined' ? combined : null);
+    if(!player){
+      console.warn('Advanced fallback: player object not found in globals.');
+      // still show panel so UI changes visibly
+      const p = document.getElementById('panel-advanced');
+      if(p){
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        document.querySelectorAll('.panel').forEach(pn => pn.classList.remove('active'));
+        p.classList.add('active');
+      }
+      return;
+    }
+    // prefer the verbose loader if available
+    if(typeof loadAdvancedForPlayer === 'function'){
+      loadAdvancedForPlayer(player);
+    } else if (typeof openAdvancedForPlayer === 'function'){
+      openAdvancedForPlayer(player);
+    } else {
+      console.warn('No advanced loader function found (loadAdvancedForPlayer/openAdvancedForPlayer).');
+    }
+  }, {passive: true});
+})();
 
 </script>
 
