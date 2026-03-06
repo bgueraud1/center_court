@@ -132,7 +132,6 @@
       <button class="tab-btn active" data-target="panel-matches" role="tab" aria-selected="true">Matches by year</button>
       <button class="tab-btn" data-target="panel-trophies" role="tab" aria-selected="false">Tournaments & best results</button>
       <button class="tab-btn" data-target="panel-stats" role="tab" aria-selected="false">Statistics</button>
-      <!-- add this button inside the .tabs div (near Matches/Statistics/Tournaments) -->
       <button class="tab-btn" data-target="panel-advanced" role="tab" aria-selected="false">Advanced statistics</button>
     </div>
 
@@ -176,15 +175,6 @@
           <div id="detailed-stats-container"></div>
         </div>
 
-        <!-- Panel Advanced (insert where other panels are) -->
-<div id="panel-advanced" class="panel" role="tabpanel" style="display:none; padding:12px;">
-  <div id="advanced-loading" class="sub">Loading…</div>
-  <div id="advanced-content" style="display:none;"></div>
-
-  <!-- area to show debug logs in-page (also logs go to console) -->
-  <div id="advanced-log" style="margin-top:10px;font-family:monospace;font-size:12px;color:#111;max-height:300px;overflow:auto;background:#f7f7f7;border:1px solid #ddd;padding:8px;display:none;"></div>
-</div>
-
         <div id="panel-scenarios" style="display:none; padding:8px;"></div>
         <div id="panel-timeseries" style="display:none; padding:8px;"></div>
         <div id="panel-maps" style="display:none; padding:8px;">
@@ -197,537 +187,62 @@
     </div>
   </div>
 
-  
-
 <script>
+/* ---------------- common helpers ---------------- */
 
-  /* ---------- Advanced stats loader with verbose logging (paste into player.html) ---------- */
-
-/**
- * Utility: append message to in-panel debug log AND console.
- * type: 'info'|'warn'|'error'
- */
-function advLog(msg, type='info'){
-  try{
-    const panelLog = document.getElementById('advanced-log');
-    if(panelLog){
-      panelLog.style.display = 'block';
-      const el = document.createElement('div');
-      el.textContent = `[${(new Date()).toLocaleTimeString()}] ${msg}`;
-      el.style.whiteSpace = 'pre-wrap';
-      panelLog.appendChild(el);
-      // keep scroll at bottom
-      panelLog.scrollTop = panelLog.scrollHeight;
-    }
-  }catch(e){}
-  if(type === 'warn') console.warn(msg);
-  else if(type === 'error') console.error(msg);
-  else console.log(msg);
-}
-
-/* Build candidate filenames including id_First_Last.json and variants */
-function buildAdvancedCandidatesForLogging(player){
-  advLog('Building candidates from player object');
-  console.log('player object for advanced tab:', player);
+/* ---------- buildAdvancedCandidatesFor (for general_advanced_stats) ---------- */
+function buildAdvancedCandidatesFor(player){
   const pid = player && (player.player_id || player.id || player.pid) ? String(player.player_id || player.id || player.pid) : '';
-  const slug = player && (player.slug || player.name_slug) ? String(player.slug || player.name_slug) : '';
   const nameRaw = player && (player.name || player.fullname) ? String(player.name || player.fullname).trim() : '';
-
   const parts = nameRaw ? nameRaw.split(/\s+/) : [];
   const first = parts.length ? parts[0].replace(/[^A-Za-z0-9]/g,'') : '';
   const last = parts.length > 1 ? parts[parts.length-1].replace(/[^A-Za-z0-9]/g,'') : '';
   const initial = first ? first.charAt(0) : '';
-
-  const capitalize = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+  const slugVal = player && (player.slug || player.name_slug) ? String(player.slug || player.name_slug) : '';
 
   const candidates = [];
 
-  // Prefer id_First_Last (ex: 315391_Caroline_Garcia.json)
+  // Prefer id_First_Last (e.g. 315391_Caroline_Garcia.json)
   if(pid && first && last){
-    candidates.push(`general_advanced_stats/${pid}_${first}_${last}.json`);
-    candidates.push(`general_advanced_stats/${pid}_${capitalize(first)}_${capitalize(last)}.json`);
-    candidates.push(`general_advanced_stats/${pid}_${first.toLowerCase()}_${last.toLowerCase()}.json`);
     candidates.push(`/general_advanced_stats/${pid}_${first}_${last}.json`);
-    candidates.push(`/general_advanced_stats/${pid}_${capitalize(first)}_${capitalize(last)}.json`);
+    candidates.push(`/general_advanced_stats/${pid}_${first.toLowerCase()}_${last.toLowerCase()}.json`);
+    candidates.push(`/general_advanced_stats/${pid}_${first.charAt(0).toUpperCase()+first.slice(1)}_${last.charAt(0).toUpperCase()+last.slice(1)}.json`);
   }
 
-  // fallback to id_initial_last (ex: 315391_C_Garcia.json)
+  // fallback id initial last (e.g. 21805_D_Gavrilova.json)
   if(pid && initial && last){
-    candidates.push(`general_advanced_stats/${pid}_${initial}_${last}.json`);
     candidates.push(`/general_advanced_stats/${pid}_${initial}_${last}.json`);
   }
 
-  // slug & other previous formats
-  if(pid && slug){
-    candidates.push(`general_advanced_stats/${pid}_${slug}.json`);
-    candidates.push(`/general_advanced_stats/${pid}_${slug}.json`);
+  // fallback other formats
+  if(pid && slugVal){
+    candidates.push(`/general_advanced_stats/${pid}_${slugVal}.json`);
+    candidates.push(`/general_advanced_stats/${pid}_${slugVal.toLowerCase()}.json`);
   }
+
+  // basic pid-only
   if(pid){
-    candidates.push(`general_advanced_stats/${pid}.json`);
     candidates.push(`/general_advanced_stats/${pid}.json`);
   }
 
   // name-only fallbacks
   if(first && last){
-    candidates.push(`general_advanced_stats/${first}_${last}.json`);
     candidates.push(`/general_advanced_stats/${first}_${last}.json`);
+    candidates.push(`/general_advanced_stats/${first.toLowerCase()}_${last.toLowerCase()}.json`);
   }
   if(nameRaw){
-    candidates.push(`general_advanced_stats/${nameRaw.replace(/\s+/g,'_')}.json`);
     candidates.push(`/general_advanced_stats/${nameRaw.replace(/\s+/g,'_')}.json`);
   }
 
-  // also try encoded variants (in case of accents / spaces)
-  const encoded = (str) => encodeURI(str);
-  const more = candidates.map(c => encoded(c));
-  candidates.push(...more);
-
-  // dedupe but preserve order
+  // unique & return
   const seen = new Set();
-  const uniq = candidates.filter(c => {
+  return candidates.filter(c => {
     if(!c) return false;
     if(seen.has(c)) return false;
     seen.add(c);
     return true;
   });
-
-  advLog('Candidates to try (in order): ' + uniq.join(' ; '));
-  console.log('Candidates to try:', uniq);
-  return uniq;
 }
-
-/* Try a list of URLs sequentially, log status and return first parsed JSON */
-async function tryCandidatesSequentialAndLog(candidates){
-  advLog('Starting fetch attempts for candidates...');
-
-  // build expanded list with origin variants for each candidate
-  const origin = window.location.origin;
-  const expanded = [];
-  for(const c of candidates){
-    if(!c) continue;
-    if(/^https?:\/\//i.test(c)) { expanded.push(c); continue; }
-    // as-given (likely relative)
-    expanded.push(c);
-    // ensure leading slash variant
-    if(!c.startsWith('/')) expanded.push('/' + c);
-    // origin + path
-    expanded.push(origin + (c.startsWith('/') ? c : '/' + c));
-    // ./ variant (page relative)
-    expanded.push('./' + c);
-  }
-  // dedupe preserve order
-  const seen = new Set();
-  const uniq = expanded.filter(u => {
-    if(seen.has(u)) return false;
-    seen.add(u);
-    return true;
-  });
-
-  advLog('Expanded attempt list: ' + uniq.join(' ; '));
-
-  for(const url of uniq){
-    advLog('Trying fetch: ' + url);
-    console.log('fetching', url);
-    try{
-      const resp = await fetch(url, {cache: 'no-store', mode: 'cors'});
-      advLog(`-> status ${resp.status} ${resp.statusText} (content-type: ${resp.headers.get('content-type')})`);
-      if(!resp.ok){
-        // read small body for debug if possible
-        try{
-          const txt = await resp.text();
-          advLog(`   non-ok body (first 300 chars): ${txt.slice(0,300).replace(/\n/g,' ')}`);
-        }catch(e){}
-        continue;
-      }
-      // try parse JSON
-      try{
-        const data = await resp.json();
-        advLog('-> JSON parsed successfully from ' + url);
-        console.log('Parsed JSON from', url, data);
-        return { url, data, resp };
-      }catch(parseErr){
-        advLog('-> JSON parse error for ' + url + ' : ' + (parseErr && parseErr.message ? parseErr.message : String(parseErr)), 'error');
-        continue;
-      }
-    }catch(fetchErr){
-      advLog('-> Fetch error for ' + url + ' : ' + (fetchErr && fetchErr.message ? fetchErr.message : String(fetchErr)), 'error');
-      // Common: TypeError: Failed to fetch (CORS or file://)
-      continue;
-    }
-  }
-
-  advLog('No candidate succeeded (all attempts failed).', 'warn');
-  return null;
-}
-
-/* The main loader to call when opening the Advanced tab.
-   It logs playerData and writes status to the panel.
-*/
-async function loadAdvancedForPlayer(player){
-  try{
-    advLog('--- Opening Advanced statistics tab ---');
-    console.log('loadAdvancedForPlayer: player =', player);
-    advLog('player object: ' + JSON.stringify(player).slice(0,1000));
-
-    const panel = document.getElementById('panel-advanced');
-    if(!panel){
-      console.warn('panel-advanced not found in DOM');
-      return;
-    }
-    // show loading UI
-    const loader = panel.querySelector('#advanced-loading');
-    const content = panel.querySelector('#advanced-content');
-    const logdiv = panel.querySelector('#advanced-log');
-    if(loader) loader.style.display = 'block';
-    if(content) content.style.display = 'none';
-    if(logdiv) logdiv.style.display = 'block';
-
-    const candidates = buildAdvancedCandidatesForLogging(player);
-    // special debug: show an explicit example candidate for Caroline Garcia (id 315391)
-    const debugExample = `general_advanced_stats/315391_Caroline_Garcia.json`;
-    advLog('DEBUG example you can test directly in browser: ' + window.location.origin + '/' + debugExample);
-
-    const res = await tryCandidatesSequentialAndLog(candidates);
-    if(!res || !res.data){
-      if(loader) loader.style.display = 'none';
-      if(content) content.style.display = 'none';
-      // show message to user inside panel
-      panel.innerHTML = '<div style="padding:8px;color:#333">Advanced statistics are not available for this player (no JSON found). Check console/panel logs for attempted paths.</div>' + (panel.innerHTML || '');
-      advLog('Advanced stats: no JSON found for player (see attempts above).', 'warn');
-      return;
-    }
-
-    // hide loader, show content
-    if(loader) loader.style.display = 'none';
-    if(content) content.style.display = 'block';
-    // render minimal content + raw JSON toggle (you already have a renderer, but we'll inject minimal for debug)
-    const injected = `
-      <div style="font-weight:700;margin-bottom:6px">Advanced statistics (loaded from: ${res.url})</div>
-      <div style="margin-top:6px"><button id="adv-raw-btn" style="padding:6px">Toggle raw JSON</button></div>
-      <div id="adv-raw" style="display:none;margin-top:8px;max-height:360px;overflow:auto;border:1px solid #ddd;padding:8px;background:#fff"><pre>${escapeHtml(JSON.stringify(res.data, null, 2).slice(0,20000))}${String(JSON.stringify(res.data).length>20000 ? '…' : '')}</pre></div>
-    `;
-        // hide loader, show content
-    if(loader) loader.style.display = 'none';
-    if(content) content.style.display = 'block';
-
-    // Si le renderer existe, l'utiliser pour un joli rendu
-    if (typeof renderAdvancedStatsFrom === 'function') {
-      try {
-        // renderAdvancedStatsFrom(data, sourceUrl, targetDiv)
-        renderAdvancedStatsFrom(res.data, res.url, panel);
-      } catch (e) {
-        console.error('renderAdvancedStatsFrom failed:', e);
-        // fallback : afficher le raw JSON si le renderer casse
-        content.innerHTML = `
-          <div style="font-weight:700;margin-bottom:6px">Advanced statistics (loaded from: ${escapeHtml(res.url)})</div>
-          <div style="margin-top:6px"><button id="adv-raw-btn" style="padding:6px">Toggle raw JSON</button></div>
-          <div id="adv-raw" style="display:none;margin-top:8px;max-height:360px;overflow:auto;border:1px solid #ddd;padding:8px;background:#fff">
-            <pre>${escapeHtml(JSON.stringify(res.data, null, 2).slice(0,20000))}${String(JSON.stringify(res.data).length>20000 ? '…' : '')}</pre>
-          </div>`;
-        const btn = content.querySelector('#adv-raw-btn');
-        if (btn) btn.addEventListener('click', () => {
-          const p = content.querySelector('#adv-raw');
-          if (p) p.style.display = (p.style.display === 'none' ? 'block' : 'none');
-        });
-      }
-    } else {
-      // renderer introuvable : conserver le raw JSON (comportement actuel)
-      content.innerHTML = `
-        <div style="font-weight:700;margin-bottom:6px">Advanced statistics (loaded from: ${escapeHtml(res.url)})</div>
-        <div style="margin-top:6px"><button id="adv-raw-btn" style="padding:6px">Toggle raw JSON</button></div>
-        <div id="adv-raw" style="display:none;margin-top:8px;max-height:360px;overflow:auto;border:1px solid #ddd;padding:8px;background:#fff">
-          <pre>${escapeHtml(JSON.stringify(res.data, null, 2).slice(0,20000))}${String(JSON.stringify(res.data).length>20000 ? '…' : '')}</pre>
-        </div>`;
-      const btn = content.querySelector('#adv-raw-btn');
-      if (btn) btn.addEventListener('click', () => {
-        const p = content.querySelector('#adv-raw');
-        if (p) p.style.display = (p.style.display === 'none' ? 'block' : 'none');
-      });
-    }
-
-    advLog('Advanced JSON loaded and displayed (handled).');
-    return;
-  }catch(e){
-    advLog('Unexpected error in loadAdvancedForPlayer: ' + (e && e.message ? e.message : String(e)), 'error');
-    console.error(e);
-  }
-}
-
-/* small helper used by injected HTML above */
-function escapeHtml(s){
-  if(!s) return '';
-  return String(s).replace(/[&<>"]/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; });
-}
-
-/* Hook: make sure the button/tab click calls loadAdvancedForPlayer(combinedPlayerData).
-   Insert this where your tab click handling is : when target === 'panel-advanced'
-   (Below is a safe guard to attach if your existing code sets window.combinedPlayer or similar)
-*/
-(function attachAdvancedTabAutoHook(){
-  // find all .tab-btn and add listener once for panel-advanced opens if not already present
-  document.addEventListener('click', function(e){
-    const btn = e.target.closest && e.target.closest('.tab-btn');
-    if(!btn) return;
-    const target = btn.getAttribute('data-target');
-    if(target === 'panel-advanced'){
-      // try to find the player object in global scope — adjust if your app uses a different variable name
-      const player = window.combinedPlayer || window.playerData || window.player || (window.__player ? window.__player : null);
-      // log where we got player
-      advLog('Advanced tab clicked. Attempting to find playerData in known globals. Found? ' + (player ? 'yes' : 'no'));
-      if(!player){
-        // if you do keep player data in a local variable, replace the line above to pass it explicitly
-        console.warn('Player object not found in global scope (combinedPlayer/window.playerData). If you store playerData differently, call loadAdvancedForPlayer(player) explicitly.');
-        advLog('Player object not found in global scope. You may need to call loadAdvancedForPlayer(player) manually.', 'warn');
-        return;
-      }
-      // clear previous logs
-      try{ const l = document.getElementById('advanced-log'); if(l) l.innerHTML = ''; }catch(e){}
-      // call loader
-      loadAdvancedForPlayer(player);
-    }
-  });
-})();
-/* ---------------- common helpers ---------------- */
-
-/* ------------------ Advanced statistics (new) ------------------ */
-
-/**
- * Build candidates for advanced JSON discovery.
- * filenames observed: "21805_D_Gavrilova.json" -> pattern: <id>_<name>.json
- * We'll try several variants to be robust.
- */
-/* Replace existing buildAdvancedCandidatesForVerbose(player) with this improved verbose version */
-function buildAdvancedCandidatesForVerbose(player){
-  console.log('buildAdvancedCandidatesForVerbose: player =', player);
-  const pid = player && (player.player_id || player.id || player.pid) ? String(player.player_id || player.id || player.pid) : '';
-  const slugVal = player && (player.slug || player.name_slug) ? String(player.slug || player.name_slug) : '';
-  const nameRaw = player && (player.name || player.fullname) ? String(player.name || player.fullname).trim() : '';
-
-  const parts = nameRaw ? nameRaw.split(/\s+/) : [];
-  const first = parts.length ? parts[0].replace(/[^A-Za-z0-9]/g,'') : '';
-  const last = parts.length > 1 ? parts[parts.length-1].replace(/[^A-Za-z0-9]/g,'') : '';
-  const capitalize = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
-
-  const candidates = [];
-
-  if(pid && first && last){
-    candidates.push(`/general_advanced_stats/${pid}_${first}_${last}.json`);
-    candidates.push(`/general_advanced_stats/${pid}_${capitalize(first)}_${capitalize(last)}.json`);
-    candidates.push(`/general_advanced_stats/${pid}_${first.toLowerCase()}_${last.toLowerCase()}.json`);
-    candidates.push(`/general_advanced_stats/${pid}_${first}_${last}.json`);
-  }
-
-  if(pid && slugVal){
-    candidates.push(`/general_advanced_stats/${pid}_${slugVal}.json`);
-    candidates.push(`/general_advanced_stats/${pid}_${slugVal.toLowerCase()}.json`);
-    candidates.push(`/general_advanced_stats/${pid}_${slugVal}.json`);
-  }
-
-  if(pid && nameRaw){
-    const initial = first ? first.charAt(0) : '';
-    candidates.push(`/general_advanced_stats/${pid}_${nameRaw.replace(/\s+/g,'_')}.json`);
-    if(initial) candidates.push(`/general_advanced_stats/${pid}_${initial}_${last}.json`);
-    candidates.push(`/general_advanced_stats/${pid}.json`);
-    candidates.push(`/general_advanced_stats/${pid}.json`);
-  }
-
-  if(slugVal){
-    candidates.push(`/general_advanced_stats/${slugVal}.json`);
-    candidates.push(`/general_advanced_stats/${slugVal.toLowerCase()}.json`);
-    candidates.push(`/players_atp/${slugVal}.advanced.json`);
-    candidates.push(`/players_atp/data/${slugVal}.advanced.json`);
-  }
-
-  if(first && last){
-    candidates.push(`/general_advanced_stats/${first}_${last}.json`);
-    candidates.push(`/general_advanced_stats/${capitalize(first)}_${capitalize(last)}.json`);
-  }
-
-  if(nameRaw){
-    candidates.push(`/general_advanced_stats/${nameRaw.replace(/\s+/g,'_')}.json`);
-  }
-
-  if(pid){
-    candidates.push(`/general_advanced_stats/${pid}_${nameRaw.replace(/[^A-Za-z0-9_]/g,'_')}.json`);
-  }
-
-  // dedupe and log
-  const seen = new Set();
-  const uniq = candidates.filter(c => {
-    if(!c) return false;
-    if(seen.has(c)) return false;
-    seen.add(c);
-    return true;
-  });
-
-  console.log('buildAdvancedCandidatesForVerbose -> candidate list:', uniq);
-  return uniq;
-}
-/**
- * Render advanced stats into targetDiv using the JSON structure found in your example files.
- * English labels. Robust to missing keys.
- */
-function renderAdvancedStatsFrom(data, sourceUrl, targetDiv){
-  try{
-    if(!targetDiv) return;
-    // where to inject content
-    const container = targetDiv.querySelector('#advanced-content') || targetDiv;
-
-    // helpers (reuse existing smartNumberString / smartPercentFromFraction if available)
-    function safeGetMean(obj, key){
-      try{
-        if(!obj || !obj[key]) return null;
-        const v = obj[key].mean;
-        return (v === undefined ? null : v);
-      }catch(e){ return null; }
-    }
-
-    // --- RALLY / short stats ---
-    let html = `<div style="font-weight:700;margin-bottom:8px">Advanced statistics (source: ${escapeHtml(sourceUrl || '(inline)')})</div>`;
-
-    const small = data.small_stats || data.rally_stats || data.short_stats || null;
-    if(small && small.numeric){
-      const num = small.numeric;
-      html += `<div style="font-weight:600;margin-top:8px">Rally buckets (by point length)</div>`;
-      html += `<table class="bucket-table" style="margin-top:8px"><thead><tr><th>Bucket</th><th>Mean count</th><th>Share of points</th><th>Winners (mean)</th><th>Unforced errors (mean)</th><th>Forced errors (mean)</th></tr></thead><tbody>`;
-
-      // Short
-      const shortCount = safeGetMean(num, 'short_count') || safeGetMean(num, 'short_count') || null;
-      const pctShort = safeGetMean(num, 'pct_short');
-      const short_cg = safeGetMean(num, 'pct_short_cg') || safeGetMean(num, 'pct_short_cg_fp') || safeGetMean(num, 'pct_short_cg_fd_fp_combined') || null;
-      const short_fd = safeGetMean(num, 'pct_short_fd') || null;
-      const short_fp = safeGetMean(num, 'pct_short_fp') || null;
-
-      // Medium
-      const medCount = safeGetMean(num, 'medium_count') || null;
-      const pctMed = safeGetMean(num, 'pct_medium');
-      const med_cg = safeGetMean(num, 'pct_medium_cg') || null;
-      const med_fd = safeGetMean(num, 'pct_medium_fd') || null;
-      const med_fp = safeGetMean(num, 'pct_medium_fp') || null;
-
-      // Long
-      const longCount = safeGetMean(num, 'long_count') || null;
-      const pctLong = safeGetMean(num, 'pct_long');
-      const long_cg = safeGetMean(num, 'pct_long_cg') || null;
-      const long_fd = safeGetMean(num, 'pct_long_fd') || null;
-      const long_fp = safeGetMean(num, 'pct_long_fp') || null;
-
-      // helper formatting (use existing helpers if present)
-      const fmtNum = (v) => (v === null || v === undefined) ? '—' : smartNumberString(v);
-      const fmtPct = (v) => (v === null || v === undefined) ? '—' : smartPercentFromFraction(v/100 ? v/100 : v); // tolerate both fraction or already-% as decimal
-
-      // Note: in your sample JSON the pct_* keys seem to be expressed as percents in mean (e.g. 25.86) -> we try both conversions
-      function pctSmart(v){
-        if(v === null || v === undefined) return '—';
-        const n = Number(v);
-        if(isNaN(n)) return '—';
-        // heuristics: if value > 1 treat as percent (25.86) -> convert to fraction for smartPercentFromFraction
-        if(Math.abs(n) > 1) return smartPercentFromFraction(n/100);
-        return smartPercentFromFraction(n);
-      }
-
-      html += `<tr><td style="font-weight:700">Short (1–4 shots)</td><td>${escapeHtml(fmtNum(shortCount))}</td><td>${escapeHtml(pctSmart(pctShort))}</td><td>${escapeHtml(pctSmart(short_cg))}</td><td>${escapeHtml(pctSmart(short_fd))}</td><td>${escapeHtml(pctSmart(short_fp))}</td></tr>`;
-
-      html += `<tr><td style="font-weight:700">Medium (5–8 shots)</td><td>${escapeHtml(fmtNum(medCount))}</td><td>${escapeHtml(pctSmart(pctMed))}</td><td>${escapeHtml(pctSmart(med_cg))}</td><td>${escapeHtml(pctSmart(med_fd))}</td><td>${escapeHtml(pctSmart(med_fp))}</td></tr>`;
-
-      html += `<tr><td style="font-weight:700">Long (9+ shots)</td><td>${escapeHtml(fmtNum(longCount))}</td><td>${escapeHtml(pctSmart(pctLong))}</td><td>${escapeHtml(pctSmart(long_cg))}</td><td>${escapeHtml(pctSmart(long_fd))}</td><td>${escapeHtml(pctSmart(long_fp))}</td></tr>`;
-
-      html += `</tbody></table>`;
-    } else {
-      html += `<div class="no-data">Rally-level statistics not available.</div>`;
-    }
-
-    // --- STROKE STATS / big_stats ---
-    const big = data.big_stats || data.stroke_stats || null;
-    if(big && big.numeric){
-      html += `<div style="font-weight:600;margin-top:12px">Stroke statistics (aggregates)</div>`;
-      html += `<table class="stats-table" style="margin-top:8px"><thead><tr><th>Statistic</th><th>Mean</th><th>Std</th><th>Count</th></tr></thead><tbody>`;
-
-      const keys = Object.keys(big.numeric).sort();
-      keys.forEach(k => {
-        const node = big.numeric[k] || {};
-        const mean = node.mean !== undefined ? node.mean : null;
-        const std = node.std !== undefined ? node.std : null;
-        const cnt = node.non_null_samples !== undefined ? node.non_null_samples : node.count !== undefined ? node.count : null;
-        html += `<tr><td style="font-weight:700">${escapeHtml(k)}</td><td>${escapeHtml(smartNumberString(mean))}</td><td>${escapeHtml(smartNumberString(std))}</td><td>${escapeHtml(cnt===null?'—':String(cnt))}</td></tr>`;
-      });
-      html += `</tbody></table>`;
-    } else {
-      html += `<div class="no-data" style="margin-top:8px">Stroke-level statistics not available.</div>`;
-    }
-
-    // Raw JSON preview (toggle)
-    html += `<div style="margin-top:12px"><button id="adv-toggle-raw" class="tab-btn" style="padding:6px 8px">Toggle raw JSON</button><div id="adv-raw" style="display:none;margin-top:8px;max-height:360px;overflow:auto;border:1px solid var(--border);padding:8px;background:#fff"><pre class="muted-small">${escapeHtml(JSON.stringify(data, null, 2).slice(0,20000))}${String(JSON.stringify(data).length>20000 ? '…' : '')}</pre></div></div>`;
-
-    // inject
-    if(container){
-      container.innerHTML = html;
-      const btn = container.querySelector('#adv-toggle-raw');
-      if(btn){
-        btn.addEventListener('click', () => {
-          const pre = container.querySelector('#adv-raw');
-          if(pre) pre.style.display = (pre.style.display === 'none' ? 'block' : 'none');
-        });
-      }
-    }
-  }catch(e){
-    console.error('renderAdvancedStatsFrom error', e);
-    if(targetDiv) targetDiv.innerHTML = '<div class="no-data">Error rendering advanced statistics.</div>';
-  }
-}
-
-/* Integrate with existing loadStatsSubpanel by adding a new branch 'advanced'.
-   Put this right where loadStatsSubpanel handles other kinds (detailed/scenarios/timeseries/maps).
-*/
-(async function registerAdvancedHandler(){
-  // we patch the existing loadStatsSubpanel by wrapping original and adding support
-  const original = window.loadStatsSubpanel || null;
-  if(!original){
-    // if loadStatsSubpanel is not global, assume we can directly add case in the file near its definition.
-    // Otherwise nothing to do here.
-    return;
-  }
-  // No overwrite here; prefer to extend by calling original and then custom handling if not handled.
-  window.loadStatsSubpanel = async function(kind, playerData){
-    // if original already handles it (it will set statsLoadState[kind]) call it
-    if(kind !== 'advanced'){
-      return original(kind, playerData);
-    }
-    // Clean: emulate same patterns as original loadStatsSubpanel
-    if(window.statsLoadState && window.statsLoadState[kind]) return;
-    if(!window.statsLoadState) window.statsLoadState = {};
-    window.statsLoadState[kind] = true;
-
-    const pid = playerData.player_id;
-    const slugVal = playerData.slug || (window.slug || '');
-
-    const targetDiv = document.getElementById('panel-' + kind);
-    if(!targetDiv) return;
-
-    // loading UI
-    const inner = targetDiv.querySelector('#advanced-content');
-    if(inner){
-      inner.style.display = 'none';
-    }
-    const loader = targetDiv.querySelector('#advanced-loading');
-    if(loader) loader.style.display = 'block';
-
-    const candidates = buildAdvancedCandidatesFor(playerData);
-    const res = await tryCandidatesSequential(candidates);
-    if(!res || !res.data){
-      if(loader) loader.style.display = 'none';
-      targetDiv.innerHTML = '<div class="no-data">Advanced statistics are not available for this player.</div>';
-      console.warn('loadStatsSubpanel(advanced): no candidate succeeded', candidates);
-      return;
-    }
-
-    // render into the target panel
-    if(loader) loader.style.display = 'none';
-    if(inner) inner.style.display = 'block';
-    renderAdvancedStatsFrom(res.data, res.url, targetDiv);
-    return;
-  };
-})();
 
 function escapeHtml(s){
   if (s === null || s === undefined) return '';
@@ -1062,80 +577,57 @@ function fetchJsonSafe(url){
   root.style.display = 'block';
 
   // tabs behavior
-  // ---------- tabs behavior (fixed for nested panels) ----------
-document.querySelectorAll('.tab-btn').forEach(btn => {
-  btn.addEventListener('click', (e) => {
-    // visual button state
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const target = btn.getAttribute('data-target');
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      const tgt = document.getElementById(target); if(tgt) tgt.classList.add('active');
 
-    const target = btn.getAttribute('data-target');
-    const tgt = document.getElementById(target);
-    if(!tgt){
-      // fallback behaviour: try to activate by id directly if missing
-      console.warn('Tab target not found in DOM:', target);
-      return;
-    }
-
-    // find the top-level panel: the ancestor panel whose parent is #player-root
-    let topPanel = tgt;
-    while(topPanel && topPanel.parentElement && topPanel.parentElement.id !== 'player-root'){
-      topPanel = topPanel.parentElement;
-    }
-    // if none found, fallback to the panel itself
-    if(!topPanel || !topPanel.classList || !topPanel.classList.contains('panel')){
-      topPanel = tgt;
-    }
-
-    // remove active from top-level panels (direct children of #player-root)
-    document.querySelectorAll('#player-root > .panel').forEach(p => p.classList.remove('active'));
-
-    // activate top-level panel (makes the container visible)
-    if(topPanel && topPanel.id) {
-      topPanel.classList.add('active');
-      // ensure style display toggles are applied
-      topPanel.style.display = 'block';
-      topPanel.style.visibility = 'visible';
-      topPanel.style.opacity = '1';
-    }
-
-    // inside this topPanel, deactivate any nested panels and activate the specific target
-    try {
-      const nestedPanels = topPanel.querySelectorAll('.panel');
-      nestedPanels.forEach(np => np.classList.remove('active'));
-    } catch(e){ /* ignore if no nested panels */ }
-
-    // activate the target panel (in case it's nested)
-    tgt.classList.add('active');
-    tgt.style.display = 'block';
-    tgt.style.visibility = 'visible';
-    tgt.style.opacity = '1';
-
-    // Accessibility attributes
-    document.querySelectorAll('.tab-btn').forEach(b => b.setAttribute('aria-selected','false'));
-    btn.setAttribute('aria-selected','true');
-
-    // If the visible top panel is the stats container, initialize subtabs
-    if(topPanel && topPanel.id === 'panel-stats'){
-      try { if(typeof initStatsSubtabs === 'function') initStatsSubtabs(combined); } catch(e){ console.warn('initStatsSubtabs error', e); }
-    }
-
-    // If the clicked tab is the advanced panel, call loader explicitly
-    if(target === 'panel-advanced'){
-      // call loader using local `combined` (in this scope combined exists)
-      try {
-        if(typeof loadAdvancedForPlayer === 'function'){
-          loadAdvancedForPlayer(combined);
-        } else if(typeof loadStatsSubpanel === 'function'){
-          loadStatsSubpanel('advanced', combined);
-        } else {
-          console.warn('No advanced loader function found.');
-        }
-      } catch(e){ console.error('Error calling advanced loader', e); }
-    }
-
+      if(target === 'panel-stats'){ initStatsSubtabs(combined); }
+    });
   });
-});
+
+  if(document.getElementById('panel-stats').classList.contains('active')){ initStatsSubtabs(combined); }
+
+  /* ------------------ Stats subtabs + lazy loaders ------------------ */
+
+  let statsSubtabsInitialized = false;
+  const statsLoadState = { detailed:false, scenarios:false, timeseries:false, maps:false };
+
+  function initStatsSubtabs(playerData){
+    if(statsSubtabsInitialized) return;
+    statsSubtabsInitialized = true;
+    const subtabs = document.getElementById('stats-subtabs');
+    subtabs.innerHTML = '';
+
+    const tabs = [
+      { id:'detailed', label:'Detailed statistics' },
+      { id:'scenarios', label:'Scenarios' },
+      { id:'timeseries', label:'Time Series' },
+      { id:'maps', label:'Maps' }
+    ];
+
+    tabs.forEach((t, idx) => {
+      const b = document.createElement('button');
+      b.className = 'subtab-btn' + (idx===0 ? ' active' : '');
+      b.textContent = t.label;
+      b.dataset.target = `panel-${t.id}`;
+      b.addEventListener('click', (e) => {
+        document.querySelectorAll('.subtab-btn').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+        document.querySelectorAll('#stats-subpanels > div').forEach(d => d.style.display = 'none');
+        const tgt = document.getElementById(b.dataset.target);
+        if(tgt) tgt.style.display = 'block';
+        loadStatsSubpanel(t.id, playerData);
+      });
+      subtabs.appendChild(b);
+    });
+
+    document.getElementById('panel-detailed').style.display = 'block';
+    loadStatsSubpanel('detailed', playerData);
+  }
 
   // try multiple candidate URLs sequentially
   function tryCandidatesSequential(candidates){
@@ -1198,6 +690,113 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     if(Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n));
     return (Math.round(n * 100) / 100).toFixed(2).replace(/\.?0+$/,'');
   }
+  /* ---------- renderAdvancedStatsFrom (simple, robust) ----------
+   data: the JSON advanced file
+   sourceUrl: path used (for debug)
+   panelElement: the <div id="panel-advanced"> DOM node
+*/
+function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
+  try{
+    if(!panelElement) return;
+    const content = panelElement.querySelector('#advanced-content') || panelElement;
+
+    // safe getters
+    const small = data.small_stats || data.rally_stats || data.short_stats || (data.smallStats ? data.smallStats : null);
+    const big = data.big_stats || data.stroke_stats || data.strokeStats || (data.bigStats ? data.bigStats : null);
+
+    // basic helpers (do not rely on external helpers)
+    function fmtNum(v){ if(v===null||v===undefined||isNaN(Number(v))) return '—'; return String(Math.round(Number(v)*100)/100); }
+    function pctFrom(v){ if(v===null||v===undefined||isNaN(Number(v))) return '—'; const n=Number(v); return (Math.abs(n)>1 ? (Math.round(n*10)/10)+'%' : (Math.round(n*1000)/10)+'%'); }
+
+    // Build HTML header
+    let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                  <div style="font-weight:800;font-size:16px">Advanced statistics</div>
+                  <div style="font-size:12px;color:#666">Source: ${escapeHtml(sourceUrl||'(inline)')}</div>
+                </div>`;
+
+    html += `<div style="display:flex;gap:14px;align-items:flex-start">`;
+
+    // LEFT: rally buckets summary
+    html += `<div style="flex:1;min-width:320px;border:1px solid var(--border);padding:10px;border-radius:8px;background:#fff">
+              <div style="font-weight:700;margin-bottom:6px">Rally buckets</div>
+              <div style="color:#666;margin-bottom:8px">Short (1–4), Medium (5–8), Long (9+)</div>`;
+
+    if(small && small.numeric){
+      const num = small.numeric;
+      const getMean = k => (num[k] && num[k].mean !== undefined) ? num[k].mean : (num[k] !== undefined ? num[k] : null);
+
+      const shortCnt = getMean('short_count') || getMean('shortCount') || null;
+      const medCnt = getMean('medium_count') || getMean('mediumCount') || null;
+      const longCnt = getMean('long_count') || getMean('longCount') || null;
+
+      // winners/unforced/forced retrieval attempt
+      const getBucket = (prefix, key) => {
+        // try prefix_key.mean, prefixKey.mean, prefix_key
+        if(num[`${prefix}_${key}`] && num[`${prefix}_${key}`].mean !== undefined) return num[`${prefix}_${key}`].mean;
+        if(num[`${prefix}${key.charAt(0).toUpperCase()+key.slice(1)}`] && num[`${prefix}${key.charAt(0).toUpperCase()+key.slice(1)}`].mean !== undefined) return num[`${prefix}${key.charAt(0).toUpperCase()+key.slice(1)}`].mean;
+        if(num[`${prefix}_${key}`] !== undefined) return num[`${prefix}_${key}`];
+        if(num[`${prefix}${key}`] !== undefined) return num[`${prefix}${key}`];
+        return null;
+      };
+
+      const sW = getBucket('pct_short','cg'); const sFD = getBucket('pct_short','fd'); const sFP = getBucket('pct_short','fp');
+      const mW = getBucket('pct_medium','cg'); const mFD = getBucket('pct_medium','fd'); const mFP = getBucket('pct_medium','fp');
+      const lW = getBucket('pct_long','cg'); const lFD = getBucket('pct_long','fd'); const lFP = getBucket('pct_long','fp');
+
+      html += `<table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:6px">Bucket</th><th style="padding:6px">Mean count</th><th style="padding:6px">Winners</th><th style="padding:6px">Unforced</th><th style="padding:6px">Forced</th></tr></thead><tbody>`;
+      html += `<tr><td style="font-weight:700">Short<br><span style="font-weight:600;color:#666;font-size:12px">1–4 shots</span></td><td>${fmtNum(shortCnt)}</td><td>${pctFrom(sW)}</td><td>${pctFrom(sFD)}</td><td>${pctFrom(sFP)}</td></tr>`;
+      html += `<tr><td style="font-weight:700">Medium<br><span style="font-weight:600;color:#666;font-size:12px">5–8 shots</span></td><td>${fmtNum(medCnt)}</td><td>${pctFrom(mW)}</td><td>${pctFrom(mFD)}</td><td>${pctFrom(mFP)}</td></tr>`;
+      html += `<tr><td style="font-weight:700">Long<br><span style="font-weight:600;color:#666;font-size:12px">9+ shots</span></td><td>${fmtNum(longCnt)}</td><td>${pctFrom(lW)}</td><td>${pctFrom(lFD)}</td><td>${pctFrom(lFP)}</td></tr>`;
+      html += `</tbody></table>`;
+    } else {
+      html += `<div style="color:#666">Rally data not available.</div>`;
+    }
+    html += `</div>`; // close left
+
+    // RIGHT: stroke stats
+    html += `<div style="flex:1;border:1px solid var(--border);padding:10px;border-radius:8px;background:#fff">
+              <div style="font-weight:700;margin-bottom:6px">Stroke statistics</div>
+              <div style="color:#666;margin-bottom:8px">Mean / Std / Samples per metric</div>`;
+
+    if(big && big.numeric){
+      html += `<table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:6px">Metric</th><th style="padding:6px">Mean</th><th style="padding:6px">Std</th><th style="padding:6px">Samples</th></tr></thead><tbody>`;
+      const keys = Object.keys(big.numeric).filter(k => k !== 'playerId').sort();
+      for(const k of keys){
+        const n = big.numeric[k] || {};
+        const mean = n.mean !== undefined ? n.mean : (n[0] !== undefined ? n[0] : null);
+        const std = n.std !== undefined ? n.std : null;
+        const cnt = n.non_null_samples !== undefined ? n.non_null_samples : (n.count !== undefined ? n.count : null);
+        html += `<tr><td style="font-weight:700">${escapeHtml(k)}</td><td>${fmtNum(mean)}</td><td>${fmtNum(std)}</td><td>${cnt===null?'—':escapeHtml(String(cnt))}</td></tr>`;
+      }
+      html += `</tbody></table>`;
+    } else {
+      html += `<div style="color:#666">Stroke stats not available.</div>`;
+    }
+
+    html += `</div>`; // close right
+
+    html += `</div>`; // close grid
+
+    // Insert into DOM
+    content.innerHTML = html;
+
+    // attach raw-toggle if fragment includes an element for it
+    const rawBtn = panelElement.querySelector('#adv-raw-btn');
+    if(rawBtn){
+      rawBtn.addEventListener('click', () => {
+        const raw = panelElement.querySelector('#adv-raw');
+        if(raw) raw.style.display = raw.style.display === 'none' ? 'block' : 'none';
+      });
+    }
+
+  }catch(e){
+    console.error('renderAdvancedStatsFrom error', e);
+    if(panelElement){
+      const inner = panelElement.querySelector('#advanced-content') || panelElement;
+      inner.innerHTML = '<div class="no-data">Error rendering advanced statistics.</div>';
+    }
+  }
+}
   function smartHoursString(h){
     if(h === null || h === undefined) return '—';
     const n = Number(h);
@@ -1748,6 +1347,67 @@ if(kind === 'timeseries'){
     tsUrlCandidates.push(`/players_atp/${pid}.stats.json`);
     if(slugVal) tsUrlCandidates.push(`/players_atp/${slugVal}.stats.json`);
   }
+
+  // ---------- advanced panel handler ----------
+if(kind === 'advanced'){
+  const targetDiv = document.getElementById('panel-advanced');
+  if(!targetDiv) return;
+
+  // 1) load external HTML fragment (keeps markup separate)
+  try{
+    const fragUrl = '/includes/advanced_stats.html';
+    const resp = await fetch(fragUrl, {cache:'no-store'});
+    if(resp && resp.ok){
+      const html = await resp.text();
+      // inject fragment (this will create #advanced-content inside it)
+      targetDiv.innerHTML = html;
+    } else {
+      // fallback markup if fragment missing
+      targetDiv.innerHTML = '<div id="advanced-content" style="padding:8px">Advanced UI fragment missing.</div>';
+    }
+  }catch(e){
+    console.warn('Could not load advanced fragment', e);
+    targetDiv.innerHTML = '<div id="advanced-content" class="no-data">Advanced UI fragment could not be loaded.</div>';
+  }
+
+  // 2) show loading
+  const innerContent = targetDiv.querySelector('#advanced-content') || targetDiv;
+  const loader = targetDiv.querySelector('#advanced-loading');
+  if(loader) loader.style.display = 'block';
+  innerContent.style.display = 'none';
+
+  // 3) find JSON candidates and try loading
+  const candidates = buildAdvancedCandidatesFor(playerData);
+  // also try non-root variants in case local testing needs them
+  const more = candidates.map(c => c.startsWith('/') ? c.slice(1) : '/' + c);
+  const tryList = candidates.concat(more);
+
+  const res = await tryCandidatesSequential(tryList);
+  if(!res || !res.data){
+    if(loader) loader.style.display = 'none';
+    if(innerContent) innerContent.style.display = 'block';
+    innerContent.innerHTML = '<div class="no-data">Advanced statistics JSON not available for this player.</div>';
+    console.warn('loadStatsSubpanel(advanced): no candidate succeeded', tryList);
+    return;
+  }
+
+  // 4) render into the injected fragment
+  try{
+    if(loader) loader.style.display = 'none';
+    if(innerContent) innerContent.style.display = 'block';
+    // call renderer we add below
+    if(typeof renderAdvancedStatsFrom === 'function'){
+      renderAdvancedStatsFrom(res.data, res.url, targetDiv);
+    } else {
+      // fallback: raw JSON
+      innerContent.innerHTML = `<pre>${escapeHtml(JSON.stringify(res.data, null, 2).slice(0,20000))}</pre>`;
+    }
+  }catch(e){
+    console.error('Error rendering advanced stats', e);
+    innerContent.innerHTML = '<div class="no-data">Error rendering advanced statistics.</div>';
+  }
+  return;
+}
 
   // Helper: load JSON if needed
   async function loadStatsJson(){
