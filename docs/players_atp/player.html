@@ -2501,107 +2501,255 @@ if(kind === 'advanced'){
     }
 
     // Minimal renderer (injects into fragment #advanced-content)
-    function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
-      try{
-        if(!panelElement) return;
-        const container = panelElement.querySelector('#advanced-content') || panelElement;
-        const esc = s => s===null||s===undefined ? '' : String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
-        const small = data.small_stats || data.rally_stats || data.short_stats || data.smallStats || null;
-        const big = data.big_stats || data.stroke_stats || data.strokeStats || data.bigStats || null;
+  /* Robust renderer: accepts small_stats.columns OR small_stats.numeric and big_stats either flat or numeric */
+function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
+  try{
+    if(!panelElement) return;
+    const container = panelElement.querySelector('#advanced-content') || panelElement;
 
-        let html = `<div style="font-weight:700;margin-bottom:6px">Advanced statistics</div>`;
-        html += `<div style="font-size:12px;color:#666;margin-bottom:8px">Source: ${esc(sourceUrl||'(inline)')}</div>`;
-        html += `<div style="margin-bottom:8px"><button id="adv-show-raw" style="padding:6px 8px">Show raw JSON</button></div>`;
-        html += `<div id="adv-raw-json" style="display:none;max-height:260px;overflow:auto;border:1px solid #eee;padding:8px;background:#fff"><pre>${esc(JSON.stringify(data, null, 2).slice(0,20000))}${JSON.stringify(data).length>20000? '…':''}</pre></div>`;
-        html += `<div style="display:flex;gap:12px;align-items:flex-start">`;
+    const esc = s => s===null||s===undefined ? '' : String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
 
-        /* LEFT rally */
-        html += `<div style="flex:1;min-width:300px;border:1px solid #eee;padding:10px;border-radius:6px;background:#fff">`;
-        html += `<div style="font-weight:700;margin-bottom:6px">Rally buckets</div>`;
-        if(small && small.numeric){
-          const n = small.numeric;
-          const mean = (k) => n[k] && n[k].mean !== undefined ? n[k].mean : (n[k] !== undefined ? n[k] : null);
-          const sc = mean('short_count') || mean('shortCount') || '—';
-          const mc = mean('medium_count') || mean('mediumCount') || '—';
-          const lc = mean('long_count') || mean('longCount') || '—';
-          const p = (k) => {
-            const v = mean(k);
-            if(v===null||v===undefined) return '—';
-            const num = Number(v);
-            if(isNaN(num)) return '—';
-            return Math.abs(num)>1 ? (Math.round(num*10)/10)+'%' : (Math.round(num*1000)/10)+'%';
-          };
-          const get = (pref,key) => {
-            if(n[`${pref}_${key}`] && n[`${pref}_${key}`].mean !== undefined) return n[`${pref}_${key}`].mean;
-            if(n[`${pref}${key.charAt(0).toUpperCase()+key.slice(1)}`] && n[`${pref}${key.charAt(0).toUpperCase()+key.slice(1)}`].mean !== undefined) return n[`${pref}${key.charAt(0).toUpperCase()+key.slice(1)}`].mean;
-            if(n[`${pref}_${key}`] !== undefined) return n[`${pref}_${key}`];
-            if(n[`${pref}${key}`] !== undefined) return n[`${pref}${key}`];
-            return null;
-          };
-          const sW = get('pct_short','cg'); const sFD = get('pct_short','fd'); const sFP = get('pct_short','fp');
-          const mW = get('pct_medium','cg'); const mFD = get('pct_medium','fd'); const mFP = get('pct_medium','fp');
-          const lW = get('pct_long','cg'); const lFD = get('pct_long','fd'); const lFP = get('pct_long','fp');
-          html += `<table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:6px">Bucket</th><th style="padding:6px">Mean count</th><th style="padding:6px">Winners (CG)</th><th style="padding:6px">Unforced (FD)</th><th style="padding:6px">Forced (FP)</th></tr></thead><tbody>`;
-          // helper to format p-values (reuse p()) but fallback if the specific v exists
-          function fmtPVal(v, fallbackKey){
-            if(v === null || v === undefined) return p(fallbackKey);
-            const num = Number(v);
-            if(isNaN(num)) return '—';
-            return Math.abs(num)>1 ? (Math.round(num*10)/10)+'%' : (Math.round(num*1000)/10)+'%';
+    // --- normalize small stats (rally) ---
+    // prefer data.small_stats.columns, then small_stats.numeric, then top-level short_stats
+    let smallCols = null;
+    if(data && data.small_stats){
+      if(data.small_stats.columns) smallCols = data.small_stats.columns;
+      else if(data.small_stats.numeric) smallCols = data.small_stats.numeric;
+      else if(typeof data.small_stats === 'object') {
+        // sometimes the records are stored directly in small_stats (flat)
+        smallCols = data.small_stats;
+      }
+    }
+    // fallback to other likely fields
+    if(!smallCols && data.rally_stats && data.rally_stats.numeric) smallCols = data.rally_stats.numeric;
+    if(!smallCols && data.short_stats && data.short_stats.numeric) smallCols = data.short_stats.numeric;
+
+    // --- normalize big stats (stroke) ---
+    let bigObj = null;
+    if(data && data.big_stats) bigObj = data.big_stats;
+    else if(data && data.stroke_stats) bigObj = data.stroke_stats;
+    else if(data && data.bigStats) bigObj = data.bigStats;
+    // bigObj might be { numeric: {...} } or flat object
+    const bigNumeric = bigObj && bigObj.numeric ? bigObj.numeric : bigObj;
+
+    // small helper formatters
+    const num = v => (v===null||v===undefined||v===''||isNaN(Number(v))) ? null : Number(v);
+    const fmtNum = v => v===null ? '—' : (Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : (Math.round(v*100)/100));
+    const pctToLabel = v => {
+      if(v===null) return '—';
+      // if >1 assume percent, else fraction
+      return (Math.abs(v) > 1 ? (Math.round(v*10)/10)+'%' : (Math.round(v*1000)/10)+'%');
+    };
+
+    // Begin building HTML
+    let html = `<div style="display:flex;justify-content:space-between;align-items:center"><div style="font-weight:700">Advanced statistics</div><div style="font-size:12px;color:#666">Source: ${esc(sourceUrl||'(inline)')}</div></div>`;
+    // raw toggle + raw content
+    html += `<div style="margin-top:8px"><button id="adv-show-raw" style="padding:6px 8px">Show raw JSON</button></div>`;
+    html += `<div id="adv-raw-json" style="display:none;max-height:280px;overflow:auto;border:1px solid #eee;padding:8px;background:#fff;margin-top:8px"><pre>${esc(JSON.stringify(data, null, 2).slice(0,20000))}${JSON.stringify(data).length>20000? '…':''}</pre></div>`;
+
+    html += `<div style="display:flex;gap:12px;align-items:flex-start;margin-top:12px">`;
+
+    // --- LEFT: rally buckets summary & pies placeholders ---
+    html += `<div style="flex:1;min-width:320px" class="adv-card">`;
+    html += `<div style="font-weight:700;margin-bottom:6px">Rally buckets</div>`;
+    html += `<div style="color:#666;margin-bottom:8px">Short (1–4), Medium (5–8), Long (9+)</div>`;
+
+    if(smallCols){
+      // read values from smallCols tolerant to key case
+      const getSmall = (k) => {
+        if(!smallCols) return null;
+        if(smallCols[k] !== undefined) return smallCols[k];
+        // case-insensitive fallback
+        const low = k.toLowerCase();
+        for(const kk of Object.keys(smallCols)){
+          if(kk.toLowerCase() === low) return smallCols[kk];
+        }
+        return null;
+      };
+
+      const match_pct_short = num(getSmall('match_pct_short') || getSmall('match_pctShort') || getSmall('match_pctshort'));
+      const match_pct_medium = num(getSmall('match_pct_medium') || getSmall('match_pctMedium'));
+      const match_pct_long = num(getSmall('match_pct_long') || getSmall('match_pctLong'));
+
+      const pct_won_short = num(getSmall('pct_won_short') || getSmall('pct_wonShort') || getSmall('pct_won_short'));
+      const pct_won_medium = num(getSmall('pct_won_medium') || getSmall('pct_wonMedium'));
+      const pct_won_long = num(getSmall('pct_won_long') || getSmall('pct_wonLong'));
+
+      html += `<div style="display:flex;gap:10px;margin-bottom:12px">`;
+      html += `<div style="flex:1"><div class="adv-key">Short</div><div class="adv-val">${match_pct_short===null?'—':pctToLabel(match_pct_short)}</div><div style="color:#666;font-size:12px">Win: ${pct_won_short===null?'—':pctToLabel(pct_won_short)}</div></div>`;
+      html += `<div style="flex:1"><div class="adv-key">Medium</div><div class="adv-val">${match_pct_medium===null?'—':pctToLabel(match_pct_medium)}</div><div style="color:#666;font-size:12px">Win: ${pct_won_medium===null?'—':pctToLabel(pct_won_medium)}</div></div>`;
+      html += `<div style="flex:1"><div class="adv-key">Long</div><div class="adv-val">${match_pct_long===null?'—':pctToLabel(match_pct_long)}</div><div style="color:#666;font-size:12px">Win: ${pct_won_long===null?'—':pctToLabel(pct_won_long)}</div></div>`;
+      html += `</div>`;
+
+      // Prepare pie placeholders (we will draw pies after injection)
+      const buckets = [
+        { name: 'Short', winPref: 'pct_won_short', losePref: 'pct_lost_short' },
+        { name: 'Medium', winPref: 'pct_won_medium', losePref: 'pct_lost_medium' },
+        { name: 'Long', winPref: 'pct_won_long', losePref: 'pct_lost_long' }
+      ];
+      html += `<div style="display:flex;gap:10px;flex-wrap:wrap">`;
+      buckets.forEach((b, i) => {
+        html += `<div style="display:flex;flex-direction:column;align-items:center;margin:6px"><div id="pie-win-${i}" style="width:180px;height:140px"></div><div style="height:6px"></div><div id="pie-legend-win-${i}" style="font-size:12px;margin-top:6px"></div></div>`;
+      });
+      html += `</div>`;
+    } else {
+      html += `<div style="color:#666">Rally stats not available for this player.</div>`;
+    }
+    html += `</div>`; // end left
+
+    // --- RIGHT: stroke stats + summary ---
+    html += `<div style="flex:1;min-width:320px" class="adv-card">`;
+    html += `<div style="font-weight:700;margin-bottom:6px">Stroke statistics & summary</div>`;
+
+    // shot-by-shot placeholders
+    html += `<div id="adv-shot-chart" style="height:260px;margin-bottom:12px"></div>`;
+
+    // big_stats summary
+    if(bigNumeric){
+      html += `<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">`;
+      const sortedKeys = Object.keys(bigNumeric).slice(0,50); // show first 50 for safety
+      sortedKeys.forEach(k=>{
+        const v = bigNumeric[k];
+        html += `<div><div class="adv-key">${esc(k)}</div><div class="adv-val">${v===null||v===undefined?'—':fmtNum(v)}</div></div>`;
+      });
+      html += `</div>`;
+    } else {
+      html += `<div style="color:#666">Stroke stats not available for this player.</div>`;
+    }
+
+    html += `</div>`; // end right
+
+    html += `</div>`; // end main flex
+
+    // inject HTML
+    container.style.display = 'block';
+    container.innerHTML = html;
+
+    // attach raw toggle
+    const rawBtn = panelElement.querySelector('#adv-show-raw');
+    if(rawBtn){
+      rawBtn.addEventListener('click', () => {
+        const r = panelElement.querySelector('#adv-raw-json');
+        if(r) r.style.display = (r.style.display === 'none' ? 'block' : 'none');
+      });
+    }
+
+    // --- draw pies & shot chart (simple, tolerant) ---
+    // draw pie for each bucket (win + lose)
+    const drawPieSimple = (domId, values, labels) => {
+      const el = document.getElementById(domId);
+      if(!el) return;
+      // try Plotly
+      if(window.Plotly && typeof window.Plotly.newPlot === 'function'){
+        const trace = [{ labels, values, type:'pie', marker:{colors:['#2563eb','#ef4444','#f59e0b']}, textinfo:'label+percent' }];
+        const layout = {height:140,width:180,margin:{t:8,l:4,r:4,b:8},showlegend:false};
+        Plotly.newPlot(el, trace, layout, {displayModeBar:false});
+        el.on('plotly_click', function(ev){
+          const pt = ev && ev.points && ev.points[0];
+          if(pt){
+            const lbl = pt.label;
+            const info = `Clicked ${lbl} — value: ${pt.value}`;
+            const infoBox = panelElement.querySelector('#advanced-log');
+            if(infoBox){ infoBox.style.display='block'; infoBox.innerHTML = `<div>${info}</div>`; }
+            console.log(info);
           }
-          html += `<tr><td style="font-weight:700">Short (1–4)</td><td>${esc(String(sc))}</td><td>${esc(fmtPVal(sW,'pct_short_cg'))}</td><td>${esc(fmtPVal(sFD,'pct_short_fd'))}</td><td>${esc(fmtPVal(sFP,'pct_short_fp'))}</td></tr>`;
-          html += `<tr><td style="font-weight:700">Medium (5–8)</td><td>${esc(String(mc))}</td><td>${esc(fmtPVal(mW,'pct_medium_cg'))}</td><td>${esc(fmtPVal(mFD,'pct_medium_fd'))}</td><td>${esc(fmtPVal(mFP,'pct_medium_fp'))}</td></tr>`;
-          html += `<tr><td style="font-weight:700">Long (9+)</td><td>${esc(String(lc))}</td><td>${esc(fmtPVal(lW,'pct_long_cg'))}</td><td>${esc(fmtPVal(lFD,'pct_long_fd'))}</td><td>${esc(fmtPVal(lFP,'pct_long_fp'))}</td></tr>`;
-          html += `</tbody></table>`;
-        } else {
-          html += `<div style="color:#666">Rally stats not available for this player.</div>`;
+        });
+      } else {
+        // fallback: small textual representation
+        el.innerHTML = '<div style="font-size:12px;color:#666">Pie (no Plotly)</div><div style="font-size:13px">'+labels.map((L,i)=>`${L}: ${pctToLabel(values[i])}`).join('<br>')+'</div>';
+      }
+    };
+
+    if(smallCols){
+      const getSmall = (k) => {
+        if(!smallCols) return null;
+        if(smallCols[k] !== undefined) return smallCols[k];
+        const low = k.toLowerCase();
+        for(const kk of Object.keys(smallCols)) if(kk.toLowerCase() === low) return smallCols[kk];
+        return null;
+      };
+      const bucketDefs = [
+        ['pct_won_short','pct_lost_short'],
+        ['pct_won_medium','pct_lost_medium'],
+        ['pct_won_long','pct_lost_long']
+      ];
+      bucketDefs.forEach((b, idx) => {
+        const cg = num(getSmall(b[0] + '_CG') || getSmall(b[0] + '_cg')) || 0;
+        const fd = num(getSmall(b[0] + '_FD') || getSmall(b[0] + '_fd')) || 0;
+        const fp = num(getSmall(b[0] + '_FP') || getSmall(b[0] + '_fp')) || 0;
+        drawPieSimple('pie-win-'+idx, [cg,fd,fp], ['CG','FD','FP']);
+
+        const cgL = num(getSmall(b[1] + '_CG') || getSmall(b[1] + '_cg')) || 0;
+        const fdL = num(getSmall(b[1] + '_FD') || getSmall(b[1] + '_fd')) || 0;
+        const fpL = num(getSmall(b[1] + '_FP') || getSmall(b[1] + '_fp')) || 0;
+        drawPieSimple('pie-lose-'+idx, [cgL,fdL,fpL], ['CG','FD','FP']);
+      });
+
+      // shot-by-shot curves (service, retour, 3..10)
+      const shotKeys = [
+        ['Service','shot_Service_won_pct_CG','shot_Service_won_pct_FD','shot_Service_won_pct_FP'],
+        ['Retour','shot_Retour_won_pct_CG','shot_Retour_won_pct_FD','shot_Retour_won_pct_FP'],
+        ['3rd','shot_3me_coup_won_pct_CG','shot_3me_coup_won_pct_FD','shot_3me_coup_won_pct_FP'],
+        ['4th','shot_4me_coup_won_pct_CG','shot_4me_coup_won_pct_FD','shot_4me_coup_won_pct_FP'],
+        ['5th','shot_5me_coup_won_pct_CG','shot_5me_coup_won_pct_FD','shot_5me_coup_won_pct_FP'],
+        ['6th','shot_6me_coup_won_pct_CG','shot_6me_coup_won_pct_FD','shot_6me_coup_won_pct_FP'],
+        ['7th','shot_7me_coup_won_pct_CG','shot_7me_coup_won_pct_FD','shot_7me_coup_won_pct_FP'],
+        ['8th','shot_8me_coup_won_pct_CG','shot_8me_coup_won_pct_FD','shot_8me_coup_won_pct_FP'],
+        ['9th','shot_9_coups_impairs_won_pct_CG','shot_9_coups_impairs_won_pct_FD','shot_9_coups_impairs_won_pct_FP'],
+        ['10th','shot_10_coups_pairs_won_pct_CG','shot_10_coups_pairs_won_pct_FD','shot_10_coups_pairs_won_pct_FP']
+      ];
+      const xs = [], cgArr = [], fdArr = [], fpArr = [];
+      const getSmallVal = k => {
+        const v = smallCols[k] !== undefined ? smallCols[k] : (smallCols[k.toLowerCase()] !== undefined ? smallCols[k.toLowerCase()] : null);
+        return num(v)===null?0:num(v);
+      };
+      shotKeys.forEach(s => {
+        xs.push(s[0]);
+        cgArr.push(getSmallVal(s[1]));
+        fdArr.push(getSmallVal(s[2]));
+        fpArr.push(getSmallVal(s[3]));
+      });
+
+      if(window.Plotly && typeof window.Plotly.newPlot === 'function'){
+        try{
+          const traces = [
+            { x: xs, y: cgArr, name: 'CG', mode:'lines+markers', line:{color:'#2563eb'} },
+            { x: xs, y: fdArr, name: 'FD', mode:'lines+markers', line:{color:'#ef4444'} },
+            { x: xs, y: fpArr, name: 'FP', mode:'lines+markers', line:{color:'#f59e0b'} }
+          ];
+          const layout = { margin:{t:20,l:40,r:20,b:60}, yaxis:{tickformat:'.0%'} , legend:{orientation:'h',y:-0.25}};
+          Plotly.newPlot('adv-shot-chart', traces, layout, {displayModeBar:false});
+        }catch(e){
+          console.warn('Plotly shot chart error', e);
         }
-        html += `</div>`;
-
-        /* RIGHT stroke */
-        html += `<div style="flex:1;border:1px solid #eee;padding:10px;border-radius:6px;background:#fff">`;
-        html += `<div style="font-weight:700;margin-bottom:6px">Stroke statistics</div>`;
-        if(big && big.numeric){
-          html += `<table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:6px">Metric</th><th style="padding:6px">Mean</th><th style="padding:6px">Std</th><th style="padding:6px">Samples</th></tr></thead><tbody>`;
-          const keys = Object.keys(big.numeric).filter(k=>k!=='playerId').sort();
-          keys.forEach(k => {
-            const node = big.numeric[k] || {};
-            const mean = node.mean !== undefined ? node.mean : null;
-            const std = node.std !== undefined ? node.std : null;
-            const cnt = node.non_null_samples !== undefined ? node.non_null_samples : (node.count !== undefined ? node.count : null);
-            html += `<tr><td style="font-weight:700">${esc(k)}</td><td>${esc(mean===null?'—':String(Math.round(Number(mean)*100)/100))}</td><td>${esc(std===null?'—':String(Math.round(Number(std)*100)/100))}</td><td>${esc(cnt===null?'—':String(cnt))}</td></tr>`;
-          });
-          html += `</tbody></table>`;
-        } else {
-          html += `<div style="color:#666">Stroke stats not available for this player.</div>`;
-        }
-        html += `</div>`; // end right
-
-        html += `</div>`; // end flex
-
-        container.style.display = 'block';
-        container.innerHTML = html;
-
-        // attach raw toggle
-        const rawBtn = panelElement.querySelector('#adv-show-raw');
-        if(rawBtn){
-          rawBtn.addEventListener('click', () => {
-            const r = panelElement.querySelector('#adv-raw-json');
-            if(r) r.style.display = (r.style.display === 'none' ? 'block' : 'none');
-          });
-        }
-        adv_log('rendered advanced stats (source=' + sourceUrl + ')');
-      }catch(e){
-        console.error('renderAdvancedStatsFrom error', e);
-        adv_log('render error: ' + (e && e.message ? e.message : e), 'error');
-        if(panelElement){
-          const container = panelElement.querySelector('#advanced-content') || panelElement;
-          if(container){ container.style.display = 'block'; container.innerHTML = '<div style="color:#c00">Error rendering advanced statistics.</div>'; }
+      } else {
+        // fallback table
+        const wrap = document.getElementById('adv-shot-chart');
+        if(wrap){
+          let t = '<table style="width:100%;border-collapse:collapse"><thead><tr><th>Shot</th><th>CG</th><th>FD</th><th>FP</th></tr></thead><tbody>';
+          for(let i=0;i<xs.length;i++){
+            t += `<tr><td style="font-weight:700">${xs[i]}</td><td>${cgArr[i]===0?'—':pctToLabel(cgArr[i])}</td><td>${fdArr[i]===0?'—':pctToLabel(fdArr[i])}</td><td>${fpArr[i]===0?'—':pctToLabel(fpArr[i])}</td></tr>`;
+          }
+          t += '</tbody></table>';
+          wrap.innerHTML = t;
         }
       }
     }
 
-    // Main entry: open advanced for player
+    // done
+    console.log('rendered advanced stats (source=' + sourceUrl + ')');
+  }catch(e){
+    console.error('renderAdvancedStatsFrom error', e);
+    try{
+      const container = panelElement.querySelector('#advanced-content') || panelElement;
+      if(container) container.innerHTML = '<div style="color:#c00">Error rendering advanced statistics.</div>';
+    }catch(e){}
+  }
+}
+
+
+
+// Main entry: open advanced for player
     window.openAdvancedForPlayer = async function(player){
       try{
         adv_log('Opening Advanced Statistics tab for player id=' + (player && (player.player_id||player.id) ? (player.player_id||player.id) : 'unknown'));
