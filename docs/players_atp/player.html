@@ -2005,345 +2005,333 @@ if(kind === 'advanced'){
   };
 })();
 
-/* ---------- Advanced tab: load fragment + JSON + render (self-contained) ---------- */
+/* ---------- Advanced tab: load fragment + JSON + render (safe, DOM-ready) ---------- */
+(function(){
+  // Do nothing until DOM is ready to avoid breaking other scripts
+  document.addEventListener('DOMContentLoaded', () => {
 
-/* small helper to append logs in the fragment and console */
-function adv_log(msg, level='info'){
-  try{
-    console[level](msg);
-  }catch(e){}
-  try{
-    const logDiv = document.getElementById('advanced-log');
-    if(logDiv){
-      logDiv.style.display = 'block';
-      const line = document.createElement('div');
-      line.textContent = '[' + (new Date()).toLocaleTimeString() + '] ' + msg;
-      logDiv.appendChild(line);
-      logDiv.scrollTop = logDiv.scrollHeight;
-    }
-  }catch(e){}
-}
-
-/* ensure top-level panel (container) is shown, then show nested panel */
-function ensureAdvancedVisible(){
-  try{
-    // show top-level panels that may be hidden
-    const panel = document.getElementById('panel-advanced');
-    if(!panel) return;
-    // find ancestor that is top-level child of #player-root (if present)
-    let top = panel;
-    while(top && top.parentElement && top.parentElement.id !== 'player-root'){
-      top = top.parentElement;
-    }
-    if(top && top.classList && top.classList.contains('panel')){
-      top.style.display = 'block';
-      top.style.visibility = 'visible';
-      top.style.opacity = '1';
-      top.classList.add('active');
-    }
-    // also make the advanced panel visible
-    panel.style.display = 'block';
-    panel.style.visibility = 'visible';
-    panel.style.opacity = '1';
-    panel.classList.add('active');
-
-    // mark the tab button as active too
-    const btn = document.querySelector('.tab-btn[data-target="panel-advanced"]');
-    if(btn){
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      btn.setAttribute('aria-selected','true');
-    }
-  }catch(e){
-    console.error('ensureAdvancedVisible error', e);
-  }
-}
-
-/* Build candidate JSON paths (root-first) */
-function buildAdvancedCandidatesFor(player){
-  const pid = player && (player.player_id || player.id || player.pid) ? String(player.player_id || player.id || player.pid) : '';
-  const nameRaw = player && (player.name || player.fullname) ? String(player.name || player.fullname).trim() : '';
-  const parts = nameRaw ? nameRaw.split(/\s+/) : [];
-  const first = parts.length ? parts[0].replace(/[^A-Za-z0-9]/g,'') : '';
-  const last = parts.length > 1 ? parts[parts.length-1].replace(/[^A-Za-z0-9]/g,'') : '';
-  const initial = first ? first.charAt(0) : '';
-  const slug = (player && (player.slug || player.name_slug)) ? String(player.slug || player.name_slug) : '';
-
-  const candidates = [];
-  if(pid && first && last){
-    candidates.push(`/general_advanced_stats/${pid}_${first}_${last}.json`);
-    candidates.push(`/general_advanced_stats/${pid}_${first.charAt(0).toUpperCase()+first.slice(1)}_${last.charAt(0).toUpperCase()+last.slice(1)}.json`);
-    candidates.push(`/general_advanced_stats/${pid}_${first.toLowerCase()}_${last.toLowerCase()}.json`);
-  }
-  if(pid && initial && last){
-    candidates.push(`/general_advanced_stats/${pid}_${initial}_${last}.json`);
-  }
-  if(pid && slug){
-    candidates.push(`/general_advanced_stats/${pid}_${slug}.json`);
-    candidates.push(`/general_advanced_stats/${pid}_${slug.toLowerCase()}.json`);
-  }
-  if(pid){
-    candidates.push(`/general_advanced_stats/${pid}.json`);
-  }
-  if(first && last){
-    candidates.push(`/general_advanced_stats/${first}_${last}.json`);
-    candidates.push(`/general_advanced_stats/${first.toLowerCase()}_${last.toLowerCase()}.json`);
-  }
-  if(nameRaw){
-    candidates.push(`/general_advanced_stats/${nameRaw.replace(/\s+/g,'_')}.json`);
-  }
-
-  // dedupe
-  const seen = new Set();
-  return candidates.filter(c => {
-    if(!c) return false;
-    if(seen.has(c)) return false;
-    seen.add(c);
-    return true;
-  });
-}
-
-/* Try candidates sequentially; return {url,data} or null */
-async function tryCandidatesSequential(candidates){
-  adv_log('Trying JSON candidates: ' + candidates.join(' ; '));
-  const origin = window.location.origin;
-  for(const c of candidates){
-    // try root then origin absolute
-    const url = c.startsWith('/') ? c : ('/' + c);
-    const full = origin + url;
-    adv_log('fetch -> ' + url);
-    try{
-      // 1) try root absolute
-      let resp = await fetch(url, {cache:'no-store', mode:'cors'});
-      adv_log(`-> status ${resp.status} ${resp.statusText} (${resp.headers.get('content-type')||'n/a'})`);
-      if(resp.ok){
-        // try parse JSON
-        try{
-          const data = await resp.json();
-          return { url, data };
-        }catch(parseErr){
-          adv_log('JSON parse error for ' + url + ' : ' + (parseErr && parseErr.message ? parseErr.message : parseErr), 'warn');
-          // fallthrough to try full absolute
-        }
-      }
-    }catch(e){
-      adv_log('Fetch error for ' + url + ' : ' + (e && e.message ? e.message : e), 'warn');
-    }
-
-    // 2) try full absolute (origin + url)
-    try{
-      adv_log('fetch -> ' + full);
-      let resp2 = await fetch(full, {cache:'no-store', mode:'cors'});
-      adv_log(`-> status ${resp2.status} ${resp2.statusText} (${resp2.headers.get('content-type')||'n/a'})`);
-      if(resp2.ok){
-        try{
-          const data2 = await resp2.json();
-          return { url: full, data: data2 };
-        }catch(e){
-          adv_log('JSON parse error for ' + full + ' : ' + (e && e.message ? e.message : e), 'warn');
-        }
-      }
-    }catch(e){
-      adv_log('Fetch error for ' + full + ' : ' + (e && e.message ? e.message : e), 'warn');
-    }
-  }
-  adv_log('No JSON candidate succeeded.', 'warn');
-  return null;
-}
-
-/* Minimal renderer (populates #advanced-content inside the fragment) */
-function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
-  try{
-    if(!panelElement) return;
-    const container = panelElement.querySelector('#advanced-content') || panelElement;
-    // helpers
-    const esc = s => s===null||s===undefined ? '' : String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
-
-    // small (rally) and big (stroke)
-    const small = data.small_stats || data.rally_stats || data.short_stats || data.smallStats || null;
-    const big = data.big_stats || data.stroke_stats || data.strokeStats || data.bigStats || null;
-
-    let html = `<div style="font-weight:700;margin-bottom:6px">Advanced statistics</div>`;
-    html += `<div style="font-size:12px;color:#666;margin-bottom:8px">Source: ${esc(sourceUrl||'(inline)')}</div>`;
-
-    // show raw json button content
-    html += `<div style="margin-bottom:8px"><button id="adv-show-raw" style="padding:6px 8px">Show raw JSON</button></div>`;
-    html += `<div id="adv-raw-json" style="display:none;max-height:260px;overflow:auto;border:1px solid #eee;padding:8px;background:#fff"><pre>${esc(JSON.stringify(data, null, 2).slice(0,20000))}${JSON.stringify(data).length>20000? '…':''}</pre></div>`;
-
-    html += `<div style="display:flex;gap:12px;align-items:flex-start">`;
-
-    // LEFT: Rally buckets summary
-    html += `<div style="flex:1;min-width:300px;border:1px solid #eee;padding:10px;border-radius:6px;background:#fff">`;
-    html += `<div style="font-weight:700;margin-bottom:6px">Rally buckets</div>`;
-    if(small && small.numeric){
-      const n = small.numeric;
-      const mean = (k) => n[k] && n[k].mean !== undefined ? n[k].mean : (n[k] !== undefined ? n[k] : null);
-      const sc = mean('short_count') || mean('shortCount') || '—';
-      const mc = mean('medium_count') || mean('mediumCount') || '—';
-      const lc = mean('long_count') || mean('longCount') || '—';
-      const p = (k) => {
-        const v = mean(k);
-        if(v===null || v===undefined) return '—';
-        const num = Number(v);
-        if(isNaN(num)) return '—';
-        return Math.abs(num)>1 ? (Math.round(num*10)/10)+'%' : (Math.round(num*1000)/10)+'%';
-      };
-      // try common keys for winners/unforced/forced
-      const get = (pref, key) => {
-        if(n[`${pref}_${key}`] && n[`${pref}_${key}`].mean !== undefined) return n[`${pref}_${key}`].mean;
-        if(n[`${pref}${key.charAt(0).toUpperCase()+key.slice(1)}`] && n[`${pref}${key.charAt(0).toUpperCase()+key.slice(1)}`].mean !== undefined) return n[`${pref}${key.charAt(0).toUpperCase()+key.slice(1)}`].mean;
-        if(n[`${pref}_${key}`] !== undefined) return n[`${pref}_${key}`];
-        if(n[`${pref}${key}`] !== undefined) return n[`${pref}${key}`];
-        return null;
-      };
-      const sW = get('pct_short','cg'); const sFD = get('pct_short','fd'); const sFP = get('pct_short','fp');
-      const mW = get('pct_medium','cg'); const mFD = get('pct_medium','fd'); const mFP = get('pct_medium','fp');
-      const lW = get('pct_long','cg'); const lFD = get('pct_long','fd'); const lFP = get('pct_long','fp');
-
-      html += `<table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:6px">Bucket</th><th style="padding:6px">Mean count</th><th style="padding:6px">Winners (CG)</th><th style="padding:6px">Unforced (FD)</th><th style="padding:6px">Forced (FP)</th></tr></thead><tbody>`;
-      html += `<tr><td style="font-weight:700">Short (1–4)</td><td>${esc(String(sc))}</td><td>${esc(p('pct_short_cg') === '—' ? (Math.abs(Number(sW))>1 ? (Math.round(Number(sW)*10)/10)+'%' : (Math.round(Number(sW)*1000)/10)+'%') : p('pct_short_cg')}</td><td>${esc(p('pct_short_fd'))}</td><td>${esc(p('pct_short_fp'))}</td></tr>`;
-      html += `<tr><td style="font-weight:700">Medium (5–8)</td><td>${esc(String(mc))}</td><td>${esc(p('pct_medium_cg'))}</td><td>${esc(p('pct_medium_fd'))}</td><td>${esc(p('pct_medium_fp'))}</td></tr>`;
-      html += `<tr><td style="font-weight:700">Long (9+)</td><td>${esc(String(lc))}</td><td>${esc(p('pct_long_cg'))}</td><td>${esc(p('pct_long_fd'))}</td><td>${esc(p('pct_long_fp'))}</td></tr>`;
-      html += `</tbody></table>`;
-    } else {
-      html += `<div style="color:#666">Rally stats not available for this player.</div>`;
-    }
-    html += `</div>`; // end left
-
-    // RIGHT: Stroke stats
-    html += `<div style="flex:1;border:1px solid #eee;padding:10px;border-radius:6px;background:#fff">`;
-    html += `<div style="font-weight:700;margin-bottom:6px">Stroke statistics</div>`;
-    if(big && big.numeric){
-      html += `<table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:6px">Metric</th><th style="padding:6px">Mean</th><th style="padding:6px">Std</th><th style="padding:6px">Samples</th></tr></thead><tbody>`;
-      const keys = Object.keys(big.numeric).filter(k=>k!=='playerId').sort();
-      keys.forEach(k => {
-        const node = big.numeric[k] || {};
-        const mean = node.mean !== undefined ? node.mean : null;
-        const std = node.std !== undefined ? node.std : null;
-        const cnt = node.non_null_samples !== undefined ? node.non_null_samples : (node.count !== undefined ? node.count : null);
-        html += `<tr><td style="font-weight:700">${esc(k)}</td><td>${esc(mean===null?'—':String(Math.round(Number(mean)*100)/100))}</td><td>${esc(std===null?'—':String(Math.round(Number(std)*100)/100))}</td><td>${esc(cnt===null?'—':String(cnt))}</td></tr>`;
-      });
-      html += `</tbody></table>`;
-    } else {
-      html += `<div style="color:#666">Stroke stats not available for this player.</div>`;
-    }
-    html += `</div>`; // end right
-
-    html += `</div>`; // end flex
-
-    container.style.display = 'block';
-    container.innerHTML = html;
-
-    // attach raw toggle button (inside fragment)
-    const rawBtn = panelElement.querySelector('#adv-show-raw');
-    if(rawBtn){
-      rawBtn.addEventListener('click', () => {
-        const r = panelElement.querySelector('#adv-raw-json');
-        if(r) r.style.display = (r.style.display === 'none' ? 'block' : 'none');
-      });
-    }
-    adv_log('rendered advanced stats (source=' + sourceUrl + ')');
-  }catch(e){
-    console.error('renderAdvancedStatsFrom error', e);
-    adv_log('render error: ' + (e && e.message ? e.message : e), 'error');
-    if(panelElement){
-      const container = panelElement.querySelector('#advanced-content') || panelElement;
-      container.style.display = 'block';
-      container.innerHTML = '<div style="color:#c00">Error rendering advanced statistics.</div>';
-    }
-  }
-}
-
-/* main entry: call this with the player object (e.g. window.combinedPlayer) */
-window.openAdvancedForPlayer = async function(player){
-  try{
-    adv_log('Opening Advanced Statistics tab for player id=' + (player && (player.player_id||player.id) ? (player.player_id||player.id) : 'unknown'));
-    ensureAdvancedVisible();
-
-    // load fragment
-    const panel = document.getElementById('panel-advanced');
-    if(!panel){
-      adv_log('panel-advanced element not found', 'warn');
-      return;
-    }
-    // fetch and inject fragment HTML (if not already loaded)
-    const fragPresent = !!panel.querySelector('#advanced-content');
-    if(!fragPresent){
+    // Small helper: append logs to in-page log and console
+    function adv_log(msg, level='log'){
+      try {
+        if(level === 'warn') console.warn(msg);
+        else if(level === 'error') console.error(msg);
+        else console.log(msg);
+      } catch(e){}
       try{
-        const fragResp = await fetch('/includes/advanced_stats.html', {cache:'no-store'});
-        if(fragResp.ok){
-          const fragHtml = await fragResp.text();
-          panel.innerHTML = fragHtml;
-        } else {
-          panel.innerHTML = '<div id="advanced-content">Could not load advanced fragment.</div>';
+        const logDiv = document.getElementById('advanced-log');
+        if(logDiv){
+          logDiv.style.display = 'block';
+          const line = document.createElement('div');
+          line.textContent = '[' + (new Date()).toLocaleTimeString() + '] ' + msg;
+          logDiv.appendChild(line);
+          logDiv.scrollTop = logDiv.scrollHeight;
+        }
+      }catch(e){}
+    }
+
+    // Ensure the advanced panel (and its ancestor top panel) is visible
+    function ensureAdvancedVisible(){
+      try{
+        const panel = document.getElementById('panel-advanced');
+        if(!panel) return;
+        let top = panel;
+        while(top && top.parentElement && top.parentElement.id !== 'player-root'){
+          top = top.parentElement;
+        }
+        if(top && top.classList && top.classList.contains('panel')){
+          top.style.display = 'block';
+          top.style.visibility = 'visible';
+          top.style.opacity = '1';
+          top.classList.add('active');
+        }
+        panel.style.display = 'block';
+        panel.style.visibility = 'visible';
+        panel.style.opacity = '1';
+        panel.classList.add('active');
+        const btn = document.querySelector('.tab-btn[data-target="panel-advanced"]');
+        if(btn){
+          document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          btn.setAttribute('aria-selected','true');
         }
       }catch(e){
-        panel.innerHTML = '<div id="advanced-content">Could not load advanced fragment (fetch error).</div>';
-        adv_log('Could not load fragment: ' + (e && e.message ? e.message : e), 'error');
+        console.error('ensureAdvancedVisible error', e);
       }
     }
 
-    // show loader area
-    const loadingEl = panel.querySelector('#advanced-loading');
-    const contentEl = panel.querySelector('#advanced-content');
-    const logEl = panel.querySelector('#advanced-log');
-    if(loadingEl) loadingEl.style.display = 'block';
-    if(contentEl) contentEl.style.display = 'none';
-    if(logEl) logEl.style.display = 'block';
+    // Build candidate JSON paths (root-first). Returns array of '/general_advanced_stats/..' strings.
+    function buildAdvancedCandidatesFor(player){
+      const pid = player && (player.player_id || player.id || player.pid) ? String(player.player_id || player.id || player.pid) : '';
+      const nameRaw = player && (player.name || player.fullname) ? String(player.name || player.fullname).trim() : '';
+      const parts = nameRaw ? nameRaw.split(/\s+/) : [];
+      const first = parts.length ? parts[0].replace(/[^A-Za-z0-9]/g,'') : '';
+      const last = parts.length > 1 ? parts[parts.length-1].replace(/[^A-Za-z0-9]/g,'') : '';
+      const initial = first ? first.charAt(0) : '';
+      const slug = (player && (player.slug || player.name_slug)) ? String(player.slug || player.name_slug) : '';
 
-    // build & try json candidates
-    const candidates = buildAdvancedCandidatesFor(player);
-    const res = await tryCandidatesSequential(candidates);
-    if(!res || !res.data){
-      if(loadingEl) loadingEl.style.display = 'none';
-      if(contentEl){ contentEl.style.display = 'block'; contentEl.innerHTML = '<div style="color:#666">Advanced statistics JSON not available for this player.</div>'; }
-      adv_log('Advanced JSON not found for player', 'warn');
-      return;
+      const candidates = [];
+      if(pid && first && last){
+        candidates.push(`/general_advanced_stats/${pid}_${first}_${last}.json`);
+        candidates.push(`/general_advanced_stats/${pid}_${first.charAt(0).toUpperCase()+first.slice(1)}_${last.charAt(0).toUpperCase()+last.slice(1)}.json`);
+        candidates.push(`/general_advanced_stats/${pid}_${first.toLowerCase()}_${last.toLowerCase()}.json`);
+      }
+      if(pid && initial && last){
+        candidates.push(`/general_advanced_stats/${pid}_${initial}_${last}.json`);
+      }
+      if(pid && slug){
+        candidates.push(`/general_advanced_stats/${pid}_${slug}.json`);
+        candidates.push(`/general_advanced_stats/${pid}_${slug.toLowerCase()}.json`);
+      }
+      if(pid){
+        candidates.push(`/general_advanced_stats/${pid}.json`);
+      }
+      if(first && last){
+        candidates.push(`/general_advanced_stats/${first}_${last}.json`);
+        candidates.push(`/general_advanced_stats/${first.toLowerCase()}_${last.toLowerCase()}.json`);
+      }
+      if(nameRaw){
+        candidates.push(`/general_advanced_stats/${nameRaw.replace(/\s+/g,'_')}.json`);
+      }
+      // dedupe preserve order
+      const seen = new Set();
+      return candidates.filter(c => {
+        if(!c) return false;
+        if(seen.has(c)) return false;
+        seen.add(c);
+        return true;
+      });
     }
 
-    // hide loader and render
-    if(loadingEl) loadingEl.style.display = 'none';
-    if(contentEl) contentEl.style.display = 'block';
-    // put raw JSON into raw box
-    const rawBox = panel.querySelector('#adv-raw');
-    if(rawBox) rawBox.innerText = JSON.stringify(res.data, null, 2);
-
-    // render nicely
-    renderAdvancedStatsFrom(res.data, res.url, panel);
-
-  }catch(e){
-    adv_log('openAdvancedForPlayer error: ' + (e && e.message ? e.message : e), 'error');
-    console.error(e);
-  }
-};
-
-/* attach a click handler to the Advanced tab button (safe, idempotent) */
-(function attachAdvancedBtn(){
-  const btn = document.querySelector('.tab-btn[data-target="panel-advanced"]');
-  if(!btn) {
-    console.warn('Advanced tab button not found (data-target="panel-advanced") — add it in HTML if missing.');
-    return;
-  }
-  btn.removeEventListener('click', btn.__advanced_click_handler__); // remove previous if present
-  const handler = function(e){
-    // pick player object from common places (prefer global)
-    const player = window.combinedPlayer || window.playerData || window.player || (typeof combined !== 'undefined' ? combined : null);
-    if(!player){
-      console.warn('Player object not found in globals. Ensure window.combinedPlayer = combined is set after player construction.');
-      adv_log('Player object not found in globals; cannot load advanced JSON.', 'warn');
-      return;
+    // Try candidates sequentially, try root and origin variants. Return {url, data} or null.
+    async function tryCandidatesSequential(candidates){
+      adv_log('Trying JSON candidates: ' + candidates.join(' ; '));
+      const origin = window.location.origin;
+      for(const c of candidates){
+        const url = c.startsWith('/') ? c : ('/' + c);
+        const full = origin + url;
+        adv_log('fetch -> ' + url);
+        try{
+          const resp = await fetch(url, {cache:'no-store', mode:'cors'});
+          adv_log(`-> status ${resp.status} ${resp.statusText} (${resp.headers.get('content-type')||'n/a'})`);
+          if(resp.ok){
+            try{
+              const data = await resp.json();
+              return { url, data };
+            }catch(parseErr){
+              adv_log('JSON parse error for ' + url + ' : ' + (parseErr && parseErr.message ? parseErr.message : parseErr), 'warn');
+            }
+          }
+        }catch(e){
+          adv_log('Fetch error for ' + url + ' : ' + (e && e.message ? e.message : e), 'warn');
+        }
+        // try origin+url
+        try{
+          adv_log('fetch -> ' + full);
+          const resp2 = await fetch(full, {cache:'no-store', mode:'cors'});
+          adv_log(`-> status ${resp2.status} ${resp2.statusText} (${resp2.headers.get('content-type')||'n/a'})`);
+          if(resp2.ok){
+            try{
+              const data2 = await resp2.json();
+              return { url: full, data: data2 };
+            }catch(e){
+              adv_log('JSON parse error for ' + full + ' : ' + (e && e.message ? e.message : e), 'warn');
+            }
+          }
+        }catch(e){
+          adv_log('Fetch error for ' + full + ' : ' + (e && e.message ? e.message : e), 'warn');
+        }
+      }
+      adv_log('No JSON candidate succeeded.', 'warn');
+      return null;
     }
-    // clear fragment log (if present)
-    const panel = document.getElementById('panel-advanced');
-    if(panel){
-      const l = panel.querySelector('#advanced-log'); if(l) l.innerHTML = '';
+
+    // Minimal renderer (injects into fragment #advanced-content)
+    function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
+      try{
+        if(!panelElement) return;
+        const container = panelElement.querySelector('#advanced-content') || panelElement;
+        const esc = s => s===null||s===undefined ? '' : String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
+        const small = data.small_stats || data.rally_stats || data.short_stats || data.smallStats || null;
+        const big = data.big_stats || data.stroke_stats || data.strokeStats || data.bigStats || null;
+
+        let html = `<div style="font-weight:700;margin-bottom:6px">Advanced statistics</div>`;
+        html += `<div style="font-size:12px;color:#666;margin-bottom:8px">Source: ${esc(sourceUrl||'(inline)')}</div>`;
+        html += `<div style="margin-bottom:8px"><button id="adv-show-raw" style="padding:6px 8px">Show raw JSON</button></div>`;
+        html += `<div id="adv-raw-json" style="display:none;max-height:260px;overflow:auto;border:1px solid #eee;padding:8px;background:#fff"><pre>${esc(JSON.stringify(data, null, 2).slice(0,20000))}${JSON.stringify(data).length>20000? '…':''}</pre></div>`;
+        html += `<div style="display:flex;gap:12px;align-items:flex-start">`;
+
+        /* LEFT rally */
+        html += `<div style="flex:1;min-width:300px;border:1px solid #eee;padding:10px;border-radius:6px;background:#fff">`;
+        html += `<div style="font-weight:700;margin-bottom:6px">Rally buckets</div>`;
+        if(small && small.numeric){
+          const n = small.numeric;
+          const mean = (k) => n[k] && n[k].mean !== undefined ? n[k].mean : (n[k] !== undefined ? n[k] : null);
+          const sc = mean('short_count') || mean('shortCount') || '—';
+          const mc = mean('medium_count') || mean('mediumCount') || '—';
+          const lc = mean('long_count') || mean('longCount') || '—';
+          const p = (k) => {
+            const v = mean(k);
+            if(v===null||v===undefined) return '—';
+            const num = Number(v);
+            if(isNaN(num)) return '—';
+            return Math.abs(num)>1 ? (Math.round(num*10)/10)+'%' : (Math.round(num*1000)/10)+'%';
+          };
+          const get = (pref,key) => {
+            if(n[`${pref}_${key}`] && n[`${pref}_${key}`].mean !== undefined) return n[`${pref}_${key}`].mean;
+            if(n[`${pref}${key.charAt(0).toUpperCase()+key.slice(1)}`] && n[`${pref}${key.charAt(0).toUpperCase()+key.slice(1)}`].mean !== undefined) return n[`${pref}${key.charAt(0).toUpperCase()+key.slice(1)}`].mean;
+            if(n[`${pref}_${key}`] !== undefined) return n[`${pref}_${key}`];
+            if(n[`${pref}${key}`] !== undefined) return n[`${pref}${key}`];
+            return null;
+          };
+          const sW = get('pct_short','cg'); const sFD = get('pct_short','fd'); const sFP = get('pct_short','fp');
+          const mW = get('pct_medium','cg'); const mFD = get('pct_medium','fd'); const mFP = get('pct_medium','fp');
+          const lW = get('pct_long','cg'); const lFD = get('pct_long','fd'); const lFP = get('pct_long','fp');
+          html += `<table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:6px">Bucket</th><th style="padding:6px">Mean count</th><th style="padding:6px">Winners (CG)</th><th style="padding:6px">Unforced (FD)</th><th style="padding:6px">Forced (FP)</th></tr></thead><tbody>`;
+          // helper to format p-values (reuse p()) but fallback if the specific v exists
+          function fmtPVal(v, fallbackKey){
+            if(v === null || v === undefined) return p(fallbackKey);
+            const num = Number(v);
+            if(isNaN(num)) return '—';
+            return Math.abs(num)>1 ? (Math.round(num*10)/10)+'%' : (Math.round(num*1000)/10)+'%';
+          }
+          html += `<tr><td style="font-weight:700">Short (1–4)</td><td>${esc(String(sc))}</td><td>${esc(fmtPVal(sW,'pct_short_cg'))}</td><td>${esc(fmtPVal(sFD,'pct_short_fd'))}</td><td>${esc(fmtPVal(sFP,'pct_short_fp'))}</td></tr>`;
+          html += `<tr><td style="font-weight:700">Medium (5–8)</td><td>${esc(String(mc))}</td><td>${esc(fmtPVal(mW,'pct_medium_cg'))}</td><td>${esc(fmtPVal(mFD,'pct_medium_fd'))}</td><td>${esc(fmtPVal(mFP,'pct_medium_fp'))}</td></tr>`;
+          html += `<tr><td style="font-weight:700">Long (9+)</td><td>${esc(String(lc))}</td><td>${esc(fmtPVal(lW,'pct_long_cg'))}</td><td>${esc(fmtPVal(lFD,'pct_long_fd'))}</td><td>${esc(fmtPVal(lFP,'pct_long_fp'))}</td></tr>`;
+          html += `</tbody></table>`;
+        } else {
+          html += `<div style="color:#666">Rally stats not available for this player.</div>`;
+        }
+        html += `</div>`;
+
+        /* RIGHT stroke */
+        html += `<div style="flex:1;border:1px solid #eee;padding:10px;border-radius:6px;background:#fff">`;
+        html += `<div style="font-weight:700;margin-bottom:6px">Stroke statistics</div>`;
+        if(big && big.numeric){
+          html += `<table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:6px">Metric</th><th style="padding:6px">Mean</th><th style="padding:6px">Std</th><th style="padding:6px">Samples</th></tr></thead><tbody>`;
+          const keys = Object.keys(big.numeric).filter(k=>k!=='playerId').sort();
+          keys.forEach(k => {
+            const node = big.numeric[k] || {};
+            const mean = node.mean !== undefined ? node.mean : null;
+            const std = node.std !== undefined ? node.std : null;
+            const cnt = node.non_null_samples !== undefined ? node.non_null_samples : (node.count !== undefined ? node.count : null);
+            html += `<tr><td style="font-weight:700">${esc(k)}</td><td>${esc(mean===null?'—':String(Math.round(Number(mean)*100)/100))}</td><td>${esc(std===null?'—':String(Math.round(Number(std)*100)/100))}</td><td>${esc(cnt===null?'—':String(cnt))}</td></tr>`;
+          });
+          html += `</tbody></table>`;
+        } else {
+          html += `<div style="color:#666">Stroke stats not available for this player.</div>`;
+        }
+        html += `</div>`; // end right
+
+        html += `</div>`; // end flex
+
+        container.style.display = 'block';
+        container.innerHTML = html;
+
+        // attach raw toggle
+        const rawBtn = panelElement.querySelector('#adv-show-raw');
+        if(rawBtn){
+          rawBtn.addEventListener('click', () => {
+            const r = panelElement.querySelector('#adv-raw-json');
+            if(r) r.style.display = (r.style.display === 'none' ? 'block' : 'none');
+          });
+        }
+        adv_log('rendered advanced stats (source=' + sourceUrl + ')');
+      }catch(e){
+        console.error('renderAdvancedStatsFrom error', e);
+        adv_log('render error: ' + (e && e.message ? e.message : e), 'error');
+        if(panelElement){
+          const container = panelElement.querySelector('#advanced-content') || panelElement;
+          if(container){ container.style.display = 'block'; container.innerHTML = '<div style="color:#c00">Error rendering advanced statistics.</div>'; }
+        }
+      }
     }
-    // call main function
-    window.openAdvancedForPlayer(player);
-  };
-  btn.addEventListener('click', handler);
-  btn.__advanced_click_handler__ = handler;
-})();
+
+    // Main entry: open advanced for player
+    window.openAdvancedForPlayer = async function(player){
+      try{
+        adv_log('Opening Advanced Statistics tab for player id=' + (player && (player.player_id||player.id) ? (player.player_id||player.id) : 'unknown'));
+        ensureAdvancedVisible();
+
+        const panel = document.getElementById('panel-advanced');
+        if(!panel){
+          adv_log('panel-advanced element not found', 'warn');
+          return;
+        }
+
+        // load fragment if needed
+        const fragPresent = !!panel.querySelector('#advanced-content');
+        if(!fragPresent){
+          try{
+            const fragResp = await fetch('/includes/advanced_stats.html', {cache:'no-store'});
+            if(fragResp.ok){
+              const fragHtml = await fragResp.text();
+              panel.innerHTML = fragHtml;
+            } else {
+              panel.innerHTML = '<div id="advanced-content">Could not load advanced fragment.</div>';
+              adv_log('Could not fetch fragment: ' + fragResp.status + ' ' + fragResp.statusText, 'warn');
+            }
+          }catch(e){
+            panel.innerHTML = '<div id="advanced-content">Could not load advanced fragment (fetch error).</div>';
+            adv_log('Could not load fragment: ' + (e && e.message ? e.message : e), 'error');
+          }
+        }
+
+        // show loader, hide content
+        const loadingEl = panel.querySelector('#advanced-loading');
+        const contentEl = panel.querySelector('#advanced-content');
+        const logEl = panel.querySelector('#advanced-log');
+        if(loadingEl) loadingEl.style.display = 'block';
+        if(contentEl) contentEl.style.display = 'none';
+        if(logEl) logEl.style.display = 'block';
+
+        // find json
+        const candidates = buildAdvancedCandidatesFor(player);
+        const res = await tryCandidatesSequential(candidates);
+        if(!res || !res.data){
+          if(loadingEl) loadingEl.style.display = 'none';
+          if(contentEl){ contentEl.style.display = 'block'; contentEl.innerHTML = '<div style="color:#666">Advanced statistics JSON not available for this player.</div>'; }
+          adv_log('Advanced JSON not found for player', 'warn');
+          return;
+        }
+
+        // put raw json in raw box if present
+        const rawBox = panel.querySelector('#adv-raw');
+        if(rawBox) rawBox.innerText = JSON.stringify(res.data, null, 2);
+
+        // hide loader and render
+        if(loadingEl) loadingEl.style.display = 'none';
+        if(contentEl) contentEl.style.display = 'block';
+        renderAdvancedStatsFrom(res.data, res.url, panel);
+      }catch(e){
+        adv_log('openAdvancedForPlayer error: ' + (e && e.message ? e.message : e), 'error');
+        console.error(e);
+      }
+    };
+
+    // Attach click handler to the Advanced tab button (safe attach)
+    const btn = document.querySelector('.tab-btn[data-target="panel-advanced"]');
+    if(btn){
+      btn.addEventListener('click', function(e){
+        const player = window.combinedPlayer || window.playerData || window.player || (typeof combined !== 'undefined' ? combined : null);
+        if(!player){
+          console.warn('Player object not found in globals. Ensure window.combinedPlayer = combined is set after player construction.');
+          adv_log('Player object not found in globals; cannot load advanced JSON.', 'warn');
+          return;
+        }
+        // clear previous fragment log
+        const panel = document.getElementById('panel-advanced');
+        if(panel){
+          const l = panel.querySelector('#advanced-log'); if(l) l.innerHTML = '';
+        }
+        window.openAdvancedForPlayer(player);
+      });
+    } else {
+      console.warn('Advanced tab button not found (data-target="panel-advanced") — add it to the tabs markup.');
+    }
+
+    adv_log('Advanced tab code initialized (DOM ready).');
+  }); // DOMContentLoaded
+})(); // IIFE
 
 </script>
 
