@@ -1,10 +1,31 @@
 <!doctype html>
 <html lang="en">
 <head>
+
+
+  
   <meta charset="utf-8">
   <title>Player profile - Center Court</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
+
+    /* advanced stats UI */
+.adv-grid { display:flex; gap:16px; align-items:flex-start; }
+.adv-card { background:#fff; border:1px solid #e6e6e6; border-radius:8px; padding:12px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+.adv-left { flex:1; min-width:320px; }
+.adv-right { flex:1; min-width:320px; }
+.adv-h { font-weight:700; margin-bottom:6px; }
+.adv-sub { font-size:13px; color:#666; margin-bottom:8px; }
+.small-metric { font-size:14px; font-weight:700; }
+.adv-pie-row { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+.adv-pie-box { width:180px; height:160px; display:flex; align-items:center; justify-content:center; flex-direction:column; }
+.adv-pie-legend { font-size:12px; color:#444; margin-top:6px; text-align:center; }
+.adv-legend-swatch { display:inline-block; width:12px; height:12px; margin-right:6px; border-radius:2px; vertical-align:middle; }
+.adv-info-grid { display:grid; grid-template-columns: repeat(2,1fr); gap:8px; }
+.adv-key { color:#666; font-size:13px; }
+.adv-val { font-weight:700; font-size:14px; }
+.adv-toggle { font-size:13px; padding:6px; }
+
     :root{ --gap:12px; --muted:#666; --border:#e6e6e6; --card:#fff; --glass:#fafafa; --accent:#1366d6; }
     body { font-family: Arial, Helvetica, sans-serif; margin:18px; color:#222; background:#f6f7fb; }
     #loading { font-size:16px; color:#333; }
@@ -716,109 +737,427 @@ function fetchJsonSafe(url){
    sourceUrl: path used (for debug)
    panelElement: the <div id="panel-advanced"> DOM node
 */
-function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
+/* renderAdvancedStatsFull : robust renderer for advanced json (pie + curves + summaries) */
+function renderAdvancedStatsFull(data, sourceUrl, panelElement){
   try{
     if(!panelElement) return;
-    const content = panelElement.querySelector('#advanced-content') || panelElement;
+    const container = panelElement.querySelector('#advanced-content') || panelElement;
+    const log = (m) => { try{ const L = panelElement.querySelector('#advanced-log'); if(L){ L.style.display='block'; const d=document.createElement('div'); d.textContent = `[${(new Date()).toLocaleTimeString()}] ${m}`; L.appendChild(d); L.scrollTop=L.scrollHeight; } }catch(e){} console.log(m); };
 
-    // safe getters
-    const small = data.small_stats || data.rally_stats || data.short_stats || (data.smallStats ? data.smallStats : null);
-    const big = data.big_stats || data.stroke_stats || data.strokeStats || (data.bigStats ? data.bigStats : null);
-
-    // basic helpers (do not rely on external helpers)
-    function fmtNum(v){ if(v===null||v===undefined||isNaN(Number(v))) return '—'; return String(Math.round(Number(v)*100)/100); }
-    function pctFrom(v){ if(v===null||v===undefined||isNaN(Number(v))) return '—'; const n=Number(v); return (Math.abs(n)>1 ? (Math.round(n*10)/10)+'%' : (Math.round(n*1000)/10)+'%'); }
-
-    // Build HTML header
-    let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-                  <div style="font-weight:800;font-size:16px">Advanced statistics</div>
-                  <div style="font-size:12px;color:#666">Source: ${escapeHtml(sourceUrl||'(inline)')}</div>
-                </div>`;
-
-    html += `<div style="display:flex;gap:14px;align-items:flex-start">`;
-
-    // LEFT: rally buckets summary
-    html += `<div style="flex:1;min-width:320px;border:1px solid var(--border);padding:10px;border-radius:8px;background:#fff">
-              <div style="font-weight:700;margin-bottom:6px">Rally buckets</div>
-              <div style="color:#666;margin-bottom:8px">Short (1–4), Medium (5–8), Long (9+)</div>`;
-
-    if(small && small.numeric){
-      const num = small.numeric;
-      const getMean = k => (num[k] && num[k].mean !== undefined) ? num[k].mean : (num[k] !== undefined ? num[k] : null);
-
-      const shortCnt = getMean('short_count') || getMean('shortCount') || null;
-      const medCnt = getMean('medium_count') || getMean('mediumCount') || null;
-      const longCnt = getMean('long_count') || getMean('longCount') || null;
-
-      // winners/unforced/forced retrieval attempt
-      const getBucket = (prefix, key) => {
-        // try prefix_key.mean, prefixKey.mean, prefix_key
-        if(num[`${prefix}_${key}`] && num[`${prefix}_${key}`].mean !== undefined) return num[`${prefix}_${key}`].mean;
-        if(num[`${prefix}${key.charAt(0).toUpperCase()+key.slice(1)}`] && num[`${prefix}${key.charAt(0).toUpperCase()+key.slice(1)}`].mean !== undefined) return num[`${prefix}${key.charAt(0).toUpperCase()+key.slice(1)}`].mean;
-        if(num[`${prefix}_${key}`] !== undefined) return num[`${prefix}_${key}`];
-        if(num[`${prefix}${key}`] !== undefined) return num[`${prefix}${key}`];
-        return null;
-      };
-
-      const sW = getBucket('pct_short','cg'); const sFD = getBucket('pct_short','fd'); const sFP = getBucket('pct_short','fp');
-      const mW = getBucket('pct_medium','cg'); const mFD = getBucket('pct_medium','fd'); const mFP = getBucket('pct_medium','fp');
-      const lW = getBucket('pct_long','cg'); const lFD = getBucket('pct_long','fd'); const lFP = getBucket('pct_long','fp');
-
-      html += `<table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:6px">Bucket</th><th style="padding:6px">Mean count</th><th style="padding:6px">Winners</th><th style="padding:6px">Unforced</th><th style="padding:6px">Forced</th></tr></thead><tbody>`;
-      html += `<tr><td style="font-weight:700">Short<br><span style="font-weight:600;color:#666;font-size:12px">1–4 shots</span></td><td>${fmtNum(shortCnt)}</td><td>${pctFrom(sW)}</td><td>${pctFrom(sFD)}</td><td>${pctFrom(sFP)}</td></tr>`;
-      html += `<tr><td style="font-weight:700">Medium<br><span style="font-weight:600;color:#666;font-size:12px">5–8 shots</span></td><td>${fmtNum(medCnt)}</td><td>${pctFrom(mW)}</td><td>${pctFrom(mFD)}</td><td>${pctFrom(mFP)}</td></tr>`;
-      html += `<tr><td style="font-weight:700">Long<br><span style="font-weight:600;color:#666;font-size:12px">9+ shots</span></td><td>${fmtNum(longCnt)}</td><td>${pctFrom(lW)}</td><td>${pctFrom(lFD)}</td><td>${pctFrom(lFP)}</td></tr>`;
-      html += `</tbody></table>`;
-    } else {
-      html += `<div style="color:#666">Rally data not available.</div>`;
+    // helpers to find keys tolerant to typos / plurals
+    function findKeyPrefix(obj, prefix){
+      // return keys that startWith prefix (case-sensitive enough)
+      if(!obj) return [];
+      return Object.keys(obj).filter(k => k.indexOf(prefix) === 0);
     }
-    html += `</div>`; // close left
-
-    // RIGHT: stroke stats
-    html += `<div style="flex:1;border:1px solid var(--border);padding:10px;border-radius:8px;background:#fff">
-              <div style="font-weight:700;margin-bottom:6px">Stroke statistics</div>
-              <div style="color:#666;margin-bottom:8px">Mean / Std / Samples per metric</div>`;
-
-    if(big && big.numeric){
-      html += `<table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:6px">Metric</th><th style="padding:6px">Mean</th><th style="padding:6px">Std</th><th style="padding:6px">Samples</th></tr></thead><tbody>`;
-      const keys = Object.keys(big.numeric).filter(k => k !== 'playerId').sort();
-      for(const k of keys){
-        const n = big.numeric[k] || {};
-        const mean = n.mean !== undefined ? n.mean : (n[0] !== undefined ? n[0] : null);
-        const std = n.std !== undefined ? n.std : null;
-        const cnt = n.non_null_samples !== undefined ? n.non_null_samples : (n.count !== undefined ? n.count : null);
-        html += `<tr><td style="font-weight:700">${escapeHtml(k)}</td><td>${fmtNum(mean)}</td><td>${fmtNum(std)}</td><td>${cnt===null?'—':escapeHtml(String(cnt))}</td></tr>`;
+    function getFirst(obj, patterns){
+      if(!obj) return null;
+      for(const p of patterns){
+        if(obj[p]!==undefined) return obj[p];
       }
-      html += `</tbody></table>`;
-    } else {
-      html += `<div style="color:#666">Stroke stats not available.</div>`;
+      return null;
+    }
+    function num(v){ return (v===null||v===undefined||v===""||isNaN(Number(v))) ? null : Number(v); }
+    function pctToLabel(v){
+      if(v===null) return '—';
+      // already percent (>1) or fraction
+      return (Math.abs(v) > 1 ? (Math.round(v*10)/10)+'%' : (Math.round(v*1000)/10)+'%');
+    }
+    function fmtNum(v){
+      if(v===null) return '—';
+      const n = Number(v);
+      if(Math.abs(n) >= 1000) return Math.round(n).toLocaleString();
+      if(Math.abs(n) >= 10) return Math.round(n*10)/10;
+      return Math.round(n*100)/100;
     }
 
-    html += `</div>`; // close right
+    // normalize outcome names: for a given shot prefix we must gather coupgagnant(s), coupsgagnants, fautesprovoquée(s), fautesprovoquées, fautedirecte(s), fautesdirectes
+    function sumOutcomesFor(prefix, dataObj){
+      // returns {coupgagnant_frac, coupgagnant_count, fautesprovoque_frac, fautesprovoque_count, fautedirecte_frac, fautedirecte_count, coupsdanslechange_frac, coupsdanslechange_count}
+      const out = {
+        coupgagnant_frac: 0, coupgagnant_count: 0,
+        fautesprovoque_frac: 0, fautesprovoque_count: 0,
+        fautedirecte_frac: 0, fautedirecte_count: 0,
+        coupsdanslechange_frac: 0, coupsdanslechange_count: 0
+      };
+      if(!dataObj) return out;
+      // possible suffix variants
+      const cgKeys = [prefix + '_outcome_coupgagnant_frac', prefix + '_outcome_coupsgagnants_frac', prefix + '_outcome_coupgagnant_frac', prefix + '_outcome_coupsgagnants_frac', prefix + '_outcome_coupsgagnants_frac'];
+      const cgCountKeys = [prefix + '_outcome_coupgagnant_count', prefix + '_outcome_coupsgagnants_count', prefix + '_outcome_coupsgagnant_count'];
+      const fpKeys = [prefix + '_outcome_fautesprovoquee_frac', prefix + '_outcome_fautesprovoquées_frac', prefix + '_outcome_fautesprovoquée_frac', prefix + '_outcome_fautesprovoquées_frac'];
+      const fpCountKeys = [prefix + '_outcome_fautesprovoquee_count', prefix + '_outcome_fautesprovoquées_count', prefix + '_outcome_fautesprovoquée_count'];
+      const fdKeys = [prefix + '_outcome_fautedirecte_frac', prefix + '_outcome_fautesdirectes_frac', prefix + '_outcome_fautedirecte_frac', prefix + '_outcome_fautesdirectes_frac'];
+      const fdCountKeys = [prefix + '_outcome_fautedirecte_count', prefix + '_outcome_fautesdirectes_count', prefix + '_outcome_fautedirecte_count'];
+      const exchKeys = [prefix + '_outcome_coupsdansl\\\'échange_frac', prefix + '_outcome_coupsdansl\'échange_frac', prefix + '_outcome_coupsdansl_echange_frac', prefix + '_outcome_coupsdanslechange_frac', prefix + '_outcome_coupsdansl\\\'échange_frac'];
+      const exchCountKeys = [prefix + '_outcome_coupsdansl\\\'échange_count', prefix + '_outcome_coupsdansl_echange_count', prefix + '_outcome_coupsdanslechange_count', prefix + '_outcome_coupsdansl\\\'échange_count'];
 
-    html += `</div>`; // close grid
+      // helper to sum if exist
+      function sumIf(keys){
+        let s = 0, found=false;
+        for(const k of keys){
+          if(dataObj[k] !== undefined && dataObj[k] !== null){
+            s += Number(dataObj[k]);
+            found=true;
+          }
+        }
+        return found ? s : null;
+      }
+      const cg_frac = sumIf(cgKeys);
+      const cg_cnt = sumIf(cgCountKeys);
+      const fp_frac = sumIf(fpKeys);
+      const fp_cnt = sumIf(fpCountKeys);
+      const fd_frac = sumIf(fdKeys);
+      const fd_cnt = sumIf(fdCountKeys);
+      const ex_frac = sumIf(exchKeys);
+      const ex_cnt = sumIf(exchCountKeys);
 
-    // Insert into DOM
-    content.innerHTML = html;
+      out.coupgagnant_frac = cg_frac===null?0:cg_frac;
+      out.coupgagnant_count = cg_cnt===null?null:cg_cnt;
+      out.fautesprovoque_frac = fp_frac===null?0:fp_frac;
+      out.fautesprovoque_count = fp_cnt===null?null:fp_cnt;
+      out.fautedirecte_frac = fd_frac===null?0:fd_frac;
+      out.fautedirecte_count = fd_cnt===null?null:fd_cnt;
+      out.coupsdanslechange_frac = ex_frac===null?0:ex_frac;
+      out.coupsdanslechange_count = ex_cnt===null?null:ex_cnt;
+      return out;
+    }
 
-    // attach raw-toggle if fragment includes an element for it
+    // ----- Build UI skeleton -----
+    let html = '';
+    html += `<div style="display:flex;justify-content:space-between;align-items:center"><div class="adv-h">Advanced statistics</div>
+             <div style="font-size:13px;color:#666">Source: ${sourceUrl ? sourceUrl : 'inline'}</div></div>`;
+
+    // top line: matches aggregated if present
+    const meta = data.meta || {};
+    const matches_aggregated = meta.matches_aggregated !== undefined ? meta.matches_aggregated : (data.small_stats && data.small_stats.n_rows_dropped ? (data.small_stats.n_rows_dropped ? data.small_stats.n_rows_dropped : null) : null);
+    if(matches_aggregated !== null && matches_aggregated !== undefined){
+      html += `<div style="margin-top:8px" class="adv-card"><span class="small-metric">Matches aggregated: </span><span style="margin-left:8px">${fmtNum(matches_aggregated)}</span></div>`;
+    }
+
+    html += `<div style="margin-top:12px" class="adv-grid">`;
+    // left: rally buckets + pie row for wins & loses
+    html += `<div class="adv-card adv-left">`;
+    html += `<div class="adv-h">Rally buckets (Short / Medium / Long)</div>`;
+    html += `<div class="adv-sub">Short = 1–4, Medium = 5–8, Long = 9+ (showing % of points & breakdown winners/unforced/forced)</div>`;
+
+    // get small stats main numeric row: some files put values into small_stats.columns (your example) or small_stats.numeric
+    const smallCols = (data.small_stats && data.small_stats.columns) ? data.small_stats.columns : (data.small_stats && data.small_stats.numeric ? data.small_stats.numeric : null);
+
+    // helpers to read keys both in columns and numeric
+    const getSmall = (k) => {
+      if(!smallCols) return null;
+      return smallCols[k] !== undefined ? smallCols[k] : (smallCols[k.toLowerCase()] !== undefined ? smallCols[k.toLowerCase()] : null);
+    };
+
+    // show main pct shares & pct_won
+    const match_pct_short = num(getSmall('match_pct_short')) || num(getSmall('match_pctShort')) || null;
+    const match_pct_medium = num(getSmall('match_pct_medium')) || num(getSmall('match_pctMedium')) || null;
+    const match_pct_long = num(getSmall('match_pct_long')) || num(getSmall('match_pctLong')) || null;
+
+    const pct_won_short = num(getSmall('pct_won_short')) || num(getSmall('pct_won_short')) || null;
+    const pct_won_medium = num(getSmall('pct_won_medium')) || num(getSmall('pct_won_medium')) || null;
+    const pct_won_long = num(getSmall('pct_won_long')) || num(getSmall('pct_won_long')) || null;
+
+    html += `<div style="display:flex;gap:10px;margin-bottom:10px">`;
+    html += `<div style="flex:1"><div class="adv-key">Short (1–4)</div><div class="adv-val">${match_pct_short===null?'—':pctToLabel(match_pct_short)}</div><div style="color:#666;font-size:12px">Win: ${pct_won_short===null?'—':pctToLabel(pct_won_short)}</div></div>`;
+    html += `<div style="flex:1"><div class="adv-key">Medium (5–8)</div><div class="adv-val">${match_pct_medium===null?'—':pctToLabel(match_pct_medium)}</div><div style="color:#666;font-size:12px">Win: ${pct_won_medium===null?'—':pctToLabel(pct_won_medium)}</div></div>`;
+    html += `<div style="flex:1"><div class="adv-key">Long (9+)</div><div class="adv-val">${match_pct_long===null?'—':pctToLabel(match_pct_long)}</div><div style="color:#666;font-size:12px">Win: ${pct_won_long===null?'—':pctToLabel(pct_won_long)}</div></div>`;
+    html += `</div>`; // end top three
+
+    // Prepare pie data for Win and Lose each bucket (we look for pct_won_*_CG/FD/FP and pct_lost_*_CG/FD/FP)
+    function readTriplet(prefixWon, prefixLost){
+      // given prefix names (e.g. 'pct_won_short' base), search for *_CG, *_FD, *_FP
+      const cgW = num(getSmall(prefixWon + '_CG')) || num(getSmall(prefixWon + '_cg')) || num(getSmall(prefixWon + '_CG')) || null;
+      const fdW = num(getSmall(prefixWon + '_FD')) || num(getSmall(prefixWon + '_fd')) || null;
+      const fpW = num(getSmall(prefixWon + '_FP')) || num(getSmall(prefixWon + '_fp')) || null;
+      const cgL = num(getSmall(prefixLost + '_CG')) || num(getSmall(prefixLost + '_cg')) || null;
+      const fdL = num(getSmall(prefixLost + '_FD')) || num(getSmall(prefixLost + '_fd')) || null;
+      const fpL = num(getSmall(prefixLost + '_FP')) || num(getSmall(prefixLost + '_fp')) || null;
+      return {cgW, fdW, fpW, cgL, fdL, fpL};
+    }
+    const winsTrip = readTriplet('pct_won_short','pct_lost_short'); // note: we'll call with specific prefixes below
+
+    // We'll build pies for each bucket and both win/lose sets
+    const buckets = [
+      { name: 'Short', winPref: 'pct_won_short', losePref: 'pct_lost_short' },
+      { name: 'Medium', winPref: 'pct_won_medium', losePref: 'pct_lost_medium' },
+      { name: 'Long', winPref: 'pct_won_long', losePref: 'pct_lost_long' }
+    ];
+
+    html += `<div class="adv-pie-row">`;
+    // left column: WIN pies
+    html += `<div style="flex:1"><div style="font-weight:700;margin-bottom:6px">Win breakdown</div>`;
+    html += `<div style="display:flex;gap:8px;flex-wrap:wrap">`;
+    buckets.forEach((b, idx) => {
+      const cg = num(getSmall(b.winPref + '_CG')) || num(getSmall(b.winPref + '_cg')) || null;
+      const fd = num(getSmall(b.winPref + '_FD')) || num(getSmall(b.winPref + '_fd')) || null;
+      const fp = num(getSmall(b.winPref + '_FP')) || num(getSmall(b.winPref + '_fp')) || null;
+      const totalFrac = (cg||0) + (fd||0) + (fp||0);
+      const useFrac = totalFrac > 0;
+      const vals = [cg||0, fd||0, fp||0];
+      html += `<div class="adv-pie-box" id="pie-win-${idx}"></div>`;
+      // attach legend data container
+      html += `<div style="width:160px"><div style="font-weight:600">${b.name}</div><div class="adv-pie-legend"><span class="adv-legend-swatch" style="background:#2563eb"></span>CG <span style="margin-left:6px">${cg===null?'—':pctToLabel(cg)}</span><br><span class="adv-legend-swatch" style="background:#ef4444"></span>FD <span style="margin-left:6px">${fd===null?'—':pctToLabel(fd)}</span><br><span class="adv-legend-swatch" style="background:#f59e0b"></span>FP <span style="margin-left:6px">${fp===null?'—':pctToLabel(fp)}</span></div></div>`;
+    });
+    html += `</div></div>`; // end WIN column
+
+    // right column: LOSE pies
+    html += `<div style="flex:1"><div style="font-weight:700;margin-bottom:6px">Lose breakdown</div>`;
+    html += `<div style="display:flex;gap:8px;flex-wrap:wrap">`;
+    buckets.forEach((b, idx) => {
+      const cg = num(getSmall(b.losePref + '_CG')) || num(getSmall(b.losePref + '_cg')) || null;
+      const fd = num(getSmall(b.losePref + '_FD')) || num(getSmall(b.losePref + '_fd')) || null;
+      const fp = num(getSmall(b.losePref + '_FP')) || num(getSmall(b.losePref + '_fp')) || null;
+      html += `<div class="adv-pie-box" id="pie-lose-${idx}"></div>`;
+      html += `<div style="width:160px"><div style="font-weight:600">${b.name}</div><div class="adv-pie-legend"><span class="adv-legend-swatch" style="background:#2563eb"></span>CG <span style="margin-left:6px">${cg===null?'—':pctToLabel(cg)}</span><br><span class="adv-legend-swatch" style="background:#ef4444"></span>FD <span style="margin-left:6px">${fd===null?'—':pctToLabel(fd)}</span><br><span class="adv-legend-swatch" style="background:#f59e0b"></span>FP <span style="margin-left:6px">${fp===null?'—':pctToLabel(fp)}</span></div></div>`;
+    });
+    html += `</div></div>`; // end LOSE column
+
+    html += `</div>`; // end pie-row
+
+    html += `</div>`; // end left card
+
+    // RIGHT column: strokes time series + big_stats summary
+    html += `<div class="adv-right">`;
+
+    // 3-curves shot-by-shot (Service, Retour, 3me, 4me, 5me, 6me, 7me, 8me, 9,10)
+    html += `<div class="adv-card" style="margin-bottom:12px"><div class="adv-h">Shot sequence (CG / FD / FP)</div><div class="adv-sub">Service → Retour → 3rd → 4th → 5th … (percent values)</div><div id="adv-shot-chart" style="height:260px;"></div></div>`;
+
+    // big_stats summary
+    html += `<div class="adv-card"><div class="adv-h">Summary (per match)</div><div class="adv-info-grid">`;
+    const big = data.big_stats || data.bigStats || {};
+    const mapKey = (k1,k2) => big[k1]!==undefined ? big[k1] : (big[k2]!==undefined ? big[k2] : null);
+    const toShow = [
+      ['matches_count','Matches count'],
+      ['aces_per_match','Aces / match'],
+      ['double_faults_per_match','Double faults / match'],
+      ['vitesse_max_avg_per_match','Max speed avg'],
+      ['vitesse_1st_mean_avg_per_match','1st serve speed avg'],
+      ['winners_per_match','Winners / match'],
+      ['direct_errors_per_match','Direct errors / match'],
+      ['forced_errors_per_match','Forced errors / match'],
+      ['points_at_net_per_match','Points at net / match'],
+      ['white_games_per_match','White games / match']
+    ];
+    toShow.forEach(([k,label]) => {
+      const v = big[k]!==undefined ? big[k] : (big[k.replace(/_/g,'')]!==undefined?big[k.replace(/_/g,'')]:null);
+      html += `<div><div class="adv-key">${label}</div><div class="adv-val">${v===null||v===undefined?'—':fmtNum(v)}</div></div>`;
+    });
+    html += `</div></div>`; // end big_stats card
+
+    // Break points card
+    html += `<div class="adv-card" style="margin-top:10px"><div class="adv-h">Break points</div>`;
+    const bdb_played_num = big['bdb_played_num'] || null;
+    const bdb_played_den = big['bdb_played_den'] || null;
+    const bdb_played_pct = big['bdb_played_pct']!==undefined ? big['bdb_played_pct'] : null;
+    const bdb_converted_num = big['bdb_converted_num'] || null;
+    const bdb_converted_pct = big['bdb_converted_pct']!==undefined ? big['bdb_converted_pct'] : null;
+    const bdb_games_with_num = big['bdb_games_with_num'] || null;
+    const bdb_games_with_pct = big['bdb_games_with_pct']!==undefined ? big['bdb_games_with_pct'] : null;
+    html += `<div class="adv-key">Played: ${bdb_played_num===null?'—':bdb_played_num}/${bdb_played_den===null?'—':bdb_played_den} <span style="color:#666">(${bdb_played_pct===null?'—':pctToLabel(bdb_played_pct)})</span></div>`;
+    html += `<div class="adv-key">Converted: ${bdb_converted_num===null?'—':bdb_converted_num} <span style="color:#666">(${bdb_converted_pct===null?'—':pctToLabel(bdb_converted_pct)})</span></div>`;
+    html += `<div class="adv-key">Games with BP: ${bdb_games_with_num===null?'—':bdb_games_with_num} <span style="color:#666">(${bdb_games_with_pct===null?'—':pctToLabel(bdb_games_with_pct)})</span></div>`;
+    // mean number of BPs per match
+    const mcount = big['matches_count'] || big['matches_count']===0?big['matches_count']:meta.matches_aggregated||matches_aggregated;
+    const meanBPperMatch = (bdb_played_num && mcount) ? (bdb_played_num / mcount) : null;
+    html += `<div style="margin-top:6px" class="adv-key">Mean BPs / match: ${meanBPperMatch===null?'—':(Math.round(meanBPperMatch*100)/100)}</div>`;
+    html += `</div>`; // end bdb card
+
+    // Return stats card
+    html += `<div class="adv-card" style="margin-top:10px"><div class="adv-h">Return stats</div>`;
+    const return_points_num = big['return_points_num'] || null;
+    const return_points_den = big['return_points_den'] || null;
+    const return_points_pct = big['return_points_pct']!==undefined?big['return_points_pct']:null;
+    const return_1st_num = big['return_1st_num'] || null;
+    const return_1st_den = big['return_1st_den'] || null;
+    const return_1st_pct = big['return_1st_pct']!==undefined?big['return_1st_pct']:null;
+    const return_2nd_num = big['return_2nd_num'] || null;
+    const return_2nd_den = big['return_2nd_den'] || null;
+    const return_2nd_pct = big['return_2nd_pct']!==undefined?big['return_2nd_pct']:null;
+    html += `<div class="adv-key">Points won on return: ${return_points_num===null?'—':return_points_num}/${return_points_den===null?'—':return_points_den} <span style="color:#666">(${return_points_pct===null?'—':pctToLabel(return_points_pct)})</span></div>`;
+    html += `<div class="adv-key">Return on 1st: ${return_1st_num===null?'—':return_1st_num}/${return_1st_den===null?'—':return_1st_den} <span style="color:#666">(${return_1st_pct===null?'—':pctToLabel(return_1st_pct)})</span></div>`;
+    html += `<div class="adv-key">Return on 2nd: ${return_2nd_num===null?'—':return_2nd_num}/${return_2nd_den===null?'—':return_2nd_den} <span style="color:#666">(${return_2nd_pct===null?'—':pctToLabel(return_2nd_pct)})</span></div>`;
+    html += `</div>`; // end return card
+
+    html += `</div>`; // end right column
+
+    html += `</div>`; // end adv-grid
+
+    // inject HTML
+    container.style.display = 'block';
+    container.innerHTML = html;
+
+    // place for interactive messages (e.g. pie click shows counts)
+    let infoBox = panelElement.querySelector('#adv-interact-info');
+    if(!infoBox){
+      infoBox = document.createElement('div');
+      infoBox.id = 'adv-interact-info';
+      infoBox.style.marginTop = '8px';
+      panelElement.querySelector('#advanced-content').appendChild(infoBox);
+    }
+    infoBox.innerHTML = '';
+
+    // ----- Draw pies (Plotly if available, else simple SVG) -----
+    const usePlotly = (window.Plotly && typeof window.Plotly.newPlot === 'function');
+
+    const colorCG = '#2563eb', colorFD = '#ef4444', colorFP = '#f59e0b';
+
+    // draw a pie into a dom id, with labels/values and optional counts mapping for click reporting
+    function drawPieDom(dom, labels, values, countsMap, title){
+      if(usePlotly){
+        const trace = [{
+          labels: labels,
+          values: values,
+          type: 'pie',
+          marker: {colors: [colorCG, colorFD, colorFP]},
+          sort: false,
+          textinfo:'label+percent'
+        }];
+        const layout = {height:160,width:180,margin:{t:20,l:8,r:8,b:8},title: title};
+        Plotly.newPlot(dom, trace, layout, {displayModeBar:false});
+        dom.on('plotly_click', function(ev){
+          try{
+            const point = ev.points && ev.points[0];
+            if(point){
+              const label = point.label;
+              const cnt = countsMap && countsMap[label] !== undefined ? countsMap[label] : 'N/A';
+              infoBox.innerHTML = `<div>Clicked: ${label} — count: ${cnt}</div>`;
+            }
+          }catch(e){}
+        });
+      } else {
+        // simple SVG donut
+        const wrap = document.getElementById(dom);
+        if(!wrap) return;
+        wrap.innerHTML = ''; // clear
+        const w = 160, h = 140, cx = 80, cy = 70, r = 45;
+        const total = values.reduce((a,b)=>a+(isNaN(b)?0:b),0) || 1;
+        let angle = -Math.PI/2;
+        const svgNS = "http://www.w3.org/2000/svg";
+        const svg = document.createElementNS(svgNS,'svg');
+        svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+        svg.setAttribute('width', w);
+        svg.setAttribute('height', h);
+        labels.forEach((lab, i) => {
+          const v = values[i]||0;
+          const theta = (v/total) * Math.PI*2;
+          const x1 = cx + r*Math.cos(angle);
+          const y1 = cy + r*Math.sin(angle);
+          const angle2 = angle + theta;
+          const x2 = cx + r*Math.cos(angle2);
+          const y2 = cy + r*Math.sin(angle2);
+          const large = (theta > Math.PI) ? 1 : 0;
+          const color = i===0?colorCG:(i===1?colorFD:colorFP);
+          const path = document.createElementNS(svgNS,'path');
+          const d = `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`;
+          path.setAttribute('d', d);
+          path.setAttribute('fill', color);
+          path.style.cursor = 'pointer';
+          path.addEventListener('click', ()=> {
+            const cnt = countsMap && countsMap[lab] !== undefined ? countsMap[lab] : 'N/A';
+            infoBox.innerHTML = `<div>Clicked: ${lab} — count: ${cnt}</div>`;
+          });
+          svg.appendChild(path);
+          angle = angle2;
+        });
+        // append center label
+        wrap.appendChild(svg);
+      }
+    }
+
+    // compute and draw for each bucket
+    buckets.forEach((b, idx) => {
+      // WIN
+      const cg = num(getSmall(b.winPref + '_CG')) || num(getSmall(b.winPref + '_cg')) || 0;
+      const fd = num(getSmall(b.winPref + '_FD')) || num(getSmall(b.winPref + '_fd')) || 0;
+      const fp = num(getSmall(b.winPref + '_FP')) || num(getSmall(b.winPref + '_fp')) || 0;
+      const labels = ['CG','FD','FP'];
+      const values = [cg, fd, fp];
+      const countsMap = {
+        'CG': (num(getSmall(b.winPref + '_CG_count')) || null),
+        'FD': (num(getSmall(b.winPref + '_FD_count')) || null),
+        'FP': (num(getSmall(b.winPref + '_FP_count')) || null)
+      };
+      // fallback: try to use small_stats raw_columns count keys? we skip for now if not present
+      drawPieDom('pie-win-'+idx, labels, values, countsMap, b.name + ' Win');
+
+      // LOSE
+      const cgL = num(getSmall(b.losePref + '_CG')) || num(getSmall(b.losePref + '_cg')) || 0;
+      const fdL = num(getSmall(b.losePref + '_FD')) || num(getSmall(b.losePref + '_fd')) || 0;
+      const fpL = num(getSmall(b.losePref + '_FP')) || num(getSmall(b.losePref + '_fp')) || 0;
+      drawPieDom('pie-lose-'+idx, ['CG','FD','FP'], [cgL, fdL, fpL], {'CG':null,'FD':null,'FP':null}, b.name + ' Lose');
+    });
+
+    // ----- Shot sequence 3-curves (CG/FD/FP) -----
+    // shot order keys approx: Service, Retour, 3me, 4me, 5me, 6me, 7me, 8me, 9_coups_impairs, 10_coups_pairs
+    const shotKeys = [
+      ['Service','shot_Service_won_pct_CG','shot_Service_won_pct_FD','shot_Service_won_pct_FP'],
+      ['Retour','shot_Retour_won_pct_CG','shot_Retour_won_pct_FD','shot_Retour_won_pct_FP'],
+      ['3rd','shot_3me_coup_won_pct_CG','shot_3me_coup_won_pct_FD','shot_3me_coup_won_pct_FP'],
+      ['4th','shot_4me_coup_won_pct_CG','shot_4me_coup_won_pct_FD','shot_4me_coup_won_pct_FP'],
+      ['5th','shot_5me_coup_won_pct_CG','shot_5me_coup_won_pct_FD','shot_5me_coup_won_pct_FP'],
+      ['6th','shot_6me_coup_won_pct_CG','shot_6me_coup_won_pct_FD','shot_6me_coup_won_pct_FP'],
+      ['7th','shot_7me_coup_won_pct_CG','shot_7me_coup_won_pct_FD','shot_7me_coup_won_pct_FP'],
+      ['8th','shot_8me_coup_won_pct_CG','shot_8me_coup_won_pct_FD','shot_8me_coup_won_pct_FP'],
+      ['9th','shot_9_coups_impairs_won_pct_CG','shot_9_coups_impairs_won_pct_FD','shot_9_coups_impairs_won_pct_FP'],
+      ['10th','shot_10_coups_pairs_won_pct_CG','shot_10_coups_pairs_won_pct_FD','shot_10_coups_pairs_won_pct_FP']
+    ];
+    const xs = [], cs = [], fs = [], ps = [];
+    shotKeys.forEach(arr=>{
+      xs.push(arr[0]);
+      const a = num(getSmall(arr[1])) || null;
+      const b = num(getSmall(arr[2])) || null;
+      const c = num(getSmall(arr[3])) || null;
+      cs.push(a===null?0:a);
+      fs.push(b===null?0:b);
+      ps.push(c===null?0:c);
+    });
+    // If Plotly available, draw line chart
+    if(usePlotly){
+      try{
+        const traces = [
+          { x: xs, y: cs, name: 'CG', mode:'lines+markers', line:{color:colorCG} },
+          { x: xs, y: fs, name: 'FD', mode:'lines+markers', line:{color:colorFD} },
+          { x: xs, y: ps, name: 'FP', mode:'lines+markers', line:{color:colorFP} }
+        ];
+        const layout = { margin:{t:20,l:40,r:20,b:60}, yaxis:{tickformat:'.0%'} , legend:{orientation:'h',y:-0.25}};
+        Plotly.newPlot('adv-shot-chart', traces, layout, {displayModeBar:false});
+      }catch(e){
+        log('Plotly shot chart error: ' + e.message);
+      }
+    } else {
+      // fallback: simple table of percentages
+      const chartWrap = document.getElementById('adv-shot-chart');
+      if(chartWrap){
+        let t = '<table style="width:100%;border-collapse:collapse"><thead><tr><th>Shot</th><th>CG</th><th>FD</th><th>FP</th></tr></thead><tbody>';
+        for(let i=0;i<xs.length;i++){
+          t += `<tr><td style="font-weight:700">${xs[i]}</td><td>${cs[i]===0?'—':pctToLabel(cs[i])}</td><td>${fs[i]===0?'—':pctToLabel(fs[i])}</td><td>${ps[i]===0?'—':pctToLabel(ps[i])}</td></tr>`;
+        }
+        t += '</tbody></table>';
+        chartWrap.innerHTML = t;
+      }
+    }
+
+    // attach raw JSON toggle
     const rawBtn = panelElement.querySelector('#adv-raw-btn');
     if(rawBtn){
-      rawBtn.addEventListener('click', () => {
+      rawBtn.addEventListener('click', ()=>{
         const raw = panelElement.querySelector('#adv-raw');
         if(raw) raw.style.display = raw.style.display === 'none' ? 'block' : 'none';
       });
     }
 
+    log('rendered advanced stats (source=' + sourceUrl + ')');
   }catch(e){
-    console.error('renderAdvancedStatsFrom error', e);
-    if(panelElement){
-      const inner = panelElement.querySelector('#advanced-content') || panelElement;
-      inner.innerHTML = '<div class="no-data">Error rendering advanced statistics.</div>';
-    }
+    console.error('renderAdvancedStatsFull error', e);
+    try{
+      const container = panelElement.querySelector('#advanced-content') || panelElement;
+      if(container) container.innerHTML = '<div style="color:#c00">Error rendering advanced statistics.</div>';
+    }catch(e){}
   }
 }
-  function smartHoursString(h){
+
+function smartHoursString(h){
     if(h === null || h === undefined) return '—';
     const n = Number(h);
     if(isNaN(n)) return '—';
