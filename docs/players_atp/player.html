@@ -2090,21 +2090,24 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
       return;
     }
     const container = panelElement.querySelector('#advanced-content') || panelElement;
-    // Quick debug dump inside the panel for dev (visible)
     const debugEl = panelElement.querySelector('#advanced-log');
     if(debugEl){ debugEl.style.display='block'; debugEl.innerHTML = `<div>renderAdvancedStatsFrom called — source: ${String(sourceUrl||'(inline)')}</div>`; }
 
-    const esc = s => s===null||s===undefined ? '' : String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
+    const esc = s => s===null||s===undefined ? '' : String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+    // Shared constants (available everywhere)
+    const NAME = { CG: 'Winner', FD: 'Unforced Error', FP: 'Forced Error' };
+    const COLORS = { CG: '#2563eb', FD:'#ef4444', FP:'#f59e0b' };
+    const buckets = [{name:'Short'},{name:'Medium'},{name:'Long'}];
 
     // ---- Normalise small_stats ----
     let smallCols = null;
     if(data && data.small_stats){
-      // prefer columns, then numeric, then if flat use it
       if(data.small_stats.columns && Object.keys(data.small_stats.columns).length) smallCols = data.small_stats.columns;
       else if(data.small_stats.numeric && Object.keys(data.small_stats.numeric).length) smallCols = data.small_stats.numeric;
       else if(Object.keys(data.small_stats).length) smallCols = data.small_stats;
     }
-    // extra fallbacks
     if(!smallCols && data.rally_stats && data.rally_stats.numeric) smallCols = data.rally_stats.numeric;
     if(!smallCols && data.short_stats && data.short_stats.numeric) smallCols = data.short_stats.numeric;
 
@@ -2112,11 +2115,8 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
     let bigObj = data && (data.big_stats || data.stroke_stats || data.bigStats || data.strokeStats) || null;
     const bigNumeric = bigObj && bigObj.numeric ? bigObj.numeric : bigObj;
 
-    // Debug prints to console and in-panel
     console.log('smallCols present?', !!smallCols, 'bigNumeric present?', !!bigNumeric);
-    if(debugEl) {
-      debugEl.innerHTML += `<div>smallCols? ${!!smallCols} — bigNumeric? ${!!bigNumeric}</div>`;
-    }
+    if(debugEl) debugEl.innerHTML += `<div>smallCols? ${!!smallCols} — bigNumeric? ${!!bigNumeric}</div>`;
 
     // helpers
     const toNumRaw = v => {
@@ -2124,7 +2124,6 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
       const n = Number(v);
       return isNaN(n) ? null : n;
     };
-    const toNum = v => toNumRaw(v);
     const toFrac = v => {
       const n = toNumRaw(v);
       if(n===null) return null;
@@ -2137,8 +2136,6 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
       const perc = (Math.abs(f) > 1 && Math.abs(f) <= 100) ? f : (f*100);
       return Math.round(perc * Math.pow(10,digits)) / Math.pow(10,digits) + '%';
     };
-
-    // tolerant case-insensitive getter based on earlier helpers (but local fallback)
     const ciGet = (obj, key) => {
       if(!obj || !key) return undefined;
       if(Object.prototype.hasOwnProperty.call(obj, key)) return obj[key];
@@ -2160,21 +2157,18 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
 
     // Build HTML skeleton
     let html = `<div style="display:flex;justify-content:space-between;align-items:center"><div style="font-weight:700">Advanced statistics</div><div style="font-size:12px;color:#666">Source: ${esc(sourceUrl||'(inline)')}</div></div>`;
-    // show matches aggregated if present (keep raw value)
     const matchesAgg = readFrom(data && data.meta ? data.meta : {}, 'matches_aggregated', 'matchesCount', 'matches_count');
     if(matchesAgg !== null && matchesAgg !== undefined){
       html += `<div style="margin-top:6px;color:#333;font-size:13px"><strong>Matches aggregated:</strong> ${esc(String(matchesAgg))}</div>`;
     }
     html += `<div style="margin-top:8px"><button id="adv-show-raw" style="padding:6px 8px">Show raw JSON</button></div>`;
     html += `<div id="adv-raw-json" style="display:none;max-height:260px;overflow:auto;border:1px solid #eee;padding:8px;background:#fff;margin-top:8px"><pre>${esc(JSON.stringify(data, null, 2).slice(0,20000))}${JSON.stringify(data).length>20000? '…':''}</pre></div>`;
-
     html += `<div style="display:flex;gap:12px;align-items:flex-start;margin-top:12px;flex-wrap:wrap">`;
 
-    // LEFT: rally
+    // LEFT: rally HTML placeholders
     html += `<div style="flex:1;min-width:320px;border:1px solid #eee;padding:10px;border-radius:6px;background:#fff">`;
     html += `<div style="font-weight:700;margin-bottom:6px">Rally buckets</div>`;
     if(smallCols){
-      // tolerant getter (case-insensitive)
       const getSmall = (k) => {
         if(!smallCols) return null;
         if(smallCols[k] !== undefined) return smallCols[k];
@@ -2198,27 +2192,24 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
       html += `<div style="flex:1"><div style="color:#666">Long</div><div style="font-weight:700">${match_pct_long===null?'—':fmtPct(match_pct_long)}</div><div style="color:#666;font-size:12px">Win: ${pct_won_long===null?'—':fmtPct(pct_won_long)}</div></div>`;
       html += `</div>`;
 
-      // pie placeholders
-      const buckets = [
-        { name:'Short', win:'pct_won_short', lose:'pct_lost_short' },
-        { name:'Medium', win:'pct_won_medium', lose:'pct_lost_medium' },
-        { name:'Long', win:'pct_won_long', lose:'pct_lost_long' }
-      ];
+      // pie placeholders (win & lose for each bucket)
       html += `<div style="display:flex;gap:10px;flex-wrap:wrap">`;
       buckets.forEach((b, i) => {
-        html += `<div style="display:flex;flex-direction:column;align-items:center;margin:6px"><div id="pie-win-${i}" style="width:180px;height:140px"></div><div style="height:6px"></div><div id="pie-win-info-${i}" style="font-size:12px;margin-top:6px"></div></div>`;
-        html += `<div style="display:flex;flex-direction:column;align-items:center;margin:6px"><div id="pie-lose-${i}" style="width:180px;height:140px"></div><div style="height:6px"></div><div id="pie-lose-info-${i}" style="font-size:12px;margin-top:6px"></div></div>`;
+        html += `<div style="display:flex;flex-direction:column;align-items:center;margin:6px"><div style="font-weight:600;margin-bottom:6px">${esc(b.name)} — Win</div><div id="pie-win-${i}" style="width:180px;height:140px"></div><div id="pie-win-info-${i}" style="font-size:12px;margin-top:6px"></div></div>`;
+        html += `<div style="display:flex;flex-direction:column;align-items:center;margin:6px"><div style="font-weight:600;margin-bottom:6px">${esc(b.name)} — Lose</div><div id="pie-lose-${i}" style="width:180px;height:140px"></div><div id="pie-lose-info-${i}" style="font-size:12px;margin-top:6px"></div></div>`;
       });
       html += `</div>`;
+
+      // shot series placeholder (fallback table/chart)
+      html += `<div style="height:10px"></div><div id="adv-shot-chart" style="height:260px;margin-bottom:12px"></div>`;
     } else {
       html += `<div style="color:#666">Rally stats not available for this player.</div>`;
     }
     html += `</div>`; // end left
 
-    // RIGHT: strokes summary
+    // RIGHT: strokes summary & big stats
     html += `<div style="flex:1;min-width:320px;border:1px solid #eee;padding:10px;border-radius:6px;background:#fff">`;
     html += `<div style="font-weight:700;margin-bottom:6px">Stroke statistics</div>`;
-    html += `<div id="adv-shot-chart" style="height:260px;margin-bottom:12px"></div>`;
     if(bigNumeric){
       html += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">';
       Object.keys(bigNumeric).slice(0,40).forEach(k=>{
@@ -2233,7 +2224,7 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
 
     html += `</div>`; // main flex
 
-    // inject
+    // inject HTML
     container.style.display = 'block';
     container.innerHTML = html;
 
@@ -2246,45 +2237,39 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
       });
     }
 
-    // now draw pies & charts if we have the data
+    // DRAW pies & charts now (we create local helpers and use the earlier shared constants)
     if(smallCols){
-      // helper for the pie draw (safe)
-      const NAME = { CG: 'Winner', FD: 'Unforced Error', FP: 'Forced Error' };
-      const COLORS = { CG: '#2563eb', FD:'#ef4444', FP:'#f59e0b' };
-      const drawPieSimple = (domId, infoId, vals, labelPrefix) => {
-        const el = document.getElementById(domId);
-        const infoEl = document.getElementById(infoId);
-        if(!el) return;
-        const total = vals.reduce((a,b)=>a+(isNaN(Number(b))?0:Number(b)),0);
-        if(window.Plotly && typeof window.Plotly.newPlot === 'function'){
-          const trace = [{ labels:[NAME.CG, NAME.FD, NAME.FP], values: vals, type:'pie', marker:{colors:[COLORS.CG, COLORS.FD, COLORS.FP]}, textinfo:'label+percent', hoverinfo:'label+percent+value'}];
-          Plotly.newPlot(el, trace, {height:140,width:180,margin:{t:8,l:4,r:4,b:8}, showlegend:false}, {displayModeBar:false});
-          el.on('plotly_click', function(evt){
-            const point = evt.points && evt.points[0];
-            if(!point) return;
-            const idx = point.pointNumber;
-            const valFrac = (point.value && point.value <= 1) ? point.value : point.value;
-            // try to display count if available later from bigNumeric: handled per pie where possible
-            if(infoEl) infoEl.innerHTML = `${labelPrefix} — ${point.label}: ${fmtPct(valFrac)}`;
-          });
-        } else {
-          el.innerHTML = `<div style="font-size:12px;color:#666">Pie (no Plotly)</div><div style="font-size:13px">${['Winner','Unforced Error','Forced Error'].map((L,i)=>L+': '+fmtPct(vals[i])).join('<br>')}</div>`;
-          if(infoEl) infoEl.innerHTML = `${labelPrefix}: click unsupported (Plotly missing).`;
-        }
-      };
-
-      // generic case-insensitive getter for smallCols and conversion to fraction
+      // smallCols tolerant getter and converter
       const getSmallVal = k => {
         const v = (smallCols[k] !== undefined) ? smallCols[k] : (smallCols[k.toLowerCase()] !== undefined ? smallCols[k.toLowerCase()] : null);
         if(v === null || v === undefined) return null;
         const n = toNumRaw(v);
         if(n === null) return null;
         if(Math.abs(n) > 1 && Math.abs(n) <= 100) return n/100;
-        if(Math.abs(n) > 100) return n; // counts or weird values left as-is
         return n;
       };
 
-      // Assemble win/lose arrays and draw pies
+      // draw pie helper
+      const drawPieSimple = (domId, infoId, vals, labelPrefix) => {
+        const el = document.getElementById(domId);
+        const infoEl = document.getElementById(infoId);
+        if(!el) return;
+        if(window.Plotly && typeof window.Plotly.newPlot === 'function'){
+          const trace = [{ labels:[NAME.CG, NAME.FD, NAME.FP], values: vals, type:'pie', marker:{colors:[COLORS.CG, COLORS.FD, COLORS.FP]}, textinfo:'label+percent', hoverinfo:'label+percent+value' }];
+          Plotly.newPlot(el, trace, {height:140,width:180,margin:{t:8,l:4,r:4,b:8}, showlegend:false}, {displayModeBar:false});
+          el.on('plotly_click', function(evt){
+            const point = evt.points && evt.points[0];
+            if(!point) return;
+            const valFrac = (point.value && point.value <= 1) ? point.value : point.value;
+            if(infoEl) infoEl.innerHTML = `${labelPrefix} — ${point.label}: ${fmtPct(valFrac)}`;
+          });
+        } else {
+          el.innerHTML = `<div style="font-size:12px;color:#666">Pie (no Plotly)</div><div style="font-size:13px">${[NAME.CG,NAME.FD,NAME.FP].map((L,i)=>L+': '+fmtPct(vals[i])).join('<br>')}</div>`;
+          if(infoEl) infoEl.innerHTML = `${labelPrefix}: Plotly not available.`;
+        }
+      };
+
+      // Assemble win/lose arrays and draw pies using the shared "buckets" (now defined at top)
       [['pct_won_short','pct_lost_short'],['pct_won_medium','pct_lost_medium'],['pct_won_long','pct_lost_long']].forEach((pair, idx) => {
         const valsWin = [
           getSmallVal(pair[0] + '_CG') || 0,
@@ -2300,7 +2285,7 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
         drawPieSimple('pie-lose-'+idx, 'pie-lose-info-'+idx, valsLose, `${buckets[idx].name} Lose`);
       });
 
-      // shot series (three curves). pick ordered shot keys
+      // shot series (three curves) - build arrays
       const shotKeys = [
         ['Service','shot_Service_won_pct_CG','shot_Service_won_pct_FD','shot_Service_won_pct_FP'],
         ['Return','shot_Retour_won_pct_CG','shot_Retour_won_pct_FD','shot_Retour_won_pct_FP'],
@@ -2316,20 +2301,17 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
       const xs=[], yCG=[], yFD=[], yFP=[];
       shotKeys.forEach(s => {
         xs.push(s[0]);
-        const a = getSmallVal(s[1]) || 0;
-        const b = getSmallVal(s[2]) || 0;
-        const c = getSmallVal(s[3]) || 0;
-        yCG.push(a);
-        yFD.push(b);
-        yFP.push(c);
+        yCG.push(getSmallVal(s[1]) || 0);
+        yFD.push(getSmallVal(s[2]) || 0);
+        yFP.push(getSmallVal(s[3]) || 0);
       });
 
       if(window.Plotly && typeof window.Plotly.newPlot === 'function'){
         try{
           const traces = [
-            { x: xs, y: yCG, name: 'Winner', mode:'lines+markers', line:{color:COLORS.CG} },
-            { x: xs, y: yFD, name: 'Unforced Error', mode:'lines+markers', line:{color:COLORS.FD} },
-            { x: xs, y: yFP, name: 'Forced Error', mode:'lines+markers', line:{color:COLORS.FP} }
+            { x: xs, y: yCG, name: NAME.CG, mode:'lines+markers', line:{color:COLORS.CG} },
+            { x: xs, y: yFD, name: NAME.FD, mode:'lines+markers', line:{color:COLORS.FD} },
+            { x: xs, y: yFP, name: NAME.FP, mode:'lines+markers', line:{color:COLORS.FP} }
           ];
           Plotly.newPlot('adv-shot-chart', traces, {margin:{t:20,l:40,r:20,b:60}, yaxis:{tickformat:'.0%'}}, {displayModeBar:false});
         }catch(e){
@@ -2346,12 +2328,8 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
       }
     } // end if smallCols
 
-    // DRAW shot-type pies and big-stats derived UIs if bigNumeric present
+    // BigNumeric: draw shot-type pies, breakpoints, return (we keep these operations isolated to avoid scoping issues)
     if(bigNumeric){
-      // NAME mapping and colors (re-used)
-      const NAME = { CG: 'Winner', FD: 'Unforced Error', FP: 'Forced Error' };
-      const COLORS = { CG: '#2563eb', FD:'#ef4444', FP:'#f59e0b' };
-
       // shot types list
       const shotTypes = [
         { key: 'shot_coups_fond_de_court', label:'Baseline' },
@@ -2363,7 +2341,7 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
         { key: 'shot_lobs', label:'Lobs' }
       ];
 
-      // helper: safe list-of-key lookup (we use arrays of candidates to avoid unescaped quotes)
+      // robust lookup for multiple suffix variants (avoid embedding raw apostrophes)
       const tryKeysArray = (base, variants) => {
         for(const v of variants){
           const kk = base + v;
@@ -2373,48 +2351,27 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
         return null;
       };
 
-      // buildShotTypeSlices: robustly look up the 4 categories and return fractions
       const buildShotTypeSlices = (big, prefix) => {
         if(!big) return { winFrac:null, provFrac:null, dirFrac:null, exchangeFrac:null };
-        // candidate suffix arrays (safe strings, use double-quoted where apostrophe present)
-        const winSuffixes = [
-          "_outcome_coupsgagnants_frac", "_outcome_coupgagnant_frac", "_outcome_coupsgagnant_frac",
-          "_outcome_coupsgagnants_frac" // duplicates harmless
-        ];
-        const provSuffixes = [
-          "_outcome_fautesprovoquées_frac", "_outcome_fautesprovoquée_frac", "_outcome_fautesprovoquées_frac", "_outcome_fautesprovoquée_frac"
-        ];
-        const dirSuffixes = [
-          "_outcome_fautedirecte_frac", "_outcome_fautesdirectes_frac", "_outcome_fautedirecte_frac", "_outcome_fautesdirectes_frac"
-        ];
-        // for 'in exchange' variants try different ascii-only keys and the accented one using double quotes
-        const exSuffixes = [
-          "_outcome_coupsdansl_echange_frac",
-          "_outcome_coupsdanslexchange_frac",
-          "_outcome_coupsdanslexchange_frac",
-          "_outcome_coupsdansl'exchange_frac",       // ascii with apostrophe
-          "_outcome_coupsdansl'échange_frac"        // accented variant - use here as a candidate (we don't embed it in single quote)
-        ];
-        // use readFrom with full candidate keys
+        const winSuffixes = ["_outcome_coupsgagnants_frac","_outcome_coupgagnant_frac","_outcome_coupsgagnant_frac"];
+        const provSuffixes = ["_outcome_fautesprovoquées_frac","_outcome_fautesprovoquée_frac"];
+        const dirSuffixes = ["_outcome_fautedirecte_frac","_outcome_fautesdirectes_frac"];
+        const exSuffixes = ["_outcome_coupsdansl_echange_frac","_outcome_coupsdanslexchange_frac","_outcome_coupsdansl'échange_frac","_outcome_coupsdansl'exchange_frac"];
         const out_win = tryKeysArray(prefix, winSuffixes);
         const out_fp = tryKeysArray(prefix, provSuffixes);
         const out_df = tryKeysArray(prefix, dirSuffixes);
         const out_ex = tryKeysArray(prefix, exSuffixes);
-
         const fallback_win = out_win !== null ? out_win : readFrom(big, prefix + '_outcome_coupgagnant_frac', prefix + '_outcome_coupsgagnants_frac');
         const fallback_fp = out_fp !== null ? out_fp : readFrom(big, prefix + '_outcome_fautesprovoquée_frac', prefix + '_outcome_fautesprovoquées_frac');
         const fallback_df = out_df !== null ? out_df : readFrom(big, prefix + '_outcome_fautedirecte_frac', prefix + '_outcome_fautesdirectes_frac');
-        const fallback_ex = out_ex !== null ? out_ex : readFrom(big, prefix + '_outcome_coupsdansl_echange_frac', prefix + '_outcome_coupsdanslexchange_frac', prefix + '_outcome_coupsdansl_echange_frac');
-
-        const winF = toFrac(fallback_win);
-        const provF = toFrac(fallback_fp);
-        const dirF = toFrac(fallback_df);
-        const exF = toFrac(fallback_ex);
-        return { winFrac:winF, provFrac:provF, dirFrac:dirF, exchangeFrac:exF };
+        const fallback_ex = out_ex !== null ? out_ex : readFrom(big, prefix + '_outcome_coupsdansl_echange_frac', prefix + '_outcome_coupsdanslexchange_frac');
+        return { winFrac: toFrac(fallback_win), provFrac: toFrac(fallback_fp), dirFrac: toFrac(fallback_df), exchangeFrac: toFrac(fallback_ex) };
       };
 
-      // build and draw shot-type pies
-      (window.__adv_drawers = window.__adv_drawers || []).length = 0; // reset
+      // store drawers to redraw when exclude-exchange checkbox toggled
+      window.__adv_drawers = window.__adv_drawers || [];
+      window.__adv_drawers.length = 0;
+
       shotTypes.forEach((st, i) => {
         const slices = buildShotTypeSlices(bigNumeric, st.key);
         const el = document.getElementById('shottype-pie-'+i);
@@ -2440,10 +2397,8 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
             el.on('plotly_click', function(evt){
               const point = evt.points && evt.points[0];
               if(!point) return;
-              const idx = point.pointNumber;
               const valFrac = (point.value && point.value <= 1) ? point.value : point.value;
-              // attempt to compute count: read a related total count if present
-              const totalCount = readFrom(bigNumeric, st.key + '_count', st.key + '_num', st.key.replace(/^shot_/, 'shot_') + '_count');
+              const totalCount = readFrom(bigNumeric, st.key + '_count', st.key + '_num');
               let display = '';
               if(totalCount !== null && toNumRaw(totalCount) !== null){
                 const cnt = Math.round(valFrac * toNumRaw(totalCount));
@@ -2461,12 +2416,11 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
             if(infoEl) infoEl.innerHTML = `(Plotly missing)`;
           }
         };
-        // initial draw with excludeExchange = false
         draw(false);
-        (window.__adv_drawers = window.__adv_drawers || []).push({ drawFunc: draw, index: i });
+        window.__adv_drawers.push({ drawFunc: draw, index: i });
       });
 
-      // Break points section: show bdb_converted and bdb_games_with and mean per match
+      // Break points & return - append under the whole container
       const bdb_played_num = readFrom(bigNumeric, 'bdb_played_num', 'bdb_played_count');
       const bdb_played_den = readFrom(bigNumeric, 'bdb_played_den', 'bdb_played_total');
       const bdb_played_pct = toFrac(readFrom(bigNumeric, 'bdb_played_pct'));
@@ -2477,14 +2431,12 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
       const bdb_games_with_den = readFrom(bigNumeric, 'bdb_games_with_den', 'bdb_games_with_total');
       const bdb_games_with_pct = toFrac(readFrom(bigNumeric, 'bdb_games_with_pct'));
 
-      // mean number of break points per match: bdb_played_num / matches_count (if matches_count present)
       const matches_count_big = readFrom(bigNumeric, 'matches_count', 'matchesCount', 'matches_count') || toNumRaw(matchesAgg);
       let mean_bdb_per_match = null;
       if(bdb_played_num !== null && matches_count_big !== null && toNumRaw(matches_count_big) !== null){
         mean_bdb_per_match = toNumRaw(bdb_played_num) / toNumRaw(matches_count_big);
       }
 
-      // Return stats
       const return_points_num = readFrom(bigNumeric, 'return_points_num', 'return_points_count');
       const return_points_den = readFrom(bigNumeric, 'return_points_den', 'return_points_total');
       const return_points_pct = toFrac(readFrom(bigNumeric, 'return_points_pct'));
@@ -2495,9 +2447,6 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
       const return_2nd_den = readFrom(bigNumeric, 'return_2nd_den');
       const return_2nd_pct = toFrac(readFrom(bigNumeric, 'return_2nd_pct'));
 
-      // Append a small block after the right column (we injected earlier raw big-numeric table, so we will append results into #advanced-content)
-      const rightContainer = container.querySelector('div[style*="Stroke & shot summary"]') || container;
-      // Instead of hunting DOM, append new section at bottom of container
       const statsBlock = document.createElement('div');
       statsBlock.style.marginTop = '12px';
       statsBlock.innerHTML = `<div style="font-weight:700;margin-bottom:8px">Break points & Return</div>
@@ -2516,7 +2465,7 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
       `;
       container.appendChild(statsBlock);
 
-      // attach exclude-exchange checkbox handler (exists in fragment) to redraw
+      // wire exclude-exchange checkbox if present (redraw pies)
       const excludeCheckbox = document.getElementById('adv-exclude-exchange') || panelElement.querySelector('#adv-exclude-exchange');
       if(excludeCheckbox){
         excludeCheckbox.addEventListener('change', () => {
@@ -2528,7 +2477,7 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
           }
         });
       }
-    }
+    } // end bigNumeric
 
     console.log('rendered advanced stats (source=' + sourceUrl + ')');
     if(debugEl) debugEl.innerHTML += `<div>render completed</div>`;
@@ -2537,7 +2486,6 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
     try{ const c = panelElement.querySelector('#advanced-content') || panelElement; if(c) c.innerHTML = '<div style="color:#c00">Error rendering advanced statistics.</div>'; }catch(e){}
   }
 }
-
 
 // Main entry: open advanced for player
     window.openAdvancedForPlayer = async function(player){
