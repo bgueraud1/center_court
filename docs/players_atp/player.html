@@ -2089,59 +2089,37 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
       console.warn('renderAdvancedStatsFrom: panelElement is null');
       return;
     }
+
+    // container + debug
     const container = panelElement.querySelector('#advanced-content') || panelElement;
     const debugEl = panelElement.querySelector('#advanced-log');
     if(debugEl){ debugEl.style.display='block'; debugEl.innerHTML = `<div>renderAdvancedStatsFrom called — source: ${String(sourceUrl||'(inline)')}</div>`; }
 
-    const esc = s => s===null||s===undefined ? '' : String(s)
-      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    // ---- utilities ----
+    const esc = s => s===null||s===undefined ? '' : String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
 
-    // Shared constants (available everywhere)
-    const NAME = { CG: 'Winner', FD: 'Unforced Error', FP: 'Forced Error' };
-    const COLORS = { CG: '#2563eb', FD:'#ef4444', FP:'#f59e0b' };
-    const buckets = [{name:'Short'},{name:'Medium'},{name:'Long'}];
-
-    // ---- Normalise small_stats ----
-    let smallCols = null;
-    if(data && data.small_stats){
-      if(data.small_stats.columns && Object.keys(data.small_stats.columns).length) smallCols = data.small_stats.columns;
-      else if(data.small_stats.numeric && Object.keys(data.small_stats.numeric).length) smallCols = data.small_stats.numeric;
-      else if(Object.keys(data.small_stats).length) smallCols = data.small_stats;
-    }
-    if(!smallCols && data.rally_stats && data.rally_stats.numeric) smallCols = data.rally_stats.numeric;
-    if(!smallCols && data.short_stats && data.short_stats.numeric) smallCols = data.short_stats.numeric;
-
-    // ---- Normalise big_stats ----
-    let bigObj = data && (data.big_stats || data.stroke_stats || data.bigStats || data.strokeStats) || null;
-    const bigNumeric = bigObj && bigObj.numeric ? bigObj.numeric : bigObj;
-
-    console.log('smallCols present?', !!smallCols, 'bigNumeric present?', !!bigNumeric);
-    if(debugEl) debugEl.innerHTML += `<div>smallCols? ${!!smallCols} — bigNumeric? ${!!bigNumeric}</div>`;
-
-    // helpers
-    const toNumRaw = v => {
-      if(v===null||v===undefined||v==='') return null;
-      const n = Number(v);
-      return isNaN(n) ? null : n;
+    // normalize text to compare keys robustly: remove diacritics, punctuation, spaces, lowercase
+    const normalizeKey = s => {
+      if(s === null || s === undefined) return '';
+      try{
+        return String(s)
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g,'')   // remove accents
+          .replace(/['’`"]/g,'')            // remove quotes/apostrophes
+          .replace(/\s+/g,'')               // remove spaces
+          .replace(/[^a-z0-9_]/gi,'')       // keep letters, numbers, underscore
+          .toLowerCase();
+      }catch(e){
+        return String(s).toLowerCase();
+      }
     };
-    const toFrac = v => {
-      const n = toNumRaw(v);
-      if(n===null) return null;
-      if(Math.abs(n) > 1 && Math.abs(n) <= 100) return n/100;
-      return n;
-    };
-    const fmtNum = v => (v===null||v===undefined)?'—':(Math.round(v*100)/100).toLocaleString();
-    const fmtPct = (f, digits=1) => {
-      if(f===null||f===undefined) return '—';
-      const perc = (Math.abs(f) > 1 && Math.abs(f) <= 100) ? f : (f*100);
-      return Math.round(perc * Math.pow(10,digits)) / Math.pow(10,digits) + '%';
-    };
+
     const ciGet = (obj, key) => {
       if(!obj || !key) return undefined;
       if(Object.prototype.hasOwnProperty.call(obj, key)) return obj[key];
-      const low = key.toLowerCase();
+      const target = normalizeKey(key);
       for(const k of Object.keys(obj)){
-        if(k.toLowerCase() === low) return obj[k];
+        if(normalizeKey(k) === target) return obj[k];
       }
       return undefined;
     };
@@ -2155,76 +2133,74 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
       return null;
     };
 
-    // Build HTML skeleton
+    const toNumRaw = v => {
+      if(v===null||v===undefined||v==='') return null;
+      const n = Number(v);
+      return isNaN(n) ? null : n;
+    };
+    const toFrac = v => { // accept percent (37.9) or fraction (0.379)
+      const n = toNumRaw(v);
+      if(n === null) return null;
+      if(Math.abs(n) > 1 && Math.abs(n) <= 100) return n/100;
+      return n;
+    };
+    const fmtPct = (f, digits=1) => {
+      if(f===null||f===undefined) return '—';
+      const perc = (Math.abs(f) > 1 && Math.abs(f) <= 100) ? f : (f*100);
+      return (Math.round(perc * Math.pow(10,digits)) / Math.pow(10,digits)) + '%';
+    };
+    const fmtNum = (v, digits=1) => {
+      if(v===null||v===undefined) return '—';
+      if(typeof v === 'number') return (Math.round(v * Math.pow(10,digits)) / Math.pow(10,digits)).toLocaleString();
+      return String(v);
+    };
+
+    // shared constants for labels/colors
+    const NAME = { CG: 'Winner', FD: 'Unforced Error', FP: 'Forced Error' };
+    const COLORS = { CG: '#2563eb', FD:'#ef4444', FP:'#f59e0b' };
+    const smallBuckets = [{name:'Short'},{name:'Medium'},{name:'Long'}];
+
+    // ---- Normalise small_stats & big_stats ----
+    let smallCols = null;
+    if(data && data.small_stats){
+      if(data.small_stats.columns && Object.keys(data.small_stats.columns).length) smallCols = data.small_stats.columns;
+      else if(data.small_stats.numeric && Object.keys(data.small_stats.numeric).length) smallCols = data.small_stats.numeric;
+      else if(Object.keys(data.small_stats).length) smallCols = data.small_stats;
+    }
+    if(!smallCols && data.rally_stats && data.rally_stats.numeric) smallCols = data.rally_stats.numeric;
+    if(!smallCols && data.short_stats && data.short_stats.numeric) smallCols = data.short_stats.numeric;
+
+    let bigObj = data && (data.big_stats || data.stroke_stats || data.bigStats || data.strokeStats) || null;
+    const bigNumeric = bigObj && bigObj.numeric ? bigObj.numeric : bigObj;
+
+    console.log('smallCols present?', !!smallCols, 'bigNumeric present?', !!bigNumeric);
+    if(debugEl) debugEl.innerHTML += `<div>smallCols? ${!!smallCols} — bigNumeric? ${!!bigNumeric}</div>`;
+
+    // ---- Build HTML skeleton ----
     let html = `<div style="display:flex;justify-content:space-between;align-items:center"><div style="font-weight:700">Advanced statistics</div><div style="font-size:12px;color:#666">Source: ${esc(sourceUrl||'(inline)')}</div></div>`;
-    const matchesAgg = readFrom(data && data.meta ? data.meta : {}, 'matches_aggregated', 'matchesCount', 'matches_count');
+
+    // show matches_aggregated if present in meta or bigNumeric
+    const matchesAgg = readFrom(data && data.meta ? data.meta : {}, 'matches_aggregated','matchesCount','matches_count') || readFrom(bigNumeric, 'matches_count','matchesCount');
     if(matchesAgg !== null && matchesAgg !== undefined){
       html += `<div style="margin-top:6px;color:#333;font-size:13px"><strong>Matches aggregated:</strong> ${esc(String(matchesAgg))}</div>`;
     }
+
     html += `<div style="margin-top:8px"><button id="adv-show-raw" style="padding:6px 8px">Show raw JSON</button></div>`;
     html += `<div id="adv-raw-json" style="display:none;max-height:260px;overflow:auto;border:1px solid #eee;padding:8px;background:#fff;margin-top:8px"><pre>${esc(JSON.stringify(data, null, 2).slice(0,20000))}${JSON.stringify(data).length>20000? '…':''}</pre></div>`;
-    html += `<div style="display:flex;gap:12px;align-items:flex-start;margin-top:12px;flex-wrap:wrap">`;
 
-    // LEFT: rally HTML placeholders
-    html += `<div style="flex:1;min-width:320px;border:1px solid #eee;padding:10px;border-radius:6px;background:#fff">`;
-    html += `<div style="font-weight:700;margin-bottom:6px">Rally buckets</div>`;
-    if(smallCols){
-      const getSmall = (k) => {
-        if(!smallCols) return null;
-        if(smallCols[k] !== undefined) return smallCols[k];
-        const low = k.toLowerCase();
-        for(const kk of Object.keys(smallCols)){
-          if(kk.toLowerCase() === low) return smallCols[kk];
-        }
-        return null;
-      };
+    // RALLY SECTION (top)
+    html += `<div id="adv-rally-wrapper" style="margin-top:12px">`;
+    html += `<div id="adv-rally" class="adv-section" style="padding:10px;border-radius:6px;background:#fff;color:#000">`;
+    html += `</div>`; // adv-rally (we will fill it below via DOM)
+    html += `</div>`;
 
-      const match_pct_short = toFrac(getSmall('match_pct_short') || getSmall('match_pctShort'));
-      const match_pct_medium = toFrac(getSmall('match_pct_medium') || getSmall('match_pctMedium'));
-      const match_pct_long = toFrac(getSmall('match_pct_long') || getSmall('match_pctLong'));
-      const pct_won_short = toFrac(getSmall('pct_won_short'));
-      const pct_won_medium = toFrac(getSmall('pct_won_medium'));
-      const pct_won_long = toFrac(getSmall('pct_won_long'));
+    // STROKE SECTION (below)
+    html += `<div id="adv-strokes-wrapper" style="margin-top:12px">`;
+    html += `<div id="adv-strokes" class="adv-section" style="padding:10px;border-radius:6px;background:#fff;color:#000">`;
+    html += `</div>`;
+    html += `</div>`;
 
-      html += `<div style="display:flex;gap:10px;margin-bottom:12px">`;
-      html += `<div style="flex:1"><div style="color:#666">Short</div><div style="font-weight:700">${match_pct_short===null?'—':fmtPct(match_pct_short)}</div><div style="color:#666;font-size:12px">Win: ${pct_won_short===null?'—':fmtPct(pct_won_short)}</div></div>`;
-      html += `<div style="flex:1"><div style="color:#666">Medium</div><div style="font-weight:700">${match_pct_medium===null?'—':fmtPct(match_pct_medium)}</div><div style="color:#666;font-size:12px">Win: ${pct_won_medium===null?'—':fmtPct(pct_won_medium)}</div></div>`;
-      html += `<div style="flex:1"><div style="color:#666">Long</div><div style="font-weight:700">${match_pct_long===null?'—':fmtPct(match_pct_long)}</div><div style="color:#666;font-size:12px">Win: ${pct_won_long===null?'—':fmtPct(pct_won_long)}</div></div>`;
-      html += `</div>`;
-
-      // pie placeholders (win & lose for each bucket)
-      html += `<div style="display:flex;gap:10px;flex-wrap:wrap">`;
-      buckets.forEach((b, i) => {
-        html += `<div style="display:flex;flex-direction:column;align-items:center;margin:6px"><div style="font-weight:600;margin-bottom:6px">${esc(b.name)} — Win</div><div id="pie-win-${i}" style="width:180px;height:140px"></div><div id="pie-win-info-${i}" style="font-size:12px;margin-top:6px"></div></div>`;
-        html += `<div style="display:flex;flex-direction:column;align-items:center;margin:6px"><div style="font-weight:600;margin-bottom:6px">${esc(b.name)} — Lose</div><div id="pie-lose-${i}" style="width:180px;height:140px"></div><div id="pie-lose-info-${i}" style="font-size:12px;margin-top:6px"></div></div>`;
-      });
-      html += `</div>`;
-
-      // shot series placeholder (fallback table/chart)
-      html += `<div style="height:10px"></div><div id="adv-shot-chart" style="height:260px;margin-bottom:12px"></div>`;
-    } else {
-      html += `<div style="color:#666">Rally stats not available for this player.</div>`;
-    }
-    html += `</div>`; // end left
-
-    // RIGHT: strokes summary & big stats
-    html += `<div style="flex:1;min-width:320px;border:1px solid #eee;padding:10px;border-radius:6px;background:#fff">`;
-    html += `<div style="font-weight:700;margin-bottom:6px">Stroke statistics</div>`;
-    if(bigNumeric){
-      html += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">';
-      Object.keys(bigNumeric).slice(0,40).forEach(k=>{
-        const v = bigNumeric[k];
-        html += `<div><div style="color:#666">${esc(k)}</div><div style="font-weight:700">${v===null||v===undefined?'—':(typeof v === 'number' && Math.abs(v) <= 1 ? fmtPct(v) : fmtNum(v))}</div></div>`;
-      });
-      html += '</div>';
-    } else {
-      html += `<div style="color:#666">Stroke stats not available for this player.</div>`;
-    }
-    html += `</div>`; // end right
-
-    html += `</div>`; // main flex
-
-    // inject HTML
+    // inject
     container.style.display = 'block';
     container.innerHTML = html;
 
@@ -2237,55 +2213,217 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
       });
     }
 
-    // DRAW pies & charts now (we create local helpers and use the earlier shared constants)
-    if(smallCols){
-      // smallCols tolerant getter and converter
-      const getSmallVal = k => {
-        const v = (smallCols[k] !== undefined) ? smallCols[k] : (smallCols[k.toLowerCase()] !== undefined ? smallCols[k.toLowerCase()] : null);
-        if(v === null || v === undefined) return null;
-        const n = toNumRaw(v);
-        if(n === null) return null;
-        if(Math.abs(n) > 1 && Math.abs(n) <= 100) return n/100;
-        return n;
+    // ---- Render Rally Section content (DOM insertion, then draw charts) ----
+    (function renderRally(){
+      const el = document.getElementById('adv-rally');
+      if(!el){
+        console.warn('adv-rally container missing');
+        return;
+      }
+      if(!smallCols){
+        el.innerHTML = `<h3>Rally (point length)</h3><div class="muted">No rally stats available.</div>`;
+        return;
+      }
+      // tolerant getter for smallCols
+      const getSmall = k => {
+        const v = ciGet(smallCols, k);
+        if(v !== undefined) return v;
+        return null;
       };
 
-      // draw pie helper
-      const drawPieSimple = (domId, infoId, vals, labelPrefix) => {
-        const el = document.getElementById(domId);
-        const infoEl = document.getElementById(infoId);
-        if(!el) return;
-        if(window.Plotly && typeof window.Plotly.newPlot === 'function'){
-          const trace = [{ labels:[NAME.CG, NAME.FD, NAME.FP], values: vals, type:'pie', marker:{colors:[COLORS.CG, COLORS.FD, COLORS.FP]}, textinfo:'label+percent', hoverinfo:'label+percent+value' }];
-          Plotly.newPlot(el, trace, {height:140,width:180,margin:{t:8,l:4,r:4,b:8}, showlegend:false}, {displayModeBar:false});
-          el.on('plotly_click', function(evt){
-            const point = evt.points && evt.points[0];
-            if(!point) return;
-            const valFrac = (point.value && point.value <= 1) ? point.value : point.value;
-            if(infoEl) infoEl.innerHTML = `${labelPrefix} — ${point.label}: ${fmtPct(valFrac)}`;
-          });
-        } else {
-          el.innerHTML = `<div style="font-size:12px;color:#666">Pie (no Plotly)</div><div style="font-size:13px">${[NAME.CG,NAME.FD,NAME.FP].map((L,i)=>L+': '+fmtPct(vals[i])).join('<br>')}</div>`;
-          if(infoEl) infoEl.innerHTML = `${labelPrefix}: Plotly not available.`;
+      const bucketsSpec = [
+        { key:'short', label:'Short', pctKey:'match_pct_short', winKey:'pct_won_short', loseKey:'pct_lost_short' },
+        { key:'medium', label:'Medium', pctKey:'match_pct_medium', winKey:'pct_won_medium', loseKey:'pct_lost_medium' },
+        { key:'long', label:'Long', pctKey:'match_pct_long', winKey:'pct_won_long', loseKey:'pct_lost_long' }
+      ];
+
+      // Summary top (clean)
+      let inner = `<h3 style="margin:0 0 8px 0">Rally (point length)</h3>`;
+      inner += `<div class="rally-summary-grid" style="display:flex;gap:12px;flex-wrap:wrap">`;
+      bucketsSpec.forEach(b=>{
+        const pct = toFrac(getSmall(b.pctKey)) ?? toFrac(getSmall(b.pctKey.toLowerCase()));
+        const win = toFrac(getSmall(b.winKey)) ?? toFrac(getSmall(b.winKey.toLowerCase()));
+        inner += `<div style="background:rgba(0,0,0,0.03);padding:10px;border-radius:8px;min-width:140px;text-align:center">
+                    <div style="color:#666;font-size:13px">${esc(b.label)}</div>
+                    <div style="font-weight:800;font-size:20px">${pct===null?'—':fmtPct(pct,1)}</div>
+                    <div style="color:#666;font-size:13px">Win: ${win===null?'—':fmtPct(win,1)}</div>
+                  </div>`;
+      });
+      inner += `</div>`;
+
+      // shared legend placeholder
+      inner += `<div id="adv-shared-legend-container" style="margin-top:8px"></div>`;
+
+      // pies placeholders (leave enough space)
+      inner += `<div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:12px">`;
+      bucketsSpec.forEach((b, idx)=>{
+        inner += `<div style="width:260px">
+                    <div style="font-weight:600;margin-bottom:6px">${esc(b.label)} — Win</div>
+                    <div id="rally-pie-win-${idx}" style="width:220px;height:160px"></div>
+                    <div id="rally-pie-win-info-${idx}" style="font-size:12px;color:#333;margin-top:6px"></div>
+                  </div>`;
+        inner += `<div style="width:260px">
+                    <div style="font-weight:600;margin-bottom:6px">${esc(b.label)} — Lose</div>
+                    <div id="rally-pie-lose-${idx}" style="width:220px;height:160px"></div>
+                    <div id="rally-pie-lose-info-${idx}" style="font-size:12px;color:#333;margin-top:6px"></div>
+                  </div>`;
+      });
+      inner += `</div>`;
+
+      // is_leading table
+      inner += `<div style="margin-top:12px"><h4 style="margin:8px 0">Proportion of matches where player led (by range)</h4>`;
+      inner += `<table class="adv-table-small" style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:8px;color:#666">Range</th><th style="text-align:left;padding:8px;color:#666">Winner</th><th style="text-align:left;padding:8px;color:#666">Unforced Error</th><th style="text-align:left;padding:8px;color:#666">Forced Error</th></tr></thead><tbody>`;
+      [['short','Short'],['medium','Medium'],['long','Long']].forEach(r=>{
+        const cg = toFrac(getSmall(`is_leading_${r[0]}_CG`)) ?? toFrac(getSmall(`is_leading_${r[0]}_cg`));
+        const fd = toFrac(getSmall(`is_leading_${r[0]}_FD`)) ?? toFrac(getSmall(`is_leading_${r[0]}_fd`));
+        const fp = toFrac(getSmall(`is_leading_${r[0]}_FP`)) ?? toFrac(getSmall(`is_leading_${r[0]}_fp`));
+        inner += `<tr><td style="padding:8px">${r[1]}</td><td style="padding:8px">${cg===null?'—':fmtPct(cg,1)}</td><td style="padding:8px">${fd===null?'—':fmtPct(fd,1)}</td><td style="padding:8px">${fp===null?'—':fmtPct(fp,1)}</td></tr>`;
+      });
+      inner += `</tbody></table></div>`;
+
+      // shot series (large)
+      inner += `<div id="adv-shot-series" style="margin-top:14px;min-height:320px"></div>`;
+
+      el.innerHTML = inner;
+
+      // insert shared legend (single place)
+      const legendContainer = document.getElementById('adv-shared-legend-container') || el;
+      if(!document.getElementById('__adv_shared_legend')){
+        const legend = document.createElement('div');
+        legend.id = '__adv_shared_legend';
+        legend.style.display = 'flex';
+        legend.style.gap = '12px';
+        legend.style.justifyContent = 'flex-end';
+        legend.innerHTML = `<div style="font-size:12px;color:#666;margin-right:8px">Legend</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <div style="width:12px;height:12px;background:#2563eb;border-radius:3px"></div><div style="font-weight:700;font-size:13px">Winner</div>
+            <div style="width:12px;height:12px;background:#ef4444;border-radius:3px;margin-left:8px"></div><div style="font-weight:700;font-size:13px">Unforced Error</div>
+            <div style="width:12px;height:12px;background:#f59e0b;border-radius:3px;margin-left:8px"></div><div style="font-weight:700;font-size:13px">Forced Error</div>
+          </div>`;
+        legendContainer.appendChild(legend);
+      }
+
+      // draw pies and shot series post-render
+      drawRallyAndShotSeries(smallCols);
+    })();
+
+    // ---- Render Strokes Section content (DOM insertion) ----
+    (function renderStrokes(){
+      const el = document.getElementById('adv-strokes');
+      if(!el){
+        console.warn('adv-strokes container missing');
+        return;
+      }
+      if(!bigNumeric){
+        el.innerHTML = `<h3 style="margin:0 0 8px 0">Stroke statistics</h3><div class="muted">No stroke stats available.</div>`;
+        return;
+      }
+
+      // General info mapping (friendly labels)
+      const infoMap = [
+        ['matches_count','Matches (count)'],
+        ['aces_per_match','Aces / match'],
+        ['double_faults_per_match','Double faults / match'],
+        ['vitesse_max_avg_per_match','Max serve speed (avg)'],
+        ['vitesse_1st_mean_avg_per_match','1st serve mean speed (avg)'],
+        ['winners_per_match','Winners / match'],
+        ['direct_errors_per_match','Direct errors / match'],
+        ['forced_errors_per_match','Forced errors / match'],
+        ['points_at_net_per_match','Points at net / match'],
+        ['white_games_per_match','White games / match']
+      ];
+
+      let inner = `<h3 style="margin:0 0 8px 0">Stroke statistics</h3>`;
+      inner += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">`;
+      infoMap.forEach(p=>{
+        const v = readFrom(bigNumeric, p[0]);
+        if(v !== null && v !== undefined){
+          const display = (Math.abs(Number(v)) <= 1 ? fmtPct(toFrac(v),1) : fmtNum(v,1));
+          inner += `<div style="background:rgba(0,0,0,0.03);padding:10px;border-radius:8px"><div style="color:#666">${esc(p[1])}</div><div style="font-weight:700">${display}</div></div>`;
         }
+      });
+      inner += `</div>`;
+
+      // shot-type pies and exclude checkbox
+      inner += `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;"><div style="font-weight:700">Shot type outcomes</div><div><label style="font-size:13px"><input id="adv-exclude-exchange" type="checkbox" style="margin-right:6px">Exclude in-exchange</label></div></div>`;
+
+      // shot type cards placeholders (grid)
+      const shotTypes = [
+        { key:'shot_coups_fond_de_court', label:'Baseline' },
+        { key:'shot_smashs', label:'Smash' },
+        { key:'shot_passing', label:'Passing' },
+        { key:'shot_volées', label:'Volley' },
+        { key:'shot_montées_au_filet', label:'Net points' },
+        { key:'shot_amorties', label:'Dropshot' },
+        { key:'shot_lobs', label:'Lobs' }
+      ];
+      inner += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:12px">`;
+      shotTypes.forEach((st,i)=>{
+        inner += `<div style="padding:10px;border-radius:8px;background:rgba(0,0,0,0.03)"><div style="font-weight:700;margin-bottom:8px">${esc(st.label)}</div><div id="shottype-pie-${i}" style="width:100%;height:200px"></div><div id="shottype-pie-info-${i}" style="font-size:12px;margin-top:6px"></div></div>`;
+      });
+      inner += `</div>`;
+
+      // Break points + Return boxes
+      inner += `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px">`;
+      inner += `<div style="min-width:240px;padding:12px;border-radius:8px;background:rgba(0,0,0,0.03)"><div style="font-weight:700;margin-bottom:8px">Break points (summary)</div><div id="bp-block"></div></div>`;
+      inner += `<div style="min-width:240px;padding:12px;border-radius:8px;background:rgba(0,0,0,0.03)"><div style="font-weight:700;margin-bottom:8px">Return</div><div id="return-block"></div></div>`;
+      inner += `</div>`;
+
+      el.innerHTML = inner;
+
+      // draw shot-type pies, breakpoints, return content
+      drawShotTypePiesAndBoxes(bigNumeric);
+    })();
+
+    // ---------------- helper draw functions ----------------
+    function drawRallyAndShotSeries(numeric){
+      if(!numeric) return;
+
+      // small helper to get tolerant numeric value
+      const g = (k) => {
+        const v = readFrom(numeric, k);
+        if(v !== null && v !== undefined) return v;
+        return null;
       };
 
-      // Assemble win/lose arrays and draw pies using the shared "buckets" (now defined at top)
-      [['pct_won_short','pct_lost_short'],['pct_won_medium','pct_lost_medium'],['pct_won_long','pct_lost_long']].forEach((pair, idx) => {
-        const valsWin = [
-          getSmallVal(pair[0] + '_CG') || 0,
-          getSmallVal(pair[0] + '_FD') || 0,
-          getSmallVal(pair[0] + '_FP') || 0
-        ];
-        const valsLose = [
-          getSmallVal(pair[1] + '_CG') || 0,
-          getSmallVal(pair[1] + '_FD') || 0,
-          getSmallVal(pair[1] + '_FP') || 0
-        ];
-        drawPieSimple('pie-win-'+idx, 'pie-win-info-'+idx, valsWin, `${buckets[idx].name} Win`);
-        drawPieSimple('pie-lose-'+idx, 'pie-lose-info-'+idx, valsLose, `${buckets[idx].name} Lose`);
+      // draw rally pies
+      const bucketKeys = [
+        { win:'pct_won_short', lose:'pct_lost_short' },
+        { win:'pct_won_medium', lose:'pct_lost_medium' },
+        { win:'pct_won_long', lose:'pct_lost_long' }
+      ];
+      const hoverTpl = '%{percent:.0%}<extra></extra>'; // only rounded percent on hover
+      bucketKeys.forEach((p, idx)=>{
+        const winCG = toFrac(readFrom(numeric, p.win + '_CG', p.win + '_cg')) || 0;
+        const winFD = toFrac(readFrom(numeric, p.win + '_FD', p.win + '_fd')) || 0;
+        const winFP = toFrac(readFrom(numeric, p.win + '_FP', p.win + '_fp')) || 0;
+        const loseCG = toFrac(readFrom(numeric, p.lose + '_CG', p.lose + '_cg')) || 0;
+        const loseFD = toFrac(readFrom(numeric, p.lose + '_FD', p.lose + '_fd')) || 0;
+        const loseFP = toFrac(readFrom(numeric, p.lose + '_FP', p.lose + '_fp')) || 0;
+
+        const drawPie = (dom, vals, infoId) => {
+          const el = document.getElementById(dom);
+          const infoEl = document.getElementById(infoId);
+          if(!el) return;
+          if(window.Plotly && typeof window.Plotly.newPlot === 'function'){
+            const trace = [{ labels:[NAME.CG, NAME.FD, NAME.FP], values: vals, type:'pie', marker:{colors:[COLORS.CG,COLORS.FD,COLORS.FP]}, hovertemplate: hoverTpl, textinfo:'label+percent' }];
+            Plotly.newPlot(el, trace, {height:160,width:220,margin:{t:8,l:4,r:4,b:8}, showlegend:false}, {displayModeBar:false});
+            el.on('plotly_click', function(evt){
+              const point = evt.points && evt.points[0];
+              if(!point) return;
+              if(infoEl) infoEl.innerHTML = `${point.label} — ${fmtPct(point.percent/100,0)}`; // show rounded percent only
+            });
+          } else {
+            el.innerHTML = `<div style="font-size:12px;color:#666">Pie (no Plotly)</div><div>${[NAME.CG,NAME.FD,NAME.FP].map((L,i)=>L+': '+fmtPct(vals[i])).join('<br>')}</div>`;
+            if(infoEl) infoEl.innerHTML = '';
+          }
+        };
+
+        drawPie('rally-pie-win-'+idx, [winCG,winFD,winFP], 'rally-pie-win-info-'+idx);
+        drawPie('rally-pie-lose-'+idx, [loseCG,loseFD,loseFP], 'rally-pie-lose-info-'+idx);
       });
 
-      // shot series (three curves) - build arrays
+      // draw shot series (3 curves) bigger
       const shotKeys = [
         ['Service','shot_Service_won_pct_CG','shot_Service_won_pct_FD','shot_Service_won_pct_FP'],
         ['Return','shot_Retour_won_pct_CG','shot_Retour_won_pct_FD','shot_Retour_won_pct_FP'],
@@ -2298,189 +2436,217 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
         ['9th','shot_9_coups_impairs_won_pct_CG','shot_9_coups_impairs_won_pct_FD','shot_9_coups_impairs_won_pct_FP'],
         ['10th','shot_10_coups_pairs_won_pct_CG','shot_10_coups_pairs_won_pct_FD','shot_10_coups_pairs_won_pct_FP']
       ];
-      const xs=[], yCG=[], yFD=[], yFP=[];
-      shotKeys.forEach(s => {
+      const xs = [], yCG = [], yFD = [], yFP = [];
+      shotKeys.forEach(s=>{
         xs.push(s[0]);
-        yCG.push(getSmallVal(s[1]) || 0);
-        yFD.push(getSmallVal(s[2]) || 0);
-        yFP.push(getSmallVal(s[3]) || 0);
+        yCG.push(toFrac(readFrom(numeric, s[1], s[1].toLowerCase())) || 0);
+        yFD.push(toFrac(readFrom(numeric, s[2], s[2].toLowerCase())) || 0);
+        yFP.push(toFrac(readFrom(numeric, s[3], s[3].toLowerCase())) || 0);
       });
-
-      if(window.Plotly && typeof window.Plotly.newPlot === 'function'){
-        try{
+      const seriesEl = document.getElementById('adv-shot-series');
+      if(seriesEl){
+        if(window.Plotly && typeof window.Plotly.newPlot === 'function'){
           const traces = [
-            { x: xs, y: yCG, name: NAME.CG, mode:'lines+markers', line:{color:COLORS.CG} },
-            { x: xs, y: yFD, name: NAME.FD, mode:'lines+markers', line:{color:COLORS.FD} },
-            { x: xs, y: yFP, name: NAME.FP, mode:'lines+markers', line:{color:COLORS.FP} }
+            { x: xs, y: yCG, name: NAME.CG, mode: 'lines+markers', line:{color:COLORS.CG} },
+            { x: xs, y: yFD, name: NAME.FD, mode: 'lines+markers', line:{color:COLORS.FD} },
+            { x: xs, y: yFP, name: NAME.FP, mode: 'lines+markers', line:{color:COLORS.FP} }
           ];
-          Plotly.newPlot('adv-shot-chart', traces, {margin:{t:20,l:40,r:20,b:60}, yaxis:{tickformat:'.0%'}}, {displayModeBar:false});
-        }catch(e){
-          console.warn('Plotly chart error',e);
-        }
-      } else {
-        const wrap = document.getElementById('adv-shot-chart');
-        if(wrap){
-          let t = '<table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left">Shot</th><th>Winner</th><th>Unforced Err</th><th>Forced Err</th></tr></thead><tbody>';
-          for(let i=0;i<xs.length;i++) t += `<tr><td style="font-weight:700">${esc(xs[i])}</td><td>${yCG[i]===0?'—':fmtPct(yCG[i])}</td><td>${yFD[i]===0?'—':fmtPct(yFD[i])}</td><td>${yFP[i]===0?'—':fmtPct(yFP[i])}</td></tr>`;
+          Plotly.newPlot(seriesEl, traces, {height:360, margin:{t:20,l:50,r:20,b:80}, yaxis:{tickformat:'.0%'}}, {displayModeBar:false});
+        } else {
+          let t = '<table style="width:100%;border-collapse:collapse"><thead><tr><th>Shot</th><th>Winner</th><th>Unforced Err</th><th>Forced Err</th></tr></thead><tbody>';
+          for(let i=0;i<xs.length;i++) t += `<tr><td style="font-weight:700">${esc(xs[i])}</td><td>${yCG[i]===0?'—':fmtPct(yCG[i],1)}</td><td>${yFD[i]===0?'—':fmtPct(yFD[i],1)}</td><td>${yFP[i]===0?'—':fmtPct(yFP[i],1)}</td></tr>`;
           t += '</tbody></table>';
-          wrap.innerHTML = t;
+          seriesEl.innerHTML = t;
         }
       }
-    } // end if smallCols
+    }
 
-    // BigNumeric: draw shot-type pies, breakpoints, return (we keep these operations isolated to avoid scoping issues)
-    if(bigNumeric){
-      // shot types list
+    // Draw shot-type pies (bigNumeric) + Breakpoints/Return boxes
+    function drawShotTypePiesAndBoxes(bigNumeric){
+      if(!bigNumeric) return;
+
+      // suffix lists (we use normalized lookup so accents/punctuation tolerated)
+      const winSuffixes = ['_outcome_coupsgagnants_frac','_outcome_coupgagnant_frac','_outcome_coupsgagnant_frac','_outcome_coupsgagnants_frac'];
+      const provSuffixes = ['_outcome_fautesprovoquees_frac','_outcome_fautesprovoquee_frac','_outcome_fautesprovoquées_frac','_outcome_fautesprovoquée_frac'];
+      const dirSuffixes = ['_outcome_fautedirecte_frac','_outcome_fautesdirectes_frac'];
+      const exSuffixes = ['_outcome_coupsdanslechange_frac','_outcome_coupsdanslexchange_frac','_outcome_coupsdansl_echange_frac','_outcome_coupsdansl\'echange_frac','_outcome_coupsdansl\u00E9change_frac'];
+
+      const countSuffixes = ['_count','_num','_total'];
+
       const shotTypes = [
-        { key: 'shot_coups_fond_de_court', label:'Baseline' },
-        { key: 'shot_smashs', label:'Smash' },
-        { key: 'shot_passing', label:'Passing' },
-        { key: 'shot_volées', label:'Volley' },
-        { key: 'shot_montées_au_filet', label:'Net points' },
-        { key: 'shot_amorties', label:'Dropshot' },
-        { key: 'shot_lobs', label:'Lobs' }
+        { key:'shot_coups_fond_de_court', label:'Baseline' },
+        { key:'shot_smashs', label:'Smash' },
+        { key:'shot_passing', label:'Passing' },
+        { key:'shot_volées', label:'Volley' },
+        { key:'shot_montées_au_filet', label:'Net points' },
+        { key:'shot_amorties', label:'Dropshot' },
+        { key:'shot_lobs', label:'Lobs' }
       ];
 
-      // robust lookup for multiple suffix variants (avoid embedding raw apostrophes)
-      const tryKeysArray = (base, variants) => {
-        for(const v of variants){
-          const kk = base + v;
-          const val = readFrom(bigNumeric, kk);
-          if(val !== null && val !== undefined) return val;
-        }
-        return null;
-      };
+      // registry to redraw when exclude-exchange toggled
+      window.__adv_shot_drawers = window.__adv_shot_drawers || [];
+      window.__adv_shot_drawers.length = 0;
 
-      const buildShotTypeSlices = (big, prefix) => {
-        if(!big) return { winFrac:null, provFrac:null, dirFrac:null, exchangeFrac:null };
-        const winSuffixes = ["_outcome_coupsgagnants_frac","_outcome_coupgagnant_frac","_outcome_coupsgagnant_frac"];
-        const provSuffixes = ["_outcome_fautesprovoquées_frac","_outcome_fautesprovoquée_frac"];
-        const dirSuffixes = ["_outcome_fautedirecte_frac","_outcome_fautesdirectes_frac"];
-        const exSuffixes = ["_outcome_coupsdansl_echange_frac","_outcome_coupsdanslexchange_frac","_outcome_coupsdansl'échange_frac","_outcome_coupsdansl'exchange_frac"];
-        const out_win = tryKeysArray(prefix, winSuffixes);
-        const out_fp = tryKeysArray(prefix, provSuffixes);
-        const out_df = tryKeysArray(prefix, dirSuffixes);
-        const out_ex = tryKeysArray(prefix, exSuffixes);
-        const fallback_win = out_win !== null ? out_win : readFrom(big, prefix + '_outcome_coupgagnant_frac', prefix + '_outcome_coupsgagnants_frac');
-        const fallback_fp = out_fp !== null ? out_fp : readFrom(big, prefix + '_outcome_fautesprovoquée_frac', prefix + '_outcome_fautesprovoquées_frac');
-        const fallback_df = out_df !== null ? out_df : readFrom(big, prefix + '_outcome_fautedirecte_frac', prefix + '_outcome_fautesdirectes_frac');
-        const fallback_ex = out_ex !== null ? out_ex : readFrom(big, prefix + '_outcome_coupsdansl_echange_frac', prefix + '_outcome_coupsdanslexchange_frac');
-        return { winFrac: toFrac(fallback_win), provFrac: toFrac(fallback_fp), dirFrac: toFrac(fallback_df), exchangeFrac: toFrac(fallback_ex) };
-      };
+      shotTypes.forEach((st,i)=>{
+        // sum a fraction/count for given suffix array
+        const sumFrac = (suffixes) => {
+          let sum = 0;
+          let found = false;
+          for(const sfx of suffixes){
+            const v = readFrom(bigNumeric, st.key + sfx);
+            const f = toFrac(v);
+            if(f !== null){ sum += f; found = true; }
+          }
+          return found ? sum : null;
+        };
+        const sumCount = (suffixes) => {
+          let sum = 0;
+          let found = false;
+          for(const sfx of suffixes){
+            const v = readFrom(bigNumeric, st.key + sfx);
+            const n = toNumRaw(v);
+            if(n !== null){ sum += n; found = true; }
+          }
+          return found ? sum : null;
+        };
 
-      // store drawers to redraw when exclude-exchange checkbox toggled
-      window.__adv_drawers = window.__adv_drawers || [];
-      window.__adv_drawers.length = 0;
+        const winFrac = sumFrac(winSuffixes);
+        const provFrac = sumFrac(provSuffixes);
+        const dirFrac = sumFrac(dirSuffixes);
+        const exFrac = sumFrac(exSuffixes);
+        const totalCount = sumCount(countSuffixes.concat(['_count', '_num', '_total', '_den']));
 
-      shotTypes.forEach((st, i) => {
-        const slices = buildShotTypeSlices(bigNumeric, st.key);
+        const valuesBase = [ winFrac || 0, provFrac || 0, dirFrac || 0 ];
+        const labels = [ NAME.CG, NAME.FD, NAME.FP ];
+        const colors = [ COLORS.CG, COLORS.FD, COLORS.FP ];
+
         const el = document.getElementById('shottype-pie-'+i);
         const infoEl = document.getElementById('shottype-pie-info-'+i);
-        const values = [slices.winFrac || 0, slices.provFrac || 0, slices.dirFrac || 0];
-        const labels = [NAME.CG, NAME.FD, NAME.FP];
-        const colors = [COLORS.CG, COLORS.FD, COLORS.FP];
 
-        const draw = (excludeExchange) => {
-          let vals = values.slice();
-          if(excludeExchange){
-            const ex = slices.exchangeFrac || 0;
-            const denom = (values.reduce((a,b)=>a+b,0) + ex);
+        const draw = (excludeExchange=false) => {
+          let vals = valuesBase.slice();
+          if(excludeExchange && exFrac){
+            const denom = (valuesBase.reduce((a,b)=>a+b,0) + exFrac);
             if(denom > 0){
-              const base = denom - ex;
+              const base = denom - exFrac;
               if(base > 0) vals = vals.map(v => (v / base) || 0);
             }
           }
           if(!el) return;
           if(window.Plotly && typeof window.Plotly.newPlot === 'function'){
-            const trace = [{ labels, values: vals, type:'pie', marker:{colors}, textinfo:'label+percent' }];
-            Plotly.newPlot(el, trace, {height:160,width:220,margin:{t:10,l:4,r:4,b:10}, showlegend:false}, {displayModeBar:false});
+            const hoverTpl = '%{percent:.0%}<extra></extra>';
+            const trace = [{ labels, values: vals, type:'pie', marker:{colors}, hovertemplate: hoverTpl, textinfo:'label+percent' }];
+            Plotly.newPlot(el, trace, {height:200,width:260,margin:{t:10,l:4,r:4,b:10}, showlegend:false}, {displayModeBar:false});
             el.on('plotly_click', function(evt){
-              const point = evt.points && evt.points[0];
-              if(!point) return;
-              const valFrac = (point.value && point.value <= 1) ? point.value : point.value;
-              const totalCount = readFrom(bigNumeric, st.key + '_count', st.key + '_num');
-              let display = '';
-              if(totalCount !== null && toNumRaw(totalCount) !== null){
-                const cnt = Math.round(valFrac * toNumRaw(totalCount));
-                display = `${point.label} — ${cnt} (estimated)`;
-              } else {
-                display = `${point.label} — ${fmtPct(valFrac)}`;
+              const p = evt.points && evt.points[0];
+              if(!p) return;
+              // try to locate a count field for this outcome
+              const sfxCandidates = (p.label === NAME.CG) ? ['_outcome_coupsgagnants_count','_outcome_coupsgagnant_count'] :
+                                     (p.label === NAME.FD) ? ['_outcome_fautesprovoquees_count','_outcome_fautesprovoquee_count','_outcome_fautesprovoquées_count'] :
+                                     ['_outcome_fautedirecte_count','_outcome_fautesdirectes_count'];
+              let outcomeCount = null;
+              for(const sfx of sfxCandidates){
+                const val = readFrom(bigNumeric, st.key + sfx);
+                const n = toNumRaw(val);
+                if(n !== null) outcomeCount = (outcomeCount === null ? 0 : outcomeCount) + n;
               }
-              if(infoEl) infoEl.innerHTML = `${st.label} — ${display}`;
+              if(outcomeCount !== null){
+                if(infoEl) infoEl.innerHTML = `${esc(st.label)} — ${p.label}: ${Math.round(outcomeCount)}`;
+                return;
+              }
+              // else try totalCount * p.value
+              if(totalCount !== null && toNumRaw(totalCount) !== null){
+                const cnt = Math.round((p.value) * toNumRaw(totalCount));
+                if(infoEl) infoEl.innerHTML = `${esc(st.label)} — ${p.label}: ${cnt} (estimated)`;
+                return;
+              }
+              // fallback percent
+              if(infoEl) infoEl.innerHTML = `${esc(st.label)} — ${p.label}: ${fmtPct(p.percent/100,0)}`;
             });
           } else {
-            let htmlPie = `<div style="font-size:12px;color:#666">Pie (no Plotly)</div><div style="font-size:13px">`;
-            labels.forEach((lab, idx)=> htmlPie += `${lab}: ${fmtPct(vals[idx])}<br>`);
-            htmlPie += '</div>';
-            if(el) el.innerHTML = htmlPie;
-            if(infoEl) infoEl.innerHTML = `(Plotly missing)`;
+            el.innerHTML = `<div style="font-size:12px;color:#666">Pie (no Plotly)</div><div>${labels.map((L,idx)=>L+': '+fmtPct(vals[idx])).join('<br>')}</div>`;
+            if(infoEl) infoEl.innerHTML = '';
           }
         };
+
+        // initial draw
         draw(false);
-        window.__adv_drawers.push({ drawFunc: draw, index: i });
+        // push a bound drawer that takes exclude flag
+        window.__adv_shot_drawers.push(fn => fn === undefined ? draw : draw);
       });
 
-      // Break points & return - append under the whole container
-      const bdb_played_num = readFrom(bigNumeric, 'bdb_played_num', 'bdb_played_count');
-      const bdb_played_den = readFrom(bigNumeric, 'bdb_played_den', 'bdb_played_total');
-      const bdb_played_pct = toFrac(readFrom(bigNumeric, 'bdb_played_pct'));
-      const bdb_converted_num = readFrom(bigNumeric, 'bdb_converted_num', 'bdb_converted_count');
-      const bdb_converted_den = readFrom(bigNumeric, 'bdb_converted_den', 'bdb_converted_total');
-      const bdb_converted_pct = toFrac(readFrom(bigNumeric, 'bdb_converted_pct'));
-      const bdb_games_with_num = readFrom(bigNumeric, 'bdb_games_with_num', 'bdb_games_with_count');
-      const bdb_games_with_den = readFrom(bigNumeric, 'bdb_games_with_den', 'bdb_games_with_total');
-      const bdb_games_with_pct = toFrac(readFrom(bigNumeric, 'bdb_games_with_pct'));
+      // Draw breakpoints & return boxes
+      const bpBlock = document.getElementById('bp-block');
+      const rBlock = document.getElementById('return-block');
+      if(bpBlock){
+        const bdb_converted_pct = toFrac(readFrom(bigNumeric, 'bdb_converted_pct'));
+        const bdb_converted_num = readFrom(bigNumeric, 'bdb_converted_num','bdb_converted_count');
+        const bdb_converted_den = readFrom(bigNumeric, 'bdb_converted_den','bdb_converted_total');
+        const bdb_games_with_pct = toFrac(readFrom(bigNumeric, 'bdb_games_with_pct'));
+        const bdb_games_with_num = readFrom(bigNumeric, 'bdb_games_with_num','bdb_games_with_count');
+        const bdb_games_with_den = readFrom(bigNumeric, 'bdb_games_with_den','bdb_games_with_total');
+        const bdb_played_num = readFrom(bigNumeric, 'bdb_played_num','bdb_played_count');
+        const matches_count = readFrom(bigNumeric, 'matches_count','matchesCount') || matchesAgg;
+        let mean_bp = null;
+        if(bdb_played_num !== null && matches_count !== null && toNumRaw(matches_count) !== null){
+          mean_bp = toNumRaw(bdb_played_num) / toNumRaw(matches_count);
+        }
+        bpBlock.innerHTML = `
+          <div style="font-size:20px;font-weight:800">${bdb_converted_pct===null?'—':fmtPct(bdb_converted_pct,1)}</div>
+          <div style="color:#666">Converted <span style="font-size:12px">(${bdb_converted_num===null?'—':esc(String(bdb_converted_num))}/${bdb_converted_den===null?'—':esc(String(bdb_converted_den))})</span></div>
+          <div style="height:8px"></div>
+          <div style="font-size:20px;font-weight:800">${bdb_games_with_pct===null?'—':fmtPct(bdb_games_with_pct,1)}</div>
+          <div style="color:#666">Games with BP <span style="font-size:12px">(${bdb_games_with_num===null?'—':esc(String(bdb_games_with_num))}/${bdb_games_with_den===null?'—':esc(String(bdb_games_with_den))})</span></div>
+          <div style="height:8px"></div>
+          <div style="color:#666">Mean BP / match: <strong>${mean_bp===null?'—':fmtNum(mean_bp,2)}</strong></div>
+        `;
+      }
+      if(rBlock){
+        const return_points_pct = toFrac(readFrom(bigNumeric, 'return_points_pct'));
+        const return_points_num = readFrom(bigNumeric, 'return_points_num');
+        const return_points_den = readFrom(bigNumeric, 'return_points_den');
+        const return_1st_pct = toFrac(readFrom(bigNumeric, 'return_1st_pct'));
+        const return_1st_num = readFrom(bigNumeric, 'return_1st_num');
+        const return_1st_den = readFrom(bigNumeric, 'return_1st_den');
+        const return_2nd_pct = toFrac(readFrom(bigNumeric, 'return_2nd_pct'));
+        const return_2nd_num = readFrom(bigNumeric, 'return_2nd_num');
+        const return_2nd_den = readFrom(bigNumeric, 'return_2nd_den');
 
-      const matches_count_big = readFrom(bigNumeric, 'matches_count', 'matchesCount', 'matches_count') || toNumRaw(matchesAgg);
-      let mean_bdb_per_match = null;
-      if(bdb_played_num !== null && matches_count_big !== null && toNumRaw(matches_count_big) !== null){
-        mean_bdb_per_match = toNumRaw(bdb_played_num) / toNumRaw(matches_count_big);
+        rBlock.innerHTML = `
+          <div style="font-size:20px;font-weight:800">${return_points_pct===null?'—':fmtPct(return_points_pct,1)}</div>
+          <div style="color:#666">Points won on return <span style="font-size:12px">(${return_points_num===null?'—':esc(String(return_points_num))}/${return_points_den===null?'—':esc(String(return_points_den))})</span></div>
+          <div style="height:8px"></div>
+          <div style="font-size:20px;font-weight:800">${return_1st_pct===null?'—':fmtPct(return_1st_pct,1)}</div>
+          <div style="color:#666">Return of 1st serve <span style="font-size:12px">(${return_1st_num===null?'—':esc(String(return_1st_num))}/${return_1st_den===null?'—':esc(String(return_1st_den))})</span></div>
+          <div style="height:8px"></div>
+          <div style="font-size:20px;font-weight:800">${return_2nd_pct===null?'—':fmtPct(return_2nd_pct,1)}</div>
+          <div style="color:#666">Return of 2nd serve <span style="font-size:12px">(${return_2nd_num===null?'—':esc(String(return_2nd_num))}/${return_2nd_den===null?'—':esc(String(return_2nd_den))})</span></div>
+        `;
       }
 
-      const return_points_num = readFrom(bigNumeric, 'return_points_num', 'return_points_count');
-      const return_points_den = readFrom(bigNumeric, 'return_points_den', 'return_points_total');
-      const return_points_pct = toFrac(readFrom(bigNumeric, 'return_points_pct'));
-      const return_1st_num = readFrom(bigNumeric, 'return_1st_num');
-      const return_1st_den = readFrom(bigNumeric, 'return_1st_den');
-      const return_1st_pct = toFrac(readFrom(bigNumeric, 'return_1st_pct'));
-      const return_2nd_num = readFrom(bigNumeric, 'return_2nd_num');
-      const return_2nd_den = readFrom(bigNumeric, 'return_2nd_den');
-      const return_2nd_pct = toFrac(readFrom(bigNumeric, 'return_2nd_pct'));
-
-      const statsBlock = document.createElement('div');
-      statsBlock.style.marginTop = '12px';
-      statsBlock.innerHTML = `<div style="font-weight:700;margin-bottom:8px">Break points & Return</div>
-        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
-          <div><div style="color:#666">Break points played</div><div style="font-weight:700">${bdb_played_pct===null?'—':fmtPct(bdb_played_pct)} <span style="font-size:11px;color:#666">(${bdb_played_num===null?'—':esc(String(bdb_played_num))}/${bdb_played_den===null?'—':esc(String(bdb_played_den))})</span></div></div>
-          <div><div style="color:#666">Break points converted</div><div style="font-weight:700">${bdb_converted_pct===null?'—':fmtPct(bdb_converted_pct)} <span style="font-size:11px;color:#666">(${bdb_converted_num===null?'—':esc(String(bdb_converted_num))}/${bdb_converted_den===null?'—':esc(String(bdb_converted_den))})</span></div></div>
-          <div><div style="color:#666">Games with break points</div><div style="font-weight:700">${bdb_games_with_pct===null?'—':fmtPct(bdb_games_with_pct)} <span style="font-size:11px;color:#666">(${bdb_games_with_num===null?'—':esc(String(bdb_games_with_num))}/${bdb_games_with_den===null?'—':esc(String(bdb_games_with_den))})</span></div></div>
-          <div><div style="color:#666">Mean break points per match</div><div style="font-weight:700">${mean_bdb_per_match===null?'—':fmtNum(mean_bdb_per_match)}</div></div>
-        </div>
-        <div style="height:8px"></div>
-        <div style="display:grid;grid-template-columns:repeat(1,1fr);gap:6px">
-          <div><div style="color:#666">Points won on return</div><div style="font-weight:700">${return_points_pct===null?'—':fmtPct(return_points_pct)} <span style="font-size:11px;color:#666">(${return_points_num===null?'—':esc(String(return_points_num))}/${return_points_den===null?'—':esc(String(return_points_den))})</span></div></div>
-          <div><div style="color:#666">Points won on return of 1st serve</div><div style="font-weight:700">${return_1st_pct===null?'—':fmtPct(return_1st_pct)} <span style="font-size:11px;color:#666">(${return_1st_num===null?'—':esc(String(return_1st_num))}/${return_1st_den===null?'—':esc(String(return_1st_den))})</span></div></div>
-          <div><div style="color:#666">Points won on return of 2nd serve</div><div style="font-weight:700">${return_2nd_pct===null?'—':fmtPct(return_2nd_pct)} <span style="font-size:11px;color:#666">(${return_2nd_num===null?'—':esc(String(return_2nd_num))}/${return_2nd_den===null?'—':esc(String(return_2nd_den))})</span></div></div>
-        </div>
-      `;
-      container.appendChild(statsBlock);
-
-      // wire exclude-exchange checkbox if present (redraw pies)
-      const excludeCheckbox = document.getElementById('adv-exclude-exchange') || panelElement.querySelector('#adv-exclude-exchange');
+      // wire exclude-exchange toggle
+      const excludeCheckbox = document.getElementById('adv-exclude-exchange');
       if(excludeCheckbox){
         excludeCheckbox.addEventListener('change', () => {
           const exclude = !!excludeCheckbox.checked;
-          if(window.__adv_drawers && window.__adv_drawers.length){
-            window.__adv_drawers.forEach(d => {
-              try{ d.drawFunc(exclude); } catch(e){ console.warn('drawer redraw error', e); }
+          // we built drawers as functions stored in window.__adv_shot_drawers
+          if(window.__adv_shot_drawers && window.__adv_shot_drawers.length){
+            // call each drawer to redraw with exclude flag
+            window.__adv_shot_drawers.forEach(drawFunc => {
+              try{
+                // our push stored the draw function or a wrapper
+                if(typeof drawFunc === 'function') drawFunc(exclude);
+                else if(drawFunc && typeof drawFunc.drawFunc === 'function') drawFunc.drawFunc(exclude);
+              }catch(e){ console.warn('redraw error', e); }
             });
           }
         });
       }
-    } // end bigNumeric
+    }
 
     console.log('rendered advanced stats (source=' + sourceUrl + ')');
     if(debugEl) debugEl.innerHTML += `<div>render completed</div>`;
+
   }catch(err){
     console.error('renderAdvancedStatsFrom error', err);
     try{ const c = panelElement.querySelector('#advanced-content') || panelElement; if(c) c.innerHTML = '<div style="color:#c00">Error rendering advanced statistics.</div>'; }catch(e){}
