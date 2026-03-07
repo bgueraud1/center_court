@@ -1605,20 +1605,44 @@ async function fillFromMap(matchMap) {
   });
 
   /* ---- fill scores (unchanged) ---- */
-  document.querySelectorAll('[data-field="score"]').forEach(el => {
-    const matchId = (el.dataset.match || '').toUpperCase();
-    const m = matchMap.get(matchId);
-    if(!m) return;
-    const score = m.score_string || m.score || m.scoreString || el.textContent || '';
+  /* ---- fill scores (vide quand pas de score) ---- */
+document.querySelectorAll('[data-field="score"]').forEach(el => {
+  const matchId = (el.dataset.match || '').toUpperCase();
+  const m = matchMap.get(matchId);
 
-    el.innerHTML = '';
-    const a = document.createElement('a');
-    a.className = 'score-link';
-    a.href = buildMatchPageUrl({ matchId: m.match_id || matchId || m.event_id || m.matchId, useWta: isWTAFromData(window._bracketData) });
-    a.textContent = score;
-    a.setAttribute('title', 'Voir le match ' + (m.match_id || matchId || ''));
-    el.appendChild(a);
+  // si pas de match -> on efface le placeholder
+  if(!m) {
+    el.textContent = '';
+    return;
+  }
+
+  // récupérer la valeur brute du score sans considérer la chaîne vide comme "manquante"
+  let rawScore = '';
+  if ('score_string' in m) rawScore = m.score_string;
+  else if ('score' in m) rawScore = m.score;
+  else if ('scoreString' in m) rawScore = m.scoreString;
+  else rawScore = '';
+
+  const score = (rawScore === null || rawScore === undefined) ? '' : String(rawScore).trim();
+
+  // vide -> afficher chaîne vide (ne pas retomber sur le placeholder du DOM)
+  el.innerHTML = '';
+  if(!score){
+    el.textContent = '';
+    return;
+  }
+
+  // sinon créer le lien comme avant
+  const a = document.createElement('a');
+  a.className = 'score-link';
+  a.href = buildMatchPageUrl({
+    matchId: m.match_id || matchId || m.event_id || m.matchId,
+    useWta: isWTAFromData(window._bracketData)
   });
+  a.textContent = score;
+  a.setAttribute('title', 'Voir le match ' + (m.match_id || matchId || ''));
+  el.appendChild(a);
+});
 
   // after initial render, if index promise resolves later, upgrade anchors
   _indexPromise.then(idx => {
