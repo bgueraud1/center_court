@@ -2085,57 +2085,152 @@ if(kind === 'advanced'){
 function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
   try{
     console.log('enter renderAdvancedStatsFrom — sourceUrl =', sourceUrl);
-    console.log('data keys:', data && Object.keys(data));
     if(!panelElement){
       console.warn('renderAdvancedStatsFrom: panelElement is null');
       return;
     }
     const container = panelElement.querySelector('#advanced-content') || panelElement;
-    // Quick debug dump inside the panel for dev (visible)
     const debugEl = panelElement.querySelector('#advanced-log');
-    if(debugEl){ debugEl.style.display='block'; debugEl.innerHTML = `<div>renderAdvancedStatsFrom called — source: ${sourceUrl}</div>`; }
+    if(debugEl){ debugEl.style.display='block'; debugEl.innerHTML = `<div>renderAdvancedStatsFrom called — source: ${sourceUrl||'(inline)'}</div>`; }
 
-    const esc = s => s===null||s===undefined ? '' : String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
+    const esc = s => s===null||s===undefined ? '' : String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
-    // ---- Normalise small_stats ----
+    // case-insensitive getter for arbitrary nested objects
+    const ciGet = (obj, key) => {
+      if(!obj || !key) return null;
+      if(obj[key] !== undefined) return obj[key];
+      const low = key.toLowerCase();
+      for(const k of Object.keys(obj)){
+        if(k.toLowerCase() === low) return obj[k];
+      }
+      return null;
+    };
+
+    // ---- Normalize small_stats ----
     let smallCols = null;
     if(data && data.small_stats){
-      // prefer columns, then numeric, then if flat use it
-      if(data.small_stats.columns && Object.keys(data.small_stats.columns).length) smallCols = data.small_stats.columns;
-      else if(data.small_stats.numeric && Object.keys(data.small_stats.numeric).length) smallCols = data.small_stats.numeric;
-      else if(Object.keys(data.small_stats).length) smallCols = data.small_stats;
+      const ss = data.small_stats;
+      if(ss.columns && Object.keys(ss.columns).length) smallCols = ss.columns;
+      else if(ss.numeric && Object.keys(ss.numeric).length) smallCols = ss.numeric;
+      else if(Object.keys(ss).length) smallCols = ss;
     }
-    // extra fallbacks
     if(!smallCols && data.rally_stats && data.rally_stats.numeric) smallCols = data.rally_stats.numeric;
     if(!smallCols && data.short_stats && data.short_stats.numeric) smallCols = data.short_stats.numeric;
 
-    // ---- Normalise big_stats ----
+    // ---- Normalize big_stats (several possible names) ----
     let bigObj = data && (data.big_stats || data.stroke_stats || data.bigStats || data.strokeStats) || null;
     const bigNumeric = bigObj && bigObj.numeric ? bigObj.numeric : bigObj;
 
-    // Debug prints to console and in-panel
     console.log('smallCols present?', !!smallCols, 'bigNumeric present?', !!bigNumeric);
-    if(debugEl) {
-      debugEl.innerHTML += `<div>smallCols? ${!!smallCols} — bigNumeric? ${!!bigNumeric}</div>`;
-    }
+    if(debugEl){ debugEl.innerHTML += `<div>smallCols? ${!!smallCols} — bigNumeric? ${!!bigNumeric}</div>`; }
 
-    // helpers
-    const toNum = v => (v===null||v===undefined||v===''||isNaN(Number(v))) ? null : Number(v);
-    const fmt = v => v===null ? '—' : (Math.abs(v)>=1000 ? Math.round(v).toLocaleString() : (Math.round(v*100)/100));
-    const pctLabel = v => { if(v===null) return '—'; return (Math.abs(v)>1 ? (Math.round(v*10)/10)+'%' : (Math.round(v*1000)/10)+'%'); };
+    // helpers: robust numeric parsing
+    const toNumRaw = v => {
+      if(v===null||v===undefined||v==='') return null;
+      const n = Number(v);
+      return isNaN(n) ? null : n;
+    };
+    // Accept either fractions (0..1) or percentages (0..100). Return decimal fraction.
+    const toFrac = v => {
+      const n = toNumRaw(v);
+      if(n===null) return null;
+      if(Math.abs(n) > 1 && Math.abs(n) <= 100) return n/100; // percent
+      return n; // already fraction or >100 (counts)
+    };
+    const isPercentValue = v => {
+      const n = toNumRaw(v);
+      if(n===null) return false;
+      return Math.abs(n) > 1 && Math.abs(n) <= 100;
+    };
+    const fmtPct = (f, digits=1) => {
+      if(f===null || f===undefined) return '—';
+      const perc = (Math.abs(f) > 1 && Math.abs(f) <= 100) ? f : (f*100);
+      return Math.round(perc * Math.pow(10,digits)) / Math.pow(10,digits) + '%';
+    };
+    const fmtNum = v => (v===null||v===undefined)?'—':(Math.round(v*100)/100).toLocaleString();
 
-    // Build HTML skeleton
+    // helpers to read from objects case-insensitive and allow fallback keys
+    const readFrom = (obj, ...keys) => {
+      if(!obj) return null;
+      for(const k of keys){
+        const v = ciGet(obj, k);
+        if(v !== undefined && v !== null) return v;
+      }
+      return null;
+    };
+
+    // helper to sum variants (for the typo groups)
+    const sumCountsOrFracs = (obj, basePrefix, suffixes) => {
+      // suffixes like ['_count','_frac'] etc. basePrefix is the common prefix for different spellings
+      let totalCount = null; // if any count fields available we'll sum counts
+      let fracParts = []; // frac values to sum if counts not available
+      for(const suf of suffixes){
+        const v = readFrom(obj, basePrefix + suf);
+        if(v !== null && v !== undefined){
+          if(suf.endsWith('_count')) {
+            totalCount = (totalCount || 0) + toNumRaw(v);
+          } else if(suf.endsWith('_frac')){
+            const f = toNumRaw(v);
+            if(f !== null) fracParts.push(f);
+          } else { // any plain number (could be percent or frac)
+            const n = toNumRaw(v);
+            if(n !== null) fracParts.push(n);
+          }
+        }
+      }
+      // return object: count (if any), frac (sum of parts if any)
+      const fracSum = fracParts.length ? fracParts.reduce((a,b)=>a+b,0) : null;
+      return { count: totalCount, frac: fracSum };
+    };
+
+    // Utility: when we want a count for a specific outcome category:
+    // prefer *_count; else if *_frac and total_count exists then estimate count = frac * total_count;
+    // else if frac available but total_count missing return null but still show frac.
+    const getOutcomeCount = (big, prefix) => {
+      if(!big) return null;
+      const c = readFrom(big, prefix + '_count', prefix + '_num');
+      if(c !== null && c !== undefined) return toNumRaw(c);
+      // try frac and a total (like shot_smashs_count)
+      const frac = readFrom(big, prefix + '_frac');
+      // attempt to find a logical total name by chopping "outcome_" or similar
+      // fallback: try to detect a sibling like shot_smashs_count for shot_smashs_outcome_...
+      const m = prefix.match(/(shot_[a-z0-9_]+)_outcome_/i);
+      if(m){
+        const group = m[1];
+        const total = readFrom(big, group + '_count', group + '_num');
+        if(total !== null && frac !== null) return toNumRaw(frac) * toNumRaw(total);
+      }
+      return null;
+    };
+
+    // Normalize name mapping
+    const NAME = {
+      CG: 'Winner',
+      FD: 'Unforced Error',
+      FP: 'Forced Error',
+      A: 'Ace',
+      DF: 'Double Fault'
+    };
+    const COLORS = { CG: '#2563eb', FD:'#ef4444', FP:'#f59e0b' };
+
+    // Build HTML skeleton (English titles)
     let html = `<div style="display:flex;justify-content:space-between;align-items:center"><div style="font-weight:700">Advanced statistics</div><div style="font-size:12px;color:#666">Source: ${esc(sourceUrl||'(inline)')}</div></div>`;
+    // show matches aggregated if present
+    const matchesAgg = readFrom(data && data.meta ? data.meta : {}, 'matches_aggregated', 'matchesCount', 'matches_count');
+    if(matchesAgg !== null && matchesAgg !== undefined){
+      html += `<div style="margin-top:6px;color:#333;font-size:13px"><strong>Matches aggregated:</strong> ${esc(String(matchesAgg))}</div>`;
+    }
     html += `<div style="margin-top:8px"><button id="adv-show-raw" style="padding:6px 8px">Show raw JSON</button></div>`;
     html += `<div id="adv-raw-json" style="display:none;max-height:260px;overflow:auto;border:1px solid #eee;padding:8px;background:#fff;margin-top:8px"><pre>${esc(JSON.stringify(data, null, 2).slice(0,20000))}${JSON.stringify(data).length>20000? '…':''}</pre></div>`;
 
-    html += `<div style="display:flex;gap:12px;align-items:flex-start;margin-top:12px">`;
+    html += `<div style="display:flex;gap:12px;align-items:flex-start;margin-top:12px;flex-wrap:wrap">`;
 
-    // LEFT: rally
+    // LEFT: Rally buckets (short/medium/long)
     html += `<div style="flex:1;min-width:320px;border:1px solid #eee;padding:10px;border-radius:6px;background:#fff">`;
-    html += `<div style="font-weight:700;margin-bottom:6px">Rally buckets</div>`;
+    html += `<div style="font-weight:700;margin-bottom:6px">Rally buckets (by length)</div>`;
     if(smallCols){
-      // tolerant getter (case-insensitive)
+      // tolerant getter
       const getSmall = (k) => {
         if(!smallCols) return null;
         if(smallCols[k] !== undefined) return smallCols[k];
@@ -2146,20 +2241,21 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
         return null;
       };
 
-      const match_pct_short = toNum(getSmall('match_pct_short') || getSmall('match_pctShort'));
-      const match_pct_medium = toNum(getSmall('match_pct_medium') || getSmall('match_pctMedium'));
-      const match_pct_long = toNum(getSmall('match_pct_long') || getSmall('match_pctLong'));
-      const pct_won_short = toNum(getSmall('pct_won_short'));
-      const pct_won_medium = toNum(getSmall('pct_won_medium'));
-      const pct_won_long = toNum(getSmall('pct_won_long'));
+      // read match pct and win pct for short/medium/long
+      const match_pct_short = toFrac(getSmall('match_pct_short') || getSmall('match_pctShort'));
+      const match_pct_medium = toFrac(getSmall('match_pct_medium') || getSmall('match_pctMedium'));
+      const match_pct_long = toFrac(getSmall('match_pct_long') || getSmall('match_pctLong'));
+      const pct_won_short = toFrac(getSmall('pct_won_short'));
+      const pct_won_medium = toFrac(getSmall('pct_won_medium'));
+      const pct_won_long = toFrac(getSmall('pct_won_long'));
 
       html += `<div style="display:flex;gap:10px;margin-bottom:12px">`;
-      html += `<div style="flex:1"><div style="color:#666">Short</div><div style="font-weight:700">${match_pct_short===null?'—':pctLabel(match_pct_short)}</div><div style="color:#666;font-size:12px">Win: ${pct_won_short===null?'—':pctLabel(pct_won_short)}</div></div>`;
-      html += `<div style="flex:1"><div style="color:#666">Medium</div><div style="font-weight:700">${match_pct_medium===null?'—':pctLabel(match_pct_medium)}</div><div style="color:#666;font-size:12px">Win: ${pct_won_medium===null?'—':pctLabel(pct_won_medium)}</div></div>`;
-      html += `<div style="flex:1"><div style="color:#666">Long</div><div style="font-weight:700">${match_pct_long===null?'—':pctLabel(match_pct_long)}</div><div style="color:#666;font-size:12px">Win: ${pct_won_long===null?'—':pctLabel(pct_won_long)}</div></div>`;
+      html += `<div style="flex:1"><div style="color:#666">Short</div><div style="font-weight:700">${match_pct_short===null?'—':fmtPct(match_pct_short)}</div><div style="color:#666;font-size:12px">Win: ${pct_won_short===null?'—':fmtPct(pct_won_short)}</div></div>`;
+      html += `<div style="flex:1"><div style="color:#666">Medium</div><div style="font-weight:700">${match_pct_medium===null?'—':fmtPct(match_pct_medium)}</div><div style="color:#666;font-size:12px">Win: ${pct_won_medium===null?'—':fmtPct(pct_won_medium)}</div></div>`;
+      html += `<div style="flex:1"><div style="color:#666">Long</div><div style="font-weight:700">${match_pct_long===null?'—':fmtPct(match_pct_long)}</div><div style="color:#666;font-size:12px">Win: ${pct_won_long===null?'—':fmtPct(pct_won_long)}</div></div>`;
       html += `</div>`;
 
-      // pie placeholders
+      // pie placeholders for WIN and LOSE for each bucket
       const buckets = [
         { name:'Short', win:'pct_won_short', lose:'pct_lost_short' },
         { name:'Medium', win:'pct_won_medium', lose:'pct_lost_medium' },
@@ -2167,28 +2263,336 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
       ];
       html += `<div style="display:flex;gap:10px;flex-wrap:wrap">`;
       buckets.forEach((b, i) => {
-        html += `<div style="display:flex;flex-direction:column;align-items:center;margin:6px"><div id="pie-win-${i}" style="width:180px;height:140px"></div><div style="height:6px"></div><div id="pie-legend-win-${i}" style="font-size:12px;margin-top:6px"></div></div>`;
+        html += `<div style="display:flex;flex-direction:column;align-items:center;margin:6px">`;
+        html += `<div style="font-weight:600;margin-bottom:6px">${esc(b.name)} — Win</div>`;
+        html += `<div id="pie-win-${i}" style="width:180px;height:140px"></div>`;
+        html += `<div id="pie-win-info-${i}" style="font-size:12px;color:#333;margin-top:6px"></div>`;
+        html += `</div>`;
+        html += `<div style="display:flex;flex-direction:column;align-items:center;margin:6px">`;
+        html += `<div style="font-weight:600;margin-bottom:6px">${esc(b.name)} — Lose</div>`;
+        html += `<div id="pie-lose-${i}" style="width:180px;height:140px"></div>`;
+        html += `<div id="pie-lose-info-${i}" style="font-size:12px;color:#333;margin-top:6px"></div>`;
+        html += `</div>`;
       });
       html += `</div>`;
+
+      // Build data for pies: for each part (CG/FD/FP) read keys like pct_won_short_CG etc.
+      const getSmallVal = k => {
+        // returns decimal fraction (0..1) if possible, or null
+        const v = getSmall(k);
+        if(v === null || v === undefined) return null;
+        const n = toNumRaw(v);
+        if(n === null) return null;
+        // if n > 1 and <=100 treat as percent
+        if(Math.abs(n) > 1 && Math.abs(n) <= 100) return n/100;
+        // if >100 (counts) return as fraction? we'll assume it's percent-like if <=100, else null
+        if(Math.abs(n) > 100) return n;
+        return n;
+      };
+
+      // Prepare pie arrays and draw
+      [['pct_won_short','pct_lost_short'],['pct_won_medium','pct_lost_medium'],['pct_won_long','pct_lost_long']].forEach((pair, idx) => {
+        // win pie
+        const cg = getSmallVal(pair[0] + '_CG') || 0;
+        const fd = getSmallVal(pair[0] + '_FD') || 0;
+        const fp = getSmallVal(pair[0] + '_FP') || 0;
+        const valsWin = [cg, fd, fp];
+        // lose pie
+        const cgL = getSmallVal(pair[1] + '_CG') || 0;
+        const fdL = getSmallVal(pair[1] + '_FD') || 0;
+        const fpL = getSmallVal(pair[1] + '_FP') || 0;
+        const valsLose = [cgL, fdL, fpL];
+
+        const drawPie = (domId, infoId, vals, labelPrefix) => {
+          const el = document.getElementById(domId);
+          const infoEl = document.getElementById(infoId);
+          if(!el) return;
+          // ensure values are fractions (0..1). If user supplied percents, we converted them earlier.
+          const total = vals.reduce((a,b)=>a+(isNaN(Number(b))?0:Number(b)),0);
+          // If Plotly available
+          if(window.Plotly && typeof window.Plotly.newPlot === 'function'){
+            const trace = [{ labels: [NAME.CG, NAME.FD, NAME.FP], values: vals, type:'pie', marker:{colors:[COLORS.CG, COLORS.FD, COLORS.FP]}, textinfo:'label+percent', hoverinfo:'label+percent+value' }];
+            Plotly.newPlot(el, trace, {height:140,width:180,margin:{t:8,l:4,r:4,b:8}, showlegend:false}, {displayModeBar:false});
+            // click handler to show counts or fractions
+            el.on('plotly_click', function(evt){
+              const point = evt.points && evt.points[0];
+              if(!point) return;
+              const idx = point.pointNumber;
+              // compute displayed count if possible - smallCols usually don't have counts, so show fraction or percent
+              const val = vals[idx];
+              const display = (val===null||val===undefined) ? '—' : fmtPct(typeof val === 'number' && val<=1 ? val : (val>1? val : val));
+              if(infoEl) infoEl.innerHTML = `${labelPrefix} — ${point.label}: ${display}`;
+            });
+          } else {
+            // fallback: simple stat block
+            let html = `<div style="font-size:12px;color:#666">Pie (no Plotly)</div><div style="font-size:13px">`;
+            ['CG','FD','FP'].forEach((k,i)=>{
+              html += `${NAME[k]}: ${fmtPct(vals[i])}<br>`;
+            });
+            html += '</div>';
+            el.innerHTML = html;
+            if(infoEl) infoEl.innerHTML = `${labelPrefix}: click unsupported (Plotly missing).`;
+          }
+        };
+
+        drawPie('pie-win-'+idx, 'pie-win-info-'+idx, valsWin, `${buckets[idx].name} Win`);
+        drawPie('pie-lose-'+idx, 'pie-lose-info-'+idx, valsLose, `${buckets[idx].name} Lose`);
+      });
+
+      // Shot series (3 curves CG/FD/FP)
+      const shotKeys = [
+        ['Service','shot_Service_won_pct_CG','shot_Service_won_pct_FD','shot_Service_won_pct_FP'],
+        ['Return','shot_Retour_won_pct_CG','shot_Retour_won_pct_FD','shot_Retour_won_pct_FP'],
+        ['3rd','shot_3me_coup_won_pct_CG','shot_3me_coup_won_pct_FD','shot_3me_coup_won_pct_FP'],
+        ['4th','shot_4me_coup_won_pct_CG','shot_4me_coup_won_pct_FD','shot_4me_coup_won_pct_FP'],
+        ['5th','shot_5me_coup_won_pct_CG','shot_5me_coup_won_pct_FD','shot_5me_coup_won_pct_FP'],
+        ['6th','shot_6me_coup_won_pct_CG','shot_6me_coup_won_pct_FD','shot_6me_coup_won_pct_FP'],
+        ['7th','shot_7me_coup_won_pct_CG','shot_7me_coup_won_pct_FD','shot_7me_coup_won_pct_FP'],
+        ['8th','shot_8me_coup_won_pct_CG','shot_8me_coup_won_pct_FD','shot_8me_coup_won_pct_FP'],
+        ['9th','shot_9_coups_impairs_won_pct_CG','shot_9_coups_impairs_won_pct_FD','shot_9_coups_impairs_won_pct_FP'],
+        ['10th','shot_10_coups_pairs_won_pct_CG','shot_10_coups_pairs_won_pct_FD','shot_10_coups_pairs_won_pct_FP']
+      ];
+      const xs = [], yCG = [], yFD = [], yFP = [];
+      shotKeys.forEach(s => {
+        xs.push(s[0]);
+        const a = getSmallVal(s[1]) || 0;
+        const b = getSmallVal(s[2]) || 0;
+        const c = getSmallVal(s[3]) || 0;
+        // ensure fractions -> plot percents between 0..1 expected by Plotly yaxis tickformat
+        yCG.push(a);
+        yFD.push(b);
+        yFP.push(c);
+      });
+
+      if(window.Plotly && typeof window.Plotly.newPlot === 'function'){
+        try{
+          const traces = [
+            { x: xs, y: yCG, name: NAME.CG, mode:'lines+markers', line:{color:COLORS.CG} },
+            { x: xs, y: yFD, name: NAME.FD, mode:'lines+markers', line:{color:COLORS.FD} },
+            { x: xs, y: yFP, name: NAME.FP, mode:'lines+markers', line:{color:COLORS.FP} }
+          ];
+          Plotly.newPlot('adv-shot-chart', traces, {margin:{t:20,l:40,r:20,b:60}, yaxis:{tickformat:'.0%'}}, {displayModeBar:false});
+        }catch(e){
+          console.warn('Plotly chart error',e);
+        }
+      } else {
+        const wrap = document.getElementById('adv-shot-chart');
+        if(wrap){
+          let t = '<table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left">Shot</th><th>Winner</th><th>Unforced Err</th><th>Forced Err</th></tr></thead><tbody>';
+          for(let i=0;i<xs.length;i++){
+            t += `<tr><td style="font-weight:700">${esc(xs[i])}</td><td>${yCG[i]===0?'—':fmtPct(yCG[i])}</td><td>${yFD[i]===0?'—':fmtPct(yFD[i])}</td><td>${yFP[i]===0?'—':fmtPct(yFP[i])}</td></tr>`;
+          }
+          t += '</tbody></table>';
+          wrap.innerHTML = t;
+        }
+      }
+
     } else {
       html += `<div style="color:#666">Rally stats not available for this player.</div>`;
     }
     html += `</div>`; // end left
 
-    // RIGHT: strokes summary
+    // RIGHT: strokes summary & big stats
     html += `<div style="flex:1;min-width:320px;border:1px solid #eee;padding:10px;border-radius:6px;background:#fff">`;
-    html += `<div style="font-weight:700;margin-bottom:6px">Stroke statistics</div>`;
+    html += `<div style="font-weight:700;margin-bottom:6px">Stroke & shot summary</div>`;
     html += `<div id="adv-shot-chart" style="height:260px;margin-bottom:12px"></div>`;
+
     if(bigNumeric){
+      // GENERAL INFO (player + per-match infos)
+      const playerName = readFrom(bigNumeric, 'player', 'player_name', 'playerName') || readFrom(data && data.meta ? data.meta : {}, 'playerName', 'player_name');
+      const matches_count = readFrom(bigNumeric, 'matches_count', 'matchesCount', 'matches_count') || readFrom(data && data.meta ? data.meta : {}, 'matches_aggregated') || null;
+      html += `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px">`;
+      html += `<div style="flex:1;min-width:140px"><div style="color:#666">Player</div><div style="font-weight:700">${esc(playerName || '—')}</div></div>`;
+      html += `<div style="flex:1;min-width:140px"><div style="color:#666">Matches (count)</div><div style="font-weight:700">${matches_count===null?'—':esc(String(matches_count))}</div></div>`;
+      html += `</div>`;
+
+      html += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:10px">';
+      // choose a subset of general stats to show
+      const generalKeys = [
+        ['aces_per_match','Aces / match'],
+        ['double_faults_per_match','Double faults / match'],
+        ['vitesse_max_avg_per_match','Max speed avg / match'],
+        ['vitesse_1st_mean_avg_per_match','1st serve mean speed / match'],
+        ['winners_per_match','Winners / match'],
+        ['direct_errors_per_match','Direct errors / match'],
+        ['forced_errors_per_match','Forced errors / match'],
+        ['points_at_net_per_match','Points at net / match'],
+        ['white_games_per_match','White games / match']
+      ];
+      generalKeys.forEach(kp=>{
+        const v = readFrom(bigNumeric, kp[0]);
+        html += `<div><div style="color:#666">${esc(kp[1])}</div><div style="font-weight:700">${v===null||v===undefined?'—':fmtNum(v)}</div></div>`;
+      });
+      html += '</div>';
+
+      // STROKE TYPE pies (baseline, smash, passing, volley, net, dropshot, lob)
+      html += `<div style="font-weight:700;margin-top:8px;margin-bottom:6px">Shot type outcomes (by fraction)</div>`;
+      html += `<div style="display:flex;gap:8px;flex-wrap:wrap">`;
+      const shotTypes = [
+        { key: 'shot_coups_fond_de_court', label:'Baseline' },
+        { key: 'shot_smashs', label:'Smash' },
+        { key: 'shot_passing', label:'Passing' },
+        { key: 'shot_volées', label:'Volley' },
+        { key: 'shot_montées_au_filet', label:'Net points' },
+        { key: 'shot_amorties', label:'Dropshot' },
+        { key: 'shot_lobs', label:'Lobs' }
+      ];
+      // option: whether to include coupsdansl'échange in the pie
+      html += `<div style="width:100%;margin-bottom:6px"><label style="font-size:13px"><input id="adv-exclude-exchange" type="checkbox" style="margin-right:6px">Exclude 'in_exchange' (coupsdansl'échange) from shot-type pies</label></div>`;
+      shotTypes.forEach((st, i) => {
+        html += `<div style="width:220px;border:1px solid #f0f0f0;padding:8px;border-radius:6px;background:#fff;margin:6px"><div style="font-weight:600">${esc(st.label)}</div><div id="shottype-pie-${i}" style="height:160px;"></div><div id="shottype-pie-info-${i}" style="font-size:12px;color:#333"></div></div>`;
+      });
+      html += `</div>`;
+
+      // Prepare a function to compute the 4 categories (coupsgagnants, fautesprovoquées, fautesdirectes, coupsdansl'échange)
+      const buildShotTypeSlices = (big, prefix) => {
+        // Accept variants in keys: outcome_coupsgagnants_frac / outcome_coupgagnant_frac / outcome_coupsgagnant_frac etc
+        const tryKeys = (base, variants) => {
+          for(const v of variants){
+            const kk = base.replace('{X}', v);
+            const val = readFrom(big, kk);
+            if(val !== null && val !== undefined) return val;
+          }
+          return null;
+        };
+        // standardized suffixes we search for
+        const out_win = readFrom(big, prefix + '_outcome_coupsgagnants_frac', prefix + '_outcome_coupgagnant_frac', prefix + '_outcome_coupsgagnant_frac', prefix + '_outcome_coupgagnants_frac', prefix + '_outcome_coupgagnants_frac');
+        const out_faults_prov = readFrom(big, prefix + '_outcome_fautesprovoquées_frac', prefix + '_outcome_fautesprovoquée_frac', prefix + '_outcome_fautesprovoquées_frac', prefix + '_outcome_fautesprovoquée_frac');
+        const out_faults_dir = readFrom(big, prefix + '_outcome_fautedirecte_frac', prefix + '_outcome_fautesdirectes_frac', prefix + '_outcome_fautedirecte_frac', prefix + '_outcome_fautesdirectes_frac');
+        const out_exchange = readFrom(big, prefix + '_outcome_coupsdansl\'échange_frac', prefix + '_outcome_coupsdansl\'exchange_frac', prefix + '_outcome_coupsdanslexchange_frac', prefix + '_outcome_coupsdansl\\'échange_frac', prefix + '_outcome_coupsdansl_echange_frac', prefix + '_outcome_coupsdansl_echange_frac', prefix + '_outcome_coupsdanslexchange_frac', prefix + '_outcome_coupsdansl_echange_frac');
+        // fallback: try simpler keys with suffix '_frac'
+        const fallback_win = out_win !== null ? out_win : readFrom(big, prefix + '_outcome_coupgagnant_frac', prefix + '_outcome_coupsgagnants_frac');
+        const fallback_fp = out_faults_prov !== null ? out_faults_prov : readFrom(big, prefix + '_outcome_fautesprovoquée_frac', prefix + '_outcome_fautesprovoquées_frac');
+        const fallback_df = out_faults_dir !== null ? out_faults_dir : readFrom(big, prefix + '_outcome_fautedirecte_frac', prefix + '_outcome_fautesdirectes_frac');
+        const fallback_ex = out_exchange !== null ? out_exchange : readFrom(big, prefix + '_outcome_coupsdansl_echange_frac', prefix + '_outcome_coupsdanslexchange_frac', prefix + '_outcome_coupsdansl_echange_frac');
+        // convert to decimals
+        const winF = toFrac(fallback_win);
+        const provF = toFrac(fallback_fp);
+        const dirF = toFrac(fallback_df);
+        const exF = toFrac(fallback_ex);
+        return {
+          winFrac: winF,
+          provFrac: provF,
+          dirFrac: dirF,
+          exchangeFrac: exF
+        };
+      };
+
+      // draw shot type pies
+      shotTypes.forEach((st, i) => {
+        const prefix = st.key;
+        const slices = buildShotTypeSlices(bigNumeric, prefix);
+        const el = document.getElementById('shottype-pie-'+i);
+        const infoEl = document.getElementById('shottype-pie-info-'+i);
+        // compute values: use fractions if present. We'll optionally exclude exchange later in UI.
+        const values = [slices.winFrac || 0, slices.provFrac || 0, slices.dirFrac || 0];
+        const labels = [NAME.CG, NAME.FD, NAME.FP];
+        const colors = [COLORS.CG, COLORS.FD, COLORS.FP];
+        const draw = (excludeExchange) => {
+          let vals = values.slice();
+          if(excludeExchange){
+            // if exchange had some frac, we re-normalize by removing exchange from denominator
+            const ex = slices.exchangeFrac || 0;
+            const denom = (values.reduce((a,b)=>a+b,0) + ex);
+            // if denom > 0, recompute each as original/(denom - ex)
+            if(denom > 0){
+              const base = denom - ex;
+              if(base > 0){
+                vals = vals.map(v => (v / base) || 0);
+              }
+            }
+          }
+          if(!el) return;
+          if(window.Plotly && typeof window.Plotly.newPlot === 'function'){
+            const trace = [{ labels, values: vals, type:'pie', marker:{colors}, textinfo:'label+percent' }];
+            Plotly.newPlot(el, trace, {height:160,width:220,margin:{t:10,l:4,r:4,b:10}, showlegend:false}, {displayModeBar:false});
+            // click handler to show counts if possible
+            el.on('plotly_click', function(evt){
+              const point = evt.points && evt.points[0];
+              if(!point) return;
+              // attempt to compute count: look for prefix_count
+              const totalCount = readFrom(bigNumeric, prefix + '_count', prefix + '_num');
+              let display = '';
+              const valFrac = (point.value && point.value <= 1) ? point.value : point.value;
+              if(totalCount !== null && toNumRaw(totalCount) !== null){
+                const cnt = Math.round(valFrac * toNumRaw(totalCount));
+                display = `${point.label} — ${cnt} (estimated from ${esc(prefix + '_count')})`;
+              } else {
+                // no totalCount: show fraction or percent
+                display = `${point.label} — ${fmtPct(valFrac)}`;
+              }
+              if(infoEl) infoEl.innerHTML = display;
+            });
+          } else {
+            let htmlPie = `<div style="font-size:12px;color:#666">Pie (no Plotly)</div><div style="font-size:13px">`;
+            labels.forEach((lab, idx)=>{
+              htmlPie += `${lab}: ${fmtPct(vals[idx])}<br>`;
+            });
+            htmlPie += '</div>';
+            el.innerHTML = htmlPie;
+            if(infoEl) infoEl.innerHTML = `(Plotly missing)`;
+          }
+        };
+        // initial draw with excludeExchange = checkbox state (default unchecked)
+        const chk = false;
+        draw(chk);
+        // attach a small updater to window so checkbox handler below can trigger redraws
+        (window.__adv_drawers = window.__adv_drawers || []).push({ drawFunc: draw, index: i });
+      });
+
+      // BREAK POINTS
+      html += `<div style="font-weight:700;margin-top:10px;margin-bottom:6px">Break points</div>`;
+      const bdb_played_num = readFrom(bigNumeric, 'bdb_played_num', 'bdb_played_count');
+      const bdb_played_den = readFrom(bigNumeric, 'bdb_played_den', 'bdb_played_total');
+      const bdb_played_pct = toFrac(readFrom(bigNumeric, 'bdb_played_pct'));
+      const bdb_converted_num = readFrom(bigNumeric, 'bdb_converted_num');
+      const bdb_converted_den = readFrom(bigNumeric, 'bdb_converted_den');
+      const bdb_converted_pct = toFrac(readFrom(bigNumeric, 'bdb_converted_pct'));
+      const bdb_games_with_num = readFrom(bigNumeric, 'bdb_games_with_num');
+      const bdb_games_with_den = readFrom(bigNumeric, 'bdb_games_with_den');
+      const bdb_games_with_pct = toFrac(readFrom(bigNumeric, 'bdb_games_with_pct'));
+      html += `<div style="display:flex;gap:12px;flex-wrap:wrap">`;
+      html += `<div style="flex:1;min-width:180px"><div style="color:#666">Break points played</div><div style="font-weight:700">${bdb_played_pct===null?'—':fmtPct(bdb_played_pct)} <span style="font-size:11px;color:#666">(${bdb_played_num===null?'—':esc(String(bdb_played_num))}/${bdb_played_den===null?'—':esc(String(bdb_played_den))})</span></div></div>`;
+      html += `<div style="flex:1;min-width:180px"><div style="color:#666">Converted</div><div style="font-weight:700">${bdb_converted_pct===null?'—':fmtPct(bdb_converted_pct)} <span style="font-size:11px;color:#666">(${bdb_converted_num===null?'—':esc(String(bdb_converted_num))}/${bdb_converted_den===null?'—':esc(String(bdb_converted_den))})</span></div></div>`;
+      html += `<div style="flex:1;min-width:180px"><div style="color:#666">Games with BP</div><div style="font-weight:700">${bdb_games_with_pct===null?'—':fmtPct(bdb_games_with_pct)} <span style="font-size:11px;color:#666">(${bdb_games_with_num===null?'—':esc(String(bdb_games_with_num))}/${bdb_games_with_den===null?'—':esc(String(bdb_games_with_den))})</span></div></div>`;
+      html += `</div>`;
+      // mean number of break points per match: bdb_played_num / matches_count
+      let meanBpPerMatch = null;
+      if(bdb_played_num !== null && matches_count !== null && matches_count !== undefined){
+        const n = toNumRaw(bdb_played_num), m = toNumRaw(matches_count);
+        if(n !== null && m !== null && m !== 0) meanBpPerMatch = n / m;
+      }
+      html += `<div style="color:#666;font-size:12px;margin-top:6px">Mean break points per match: <strong>${meanBpPerMatch===null?'—':fmtNum(meanBpPerMatch)}</strong></div>`;
+
+      // RETURN stats
+      html += `<div style="font-weight:700;margin-top:10px;margin-bottom:6px">Return statistics</div>`;
+      const return_points_num = readFrom(bigNumeric, 'return_points_num');
+      const return_points_den = readFrom(bigNumeric, 'return_points_den');
+      const return_points_pct = toFrac(readFrom(bigNumeric, 'return_points_pct'));
+      const return_1st_num = readFrom(bigNumeric, 'return_1st_num');
+      const return_1st_den = readFrom(bigNumeric, 'return_1st_den');
+      const return_1st_pct = toFrac(readFrom(bigNumeric, 'return_1st_pct'));
+      const return_2nd_num = readFrom(bigNumeric, 'return_2nd_num');
+      const return_2nd_den = readFrom(bigNumeric, 'return_2nd_den');
+      const return_2nd_pct = toFrac(readFrom(bigNumeric, 'return_2nd_pct'));
+      html += `<div style="display:grid;grid-template-columns:repeat(1,1fr);gap:6px">`;
+      html += `<div><div style="color:#666">Points won on return</div><div style="font-weight:700">${return_points_pct===null?'—':fmtPct(return_points_pct)} <span style="font-size:11px;color:#666">(${return_points_num===null?'—':esc(String(return_points_num))}/${return_points_den===null?'—':esc(String(return_points_den))})</span></div></div>`;
+      html += `<div><div style="color:#666">Points won on return of 1st serve</div><div style="font-weight:700">${return_1st_pct===null?'—':fmtPct(return_1st_pct)} <span style="font-size:11px;color:#666">(${return_1st_num===null?'—':esc(String(return_1st_num))}/${return_1st_den===null?'—':esc(String(return_1st_den))})</span></div></div>`;
+      html += `<div><div style="color:#666">Points won on return of 2nd serve</div><div style="font-weight:700">${return_2nd_pct===null?'—':fmtPct(return_2nd_pct)} <span style="font-size:11px;color:#666">(${return_2nd_num===null?'—':esc(String(return_2nd_num))}/${return_2nd_den===null?'—':esc(String(return_2nd_den))})</span></div></div>`;
+      html += `</div>`;
+
+      // finally a small table of the bigNumeric numeric keyed values (first 40 keys) - preserving original behavior
+      html += `<div style="margin-top:10px"><div style="font-weight:700;margin-bottom:6px">Raw big statistics (summary)</div>`;
       html += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">';
       Object.keys(bigNumeric).slice(0,40).forEach(k=>{
         const v = bigNumeric[k];
-        html += `<div><div style="color:#666">${esc(k)}</div><div style="font-weight:700">${v===null||v===undefined?'—':fmt(v)}</div></div>`;
+        html += `<div><div style="color:#666">${esc(k)}</div><div style="font-weight:700">${v===null||v===undefined?'—':(typeof v === 'number' && Math.abs(v) <= 1 ? fmtPct(v) : fmtNum(v))}</div></div>`;
       });
-      html += '</div>';
+      html += '</div></div>';
     } else {
       html += `<div style="color:#666">Stroke stats not available for this player.</div>`;
     }
+
     html += `</div>`; // end right
 
     html += `</div>`; // main flex
@@ -2206,79 +2610,18 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
       });
     }
 
-    // draw simple pies if smallCols present
-    if(smallCols){
-      const drawPie = (domId, vals) => {
-        const el = document.getElementById(domId);
-        if(!el) return;
-        if(window.Plotly && typeof window.Plotly.newPlot === 'function'){
-          const trace = [{ labels:['CG','FD','FP'], values: vals, type:'pie', marker:{colors:['#2563eb','#ef4444','#f59e0b']}, textinfo:'label+percent' }];
-          Plotly.newPlot(el, trace, {height:140,width:180,margin:{t:8,l:4,r:4,b:8}}, {displayModeBar:false});
-        } else {
-          el.innerHTML = `<div style="font-size:12px;color:#666">Pie (no Plotly)</div><div style="font-size:13px">${['CG','FD','FP'].map((L,i)=>L+': '+pctLabel(vals[i])).join('<br>')}</div>`;
+    // Exclude-exchange checkbox handler: redraw shot-type pies using saved drawers
+    const excludeCheckbox = panelElement.querySelector('#adv-exclude-exchange');
+    if(excludeCheckbox){
+      excludeCheckbox.addEventListener('change', () => {
+        const exclude = !!excludeCheckbox.checked;
+        if(window.__adv_drawers && window.__adv_drawers.length){
+          window.__adv_drawers.forEach(d => {
+            try{ d.drawFunc(exclude); } catch(e){ console.warn('drawer redraw error', e); }
+          });
         }
-      };
-
-      const getSmall = (k) => {
-        if(!smallCols) return null;
-        if(smallCols[k] !== undefined) return smallCols[k];
-        const low = k.toLowerCase();
-        for(const kk of Object.keys(smallCols)) if(kk.toLowerCase() === low) return smallCols[kk];
-        return null;
-      };
-
-      [['pct_won_short','pct_lost_short'],['pct_won_medium','pct_lost_medium'],['pct_won_long','pct_lost_long']].forEach((pair, idx) => {
-        const cg = toNum(getSmall(pair[0] + '_CG')) || 0;
-        const fd = toNum(getSmall(pair[0] + '_FD')) || 0;
-        const fp = toNum(getSmall(pair[0] + '_FP')) || 0;
-        drawPie('pie-win-'+idx, [cg,fd,fp]);
-        const cgL = toNum(getSmall(pair[1] + '_CG')) || 0;
-        const fdL = toNum(getSmall(pair[1] + '_FD')) || 0;
-        const fpL = toNum(getSmall(pair[1] + '_FP')) || 0;
-        drawPie('pie-lose-'+idx, [cgL,fdL,fpL]);
       });
-
-      // shot series (same idea as above) — build arrays
-      const shotKeys = [
-        ['Service','shot_Service_won_pct_CG','shot_Service_won_pct_FD','shot_Service_won_pct_FP'],
-        ['Retour','shot_Retour_won_pct_CG','shot_Retour_won_pct_FD','shot_Retour_won_pct_FP'],
-        ['3rd','shot_3me_coup_won_pct_CG','shot_3me_coup_won_pct_FD','shot_3me_coup_won_pct_FP'],
-        ['4th','shot_4me_coup_won_pct_CG','shot_4me_coup_won_pct_FD','shot_4me_coup_won_pct_FP'],
-        ['5th','shot_5me_coup_won_pct_CG','shot_5me_coup_won_pct_FD','shot_5me_coup_won_pct_FP'],
-        ['6th','shot_6me_coup_won_pct_CG','shot_6me_coup_won_pct_FD','shot_6me_coup_won_pct_FP'],
-        ['7th','shot_7me_coup_won_pct_CG','shot_7me_coup_won_pct_FD','shot_7me_coup_won_pct_FP'],
-        ['8th','shot_8me_coup_won_pct_CG','shot_8me_coup_won_pct_FD','shot_8me_coup_won_pct_FP'],
-        ['9th','shot_9_coups_impairs_won_pct_CG','shot_9_coups_impairs_won_pct_FD','shot_9_coups_impairs_won_pct_FP'],
-        ['10th','shot_10_coups_pairs_won_pct_CG','shot_10_coups_pairs_won_pct_FD','shot_10_coups_pairs_won_pct_FP']
-      ];
-      const xs=[], yCG=[], yFD=[], yFP=[];
-      const getSmallVal = k => {
-        const v = smallCols[k] !== undefined ? smallCols[k] : (smallCols[k.toLowerCase()] !== undefined ? smallCols[k.toLowerCase()] : null);
-        return toNum(v)===null?0:toNum(v);
-      };
-      shotKeys.forEach(s => { xs.push(s[0]); yCG.push(getSmallVal(s[1])); yFD.push(getSmallVal(s[2])); yFP.push(getSmallVal(s[3])); });
-
-      if(window.Plotly && typeof window.Plotly.newPlot === 'function'){
-        try{
-          const traces = [
-            { x: xs, y: yCG, name: 'CG', mode:'lines+markers', line:{color:'#2563eb'} },
-            { x: xs, y: yFD, name: 'FD', mode:'lines+markers', line:{color:'#ef4444'} },
-            { x: xs, y: yFP, name: 'FP', mode:'lines+markers', line:{color:'#f59e0b'} }
-          ];
-          Plotly.newPlot('adv-shot-chart', traces, {margin:{t:20,l:40,r:20,b:60}, yaxis:{tickformat:'.0%'}}, {displayModeBar:false});
-        }catch(e){
-          console.warn('Plotly chart error',e);
-        }
-      } else {
-        const wrap = document.getElementById('adv-shot-chart');
-        if(wrap){
-          let t = '<table style="width:100%;border-collapse:collapse"><thead><tr><th>Shot</th><th>CG</th><th>FD</th><th>FP</th></tr></thead><tbody>';
-          for(let i=0;i<xs.length;i++) t += `<tr><td style="font-weight:700">${xs[i]}</td><td>${yCG[i]===0?'—':pctLabel(yCG[i])}</td><td>${yFD[i]===0?'—':pctLabel(yFD[i])}</td><td>${yFP[i]===0?'—':pctLabel(yFP[i])}</td></tr>`;
-          t += '</tbody></table>';
-          wrap.innerHTML = t;
-        }
-      }
-    } // end if smallCols
+    }
 
     console.log('rendered advanced stats (source=' + sourceUrl + ')');
     if(debugEl) debugEl.innerHTML += `<div>render completed</div>`;
@@ -2287,6 +2630,8 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
     try{ const c = panelElement.querySelector('#advanced-content') || panelElement; if(c) c.innerHTML = '<div style="color:#c00">Error rendering advanced statistics.</div>'; }catch(e){}
   }
 }
+
+
 // Main entry: open advanced for player
     window.openAdvancedForPlayer = async function(player){
       try{
