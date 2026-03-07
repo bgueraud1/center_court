@@ -2090,37 +2090,25 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
       return;
     }
 
-    // container + debug
     const container = panelElement.querySelector('#advanced-content') || panelElement;
     const debugEl = panelElement.querySelector('#advanced-log');
     if(debugEl){ debugEl.style.display='block'; debugEl.innerHTML = `<div>renderAdvancedStatsFrom called — source: ${String(sourceUrl||'(inline)')}</div>`; }
 
-    // ---- utilities ----
+    // Escaping
     const esc = s => s===null||s===undefined ? '' : String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
 
-    // normalize text to compare keys robustly: remove diacritics, punctuation, spaces, lowercase
+    // Normalisation des clés pour recherche tolérante
     const normalizeKey = s => {
       if(s === null || s === undefined) return '';
       try{
-        return String(s)
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g,'')   // remove accents
-          .replace(/['’`"]/g,'')            // remove quotes/apostrophes
-          .replace(/\s+/g,'')               // remove spaces
-          .replace(/[^a-z0-9_]/gi,'')       // keep letters, numbers, underscore
-          .toLowerCase();
-      }catch(e){
-        return String(s).toLowerCase();
-      }
+        return String(s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/['’`"]/g,'').replace(/\s+/g,'').replace(/[^a-z0-9_]/gi,'').toLowerCase();
+      }catch(e){ return String(s).toLowerCase(); }
     };
-
     const ciGet = (obj, key) => {
       if(!obj || !key) return undefined;
       if(Object.prototype.hasOwnProperty.call(obj, key)) return obj[key];
       const target = normalizeKey(key);
-      for(const k of Object.keys(obj)){
-        if(normalizeKey(k) === target) return obj[k];
-      }
+      for(const k of Object.keys(obj)) if(normalizeKey(k) === target) return obj[k];
       return undefined;
     };
     const readFrom = (obj, ...keys) => {
@@ -2133,34 +2121,17 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
       return null;
     };
 
-    const toNumRaw = v => {
-      if(v===null||v===undefined||v==='') return null;
-      const n = Number(v);
-      return isNaN(n) ? null : n;
-    };
-    const toFrac = v => { // accept percent (37.9) or fraction (0.379)
-      const n = toNumRaw(v);
-      if(n === null) return null;
-      if(Math.abs(n) > 1 && Math.abs(n) <= 100) return n/100;
-      return n;
-    };
-    const fmtPct = (f, digits=1) => {
-      if(f===null||f===undefined) return '—';
-      const perc = (Math.abs(f) > 1 && Math.abs(f) <= 100) ? f : (f*100);
-      return (Math.round(perc * Math.pow(10,digits)) / Math.pow(10,digits)) + '%';
-    };
-    const fmtNum = (v, digits=1) => {
-      if(v===null||v===undefined) return '—';
-      if(typeof v === 'number') return (Math.round(v * Math.pow(10,digits)) / Math.pow(10,digits)).toLocaleString();
-      return String(v);
-    };
+    // number helpers
+    const toNumRaw = v => { if(v===null||v===undefined||v==='') return null; const n = Number(v); return isNaN(n) ? null : n; };
+    const toFrac = v => { const n = toNumRaw(v); if(n===null) return null; if(Math.abs(n) > 1 && Math.abs(n) <= 100) return n/100; return n; };
+    const fmtPct = (f, digits=1) => { if(f===null||f===undefined) return '—'; const perc = (Math.abs(f) > 1 && Math.abs(f) <= 100) ? f : (f*100); return (Math.round(perc * Math.pow(10,digits)) / Math.pow(10,digits)) + '%'; };
+    const fmtNum = (v, digits=1) => { if(v===null||v===undefined) return '—'; if(typeof v === 'number') return (Math.round(v * Math.pow(10,digits)) / Math.pow(10,digits)).toLocaleString(); return String(v); };
 
-    // shared constants for labels/colors
-    const NAME = { CG: 'Winner', FD: 'Unforced Error', FP: 'Forced Error' };
-    const COLORS = { CG: '#2563eb', FD:'#ef4444', FP:'#f59e0b' };
-    const smallBuckets = [{name:'Short'},{name:'Medium'},{name:'Long'}];
+    // labels / colours
+    const NAME = { CG: 'Winner', FD: 'Unforced Error', FP: 'Forced Error', EX: 'In-exchange' };
+    const COLORS = { CG: '#2563eb', FD:'#ef4444', FP:'#f59e0b', EX:'#9ca3ff' };
 
-    // ---- Normalise small_stats & big_stats ----
+    // get small & big numeric objects (tolerance)
     let smallCols = null;
     if(data && data.small_stats){
       if(data.small_stats.columns && Object.keys(data.small_stats.columns).length) smallCols = data.small_stats.columns;
@@ -2173,257 +2144,140 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
     let bigObj = data && (data.big_stats || data.stroke_stats || data.bigStats || data.strokeStats) || null;
     const bigNumeric = bigObj && bigObj.numeric ? bigObj.numeric : bigObj;
 
-    console.log('smallCols present?', !!smallCols, 'bigNumeric present?', !!bigNumeric);
-    if(debugEl) debugEl.innerHTML += `<div>smallCols? ${!!smallCols} — bigNumeric? ${!!bigNumeric}</div>`;
-
-    // ---- Build HTML skeleton ----
+    // Build shell
     let html = `<div style="display:flex;justify-content:space-between;align-items:center"><div style="font-weight:700">Advanced statistics</div><div style="font-size:12px;color:#666">Source: ${esc(sourceUrl||'(inline)')}</div></div>`;
-
-    // show matches_aggregated if present in meta or bigNumeric
-    const matchesAgg = readFrom(data && data.meta ? data.meta : {}, 'matches_aggregated','matchesCount','matches_count') || readFrom(bigNumeric, 'matches_count','matchesCount');
-    if(matchesAgg !== null && matchesAgg !== undefined){
-      html += `<div style="margin-top:6px;color:#333;font-size:13px"><strong>Matches aggregated:</strong> ${esc(String(matchesAgg))}</div>`;
-    }
+    const matchesAgg = readFrom(data && data.meta ? data.meta : {}, 'matches_aggregated', 'matches_count','matchesCount') || readFrom(bigNumeric, 'matches_count','matchesCount');
+    if(matchesAgg !== null && matchesAgg !== undefined) html += `<div style="margin-top:6px;color:#333;font-size:13px"><strong>Matches aggregated:</strong> ${esc(String(matchesAgg))}</div>`;
 
     html += `<div style="margin-top:8px"><button id="adv-show-raw" style="padding:6px 8px">Show raw JSON</button></div>`;
     html += `<div id="adv-raw-json" style="display:none;max-height:260px;overflow:auto;border:1px solid #eee;padding:8px;background:#fff;margin-top:8px"><pre>${esc(JSON.stringify(data, null, 2).slice(0,20000))}${JSON.stringify(data).length>20000? '…':''}</pre></div>`;
 
-    // RALLY SECTION (top)
-    html += `<div id="adv-rally-wrapper" style="margin-top:12px">`;
-    html += `<div id="adv-rally" class="adv-section" style="padding:10px;border-radius:6px;background:#fff;color:#000">`;
-    html += `</div>`; // adv-rally (we will fill it below via DOM)
-    html += `</div>`;
+    // containers: rally first, strokes below
+    html += `<div id="adv-rally" style="margin-top:12px"></div>`;
+    html += `<div id="adv-strokes" style="margin-top:14px"></div>`;
 
-    // STROKE SECTION (below)
-    html += `<div id="adv-strokes-wrapper" style="margin-top:12px">`;
-    html += `<div id="adv-strokes" class="adv-section" style="padding:10px;border-radius:6px;background:#fff;color:#000">`;
-    html += `</div>`;
-    html += `</div>`;
-
-    // inject
     container.style.display = 'block';
     container.innerHTML = html;
 
     // raw toggle
     const rawBtn = panelElement.querySelector('#adv-show-raw');
-    if(rawBtn){
-      rawBtn.addEventListener('click', () => {
-        const r = panelElement.querySelector('#adv-raw-json');
-        if(r) r.style.display = (r.style.display === 'none' ? 'block' : 'none');
-      });
-    }
+    if(rawBtn) rawBtn.addEventListener('click', () => {
+      const r = panelElement.querySelector('#adv-raw-json'); if(r) r.style.display = (r.style.display === 'none' ? 'block' : 'none');
+    });
 
-    // ---- Render Rally Section content (DOM insertion, then draw charts) ----
-    (function renderRally(){
+    // SHARED LEGEND (single place) — create once, near top of adv-rally
+    const ensureSharedLegend = () => {
+      const parent = document.getElementById('adv-rally') || container;
+      if(document.getElementById('__adv_shared_legend')) return;
+      const legend = document.createElement('div');
+      legend.id = '__adv_shared_legend';
+      legend.style.display = 'flex';
+      legend.style.gap = '12px';
+      legend.style.marginTop = '8px';
+      legend.style.alignItems = 'center';
+      legend.innerHTML = `<div style="font-size:12px;color:#666">Legend</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <div style="width:12px;height:12px;background:${COLORS.CG};border-radius:3px"></div><div style="font-weight:700">Winner</div>
+          <div style="width:12px;height:12px;background:${COLORS.FD};border-radius:3px;margin-left:8px"></div><div style="font-weight:700">Unforced Error</div>
+          <div style="width:12px;height:12px;background:${COLORS.FP};border-radius:3px;margin-left:8px"></div><div style="font-weight:700">Forced Error</div>
+          <div style="width:12px;height:12px;background:${COLORS.EX};border-radius:3px;margin-left:8px"></div><div style="font-weight:700">In-exchange</div>
+        </div>`;
+      parent.appendChild(legend);
+    };
+
+    // DRAW RALLY (summary + pies + is_leading + shot series)
+    (function drawRally(){
       const el = document.getElementById('adv-rally');
-      if(!el){
-        console.warn('adv-rally container missing');
-        return;
-      }
-      if(!smallCols){
-        el.innerHTML = `<h3>Rally (point length)</h3><div class="muted">No rally stats available.</div>`;
-        return;
-      }
-      // tolerant getter for smallCols
-      const getSmall = k => {
-        const v = ciGet(smallCols, k);
-        if(v !== undefined) return v;
-        return null;
+      if(!el) return;
+      if(!smallCols){ el.innerHTML = `<h3>Rally (point length)</h3><div style="color:#666">Rally stats not available.</div>`; return; }
+
+      // Get tolerant values
+      const get = k => {
+        const v = readFrom(smallCols, k);
+        if(v !== null && v !== undefined) return v;
+        // try lowercase key
+        return readFrom(smallCols, (k||'').toLowerCase());
       };
 
-      const bucketsSpec = [
-        { key:'short', label:'Short', pctKey:'match_pct_short', winKey:'pct_won_short', loseKey:'pct_lost_short' },
-        { key:'medium', label:'Medium', pctKey:'match_pct_medium', winKey:'pct_won_medium', loseKey:'pct_lost_medium' },
-        { key:'long', label:'Long', pctKey:'match_pct_long', winKey:'pct_won_long', loseKey:'pct_lost_long' }
+      // build top summary
+      const ranges = [
+        { id:'short', label:'Short', pct:'match_pct_short', win:'pct_won_short' },
+        { id:'medium', label:'Medium', pct:'match_pct_medium', win:'pct_won_medium' },
+        { id:'long', label:'Long', pct:'match_pct_long', win:'pct_won_long' }
       ];
-
-      // Summary top (clean)
-      let inner = `<h3 style="margin:0 0 8px 0">Rally (point length)</h3>`;
-      inner += `<div class="rally-summary-grid" style="display:flex;gap:12px;flex-wrap:wrap">`;
-      bucketsSpec.forEach(b=>{
-        const pct = toFrac(getSmall(b.pctKey)) ?? toFrac(getSmall(b.pctKey.toLowerCase()));
-        const win = toFrac(getSmall(b.winKey)) ?? toFrac(getSmall(b.winKey.toLowerCase()));
-        inner += `<div style="background:rgba(0,0,0,0.03);padding:10px;border-radius:8px;min-width:140px;text-align:center">
-                    <div style="color:#666;font-size:13px">${esc(b.label)}</div>
-                    <div style="font-weight:800;font-size:20px">${pct===null?'—':fmtPct(pct,1)}</div>
-                    <div style="color:#666;font-size:13px">Win: ${win===null?'—':fmtPct(win,1)}</div>
+      let rhtml = `<h3 style="margin:0 0 8px 0">Rally (point length)</h3><div style="display:flex;gap:12px;flex-wrap:wrap">`;
+      ranges.forEach(r=>{
+        const pct = toFrac(get(r.pct));
+        const win = toFrac(get(r.win));
+        rhtml += `<div style="background:rgba(0,0,0,0.03);padding:10px;border-radius:8px;min-width:140px;text-align:center">
+                   <div style="color:#666">${r.label}</div>
+                   <div style="font-weight:800;font-size:20px">${pct===null?'—':fmtPct(pct,1)}</div>
+                   <div style="color:#666">Win: ${win===null?'—':fmtPct(win,1)}</div>
                   </div>`;
       });
-      inner += `</div>`;
+      rhtml += `</div>`;
 
-      // shared legend placeholder
-      inner += `<div id="adv-shared-legend-container" style="margin-top:8px"></div>`;
-
-      // pies placeholders (leave enough space)
-      inner += `<div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:12px">`;
-      bucketsSpec.forEach((b, idx)=>{
-        inner += `<div style="width:260px">
-                    <div style="font-weight:600;margin-bottom:6px">${esc(b.label)} — Win</div>
-                    <div id="rally-pie-win-${idx}" style="width:220px;height:160px"></div>
-                    <div id="rally-pie-win-info-${idx}" style="font-size:12px;color:#333;margin-top:6px"></div>
-                  </div>`;
-        inner += `<div style="width:260px">
-                    <div style="font-weight:600;margin-bottom:6px">${esc(b.label)} — Lose</div>
-                    <div id="rally-pie-lose-${idx}" style="width:220px;height:160px"></div>
-                    <div id="rally-pie-lose-info-${idx}" style="font-size:12px;color:#333;margin-top:6px"></div>
-                  </div>`;
+      // pies placeholders (Win & Lose pairs)
+      rhtml += `<div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:12px">`;
+      ranges.forEach((r, idx)=>{
+        rhtml += `<div style="width:260px"><div style="font-weight:600;margin-bottom:6px">${r.label} — Win</div><div id="rally-pie-win-${idx}" style="width:220px;height:160px"></div><div id="rally-pie-win-info-${idx}" style="font-size:12px;color:#333;margin-top:6px"></div></div>`;
+        rhtml += `<div style="width:260px"><div style="font-weight:600;margin-bottom:6px">${r.label} — Lose</div><div id="rally-pie-lose-${idx}" style="width:220px;height:160px"></div><div id="rally-pie-lose-info-${idx}" style="font-size:12px;color:#333;margin-top:6px"></div></div>`;
       });
-      inner += `</div>`;
+      rhtml += `</div>`;
 
       // is_leading table
-      inner += `<div style="margin-top:12px"><h4 style="margin:8px 0">Proportion of matches where player led (by range)</h4>`;
-      inner += `<table class="adv-table-small" style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:8px;color:#666">Range</th><th style="text-align:left;padding:8px;color:#666">Winner</th><th style="text-align:left;padding:8px;color:#666">Unforced Error</th><th style="text-align:left;padding:8px;color:#666">Forced Error</th></tr></thead><tbody>`;
-      [['short','Short'],['medium','Medium'],['long','Long']].forEach(r=>{
-        const cg = toFrac(getSmall(`is_leading_${r[0]}_CG`)) ?? toFrac(getSmall(`is_leading_${r[0]}_cg`));
-        const fd = toFrac(getSmall(`is_leading_${r[0]}_FD`)) ?? toFrac(getSmall(`is_leading_${r[0]}_fd`));
-        const fp = toFrac(getSmall(`is_leading_${r[0]}_FP`)) ?? toFrac(getSmall(`is_leading_${r[0]}_fp`));
-        inner += `<tr><td style="padding:8px">${r[1]}</td><td style="padding:8px">${cg===null?'—':fmtPct(cg,1)}</td><td style="padding:8px">${fd===null?'—':fmtPct(fd,1)}</td><td style="padding:8px">${fp===null?'—':fmtPct(fp,1)}</td></tr>`;
+      rhtml += `<div style="margin-top:12px"><h4 style="margin:8px 0">Proportion of matches where player led (by range)</h4>
+                <table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:8px;color:#666">Range</th><th style="text-align:left;padding:8px;color:#666">Winner</th><th style="text-align:left;padding:8px;color:#666">Unforced Error</th><th style="text-align:left;padding:8px;color:#666">Forced Error</th></tr></thead><tbody>`;
+      [['short','Short'],['medium','Medium'],['long','Long']].forEach(rr=>{
+        const cg = toFrac(get(`is_leading_${rr[0]}_CG`));
+        const fd = toFrac(get(`is_leading_${rr[0]}_FD`));
+        const fp = toFrac(get(`is_leading_${rr[0]}_FP`));
+        rhtml += `<tr><td style="padding:8px">${rr[1]}</td><td style="padding:8px">${cg===null?'—':fmtPct(cg,1)}</td><td style="padding:8px">${fd===null?'—':fmtPct(fd,1)}</td><td style="padding:8px">${fp===null?'—':fmtPct(fp,1)}</td></tr>`;
       });
-      inner += `</tbody></table></div>`;
+      rhtml += `</tbody></table></div>`;
 
-      // shot series (large)
-      inner += `<div id="adv-shot-series" style="margin-top:14px;min-height:320px"></div>`;
+      // shot series placeholder
+      rhtml += `<div id="adv-shot-series" style="margin-top:12px;min-height:320px"></div>`;
 
-      el.innerHTML = inner;
+      el.innerHTML = rhtml;
+      ensureSharedLegend();
 
-      // insert shared legend (single place)
-      const legendContainer = document.getElementById('adv-shared-legend-container') || el;
-      if(!document.getElementById('__adv_shared_legend')){
-        const legend = document.createElement('div');
-        legend.id = '__adv_shared_legend';
-        legend.style.display = 'flex';
-        legend.style.gap = '12px';
-        legend.style.justifyContent = 'flex-end';
-        legend.innerHTML = `<div style="font-size:12px;color:#666;margin-right:8px">Legend</div>
-          <div style="display:flex;gap:8px;align-items:center">
-            <div style="width:12px;height:12px;background:#2563eb;border-radius:3px"></div><div style="font-weight:700;font-size:13px">Winner</div>
-            <div style="width:12px;height:12px;background:#ef4444;border-radius:3px;margin-left:8px"></div><div style="font-weight:700;font-size:13px">Unforced Error</div>
-            <div style="width:12px;height:12px;background:#f59e0b;border-radius:3px;margin-left:8px"></div><div style="font-weight:700;font-size:13px">Forced Error</div>
-          </div>`;
-        legendContainer.appendChild(legend);
-      }
-
-      // draw pies and shot series post-render
-      drawRallyAndShotSeries(smallCols);
-    })();
-
-    // ---- Render Strokes Section content (DOM insertion) ----
-    (function renderStrokes(){
-      const el = document.getElementById('adv-strokes');
-      if(!el){
-        console.warn('adv-strokes container missing');
-        return;
-      }
-      if(!bigNumeric){
-        el.innerHTML = `<h3 style="margin:0 0 8px 0">Stroke statistics</h3><div class="muted">No stroke stats available.</div>`;
-        return;
-      }
-
-      // General info mapping (friendly labels)
-      const infoMap = [
-        ['matches_count','Matches (count)'],
-        ['aces_per_match','Aces / match'],
-        ['double_faults_per_match','Double faults / match'],
-        ['vitesse_max_avg_per_match','Max serve speed (avg)'],
-        ['vitesse_1st_mean_avg_per_match','1st serve mean speed (avg)'],
-        ['winners_per_match','Winners / match'],
-        ['direct_errors_per_match','Direct errors / match'],
-        ['forced_errors_per_match','Forced errors / match'],
-        ['points_at_net_per_match','Points at net / match'],
-        ['white_games_per_match','White games / match']
-      ];
-
-      let inner = `<h3 style="margin:0 0 8px 0">Stroke statistics</h3>`;
-      inner += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">`;
-      infoMap.forEach(p=>{
-        const v = readFrom(bigNumeric, p[0]);
-        if(v !== null && v !== undefined){
-          const display = (Math.abs(Number(v)) <= 1 ? fmtPct(toFrac(v),1) : fmtNum(v,1));
-          inner += `<div style="background:rgba(0,0,0,0.03);padding:10px;border-radius:8px"><div style="color:#666">${esc(p[1])}</div><div style="font-weight:700">${display}</div></div>`;
+      // draw rally pies & shot series (Plotly or fallback)
+      const hoverTpl = '%{percent:.0%}<extra></extra>'; // only rounded percent on hover
+      ranges.forEach((r, idx) => {
+        // Win
+        const wCG = toFrac(get(r.win + '_CG')) || 0;
+        const wFD = toFrac(get(r.win + '_FD')) || 0;
+        const wFP = toFrac(get(r.win + '_FP')) || 0;
+        const elWin = document.getElementById(`rally-pie-win-${idx}`);
+        const infoWin = document.getElementById(`rally-pie-win-info-${idx}`);
+        if(elWin){
+          if(window.Plotly && typeof window.Plotly.newPlot === 'function'){
+            Plotly.newPlot(elWin, [{ labels:[NAME.CG,NAME.FD,NAME.FP], values:[wCG,wFD,wFP], type:'pie', marker:{colors:[COLORS.CG,COLORS.FD,COLORS.FP]}, textinfo:'percent', textposition:'inside', hovertemplate: hoverTpl }], {height:160,width:220,margin:{t:8,l:4,r:4,b:8}, showlegend:false}, {displayModeBar:false});
+            elWin.on('plotly_click', function(evt){ const p = evt.points && evt.points[0]; if(!p) return; if(infoWin) infoWin.innerHTML = fmtPct(p.percent/100,0); });
+          } else {
+            elWin.innerHTML = `<div style="font-size:12px;color:#666">Pie (no Plotly)</div><div>${[wCG,wFD,wFP].map(v=>fmtPct(v,1)).join('<br>')}</div>`;
+            if(infoWin) infoWin.innerHTML = '';
+          }
+        }
+        // Lose
+        const lCG = toFrac(get(r.lose + '_CG')) || 0;
+        const lFD = toFrac(get(r.lose + '_FD')) || 0;
+        const lFP = toFrac(get(r.lose + '_FP')) || 0;
+        const elLose = document.getElementById(`rally-pie-lose-${idx}`);
+        const infoLose = document.getElementById(`rally-pie-lose-info-${idx}`);
+        if(elLose){
+          if(window.Plotly && typeof window.Plotly.newPlot === 'function'){
+            Plotly.newPlot(elLose, [{ labels:[NAME.CG,NAME.FD,NAME.FP], values:[lCG,lFD,lFP], type:'pie', marker:{colors:[COLORS.CG,COLORS.FD,COLORS.FP]}, textinfo:'percent', textposition:'inside', hovertemplate: hoverTpl }], {height:160,width:220,margin:{t:8,l:4,r:4,b:8}, showlegend:false}, {displayModeBar:false});
+            elLose.on('plotly_click', function(evt){ const p = evt.points && evt.points[0]; if(!p) return; if(infoLose) infoLose.innerHTML = fmtPct(p.percent/100,0); });
+          } else {
+            elLose.innerHTML = `<div style="font-size:12px;color:#666">Pie (no Plotly)</div><div>${[lCG,lFD,lFP].map(v=>fmtPct(v,1)).join('<br>')}</div>`;
+            if(infoLose) infoLose.innerHTML = '';
+          }
         }
       });
-      inner += `</div>`;
 
-      // shot-type pies and exclude checkbox
-      inner += `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;"><div style="font-weight:700">Shot type outcomes</div><div><label style="font-size:13px"><input id="adv-exclude-exchange" type="checkbox" style="margin-right:6px">Exclude in-exchange</label></div></div>`;
-
-      // shot type cards placeholders (grid)
-      const shotTypes = [
-        { key:'shot_coups_fond_de_court', label:'Baseline' },
-        { key:'shot_smashs', label:'Smash' },
-        { key:'shot_passing', label:'Passing' },
-        { key:'shot_volées', label:'Volley' },
-        { key:'shot_montées_au_filet', label:'Net points' },
-        { key:'shot_amorties', label:'Dropshot' },
-        { key:'shot_lobs', label:'Lobs' }
-      ];
-      inner += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:12px">`;
-      shotTypes.forEach((st,i)=>{
-        inner += `<div style="padding:10px;border-radius:8px;background:rgba(0,0,0,0.03)"><div style="font-weight:700;margin-bottom:8px">${esc(st.label)}</div><div id="shottype-pie-${i}" style="width:100%;height:200px"></div><div id="shottype-pie-info-${i}" style="font-size:12px;margin-top:6px"></div></div>`;
-      });
-      inner += `</div>`;
-
-      // Break points + Return boxes
-      inner += `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px">`;
-      inner += `<div style="min-width:240px;padding:12px;border-radius:8px;background:rgba(0,0,0,0.03)"><div style="font-weight:700;margin-bottom:8px">Break points (summary)</div><div id="bp-block"></div></div>`;
-      inner += `<div style="min-width:240px;padding:12px;border-radius:8px;background:rgba(0,0,0,0.03)"><div style="font-weight:700;margin-bottom:8px">Return</div><div id="return-block"></div></div>`;
-      inner += `</div>`;
-
-      el.innerHTML = inner;
-
-      // draw shot-type pies, breakpoints, return content
-      drawShotTypePiesAndBoxes(bigNumeric);
-    })();
-
-    // ---------------- helper draw functions ----------------
-    function drawRallyAndShotSeries(numeric){
-      if(!numeric) return;
-
-      // small helper to get tolerant numeric value
-      const g = (k) => {
-        const v = readFrom(numeric, k);
-        if(v !== null && v !== undefined) return v;
-        return null;
-      };
-
-      // draw rally pies
-      const bucketKeys = [
-        { win:'pct_won_short', lose:'pct_lost_short' },
-        { win:'pct_won_medium', lose:'pct_lost_medium' },
-        { win:'pct_won_long', lose:'pct_lost_long' }
-      ];
-      const hoverTpl = '%{percent:.0%}<extra></extra>'; // only rounded percent on hover
-      bucketKeys.forEach((p, idx)=>{
-        const winCG = toFrac(readFrom(numeric, p.win + '_CG', p.win + '_cg')) || 0;
-        const winFD = toFrac(readFrom(numeric, p.win + '_FD', p.win + '_fd')) || 0;
-        const winFP = toFrac(readFrom(numeric, p.win + '_FP', p.win + '_fp')) || 0;
-        const loseCG = toFrac(readFrom(numeric, p.lose + '_CG', p.lose + '_cg')) || 0;
-        const loseFD = toFrac(readFrom(numeric, p.lose + '_FD', p.lose + '_fd')) || 0;
-        const loseFP = toFrac(readFrom(numeric, p.lose + '_FP', p.lose + '_fp')) || 0;
-
-        const drawPie = (dom, vals, infoId) => {
-          const el = document.getElementById(dom);
-          const infoEl = document.getElementById(infoId);
-          if(!el) return;
-          if(window.Plotly && typeof window.Plotly.newPlot === 'function'){
-            const trace = [{ labels:[NAME.CG, NAME.FD, NAME.FP], values: vals, type:'pie', marker:{colors:[COLORS.CG,COLORS.FD,COLORS.FP]}, hovertemplate: hoverTpl, textinfo:'label+percent' }];
-            Plotly.newPlot(el, trace, {height:160,width:220,margin:{t:8,l:4,r:4,b:8}, showlegend:false}, {displayModeBar:false});
-            el.on('plotly_click', function(evt){
-              const point = evt.points && evt.points[0];
-              if(!point) return;
-              if(infoEl) infoEl.innerHTML = `${point.label} — ${fmtPct(point.percent/100,0)}`; // show rounded percent only
-            });
-          } else {
-            el.innerHTML = `<div style="font-size:12px;color:#666">Pie (no Plotly)</div><div>${[NAME.CG,NAME.FD,NAME.FP].map((L,i)=>L+': '+fmtPct(vals[i])).join('<br>')}</div>`;
-            if(infoEl) infoEl.innerHTML = '';
-          }
-        };
-
-        drawPie('rally-pie-win-'+idx, [winCG,winFD,winFP], 'rally-pie-win-info-'+idx);
-        drawPie('rally-pie-lose-'+idx, [loseCG,loseFD,loseFP], 'rally-pie-lose-info-'+idx);
-      });
-
-      // draw shot series (3 curves) bigger
+      // shot series (3 curves) - bigger
       const shotKeys = [
         ['Service','shot_Service_won_pct_CG','shot_Service_won_pct_FD','shot_Service_won_pct_FP'],
         ['Return','shot_Retour_won_pct_CG','shot_Retour_won_pct_FD','shot_Retour_won_pct_FP'],
@@ -2439,17 +2293,17 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
       const xs = [], yCG = [], yFD = [], yFP = [];
       shotKeys.forEach(s=>{
         xs.push(s[0]);
-        yCG.push(toFrac(readFrom(numeric, s[1], s[1].toLowerCase())) || 0);
-        yFD.push(toFrac(readFrom(numeric, s[2], s[2].toLowerCase())) || 0);
-        yFP.push(toFrac(readFrom(numeric, s[3], s[3].toLowerCase())) || 0);
+        yCG.push(toFrac(readFrom(smallCols, s[1], s[1].toLowerCase())) || 0);
+        yFD.push(toFrac(readFrom(smallCols, s[2], s[2].toLowerCase())) || 0);
+        yFP.push(toFrac(readFrom(smallCols, s[3], s[3].toLowerCase())) || 0);
       });
       const seriesEl = document.getElementById('adv-shot-series');
       if(seriesEl){
         if(window.Plotly && typeof window.Plotly.newPlot === 'function'){
           const traces = [
-            { x: xs, y: yCG, name: NAME.CG, mode: 'lines+markers', line:{color:COLORS.CG} },
-            { x: xs, y: yFD, name: NAME.FD, mode: 'lines+markers', line:{color:COLORS.FD} },
-            { x: xs, y: yFP, name: NAME.FP, mode: 'lines+markers', line:{color:COLORS.FP} }
+            { x: xs, y: yCG, name: 'Winner', mode:'lines+markers', line:{color:COLORS.CG} },
+            { x: xs, y: yFD, name: 'Unforced Error', mode:'lines+markers', line:{color:COLORS.FD} },
+            { x: xs, y: yFP, name: 'Forced Error', mode:'lines+markers', line:{color:COLORS.FP} }
           ];
           Plotly.newPlot(seriesEl, traces, {height:360, margin:{t:20,l:50,r:20,b:80}, yaxis:{tickformat:'.0%'}}, {displayModeBar:false});
         } else {
@@ -2459,20 +2313,41 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
           seriesEl.innerHTML = t;
         }
       }
-    }
+    })();
 
-    // Draw shot-type pies (bigNumeric) + Breakpoints/Return boxes
-    function drawShotTypePiesAndBoxes(bigNumeric){
-      if(!bigNumeric) return;
+    // STROKES (shot-type pies with IN-EXCHANGE slice & BP/Return boxes)
+    (function drawStrokes(){
+      const el = document.getElementById('adv-strokes');
+      if(!el) return;
+      if(!bigNumeric){ el.innerHTML = `<h3>Stroke statistics</h3><div style="color:#666">Stroke stats not available.</div>`; return; }
 
-      // suffix lists (we use normalized lookup so accents/punctuation tolerated)
-      const winSuffixes = ['_outcome_coupsgagnants_frac','_outcome_coupgagnant_frac','_outcome_coupsgagnant_frac','_outcome_coupsgagnants_frac'];
-      const provSuffixes = ['_outcome_fautesprovoquees_frac','_outcome_fautesprovoquee_frac','_outcome_fautesprovoquées_frac','_outcome_fautesprovoquée_frac'];
-      const dirSuffixes = ['_outcome_fautedirecte_frac','_outcome_fautesdirectes_frac'];
-      const exSuffixes = ['_outcome_coupsdanslechange_frac','_outcome_coupsdanslexchange_frac','_outcome_coupsdansl_echange_frac','_outcome_coupsdansl\'echange_frac','_outcome_coupsdansl\u00E9change_frac'];
+      // Friendly general info
+      const infoMap = [
+        ['matches_count','Matches (count)'],
+        ['aces_per_match','Aces / match'],
+        ['double_faults_per_match','Double faults / match'],
+        ['vitesse_max_avg_per_match','Max serve speed (avg)'],
+        ['vitesse_1st_mean_avg_per_match','1st serve mean speed (avg)'],
+        ['winners_per_match','Winners / match'],
+        ['direct_errors_per_match','Direct errors / match'],
+        ['forced_errors_per_match','Forced errors / match'],
+        ['points_at_net_per_match','Points at net / match'],
+        ['white_games_per_match','White games / match']
+      ];
+      let strokeHtml = `<h3 style="margin:0 0 8px 0">Stroke statistics</h3><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">`;
+      infoMap.forEach(p=>{
+        const v = readFrom(bigNumeric, p[0]);
+        if(v !== null && v !== undefined){
+          const display = (Math.abs(Number(v)) <= 1 ? fmtPct(toFrac(v),1) : fmtNum(v,1));
+          strokeHtml += `<div style="background:rgba(0,0,0,0.03);padding:10px;border-radius:8px"><div style="color:#666">${esc(p[1])}</div><div style="font-weight:700">${display}</div></div>`;
+        }
+      });
+      strokeHtml += `</div>`;
 
-      const countSuffixes = ['_count','_num','_total'];
+      // exclude checkbox
+      strokeHtml += `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px"><div style="font-weight:700">Shot type outcomes</div><div><label style="font-size:13px"><input id="adv-exclude-exchange" type="checkbox" style="margin-right:6px">Exclude in-exchange</label></div></div>`;
 
+      // shot cards placeholders
       const shotTypes = [
         { key:'shot_coups_fond_de_court', label:'Baseline' },
         { key:'shot_smashs', label:'Smash' },
@@ -2482,27 +2357,41 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
         { key:'shot_amorties', label:'Dropshot' },
         { key:'shot_lobs', label:'Lobs' }
       ];
+      strokeHtml += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;margin-top:12px">`;
+      shotTypes.forEach((st,i)=> strokeHtml += `<div style="padding:10px;border-radius:8px;background:rgba(0,0,0,0.03)"><div style="font-weight:700;margin-bottom:8px">${esc(st.label)}</div><div id="shottype-pie-${i}" style="width:100%;height:200px"></div><div id="shottype-pie-info-${i}" style="font-size:12px;margin-top:6px"></div></div>`);
+      strokeHtml += `</div>`;
 
-      // registry to redraw when exclude-exchange toggled
-      window.__adv_shot_drawers = window.__adv_shot_drawers || [];
-      window.__adv_shot_drawers.length = 0;
+      // BP & Return
+      strokeHtml += `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px">
+        <div style="min-width:240px;padding:12px;border-radius:8px;background:rgba(0,0,0,0.03)"><div style="font-weight:700;margin-bottom:8px">Break points (summary)</div><div id="bp-block"></div></div>
+        <div style="min-width:240px;padding:12px;border-radius:8px;background:rgba(0,0,0,0.03)"><div style="font-weight:700;margin-bottom:8px">Return</div><div id="return-block"></div></div>
+      </div>`;
+
+      el.innerHTML = strokeHtml;
+
+      // ==== Draw shot-type pies (with IN-EXCHANGE slice) ====
+      // We'll store drawer functions in window.__adv_shot_drawers and each drawer expects (excludeExchange:boolean)
+      window.__adv_shot_drawers = [];
+      const winSuffixes = ['_outcome_coupsgagnants_frac','_outcome_coupgagnant_frac','_outcome_coupsgagnant_frac'];
+      const provSuffixes = ['_outcome_fautesprovoquees_frac','_outcome_fautesprovoquee_frac','_outcome_fautesprovoquées_frac','_outcome_fautesprovoquée_frac'];
+      const dirSuffixes = ['_outcome_fautedirecte_frac','_outcome_fautesdirectes_frac'];
+      const exSuffixes = ['_outcome_coupsdanslechange_frac','_outcome_coupsdanslexchange_frac','_outcome_coupsdansl_echange_frac','_outcome_coupsdansl\'echange_frac','_outcome_coupsdansl\u00E9change_frac'];
+      const countSuffixes = ['_outcome_coupsgagnants_count','_outcome_coupsgagnant_count','_outcome_coupsgagnants_num','_outcome_fautesprovoquées_count','_outcome_fautesprovoquee_count','_outcome_fautesdirectes_count','_outcome_fautedirecte_count','_outcome_coupsdansl_echange_count','_outcome_coupsdansl_echange_num','_count','_num','_total'];
 
       shotTypes.forEach((st,i)=>{
-        // sum a fraction/count for given suffix array
-        const sumFrac = (suffixes) => {
-          let sum = 0;
-          let found = false;
-          for(const sfx of suffixes){
+        // sum fraction variants
+        const sumFrac = (sufs) => {
+          let sum = 0; let found = false;
+          for(const sfx of sufs){
             const v = readFrom(bigNumeric, st.key + sfx);
             const f = toFrac(v);
             if(f !== null){ sum += f; found = true; }
           }
           return found ? sum : null;
         };
-        const sumCount = (suffixes) => {
-          let sum = 0;
-          let found = false;
-          for(const sfx of suffixes){
+        const sumCount = (sufs) => {
+          let sum = 0; let found = false;
+          for(const sfx of sufs){
             const v = readFrom(bigNumeric, st.key + sfx);
             const n = toNumRaw(v);
             if(n !== null){ sum += n; found = true; }
@@ -2510,72 +2399,94 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
           return found ? sum : null;
         };
 
-        const winFrac = sumFrac(winSuffixes);
-        const provFrac = sumFrac(provSuffixes);
-        const dirFrac = sumFrac(dirSuffixes);
-        const exFrac = sumFrac(exSuffixes);
-        const totalCount = sumCount(countSuffixes.concat(['_count', '_num', '_total', '_den']));
+        const winFrac = sumFrac(winSuffixes) || 0;
+        const provFrac = sumFrac(provSuffixes) || 0;
+        const dirFrac = sumFrac(dirSuffixes) || 0;
+        const exFrac = sumFrac(exSuffixes) || 0;
+        // try to find a sensible total count for this shot type
+        const totalCount = sumCount([`_${st.key}_count`.replace('__','_'), st.key + '_count', st.key + '_num', st.key + '_total']) || sumCount(countSuffixes.map(s=>s.replace(/^_/,'')));
 
-        const valuesBase = [ winFrac || 0, provFrac || 0, dirFrac || 0 ];
-        const labels = [ NAME.CG, NAME.FD, NAME.FP ];
-        const colors = [ COLORS.CG, COLORS.FD, COLORS.FP ];
+        const baseVals = [winFrac, provFrac, dirFrac, exFrac]; // winners, fautes provoquées, fautes directes, in-exchange
+        const labels = [NAME.CG, NAME.FD, NAME.FP, NAME.EX];
+        const colors = [COLORS.CG, COLORS.FD, COLORS.FP, COLORS.EX];
 
-        const el = document.getElementById('shottype-pie-'+i);
-        const infoEl = document.getElementById('shottype-pie-info-'+i);
+        const elPie = document.getElementById(`shottype-pie-${i}`);
+        const infoEl = document.getElementById(`shottype-pie-info-${i}`);
 
-        const draw = (excludeExchange=false) => {
-          let vals = valuesBase.slice();
-          if(excludeExchange && exFrac){
-            const denom = (valuesBase.reduce((a,b)=>a+b,0) + exFrac);
+        const drawer = (excludeExchange=false) => {
+          let vals = baseVals.slice();
+          if(excludeExchange){
+            const ex = vals[3] || 0;
+            const denom = vals.reduce((a,b)=>a+b,0);
             if(denom > 0){
-              const base = denom - exFrac;
-              if(base > 0) vals = vals.map(v => (v / base) || 0);
+              const base = denom - ex;
+              if(base > 0) vals = vals.map((v,idx)=> idx===3 ? 0 : ((v / base) || 0));
             }
           }
-          if(!el) return;
+          if(!elPie) return;
+          const hoverTpl = '%{percent:.0%}<extra></extra>';
           if(window.Plotly && typeof window.Plotly.newPlot === 'function'){
-            const hoverTpl = '%{percent:.0%}<extra></extra>';
-            const trace = [{ labels, values: vals, type:'pie', marker:{colors}, hovertemplate: hoverTpl, textinfo:'label+percent' }];
-            Plotly.newPlot(el, trace, {height:200,width:260,margin:{t:10,l:4,r:4,b:10}, showlegend:false}, {displayModeBar:false});
-            el.on('plotly_click', function(evt){
+            // textinfo: percent inside slice; hide labels & legend for Plotly traces, use shared legend
+            Plotly.newPlot(elPie, [{ labels, values: vals, type:'pie', marker:{colors}, textinfo:'percent', textposition:'inside', hovertemplate: hoverTpl }], {height:200,width:260,margin:{t:10,l:4,r:4,b:10}, showlegend:false}, {displayModeBar:false});
+            elPie.on('plotly_click', function(evt){
               const p = evt.points && evt.points[0];
               if(!p) return;
-              // try to locate a count field for this outcome
-              const sfxCandidates = (p.label === NAME.CG) ? ['_outcome_coupsgagnants_count','_outcome_coupsgagnant_count'] :
-                                     (p.label === NAME.FD) ? ['_outcome_fautesprovoquees_count','_outcome_fautesprovoquee_count','_outcome_fautesprovoquées_count'] :
-                                     ['_outcome_fautedirecte_count','_outcome_fautesdirectes_count'];
+              // try to find count fields for this slice
+              const label = p.label;
               let outcomeCount = null;
-              for(const sfx of sfxCandidates){
-                const val = readFrom(bigNumeric, st.key + sfx);
-                const n = toNumRaw(val);
-                if(n !== null) outcomeCount = (outcomeCount === null ? 0 : outcomeCount) + n;
+              if(label === NAME.CG){
+                outcomeCount = sumCount(['_outcome_coupsgagnants_count','_outcome_coupsgagnant_count','_outcome_coupsgagnants_num']);
+              } else if(label === NAME.FD){
+                outcomeCount = sumCount(['_outcome_fautesprovoquees_count','_outcome_fautesprovoquee_count','_outcome_fautesprovoquées_count']);
+              } else if(label === NAME.FP){
+                outcomeCount = sumCount(['_outcome_fautedirecte_count','_outcome_fautesdirectes_count']);
+              } else if(label === NAME.EX){
+                outcomeCount = sumCount(['_outcome_coupsdansl_echange_count','_outcome_coupsdanslexchange_count','_outcome_coupsdansl\'echange_count']);
+              }
+              // If we didn't find count names globally, try per-shot keys
+              if(outcomeCount === null){
+                const tryPerShot = (suffixes) => {
+                  let sum = 0; let found = false;
+                  for(const sfx of suffixes){
+                    const v = readFrom(bigNumeric, st.key + sfx);
+                    const n = toNumRaw(v);
+                    if(n !== null){ sum += n; found = true; }
+                  }
+                  return found ? sum : null;
+                };
+                if(label === NAME.CG) outcomeCount = tryPerShot(['_outcome_coupsgagnants_count','_outcome_coupsgagnant_count']);
+                else if(label === NAME.FD) outcomeCount = tryPerShot(['_outcome_fautesprovoquees_count','_outcome_fautesprovoquee_count']);
+                else if(label === NAME.FP) outcomeCount = tryPerShot(['_outcome_fautedirecte_count','_outcome_fautesdirectes_count']);
+                else if(label === NAME.EX) outcomeCount = tryPerShot(['_outcome_coupsdansl_echange_count','_outcome_coupsdanslexchange_count']);
               }
               if(outcomeCount !== null){
-                if(infoEl) infoEl.innerHTML = `${esc(st.label)} — ${p.label}: ${Math.round(outcomeCount)}`;
+                if(infoEl) infoEl.innerHTML = `${esc(st.label)} — ${label}: ${Math.round(outcomeCount)}`;
                 return;
               }
-              // else try totalCount * p.value
-              if(totalCount !== null && toNumRaw(totalCount) !== null){
-                const cnt = Math.round((p.value) * toNumRaw(totalCount));
-                if(infoEl) infoEl.innerHTML = `${esc(st.label)} — ${p.label}: ${cnt} (estimated)`;
+              // else if totalCount present, estimate
+              const total = totalCount || readFrom(bigNumeric, st.key + '_count', st.key + '_num', st.key + '_total');
+              if(total !== null && toNumRaw(total) !== null){
+                const cnt = Math.round((p.value) * toNumRaw(total));
+                if(infoEl) infoEl.innerHTML = `${esc(st.label)} — ${label}: ${cnt} (estimated)`;
                 return;
               }
-              // fallback percent
-              if(infoEl) infoEl.innerHTML = `${esc(st.label)} — ${p.label}: ${fmtPct(p.percent/100,0)}`;
+              // fallback: percent
+              if(infoEl) infoEl.innerHTML = `${esc(st.label)} — ${fmtPct(p.percent/100,0)}`;
             });
           } else {
-            el.innerHTML = `<div style="font-size:12px;color:#666">Pie (no Plotly)</div><div>${labels.map((L,idx)=>L+': '+fmtPct(vals[idx])).join('<br>')}</div>`;
+            // fallback display of percents only
+            elPie.innerHTML = `<div style="font-size:12px;color:#666">Pie (no Plotly)</div><div>${labels.map((L,idx)=>L+': '+fmtPct(vals[idx],1)).join('<br>')}</div>`;
             if(infoEl) infoEl.innerHTML = '';
           }
         };
 
-        // initial draw
-        draw(false);
-        // push a bound drawer that takes exclude flag
-        window.__adv_shot_drawers.push(fn => fn === undefined ? draw : draw);
+        // initial draw (exclude=false)
+        drawer(false);
+        // register drawer for redraw when checkbox toggles
+        window.__adv_shot_drawers.push(drawer);
       });
 
-      // Draw breakpoints & return boxes
+      // Draw BP & Return
       const bpBlock = document.getElementById('bp-block');
       const rBlock = document.getElementById('return-block');
       if(bpBlock){
@@ -2588,9 +2499,7 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
         const bdb_played_num = readFrom(bigNumeric, 'bdb_played_num','bdb_played_count');
         const matches_count = readFrom(bigNumeric, 'matches_count','matchesCount') || matchesAgg;
         let mean_bp = null;
-        if(bdb_played_num !== null && matches_count !== null && toNumRaw(matches_count) !== null){
-          mean_bp = toNumRaw(bdb_played_num) / toNumRaw(matches_count);
-        }
+        if(bdb_played_num !== null && matches_count !== null && toNumRaw(matches_count) !== null) mean_bp = toNumRaw(bdb_played_num) / toNumRaw(matches_count);
         bpBlock.innerHTML = `
           <div style="font-size:20px;font-weight:800">${bdb_converted_pct===null?'—':fmtPct(bdb_converted_pct,1)}</div>
           <div style="color:#666">Converted <span style="font-size:12px">(${bdb_converted_num===null?'—':esc(String(bdb_converted_num))}/${bdb_converted_den===null?'—':esc(String(bdb_converted_den))})</span></div>
@@ -2611,7 +2520,6 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
         const return_2nd_pct = toFrac(readFrom(bigNumeric, 'return_2nd_pct'));
         const return_2nd_num = readFrom(bigNumeric, 'return_2nd_num');
         const return_2nd_den = readFrom(bigNumeric, 'return_2nd_den');
-
         rBlock.innerHTML = `
           <div style="font-size:20px;font-weight:800">${return_points_pct===null?'—':fmtPct(return_points_pct,1)}</div>
           <div style="color:#666">Points won on return <span style="font-size:12px">(${return_points_num===null?'—':esc(String(return_points_num))}/${return_points_den===null?'—':esc(String(return_points_den))})</span></div>
@@ -2624,29 +2532,20 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
         `;
       }
 
-      // wire exclude-exchange toggle
-      const excludeCheckbox = document.getElementById('adv-exclude-exchange');
-      if(excludeCheckbox){
-        excludeCheckbox.addEventListener('change', () => {
-          const exclude = !!excludeCheckbox.checked;
-          // we built drawers as functions stored in window.__adv_shot_drawers
+      // wire exclude-exchange checkbox: call each drawer with flag
+      const chk = document.getElementById('adv-exclude-exchange');
+      if(chk){
+        chk.addEventListener('change', ()=>{
+          const exclude = !!chk.checked;
           if(window.__adv_shot_drawers && window.__adv_shot_drawers.length){
-            // call each drawer to redraw with exclude flag
-            window.__adv_shot_drawers.forEach(drawFunc => {
-              try{
-                // our push stored the draw function or a wrapper
-                if(typeof drawFunc === 'function') drawFunc(exclude);
-                else if(drawFunc && typeof drawFunc.drawFunc === 'function') drawFunc.drawFunc(exclude);
-              }catch(e){ console.warn('redraw error', e); }
-            });
+            window.__adv_shot_drawers.forEach(fn => { try{ if(typeof fn === 'function') fn(exclude); } catch(e){ console.warn('drawer redraw error', e); } });
           }
         });
       }
-    }
+    })();
 
     console.log('rendered advanced stats (source=' + sourceUrl + ')');
     if(debugEl) debugEl.innerHTML += `<div>render completed</div>`;
-
   }catch(err){
     console.error('renderAdvancedStatsFrom error', err);
     try{ const c = panelElement.querySelector('#advanced-content') || panelElement; if(c) c.innerHTML = '<div style="color:#c00">Error rendering advanced statistics.</div>'; }catch(e){}
