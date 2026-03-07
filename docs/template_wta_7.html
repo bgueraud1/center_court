@@ -1758,7 +1758,7 @@ function renderFlagElement(flagEl, iso2, countryIOC) {
   while (flagEl.firstChild) flagEl.removeChild(flagEl.firstChild);
   flagEl.textContent = '';
 
-    // normalize iso2
+  // normalize iso2
   let iso = (iso2 || '').toString().trim();
   if (!iso && countryIOC) {
     const map = String(countryIOC || '').toUpperCase();
@@ -1766,24 +1766,6 @@ function renderFlagElement(flagEl, iso2, countryIOC) {
   }
   if (iso.length === 3) iso = iso.slice(0,2);
   iso = iso ? iso.toLowerCase() : '';
-
-  // === NO COUNTRY CASE (blank placeholder) ===
-  // Si on n'a ni iso ni countryIOC (ex: joueur BYE), créer un placeholder vide
-  // pour conserver l'espace du drapeau et éviter le décalage des noms.
-  if (!iso && !countryIOC) {
-    const placeholder = document.createElement('span');
-    placeholder.className = 'flag-blank';
-    // styles inline pour s'assurer du rendu (tu peux déplacer en CSS si tu veux)
-    placeholder.style.display = 'inline-block';
-    placeholder.style.minWidth = '22px';
-    placeholder.style.height = '14px';
-    placeholder.style.background = '#ffffff';   // blanc
-    placeholder.style.border = '1px solid transparent';
-    placeholder.style.verticalAlign = 'middle';
-    flagEl.appendChild(placeholder);
-    flagEl.title = '';
-    return;
-  }
 
   // 1) emoji if supported
   try {
@@ -2011,46 +1993,10 @@ function resetPlaceholders() {
     const flag = el.parentElement ? el.parentElement.querySelector('.flag') : null;
     if (flag) flag.title = '';
   });
-  /* ---- fill scores (vide quand pas de score) ---- */
-document.querySelectorAll('[data-field="score"]').forEach(el => {
-  const matchId = (el.dataset.match || '').toUpperCase();
-  const m = matchMap.get(matchId);
-
-  // pas de match -> vider le placeholder
-  if (!m) {
-    el.textContent = '';
-    return;
-  }
-
-  // récupérer toutes les variantes possibles du score
-  let rawScore = '';
-  if ('score_string' in m) rawScore = m.score_string;
-  else if ('score' in m) rawScore = m.score;
-  else if ('scoreString' in m) rawScore = m.scoreString;
-  else rawScore = '';
-
-  const score = (rawScore === null || rawScore === undefined) ? '' : String(rawScore).trim();
-
-  // effacer l'élément pour éviter d'hériter du placeholder HTML
-  el.innerHTML = '';
-
-  if (!score) {
-    // afficher une chaîne vide (pas de fallback sur le placeholder)
-    el.textContent = '';
-    return;
-  }
-
-  // sinon, comportement normal : créer le lien / texte de score
-  const a = document.createElement('a');
-  a.className = 'score-link';
-  a.href = buildMatchPageUrl({
-    matchId: m.match_id || matchId || m.id || '',
-    useWta: isWTAFromData(window._bracketData)
+  document.querySelectorAll('[data-field="score"]').forEach(el => {
+    const id = el.dataset.match || '';
+    el.textContent = 'Score' + id;
   });
-  a.textContent = score;
-  a.setAttribute('title', 'Voir le match ' + (m.match_id || matchId || ''));
-  el.appendChild(a);
-});
 
   document.querySelectorAll('.seed').forEach(s => s.textContent = '');
   document.querySelectorAll('.flag').forEach(f => f.textContent = '');
@@ -2186,31 +2132,10 @@ async function fillFromMap(matchMap) {
     // flag
     const flag = el.parentElement ? el.parentElement.querySelector('.flag') : null;
     if(flag){
-      l// ==== compute countryIOC for this side, but avoid using the opponent's country when BYE === true ===
-const topNameNorm = String(m.top_player_name || m.top_name || m.winner_player_name || m.loser_player_name || '').trim().toUpperCase();
-const bottomNameNorm = String(m.bottom_player_name || m.bottom_name || m.bottom || m.winner_player_name || m.loser_player_name || '').trim().toUpperCase();
-
-const playerNameNorm = (side === 'top') ? topNameNorm : bottomNameNorm;
-const opponentNameNorm = (side === 'top') ? bottomNameNorm : topNameNorm;
-
-let countryIOC = '';
-
-// si le joueur est BYE, forcer country vide (placeholder blanc géré par renderFlagElement)
-if (playerNameNorm.includes('BYE')) {
-  countryIOC = '';
-} else {
-  // privilégier un champ explicite côté top/bottom
-  if (side === 'top') {
-    countryIOC = m.top_country || m.top_country_code || '';
-  } else if (side === 'bottom') {
-    countryIOC = m.bottom_country || m.bottom_country_code || '';
-  }
-
-  // fallback : n'utiliser winner/loser que si l'adversaire n'est pas BYE
-  if (!countryIOC && !opponentNameNorm.includes('BYE')) {
-    countryIOC = m.winner_country || m.loser_country || '';
-  }
-}
+      let countryIOC = '';
+      if(side === 'top') countryIOC = m.top_country || m.top_country_code || m.winner_country || m.loser_country || '';
+      else if(side === 'bottom') countryIOC = m.bottom_country || m.bottom_country_code || m.loser_country || m.winner_country || '';
+      else countryIOC = m.winner_country || m.loser_country || '';
       let iso2 = iocToIso[(countryIOC || '').toUpperCase()] || '';
       if(!iso2 && countryIOC && countryIOC.length >= 2) iso2 = countryIOC.slice(0,2).toUpperCase();
       renderFlagElement(flag, iso2, countryIOC);
@@ -2282,44 +2207,20 @@ if (playerNameNorm.includes('BYE')) {
   });
 
   /* ---- fill scores (unchanged) ---- */
-  /* ---- fill scores (vide quand pas de score) ---- */
-document.querySelectorAll('[data-field="score"]').forEach(el => {
-  const matchId = (el.dataset.match || '').toUpperCase();
-  const m = matchMap.get(matchId);
+  document.querySelectorAll('[data-field="score"]').forEach(el => {
+    const matchId = (el.dataset.match || '').trim().toUpperCase();
+    const m = matchMap.get(matchId);
+    if(!m) return;
+    const score = m.score_string || m.score || m.scoreString || el.textContent || '';
 
-  // si pas de match -> on efface le placeholder
-  if(!m) {
-    el.textContent = '';
-    return;
-  }
-
-  // récupérer la valeur brute du score sans considérer la chaîne vide comme "manquante"
-  let rawScore = '';
-  if ('score_string' in m) rawScore = m.score_string;
-  else if ('score' in m) rawScore = m.score;
-  else if ('scoreString' in m) rawScore = m.scoreString;
-  else rawScore = '';
-
-  const score = (rawScore === null || rawScore === undefined) ? '' : String(rawScore).trim();
-
-  // vide -> afficher chaîne vide (ne pas retomber sur le placeholder du DOM)
-  el.innerHTML = '';
-  if(!score){
-    el.textContent = '';
-    return;
-  }
-
-  // sinon créer le lien comme avant
-  const a = document.createElement('a');
-  a.className = 'score-link';
-  a.href = buildMatchPageUrl({
-    matchId: m.match_id || matchId || m.event_id || m.matchId,
-    useWta: isWTAFromData(window._bracketData)
+    el.innerHTML = '';
+    const a = document.createElement('a');
+    a.className = 'score-link';
+    a.href = buildMatchPageUrl({ matchId: m.match_id || matchId || m.event_id || m.matchId, useWta: isWTAFromData(window._bracketData) });
+    a.textContent = score;
+    a.setAttribute('title', 'Voir le match ' + (m.match_id || matchId || ''));
+    el.appendChild(a);
   });
-  a.textContent = score;
-  a.setAttribute('title', 'Voir le match ' + (m.match_id || matchId || ''));
-  el.appendChild(a);
-});
 
   // after initial render, if index promise resolves later, upgrade anchors
   _indexPromise.then(idx => {
