@@ -1,0 +1,103 @@
+name: Update tournament(s)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tournament_ids:
+        description: 'Comma-separated list of tournament ids to scrape (ex: "800,1050")'
+        required: true
+
+permissions:
+  contents: write
+  workflows: write
+
+jobs:
+  run_update:
+    runs-on: ubuntu-latest
+    env:
+      BUILD_DIR: ${{ github.workspace }}/docs_build
+      OUT_MATCHES_DIR: matches/wta_matches
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+          lfs: true
+
+      - name: Show workspace (debug)
+        run: |
+          echo "Workspace: $GITHUB_WORKSPACE"
+          ls -la | sed -n '1,200p'
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install deps (if any)
+        run: |
+          python -m pip install --upgrade pip
+          # add your real deps here e.g. pip install -r requirements.txt
+
+      - name: Run scraping_main for requested tournaments
+        env:
+          TOURNAMENT_DICT_PATH: data/tournament_player_counts_2026.json
+          # pass the workflow input as env
+          TIDS_INPUT: ${{ github.event.inputs.tournament_ids }}
+        run: |
+          set -euo pipefail
+          echo "TIDS_INPUT=${TIDS_INPUT}"
+          # invoke scraping_main with --tournament-ids and --tournament-dict-path
+          python3 scripts/scraping_main.py --tournament-ids "${TIDS_INPUT}" --tournament-dict-path "${TOURNAMENT_DICT_PATH}" --created-files-out created_files.txt
+
+      - name: Show created files
+        run: |
+          echo "created_files.txt content:"
+          cat created_files.txt || true
+          ls -la matches/wta_matches || true
+
+      - name: Generate JSON per match for the newly scraped CSVs
+        run: |
+          set -euo pipefail
+          if [ -f created_files.txt ]; then
+            python3 scripts/generate_match_jsons.py --input-list created_files.txt --output docs/matches_json
+          else
+            echo "No created_files.txt found, skipping json generation"
+          fi
+
+      - name: Copy generated JSONs into site_static/docs and commit
+        env:
+          GIT_AUTHOR_NAME: "github-actions[bot]"
+          GIT_AUTHOR_EMAIL: "github-actions[bot]@users.noreply.github.com"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Mirror docs/matches_json into site_static/matches_json (adjust to your layout)
+          mkdir -p site_static/matches_json
+          cp -av docs/matches_json/* site_static/matches_json/ || true
+
+          git config user.name "$GIT_AUTHOR_NAME"
+          git config user.email "$GIT_AUTHOR_EMAIL"
+
+          git add -f docs/matches_json site_static/matches_json matches/wta_matches || true
+
+          if [ -n "$(git status --porcelain)" ]; then
+            git commit -m "ci(update_tournament): add scraped tournaments and generated jsons" || true
+            # push using token
+            git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}"
+            git push origin HEAD:main || git push --force-with-lease origin HEAD:main || true
+          else
+            echo "No changes to commit"
+          fi
+
+      - name: Trigger Netlify deploy via build hook
+        env:
+          NETLIFY_BUILD_HOOK_DAILY: ${{ secrets.NETLIFY_BUILD_HOOK_DAILY }}
+        run: |
+          if [ -z "$NETLIFY_BUILD_HOOK_DAILY" ]; then
+            echo "No NETLIFY_BUILD_HOOK_DAILY — skipping deploy trigger"
+            exit 0
+          fi
+          curl -s -X POST "$NETLIFY_BUILD_HOOK_DAILY" -o /tmp/netlify_hook_resp.txt -w "\nHTTP_STATUS:%{http_code}\n"
+          cat /tmp/netlify_hook_resp.txt || true

@@ -1,17 +1,10 @@
 #!/usr/bin/env python3
 """
 Générateur de JSONs pour les matches ATP et WTA.
+
 Usage:
-    python3 scripts/generate_json.py --input matches --output docs/matches_json
-
-Fonctionnement:
-- Parcourt matches/atp_matches et matches/wta_matches
-- Pour chaque CSV, lit chaque ligne et écrit un JSON unique par match
-  dans <output>/atp/ ou <output>/wta/.
-- Nom de fichier JSON: {gender}_{tourneyid}_{year}_{matchid}.json
-  (ex: atp_73_1997_MS001.json ou wta_0609_2021_LS001.json)
-
-Le script essaie de convertir les colonnes numériques au format number quand c'est possible.
+    python3 scripts/generate_match_jsons.py --input matches --output docs/matches_json
+    python3 scripts/generate_match_jsons.py --input-list created_files.txt --output docs/matches_json
 """
 
 import csv
@@ -97,39 +90,63 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument('--input', '-i', default='matches', help='dossier racine contenant atp_matches et wta_matches')
     p.add_argument('--output', '-o', default='docs/matches_json', help='dossier de sortie (statique)')
+    p.add_argument('--input-list', help='File containing list of CSV paths to process (one per line). If provided, only these CSVs are processed.', default=None)
     args = p.parse_args()
 
     input_dir = Path(args.input)
     out_root = Path(args.output)
 
-    atp_dir = input_dir / 'atp_matches'
-    wta_dir = input_dir / 'wta_matches'
+    csv_files_to_process = []
 
-    if atp_dir.exists():
-        for f in sorted(atp_dir.glob('*.csv')):
-            process_csv_file(f, 'atp', out_root / 'atp')
+    if args.input_list:
+        li = Path(args.input_list)
+        if li.exists():
+            for line in li.read_text(encoding='utf-8').splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                pth = Path(line)
+                if not pth.is_absolute():
+                    pth = Path.cwd() / pth
+                csv_files_to_process.append(pth)
+        else:
+            print("input-list file not found:", args.input_list)
+            csv_files_to_process = []
     else:
-        print(f"Warning: {atp_dir} not found")
+        # old behavior: collect all CSVs in atp_matches and wta_matches
+        atp_dir = input_dir / 'atp_matches'
+        wta_dir = input_dir / 'wta_matches'
+        if atp_dir.exists():
+            for f in sorted(atp_dir.glob('*.csv')):
+                csv_files_to_process.append(f)
+        if wta_dir.exists():
+            for f in sorted(wta_dir.glob('*.csv')):
+                csv_files_to_process.append(f)
 
-    if wta_dir.exists():
-        for f in sorted(wta_dir.glob('*.csv')):
-            process_csv_file(f, 'wta', out_root / 'wta')
-    else:
-        print(f"Warning: {wta_dir} not found")
+    if not csv_files_to_process:
+        print("No CSV files to process. Exiting.")
+        return
+
+    for csv_path in csv_files_to_process:
+        # determine gender by parent directory name or filename heuristics:
+        parent = csv_path.parent.name.lower()
+        gender = 'wta' if 'wta' in parent else ('atp' if 'atp' in parent else 'wta')
+        try:
+            process_csv_file(csv_path, gender, out_root / gender)
+        except Exception as e:
+            print(f"Failed processing {csv_path}: {e}")
 
     # Optionnel : créer un index léger
-    # on parcourt out_root et liste les fichiers
     index = []
     for g in ('atp', 'wta'):
         gd = out_root / g
         if not gd.exists():
             continue
         for jf in sorted(gd.glob('*.json')):
-            # try to open and extract small meta
             try:
                 with jf.open(encoding='utf-8') as fh:
                     obj = json.load(fh)
-                index.append({'gender': g, 'file': f"/ {jf.relative_to(out_root.parent)}", 'filename': jf.name,
+                index.append({'gender': g, 'file': f"/{jf.relative_to(out_root.parent)}", 'filename': jf.name,
                               'meta': {
                                   'winner': obj.get('winner_player_name') or obj.get('winner'),
                                   'loser': obj.get('loser_player_name') or obj.get('loser'),
