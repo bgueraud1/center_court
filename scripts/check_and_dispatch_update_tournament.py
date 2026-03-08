@@ -24,7 +24,7 @@ if not REPO:
     print("GITHUB_REPOSITORY not set; aborting (must run inside GitHub Actions)")
     raise SystemExit(1)
 
-dict_path = os.environ.get("TOURNAMENT_DICT_PATH", "data/tournament_player_counts_2026.json")
+dict_path = os.environ.get("TOURNAMENT_DICT_PATH", "docs/data/tournament_player_counts_2026.json")
 
 try:
     with open(dict_path, "r", encoding="utf-8") as fh:
