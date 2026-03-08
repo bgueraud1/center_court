@@ -9,369 +9,15 @@ import re
 import sys
 import argparse
 import shutil
+import json
 
 # Import de tes modules existants (doivent exister et fonctionner)
 from scraping_gc_matches import fetch_tournament_data
 from transform_gc_data import transform_home_away_data
 from scraping_wta import process_matches
 
-# --- Configuration par défaut ---
+
 YEAR = 2026
-# Exemple de dictionnaire : ajuste/ajoute d'autres années si nécessaire
-tournament_player_counts_2025 = {
-    800: [48,"2024-12-29","2025-01-05",0],
-    1049:[ 32,"2024-12-29","2025-01-05",0],
-    2096:[32,"2024-12-29","2025-01-05",0],
-    2014:[30,"2024-12-29","2025-01-05",0],
-    1050:[32,"2024-12-29","2025-01-05",0],
-    528:[28, "2024-12-29","2025-01-05",0],
-    1096:[32,"2024-12-29","2025-01-05",0],
-    2088:[28,"2024-12-29","2025-01-05",0],
-    2050:[32,"2024-12-29","2025-01-05",0],
-    1100:[32,"2024-12-29","2025-01-05",0],
-    1003:[56,"2024-12-29","2025-01-05",0],
-    718:[56, "2024-12-29","2025-01-05",0],
-    1108:[32,"2024-12-29","2025-01-05",0],
-    2074:[28,"2024-12-29","2025-01-05",0],
-    2082:[32,"2024-12-29","2025-01-05",0],
-    609:[96, "2024-12-29","2025-01-05",0],
-    902:[96, "2024-12-29","2025-01-05",0],
-    2039:[32,"2024-12-29","2025-01-05",0],
-    2089:[32,"2024-12-29","2025-01-05",0],
-    1107:[32,"2024-12-29","2025-01-05",0],
-    804:[56, "2024-12-29","2025-01-05",0],
-    894:[32, "2024-12-29","2025-01-05",0],
-    2086:[32,"2024-12-29","2025-01-05",0],
-    1051:[28,"2024-12-29","2025-01-05",0],
-    2066:[32,"2024-12-29","2025-01-05",0],
-    1106:[32,"2024-12-29","2025-01-05",0],
-    1038:[96,"2024-12-29","2025-01-05",0],
-    2034:[32,"2024-12-29","2025-01-05",0],
-    2081:[32,"2024-12-29","2025-01-05",0],
-    709:[96, "2024-12-29","2025-01-05",0],
-    2057:[32,"2024-12-29","2025-01-05",0],
-    2041:[32,"2024-12-29","2025-01-05",0],
-    406:[28,"2024-12-29","2025-01-05",0],
-    1005:[32,"2024-12-29","2025-01-05",0],
-    2077:[32,"2024-12-29","2025-01-05",0],
-    1090:[32,"2024-12-29","2025-01-05",0],
-    1080:[32,"2024-12-29","2025-01-05",0],
-    822:[32,"2024-12-29","2025-01-05",0],
-    2061:[32,"2024-12-29","2025-01-05",0],
-    2012:[32,"2024-12-29","2025-01-05",0],
-    1052:[32,"2024-12-29","2025-01-05",0],
-    2062:[32,"2024-12-29","2025-01-05",0],
-    710:[32, "2024-12-29","2025-01-05",0],
-    2017:[32,"2024-12-29","2025-01-05",0],
-    2003:[32,"2024-12-29","2025-01-05",0],
-    2071:[32,"2024-12-29","2025-01-05",0],
-    2036:[32,"2024-12-29","2025-01-05",0],
-    466:[32,"2024-12-29","2025-01-05",0],
-    2063:[32,"2024-12-29","2025-01-05",0],
-    1082:[32,"2024-12-29","2025-01-05",0],
-    2087:[32,"2024-12-29","2025-01-05",0],
-    1045:[28,"2024-12-29","2025-01-05",0],
-    1116:[32,"2024-12-29","2025-01-05",0],
-    806:[56,"2024-12-29","2025-01-05",0],
-    2093:[32,"2024-12-29","2025-01-05",0],
-    1017:[56,"2024-12-29","2025-01-05",0],
-    1039:[32,"2024-12-29","2025-01-05",0],
-    2040:[32,"2024-12-29","2025-01-05",0],
-    1112:[32,"2024-12-29","2025-01-05",0],
-    2098:[32,"2024-12-29","2025-01-05",0],
-    2044:[32,"2024-12-29","2025-01-05",0],
-    2075:[28,"2024-12-29","2025-01-05",0],
-    2072:[32,"2024-12-29","2025-01-05",0],
-    2079:[32,"2024-12-29","2025-01-05",0],
-    1024:[28,"2024-12-29","2025-01-05",0],
-    1121:[32,"2024-12-29","2025-01-05",0],
-    1020:[96,"2024-12-29","2025-01-05",0],
-    1109:[32,"2024-12-29","2025-01-05",0],
-    1075:[56,"2024-12-29","2025-01-05",0],
-    405:[32, "2024-12-29","2025-01-05",0],
-    2092:[32,"2024-12-29","2025-01-05",0],
-    1023:[32,"2024-12-29","2025-01-05",0],
-    1056:[28,"2024-12-29","2025-01-05",0],
-    2067:[32,"2024-12-29","2025-01-05",0],
-    1074:[32,"2024-12-29","2025-01-05",0],
-    1077:[32,"2024-12-29","2025-01-05",0],
-    2085:[32,"2024-12-29","2025-01-05",0],
-    1115:[32,"2024-12-29","2025-01-05",0],
-    808:[16, "2024-12-29","2025-01-05",0],
-    1110:[32,"2024-12-29","2025-01-05",0],
-    2051:[32,"2024-12-29","2025-01-05",0],
-    1114:[32,"2024-12-29","2025-01-05",0],
-    2076:[32,"2024-12-29","2025-01-05",0],
-    2052:[32,"2024-12-29","2025-01-05",0],
-    2056:[32,"2024-12-29","2025-01-05",0],
-    2094:[32,"2024-12-29","2025-01-05",0],
-    1072:[32,"2024-12-29","2025-01-05",0],
-    901:[128,"2024-12-29","2025-01-05",1],
-    903:[128,"2024-12-29","2025-01-05",1],
-    904:[128,"2024-12-29","2025-01-05",1],
-    905:[128,"2024-12-29","2025-01-05",1],
-}
-
-tournament_player_counts_2023 = {
-    800: [30, "2024-12-29","2025-01-05",0],
-    1049: [32,"2024-12-29","2025-01-05",0],
-    2014:[30,"2024-12-29","2025-01-05",0],
-    1050:[32,"2024-12-29","2025-01-05",0],
-    1065:[32,"2024-12-29","2025-01-05",0],
-    528:[32, "2024-12-29","2025-01-05",0],
-    1096:[32, "2024-12-29","2025-01-05",0],
-    2011:[32,"2024-12-29","2025-01-05",0],
-    2088:[28, "2024-12-29","2025-01-05",0],
-    1003:[28,"2024-12-29","2025-01-05",0],
-    718:[56,"2024-12-29","2025-01-05",0],
-    2085:[32,"2024-12-29","2025-01-05",0],
-    1039:[32, "2024-12-29","2025-01-05",0],
-    2082:[32, "2024-12-29","2025-01-05",0],
-    609:[96, "2024-12-29","2025-01-05",0],
-    902:[96, "2024-12-29","2025-01-05",0],
-    2089:[32, "2024-12-29","2025-01-05",0],
-    1107:[32,"2024-12-29","2025-01-05",0],
-    804:[56, "2024-12-29","2025-01-05",0],
-    894:[32, "2024-12-29","2025-01-05",0],
-    1051:[28, "2024-12-29","2025-01-05",0],
-    1038:[96, "2024-12-29","2025-01-05",0],
-    2034:[32, "2024-12-29","2025-01-05",0],
-    2081:[32,"2024-12-29","2025-01-05",0],
-    709:[96, "2024-12-29","2025-01-05",0],
-    2057:[32,"2024-12-29","2025-01-05",0],
-    2090:[32, "2024-12-29","2025-01-05",0],
-    406:[32,"2024-12-29","2025-01-05",0],
-    1005:[32,"2024-12-29","2025-01-05",0],
-    2086:[32,"2024-12-29","2025-01-05",0],
-    1090:[32,"2024-12-29","2025-01-05",0],
-    1080:[32, "2024-12-29","2025-01-05",0],
-    822:[32,"2024-12-29","2025-01-05",0],
-    2061:[32,"2024-12-29","2025-01-05",0],
-    2012:[32,"2024-12-29","2025-01-05",0],
-    1052:[32,"2024-12-29","2025-01-05",0],
-    2062:[32,"2024-12-29","2025-01-05",0],
-    710:[32, "2024-12-29","2025-01-05",0],
-    2017:[32,"2024-12-29","2025-01-05",0],
-    2003:[32,"2024-12-29","2025-01-05",0],
-    2071:[32,"2024-12-29","2025-01-05",0],
-    2036:[32,"2024-12-29","2025-01-05",0],
-    466:[32,"2024-12-29","2025-01-05",0],
-    2063:[32,"2024-12-29","2025-01-05",0],
-    1082:[32,"2024-12-29","2025-01-05",0],
-    2087:[32,"2024-12-29","2025-01-05",0],
-    1094:[32, "2024-12-29","2025-01-05",0],
-    1045:[28,"2024-12-29","2025-01-05",0],
-    1116:[32,"2024-12-29","2025-01-05",0],
-    806:[56,"2024-12-29","2025-01-05",0],
-    2087:[32,"2024-12-29","2025-01-05",0],
-    2093:[32,"2024-12-29","2025-01-05",0],
-    1017:[56,"2024-12-29","2025-01-05",0],
-    2091:[32,"2024-12-29","2025-01-05",0],
-    2040:[32,"2024-12-29","2025-01-05",0],
-    1112:[32,"2024-12-29","2025-01-05",0],
-    2098:[32,"2024-12-29","2025-01-05",0],
-    2000:[32, "2024-12-29","2025-01-05",0],
-    2077:[32,"2024-12-29","2025-01-05",0],
-    2044:[32, "2024-12-29","2025-01-05",0],
-    2074:[28, "2024-12-29","2025-01-05",0],
-    2075:[56, "2024-12-29","2025-01-05",0],
-    2072:[32,"2024-12-29","2025-01-05",0],
-    2079:[32,"2024-12-29","2025-01-05",0],
-    1023:[32,"2024-12-29","2025-01-05",0],
-    2041:[32,"2024-12-29","2025-01-05",0],
-    1056:[28,"2024-12-29","2025-01-05",0],
-    2092:[32,"2024-12-29","2025-01-05",0],
-    1020:[60,"2024-12-29","2025-01-05",0],
-    2008:[28, "2024-12-29","2025-01-05",0],
-    1024:[32,"2024-12-29","2025-01-05",0],
-    2066:[32,"2024-12-29","2025-01-05",0],
-    1077:[32,"2024-12-29","2025-01-05",0],
-    2050:[32,"2024-12-29","2025-01-05",0],
-    1074:[32,"2024-12-29","2025-01-05",0],
-    405:[32, "2024-12-29","2025-01-05",0],
-    2067:[32,"2024-12-29","2025-01-05",0],
-    2080:[32,"2024-12-29","2025-01-05",0],
-    2055:[32,"2024-12-29","2025-01-05",0],
-    1115:[32,"2024-12-29","2025-01-05",0],
-    808:[1,"2024-12-29","2025-01-05",0],
-    2051:[32,"2024-12-29","2025-01-05",0],
-    2076:[32,"2024-12-29","2025-01-05",0],
-    2052:[32,"2024-12-29","2025-01-05",0],
-    2056:[32,"2024-12-29","2025-01-05",0],
-    2094:[32,"2024-12-29","2025-01-05",0],
-    1072:[32, "2024-12-29","2025-01-05",0],
-    901:[128,"2024-12-29","2025-01-05",1],
-    903:[128,"2024-12-29","2025-01-05",1],
-    904:[128,"2024-12-29","2025-01-05",1],
-    905:[128,"2024-12-29","2025-01-05",1],
-}
-
-
-
-
-
-tournament_player_counts_2022 = {
-    2058:[32, "2024-12-29","2025-01-05",0], #Melbourne 250
-    2059:[32, "2024-12-29","2025-01-05",0], #Melbourne 250
-    2030: [32, "2024-12-29","2025-01-05",0], # Adelaide 250
-    2014:[30, "2024-12-29","2025-01-05",0],# Adelaide 500
-    2060:[32, "2024-12-29","2025-01-05",0], # Sydney 250
-    1086:[32, "2024-12-29","2025-01-05",0], #Saint Petersburg 500
-    718:[32, "2024-12-29","2025-01-05",0], # Dubai 500
-    1003:[56, "2024-12-29","2025-01-05",0], # Doha 1000
-    2002:[32, "2024-12-29","2025-01-05",0], #Guadalajara 250
-    1039:[32, "2024-12-29","2025-01-05",0], #Monterrey 250
-    2011:[32, "2024-12-29","2025-01-05",0], # Lyon 250
-    609:[96, "2024-12-29","2025-01-05",0], # Indian Wells 1000
-    902:[96, "2024-12-29","2025-01-05",0], # Miami 1000
-    2069:[32, "2024-12-29","2025-01-05",0], #Marbella 125
-    804:[56, "2024-12-29","2025-01-05",0], # Charleston 500
-    894:[32, "2024-12-29","2025-01-05",0], # Bogota 250
-    1051:[28, "2024-12-29","2025-01-05",0], # Stuttgart 500
-    1038:[96, "2024-12-29","2025-01-05",0], # Madrid 1000
-    2034:[32, "2024-12-29","2025-01-05",0], # Saint-Malo 125
-    2020:[32, "2024-12-29","2025-01-05",0], #Istanbul 250
-    2057:[32, "2024-12-29","2025-01-05",0], #Paris 125
-    709:[96, "2024-12-29","2025-01-05",0], # Rome 1000
-    2004:[32, "2024-12-29","2025-01-05",0], #Karlsruhe 125
-    406:[32, "2024-12-29","2025-01-05",0],#Strasbourg 250
-    1005:[32, "2024-12-29","2025-01-05",0],#Rabat 250
-    1090:[32, "2024-12-29","2025-01-05",0],#Makarska 125
-    1080:[32, "2024-12-29","2025-01-05",0], #Nottingham 250
-    822:[32, "2024-12-29","2025-01-05",0],#S'Hertogenbosch 125
-    2061:[32, "2024-12-29","2025-01-05",0],#Valencia 125
-    2012:[32, "2024-12-29","2025-01-05",0],#Berlin 500
-    1052:[32, "2024-12-29","2025-01-05",0],#Birmingham
-    2062:[32, "2024-12-29","2025-01-05",0],#Gaiba 125
-    710:[32, "2024-12-29","2025-01-05",0], #Eastbourne 500
-    2017:[32, "2024-12-29","2025-01-05",0],# Bad Hombourg 500
-    2003:[32, "2024-12-29","2025-01-05",0],#Bastad 125
-    2071:[32, "2024-12-29","2025-01-05",0],#Contrexeville 125
-    2036:[32, "2024-12-29","2025-01-05",0],#Budapest 250
-    466:[32, "2024-12-29","2025-01-05",0],#Palerme 250
-    1094:[32, "2024-12-29","2025-01-05",0], #Lausanne 250
-    1116:[32, "2024-12-29","2025-01-05",0],#Hamburg 250
-    1082:[32, "2024-12-29","2025-01-05",0],#Prague 250
-    2087:[32, "2024-12-29","2025-01-05",0],#Warsaw 125
-    703:[28, "2024-12-29","2025-01-05",0], #San Jose 500
-    2063:[32, "2024-12-29","2025-01-05",0],#Iasi 125
-    1045:[28, "2024-12-29","2025-01-05",0],#Washington
-    806:[56, "2024-12-29","2025-01-05",0],#Montreal 1000
-    2045:[32, "2024-12-29","2025-01-05",0], #Concord 125
-    2064:[32, "2024-12-29","2025-01-05",0], #Vancouver 125
-    1017:[56, "2024-12-29","2025-01-05",0],#Cincinnati 1000
-    2040:[32, "2024-12-29","2025-01-05",0],#Cleveland 250
-    2070:[32, "2024-12-29","2025-01-05",0], #Granby 250
-    2077:[32, "2024-12-29","2025-01-05",0],#Bari 125
-    2044:[32, "2024-12-29","2025-01-05",0], #Portoroz 125
-    2078:[32, "2024-12-29","2025-01-05",0], #Chennaui 250
-    2079:[32, "2024-12-29","2025-01-05",0],#Bucharest 125
-    1056:[28, "2024-12-29","2025-01-05",0],#Tokyo 500
-    1024:[32, "2024-12-29","2025-01-05",0],#Seoul 250
-    2041:[32, "2024-12-29","2025-01-05",0], #Parma 125
-    2065:[32, "2024-12-29","2025-01-05",0], #Budapest 125
-    2073:[32, "2024-12-29","2025-01-05",0], #Tallinn 250
-    2025:[28, "2024-12-29","2025-01-05",0], #Ostrava 500
-    2072:[32, "2024-12-29","2025-01-05",0],# Monastir 250
-    2074:[28, "2024-12-29","2025-01-05",0], #San Diego 500
-    2050:[32, "2024-12-29","2025-01-05",0], #Cluj Napoca 250
-    2066:[32, "2024-12-29","2025-01-05",0], #Rouen 250
-    2075:[56, "2024-12-29","2025-01-05",0], #Guadalajara 1000
-    2067:[32, "2024-12-29","2025-01-05",0],#Tampico 125
-    808:[16, "2024-12-29","2025-01-05",0], #Finals
-    2051:[32, "2024-12-29","2025-01-05",0],# Midland 125
-    2076:[32, "2024-12-29","2025-01-05",0],# Colina 125
-    2052:[32, "2024-12-29","2025-01-05",0],#Buenos Aires 125
-    2056:[32, "2024-12-29","2025-01-05",0],#Angers 125
-    2080:[32, "2024-12-29","2025-01-05",0], #Andorra 125
-    2055:[32, "2024-12-29","2025-01-05",0], #Montevideo 125
-    1072:[32, "2024-12-29","2025-01-05",0], #Limoges 125
-    901:[128,"2024-12-29","2025-01-05",1],
-    903:[128,"2024-12-29","2025-01-05",1],
-    904:[128,"2024-12-29","2025-01-05",1],
-    905:[128,"2024-12-29","2025-01-05",1],
-}
-
-
-
-
-tournament_player_counts_2021 = {
-    2028:[64, "2024-12-29","2025-01-05",0], #Abu Dhabi 500
-    2026:[54, "2024-12-29","2025-01-05",0], #Yara Valley 500
-    2029:[54, "2024-12-29","2025-01-05",0], #Gippsland 500
-    2032:[28, "2024-12-29","2025-01-05",0], #Melbourne 500
-    2027:[56, "2024-12-29","2025-01-05",0], #Melbourne 250
-    2014:[28, "2024-12-29","2025-01-05",0],# Adelaide 500
-    1003:[32, "2024-12-29","2025-01-05",0], # Doha 1000
-    1039:[32, "2024-12-29","2025-01-05",0], #Monterrey 250
-    2011:[32, "2024-12-29","2025-01-05",0], # Lyon 250
-    718:[56, "2024-12-29","2025-01-05",0], # Dubai 500
-    2002:[32, "2024-12-29","2025-01-05",0], #Guadalajara 250
-    1086:[32, "2024-12-29","2025-01-05",0], #Saint Petersburg 500
-    902:[96, "2024-12-29","2025-01-05",0], # Miami 1000
-    804:[56, "2024-12-29","2025-01-05",0], # Charleston 500
-    894:[32, "2024-12-29","2025-01-05",0], # Bogota 250
-    1051:[28, "2024-12-29","2025-01-05",0], # Stuttgart 500
-    2033:[32, "2024-12-29","2025-01-05",0], #Charleseton 250
-    2020:[32, "2024-12-29","2025-01-05",0], #Istanbul 250
-    1038:[96, "2024-12-29","2025-01-05",0], # Madrid 1000
-    2034:[32, "2024-12-29","2025-01-05",0], # Saint-Malo 125
-    709:[96, "2024-12-29","2025-01-05",0], # Rome 1000
-    2035:[32, "2024-12-29","2025-01-05",0], #Belgrade 250
-    2041:[32, "2024-12-29","2025-01-05",0], #Parma 125
-    406:[32, "2024-12-29","2025-01-05",0],#Strasbourg 250
-    1080:[32, "2024-12-29","2025-01-05",0], #Nottingham 250
-    1090:[32, "2024-12-29","2025-01-05",0], #Bol 125
-    2012:[32, "2024-12-29","2025-01-05",0],#Berlin 500
-    1052:[32, "2024-12-29","2025-01-05",0],#Birmingham
-    710:[32, "2024-12-29","2025-01-05",0], #Eastbourne 500
-    2017:[32, "2024-12-29","2025-01-05",0],# Bad Hombourg 500
-    2003:[32, "2024-12-29","2025-01-05",0],#Bastad 125
-    1094:[32, "2024-12-29","2025-01-05",0], #Lausanne 250
-    1116:[32, "2024-12-29","2025-01-05",0],#Hamburg 250
-    1082:[32, "2024-12-29","2025-01-05",0],#Prague 250
-    2036:[32, "2024-12-29","2025-01-05",0],#Budapest 250
-    466:[32, "2024-12-29","2025-01-05",0],#Palerme 250
-    2037:[32, "2024-12-29","2025-01-05",0], #Gdynia 250
-    2038:[32, "2024-12-29","2025-01-05",0], #Belgrade 125
-    2039:[32, "2024-12-29","2025-01-05",0], #Charleston 125
-    703:[28, "2024-12-29","2025-01-05",0], #San Jose 500
-    2043:[32, "2024-12-29","2025-01-05",0], #Cluj Napoca 250
-    806:[56, "2024-12-29","2025-01-05",0],#Montreal 1000
-    2045:[32, "2024-12-29","2025-01-05",0], #Concord 125
-    1017:[56, "2024-12-29","2025-01-05",0],#Cincinnati 1000
-    2040:[32, "2024-12-29","2025-01-05",0],#Cleveland 250
-    2000:[32, "2024-12-29","2025-01-05",0], #Chicago 125
-    2047:[32, "2024-12-29","2025-01-05",0], #Chicago 250
-    2004:[32, "2024-12-29","2025-01-05",0], #Karlsruhe 125
-    300:[32, "2024-12-29","2025-01-05",0], #Luxembourg 250
-    2044:[32, "2024-12-29","2025-01-05",0], #Portoroz 125
-    2054:[32, "2024-12-29","2025-01-05",0], #Columbus 125
-    2025:[28, "2024-12-29","2025-01-05",0], #Ostrava 500
-    2048:[56, "2024-12-29","2025-01-05",0], #Chicago 500
-    2053:[32, "2024-12-29","2025-01-05",0], #Nur-Sultan 250
-    609:[96, "2024-12-29","2025-01-05",0], # Indian Wells 1000
-    730:[28, "2024-12-29","2025-01-05",0], #Moscow 500
-    2049:[32, "2024-12-29","2025-01-05",0], #Tenerife 250
-    2046:[32, "2024-12-29","2025-01-05",0], #Courmayeur 250
-    2050:[32, "2024-12-29","2025-01-05",0], #Cluj-Napoca
-    2051:[32, "2024-12-29","2025-01-05",0],# Midland 125
-    2052:[32, "2024-12-29","2025-01-05",0], #Argentina 125
-    528:[28, "2024-12-29","2025-01-05",0], #Linz 500
-    808:[16, "2024-12-29","2025-01-05",0], #Finals
-    2055:[32, "2024-12-29","2025-01-05",0], #Montevideo 125
-    1072:[32, "2024-12-29","2025-01-05",0], #Limoges 125
-    2056:[32, "2024-12-29","2025-01-05",0],#Angers 125
-    1024:[28, "2024-12-29","2025-01-05",0],#Seoul 125
-    901:[128,"2024-12-29","2025-01-05",1],
-    903:[128,"2024-12-29","2025-01-05",1],
-    904:[128,"2024-12-29","2025-01-05",1],
-    905:[128,"2024-12-29","2025-01-05",1],
-}
-
-
-
-
 
 # Répertoire final unique pour tous les CSV finaux
 OUT_DIR = os.path.join("matches", "wta_matches")
@@ -1817,13 +1463,17 @@ def select_rows_for_tid(df, tid):
         candidates = candidates.drop_duplicates().reset_index(drop=True)
     return candidates
 
-# --------- MAIN (par année) ----------
-def main(year=None, tournament_player_counts=None, verbose=True):
+def main(year=None, tournament_player_counts=None, verbose=True, requested_tournament_ids=None, created_files_out=None):
     """
     Exécute la pipeline pour une année.
     -> Ecrit uniquement : matches/wta_matches/wta_<tid>_<year>.csv
     -> Ne laisse aucun autre fichier sur disque (nettoie POTENTIAL_TEMP_DIR si nécessaire).
     Retourne dict {tid: dataframe} pour usage interne/tests.
+
+    Nouveautés :
+      - requested_tournament_ids: iterable/CSV set of ids (strings or ints). Si fourni,
+        on ignore la sélection par dates et on ne traite que ces IDs.
+      - created_files_out: chemin du fichier à écrire contenant la liste des CSV créés (one per line).
     """
     year_str = str(year or YEAR)
     tpc = tournament_player_counts or tournament_player_counts_2026
@@ -1834,6 +1484,28 @@ def main(year=None, tournament_player_counts=None, verbose=True):
     last_scraped_file = f"last_scraped_date_{year_str}.txt"
     last_scraped = get_last_scraped_date(file_path=last_scraped_file)
     to_scrape = tournaments_to_scrape(tpc, last_scraped, today)
+    if verbose:
+        print(f"\n=== YEAR {year_str} | Tournaments à scraper: {to_scrape}")
+
+    # Si requested_tournament_ids est fourni, on le normalise et on force la sélection
+    if requested_tournament_ids:
+        req = set(str(x).strip() for x in requested_tournament_ids) if not isinstance(requested_tournament_ids, set) else set(str(x).strip() for x in requested_tournament_ids)
+        forced = []
+        for tid_key, details in tpc.items():
+            tid_str = str(tid_key)
+            if tid_str in req:
+                # details[3] indique si GC (1) ou non (0)
+                try:
+                    is_gc = (details[3] == 1)
+                except Exception:
+                    is_gc = False
+                forced.append((tid_key, is_gc))
+        to_scrape = forced
+        if verbose:
+            print(f"[OVERRIDE] requested_tournament_ids provided -> forced to_scrape = {to_scrape}")
+
+    # liste qui va contenir les chemins des CSV écrits
+    created_files = []
     if verbose:
         print(f"\n=== YEAR {year_str} | Tournaments à scraper: {to_scrape}")
 
@@ -2036,10 +1708,30 @@ def main(year=None, tournament_player_counts=None, verbose=True):
             df_tid.to_csv(outfile, index=False)
             if verbose:
                 print(f"[OUT] Sauvé fichier final tournoi {tid_str} -> {outfile} ({len(df_tid)} rows)")
+            # collect created file path (relatif)
+            created_files.append(os.path.normpath(outfile))
         except Exception as e:
             print(f"Erreur sauvegarde fichier tournoi {tid_str}: {e}")
 
         per_tournament_results[tid] = df_tid
+
+
+
+    # Write created_files list to disk so external workflow steps can act on it
+    created_out = created_files_out or "created_files.txt"
+    try:
+        with open(created_out, "w", encoding="utf-8") as fh:
+            for p in created_files:
+                fh.write(p + "\n")
+        if verbose:
+            print(f"Wrote list of created CSVs to {created_out} ({len(created_files)} entries)")
+    except Exception as e:
+        print(f"Unable to write created_files_out {created_out}: {e}")
+        # ensure file exists (empty) so callers don't fail
+        try:
+            open(created_out, "w", encoding="utf-8").close()
+        except Exception:
+            pass
 
     # suppression finale au cas où (redondant mais sûr) : effacer tout contenu temporaire éventuel
     cleanup_potential_temp_dir(verbose=verbose)
@@ -2057,7 +1749,12 @@ def main(year=None, tournament_player_counts=None, verbose=True):
     return per_tournament_results
 
 # --------- Multi-year runner ----------
-def run_years(years=None, tpc_map=None, verbose=True):
+def run_years(years=None, tpc_map=None, verbose=True, requested_tournament_ids=None, created_files_out=None):
+    """
+    Autoscanning des variables tournament_player_counts_<YYYY> dans globals() sauf si tpc_map fourni.
+    Peut recevoir requested_tournament_ids (set/iterable de str) pour forcer le scraping de certains tid seulement.
+    created_files_out est propagé à main() pour écrire la liste des CSV créés.
+    """
     # autoscanning des variables tournament_player_counts_<YYYY> dans globals()
     auto_map = {}
     g = globals()
@@ -2090,7 +1787,12 @@ def run_years(years=None, tpc_map=None, verbose=True):
             print(f"  -> Aucun dictionnaire tournament_player_counts_{y} trouvé — saut de l'année.")
             continue
         try:
-            per_tid = main(year=y, tournament_player_counts=tpc, verbose=verbose)
+            # on passe requested_tournament_ids et created_files_out à main()
+            per_tid = main(year=y,
+                           tournament_player_counts=tpc,
+                           verbose=verbose,
+                           requested_tournament_ids=requested_tournament_ids,
+                           created_files_out=created_files_out)
             results[y] = per_tid
         except Exception as e:
             print(f"Erreur en traitant l'année {y}: {e}")
@@ -2101,21 +1803,47 @@ def run_years(years=None, tpc_map=None, verbose=True):
 def parse_args_and_run():
     parser = argparse.ArgumentParser(description="Lancer pipeline tennis pour une ou plusieurs années.")
     parser.add_argument("--years", help="Liste d'années séparées par des virgules, ex: 2024,2025", default=None)
-    parser.add_argument("--all", help="Exécuter pour toutes les variables tournament_player_counts_<YYYY> trouvées", action="store_true")
+    parser.add_argument("--all", help="Exécuter pour toutes les années (auto-detect)", action="store_true")
     parser.add_argument("--verbose", help="Verbose output", action="store_true")
+    parser.add_argument("--tournament-ids", help='Comma-separated tournament ids to process (ex: "800,1050")', default=None)
+    parser.add_argument("--tournament-dict-path", help='Path to tournament dict JSON (optional)', default=None)
+    parser.add_argument("--created-files-out", help='Path to write created files list (one per line)', default="created_files.txt")
     args = parser.parse_args()
 
     years = None
     if args.years:
         years = [y.strip() for y in args.years.split(",") if y.strip()]
 
+    # load external tournament dict if provided
+    tpc_map = None
+    if args.tournament_dict_path:
+        try:
+            with open(args.tournament_dict_path, "r", encoding="utf-8") as fh:
+                tpc_map = json.load(fh)
+            print(f"Loaded tournament dict from {args.tournament_dict_path}")
+        except Exception as e:
+            print(f"Cannot load tournament dict from {args.tournament_dict_path}: {e}")
+            tpc_map = None
+
+    # parse requested ids
+    requested_ids = None
+    if args.tournament_ids:
+        requested_ids = [s.strip() for s in args.tournament_ids.split(",") if s.strip()]
+        print("Requested tournament ids:", requested_ids)
+
     if not args.all and not years:
         years = [str(YEAR)]
 
     if args.all:
-        run_years(years=None, tpc_map=None, verbose=args.verbose)
+        # pass through requested ids / tpc_map if present
+        run_years(years=None, tpc_map=tpc_map, verbose=args.verbose,
+                  requested_tournament_ids=requested_ids,
+                  created_files_out=args.created_files_out)
     else:
-        run_years(years=years, tpc_map=None, verbose=args.verbose)
+        run_years(years=years, tpc_map=tpc_map, verbose=args.verbose,
+                  requested_tournament_ids=requested_ids,
+                  created_files_out=args.created_files_out)
+        
 
 if __name__ == "__main__":
     parse_args_and_run()
