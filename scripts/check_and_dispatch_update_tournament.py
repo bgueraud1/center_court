@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Lit data/tournament_player_counts_2026.json
+Lit docs/data/tournament_player_counts_2026.json
 Pour chaque (tid -> [count, start, end, flag]) calcule (end_date + 1 day).
 Si aujourd'hui (Europe/Paris) est égal à cette date, ajoute tid à la liste à dispatcher.
 Si au moins 1 tid : POST /actions/workflows/update_tournament.yml/dispatches avec inputs.tournament_ids="800,1050,..."
