@@ -2,15 +2,13 @@ name: Update tournament(s)
 
 permissions:
   contents: write
-  
+
 on:
   workflow_dispatch:
     inputs:
       tournament_ids:
         description: 'Comma-separated list of tournament ids to scrape (ex: "800,1050")'
         required: true
-
-
 
 jobs:
   run_update:
@@ -46,6 +44,9 @@ jobs:
           TOURNAMENT_DICT_PATH: docs/data/tournament_player_counts_2026.json
           # pass the workflow input as env
           TIDS_INPUT: ${{ github.event.inputs.tournament_ids }}
+          # expose PAT so scripts/steps that expect PAT_FOR_CI or PAT can use it
+          PAT_FOR_CI: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
+          PAT_UPDATE_TOURNAMENT: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
         run: |
           set -euo pipefail
           echo "TIDS_INPUT=${TIDS_INPUT}"
@@ -71,10 +72,11 @@ jobs:
         env:
           GIT_AUTHOR_NAME: "github-actions[bot]"
           GIT_AUTHOR_EMAIL: "github-actions[bot]@users.noreply.github.com"
+          # expose PAT for push step as well (fallback to GITHUB_TOKEN in commit step)
+          PAT: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # Mirror docs/matches_json into site_static/matches_json (adjust to your layout)
           mkdir -p site_static/matches_json
           cp -av docs/matches_json/* site_static/matches_json/ || true
 
@@ -85,9 +87,14 @@ jobs:
 
           if [ -n "$(git status --porcelain)" ]; then
             git commit -m "ci(update_tournament): add scraped tournaments and generated jsons" || true
-            # push using token
-            git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}"
-            git push origin HEAD:main || git push --force-with-lease origin HEAD:main || true
+            # push using token (PAT preferred, else GITHUB_TOKEN)
+            AUTH="${PAT:-${GITHUB_TOKEN}}"
+            if [ -z "$AUTH" ]; then
+              echo "No auth available to push — skipping push"
+            else
+              git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}"
+              git push origin HEAD:main || git push --force-with-lease origin HEAD:main || true
+            fi
           else
             echo "No changes to commit"
           fi

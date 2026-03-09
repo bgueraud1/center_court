@@ -6,7 +6,6 @@ permissions:
 on:
   schedule:
     # Deux crons UTC pour couvrir l'alternance CET/CEST.
-    # L'un des deux tombera dans l'intervalle 00:00–01:00 Europe/Paris selon DST.
     - cron: '30 22 * * *'  # 22:30 UTC => ~00:30 Europe/Paris (hiver/été selon DST)
     - cron: '30 23 * * *'  # 23:30 UTC => ~00:30 Europe/Paris (hiver/été selon DST)
   workflow_dispatch: {}
@@ -30,15 +29,16 @@ jobs:
           echo "Workspace: $GITHUB_WORKSPACE"
           ls -la | sed -n '1,200p'
 
-
       - name: Check tournaments and dispatch update_tournament (if needed)
         env:
           TOURNAMENT_DICT_PATH: docs/data/tournament_player_counts_2026.json
-          PAT_FOR_CI: ${{ secrets.PAT_FOR_CI }}
+          # Expose your PAT secret under multiple env names for compatibility:
+          PAT_UPDATE_TOURNAMENT: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
+          PAT_FOR_CI: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
+          UPDATE_TOURNAMENT: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
         run: |
           set -euo pipefail
           python3 scripts/check_and_dispatch_update_tournament.py
-
 
       - name: Decide whether to proceed (Europe/Paris hour in [00:00..00:59])
         id: check_time
@@ -97,14 +97,10 @@ jobs:
             --out-geocodes "${BUILD_DIR}/tools/geocodes_combined.json" || true
 
           # NEW ADDITION: run the H2H daily selection script (produit docs/selected_players.json)
-          # Ce script (generate_daily_guess_h2h.py) écrit par défaut dans docs/selected_players.json
           python scripts/generate_daily_guess_h2h.py || true
 
           # NEW: generate aggregates and grids for "fill the grid" game
-          # generate_pre_json_grid.py écrit aggregate_ATP_reduced.json et aggregate_WTA_reduced.json dans docs/games
           python scripts/generate_pre_json_grid.py || true
-
-          # generate_grid.py lit les aggregates et écrit fill_the_grid_ATP.json et fill_the_grid_WTA.json dans docs/games
           python scripts/generate_grid.py || true
 
           echo ">>> After generation: listing possible locations"
@@ -171,7 +167,6 @@ jobs:
           fi
 
           # NEW: selected_players.json from generate_daily_guess_h2h.py
-          # The script writes docs/selected_players.json by default; mirror it into docs/tools and site_static/tools
           if [ -f "${BUILD_DIR}/tools/selected_players.json" ]; then
             cp -v "${BUILD_DIR}/tools/selected_players.json" docs/tools/selected_players.json || true
             cp -v "${BUILD_DIR}/tools/selected_players.json" site_static/tools/selected_players.json || true
@@ -185,7 +180,6 @@ jobs:
           fi
 
           # NEW: copy fill the grid outputs and aggregates (docs/games -> site_static/games)
-          # Aggregates (generate_pre_json_grid.py)
           if [ -f "docs/games/aggregate_ATP_reduced.json" ]; then
             cp -v "docs/games/aggregate_ATP_reduced.json" site_static/games/aggregate_ATP_reduced.json || true
           else
@@ -251,19 +245,18 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
           set -euxo pipefail
-          # Remove temporary build directory to ensure working tree is clean for rebase/push
           if [ -d "${BUILD_DIR}/tools" ]; then
             rm -rf "${BUILD_DIR}/tools" || true
             echo "Removed ${BUILD_DIR}/tools to avoid rebase conflicts"
           fi
-          # Also remove any stale untracked files we don't want interfering (careful)
           git clean -fd -n || true
           echo "Workspace cleaned (dry-run shown above)."
 
       - name: Push changes (use PAT if available, else GITHUB_TOKEN)
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         env:
-          PAT: ${{ secrets.PAT_FOR_CI }}
+          # use the PAT you created; fallback to GITHUB_TOKEN if needed
+          PAT: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
