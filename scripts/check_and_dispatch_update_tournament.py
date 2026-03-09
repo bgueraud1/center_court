@@ -1,24 +1,37 @@
 #!/usr/bin/env python3
-"""
-Lit docs/data/tournament_player_counts_2026.json
-Pour chaque (tid -> [count, start, end, flag]) calcule (end_date + 1 day).
-Si aujourd'hui (Europe/Paris) est égal à cette date, ajoute tid à la liste à dispatcher.
-Si au moins 1 tid : POST /actions/workflows/update_tournament.yml/dispatches avec inputs.tournament_ids="800,1050,..."
-Utilise GITHUB_REPOSITORY et GITHUB_TOKEN (ou PAT) définis dans l'environnement.
-Exit code:
-  0 -> rien à faire ou dispatch ok
-  non-0 -> erreur (dispatch échoué)
-"""
+# (en-tête inchangé...)
 import os
 import json
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import urllib.request
 import urllib.error
+import sys
 
 REPO = os.environ.get("GITHUB_REPOSITORY")
-TOKEN = os.environ.get("GITHUB_TOKEN") or os.environ.get("PAT_FOR_CI")
-WORKFLOW_FILE = "update_tournament.yml"  # name of the workflow file in .github/workflows
+# try multiple env names for PAT / token (backwards compat)
+TOKEN_ENV_CANDIDATES = ["GITHUB_TOKEN", "PAT_FOR_CI", "PAT_UPDATE_TOURNAMENT", "UPDATE_TOURNAMENT", "PAT"]
+
+def get_token_from_env():
+    for name in TOKEN_ENV_CANDIDATES:
+        val = os.environ.get(name)
+        if val:
+            return name, val
+    return None, None
+
+if not REPO:
+    print("GITHUB_REPOSITORY not set; aborting (must run inside GitHub Actions)")
+    sys.exit(1)
+
+token_name, TOKEN = get_token_from_env()
+if not TOKEN:
+    print("No GITHUB_TOKEN or PAT_FOR_CI or other PAT provided — cannot dispatch workflow. Aborting.")
+    sys.exit(10)
+else:
+    # Don't print the token value. Print only which env var was used.
+    print(f"Using token from env var: {token_name}")
+
+WORKFLOW_FILE = "update_tournament.yml" 
 
 if not REPO:
     print("GITHUB_REPOSITORY not set; aborting (must run inside GitHub Actions)")
