@@ -10,7 +10,7 @@ import sys
 
 REPO = os.environ.get("GITHUB_REPOSITORY")
 # try multiple env names for PAT / token (backwards compat)
-TOKEN_ENV_CANDIDATES = ["GITHUB_TOKEN", "PAT_FOR_CI", "PAT_UPDATE_TOURNAMENT", "UPDATE_TOURNAMENT", "PAT"]
+TOKEN_ENV_CANDIDATES = ["PAT_UPDATE_TOURNAMENT", "UPDATE_TOURNAMENT"]
 
 def get_token_from_env():
     for name in TOKEN_ENV_CANDIDATES:
