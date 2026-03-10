@@ -31,7 +31,7 @@ else:
     # Don't print the token value. Print only which env var was used.
     print(f"Using token from env var: {token_name}")
 
-WORKFLOW_FILE = "update_tournament.yml" 
+WORKFLOW_FILE = "update_tournament.yaml" 
 
 if not REPO:
     print("GITHUB_REPOSITORY not set; aborting (must run inside GitHub Actions)")
