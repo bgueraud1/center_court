@@ -42,7 +42,7 @@ jobs:
 
       - name: Run scraping_main for requested tournaments
         env:
-          TOURNAMENT_DICT_PATH: docs/data/tournament_player_counts_2026.json
+          TOURNAMENT_DICT_PATH: docs/wta_tournaments_2026.json
           # pass the workflow input as env
           TIDS_INPUT: ${{ github.event.inputs.tournament_ids }}
           # expose PAT so scripts/steps that expect PAT_FOR_CI or PAT can use it
@@ -53,6 +53,22 @@ jobs:
           echo "TIDS_INPUT=${TIDS_INPUT}"
           # invoke scraping_main with --tournament-ids and --tournament-dict-path
           python3 scripts/scraping_main.py --tournament-ids "${TIDS_INPUT}" --tournament-dict-path "${TOURNAMENT_DICT_PATH}" --created-files-out created_files.txt
+
+      - name: Run scraping_atp_matches for requested tournaments
+        env:
+          TOURNAMENT_DICT_PATH: docs/atp_tournaments_2026.json
+          # pass the workflow input as env
+          TIDS_INPUT: ${{ github.event.inputs.tournament_ids }}
+          # expose PAT so scripts/steps that expect PAT_FOR_CI or PAT can use it
+          PAT_FOR_CI: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
+          PAT_UPDATE_TOURNAMENT: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
+        run: |
+          set -euo pipefail
+          echo "TIDS_INPUT=${TIDS_INPUT}"
+          # invoke scraping_atp_matches.py (must accept same CLI as previous scraping_main)
+          python3 scripts/scraping_atp_matches.py --tournament-ids "${TIDS_INPUT}" --tournament-dict-path "${TOURNAMENT_DICT_PATH}" --created-files-out created_files.txt
+
+
 
       - name: Show created files
         run: |
