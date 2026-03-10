@@ -17,6 +17,8 @@ from playwright.sync_api import sync_playwright
 import json
 from textwrap import shorten
 
+CREATED_FILES = []
+
 URL = "https://www.atptour.com/-/Hawkeye/MatchStats/Complete/2026/339/MS001"
 
 def fetch_with_playwright(headless: bool = True):
@@ -612,6 +614,13 @@ def run_scrape_with_retries(
             df.to_csv(outpath, index=False)
             if verbose:
                 print(f"[proc] sauvegardé -> {outpath} ({len(df)} lignes, {len(df.columns)} colonnes)")
+
+                        # record created files for CI
+            try:
+                rel = os.path.relpath(outpath, start=Path.cwd())
+            except Exception:
+                rel = str(outpath)
+            CREATED_FILES.append(rel)
         else:
             if verbose:
                 print(f"[proc] aucune ligne recueillie pour tournoi {tourn_id}.")
@@ -887,17 +896,23 @@ def build_tournaments_by_year_from_json(tournaments_json_path: str, days_after_e
 # ---------- CLI / main ----------
 def _build_arg_parser():
     p = argparse.ArgumentParser(description="Sélection + lancement du scraper ATP based on tournaments JSON.")
-    p.add_argument("--tournaments-json", "-j", type=str, default="docs/atp_tournaments_2026.json", help="Path to tournaments JSON (structure with TournamentDates).")
+    p.add_argument("--tournaments-json", "-j", type=str, default="docs/atp_tournaments_2026.json",
+                   help="Path to tournaments JSON (structure with TournamentDates).")
+    p.add_argument("--tournament-ids", type=str, default=None,
+                   help="Comma-separated tournament ids to run (overrides date-based selection).")
     p.add_argument("--days-after-end", "-d", type=int, default=1, help="Days after tournament end to trigger scraping (default 1).")
-    p.add_argument("--out-folder", "-o", type=str, default="data_atp", help="Output folder for scraped CSVs/debug.")
+    p.add_argument("--out-folder", "--out-dir", dest="out_folder", type=str, default="data_atp", help="Output folder for scraped CSVs/debug.")
     p.add_argument("--headless", action="store_true", help="Run browsers in headless mode (default False).")
     p.add_argument("--max-attempts", type=int, default=10, help="max_attempts_per_match passed to run_scrape_with_retries.")
     p.add_argument("--wait-between-retries", type=float, default=4.0, help="wait_between_retries")
     p.add_argument("--wait-between-rounds", type=float, default=5.0, help="wait_between_rounds")
     p.add_argument("--pause-between-years", type=float, default=5.0, help="pause between years when running multi-year")
     p.add_argument("--today", type=str, default=None, help="Override 'today' (YYYY-MM-DD) for testing.")
+    p.add_argument("--created-files-out", type=str, default="created_files.txt", help="Write a newline-separated list of created CSVs here.")
     p.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     return p
+
+
 
 def main(argv=None):
     parser = _build_arg_parser()
@@ -912,26 +927,56 @@ def main(argv=None):
     else:
         today_override = None
 
-    try:
+        # --- build tournaments_by_year from either provided ids OR date-selection
+    if args.tournament_ids:
+        # read JSON and pick the requested ids (ignore date)
+        ids = set()
+        for token in re.split(r"[,\s;]+", args.tournament_ids.strip()):
+            if token:
+                try:
+                    ids.add(int(token))
+                except Exception:
+                    pass
+        raw = json.loads(Path(args.tournaments_json).read_text(encoding="utf-8"))
+        tournaments_by_year = {}
+        tdates = raw.get("TournamentDates") or []
+        for month_block in tdates:
+            for t in month_block.get("Tournaments") or []:
+                try:
+                    tid_raw = t.get("Id") or t.get("ID") or t.get("IdTournament")
+                    if tid_raw is None:
+                        continue
+                    tid = int(str(tid_raw))
+                except Exception:
+                    continue
+                if tid not in ids:
+                    continue
+                start_iso, end_iso, year = parse_formatted_date(t.get("FormattedDate") or "")
+                if not year:
+                    try:
+                        year = int(t.get("Year")) if t.get("Year") else None
+                    except Exception:
+                        year = None
+                if year is None:
+                    year = datetime.now().year
+                sgl = t.get("SglDrawSize") or t.get("SglDraw") or t.get("Sgl")
+                try:
+                    sgl_n = int(sgl) if sgl is not None else 0
+                except Exception:
+                    sgl_n = 0
+                typ = t.get("Type") or ""
+                is_gs = 1 if str(typ).strip().upper() == "GS" else 0
+                tournaments_by_year.setdefault(year, {})[tid] = [sgl_n, start_iso, end_iso, is_gs]
+        if args.verbose:
+            print(f"[main] selected by --tournament-ids -> years: {sorted(tournaments_by_year.keys())}")
+    else:
         tournaments_by_year = build_tournaments_by_year_from_json(
             args.tournaments_json,
             days_after_end=args.days_after_end,
             verbose=args.verbose,
             today_override=today_override
         )
-    except FileNotFoundError as e:
-        print(f"ERROR: {e}", file=sys.stderr)
-        sys.exit(1)
 
-    if not tournaments_by_year:
-        if args.verbose:
-            print("[main] Aucun tournoi sélectionné pour aujourd'hui. Rien à faire.")
-        return
-
-    if args.verbose:
-        print("[main] tournaments_by_year prepared for scraping:")
-        for y, d in tournaments_by_year.items():
-            print(f"  year {y}: {len(d)} tournaments -> ids: {sorted(d.keys())}")
 
     # call runner
     run_scrape_multi_year(
@@ -944,6 +989,22 @@ def main(argv=None):
         wait_between_retries=args.wait_between_retries,
         pause_between_years=args.pause_between_years
     )
+
+
+        # runner returned, now write created files list for CI
+    if CREATED_FILES:
+        out_cf = args.created_files_out or "created_files.txt"
+        try:
+            with open(out_cf, "w", encoding="utf-8") as fh:
+                for p in CREATED_FILES:
+                    fh.write(p + "\n")
+            if args.verbose:
+                print(f"[main] wrote created files list -> {out_cf} ({len(CREATED_FILES)} entries)")
+        except Exception as e:
+            print(f"[warn] could not write created files list to {out_cf}: {e}", file=sys.stderr)
+    else:
+        if args.verbose:
+            print("[main] no created files to write.")
 
 if __name__ == "__main__":
     main()

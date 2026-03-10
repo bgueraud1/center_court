@@ -9,13 +9,20 @@ on:
       tournament_ids:
         description: 'Comma-separated list of tournament ids to scrape (ex: "800,1050")'
         required: true
+      tour_type:
+        description: 'Type of tour: "wta" or "atp"'
+        required: true
+        default: 'wta'
 
 jobs:
   run_update:
     runs-on: ubuntu-latest
     env:
       BUILD_DIR: ${{ github.workspace }}/docs_build
+      # Defaults; will be overridden in run-step based on tour_type
       OUT_MATCHES_DIR: matches/wta_matches
+      TOURNAMENT_DICT_PATH_WTA: docs/wta_tournaments_2026.json
+      TOURNAMENT_DICT_PATH_ATP: docs/atp_tournaments_2026.json
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,41 +47,38 @@ jobs:
           if [ -f requirements-build.txt ]; then pip install -r requirements-build.txt; fi
           pip install geopy pandas "selenium>=4.8" "webdriver-manager>=4.0"
 
-      - name: Run scraping_main for requested tournaments
+      - name: Run scraper for requested tournaments (WTA or ATP)
         env:
-          TOURNAMENT_DICT_PATH: docs/wta_tournaments_2026.json
-          # pass the workflow input as env
           TIDS_INPUT: ${{ github.event.inputs.tournament_ids }}
-          # expose PAT so scripts/steps that expect PAT_FOR_CI or PAT can use it
+          TOUR_TYPE: ${{ github.event.inputs.tour_type }}
           PAT_FOR_CI: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
           PAT_UPDATE_TOURNAMENT: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
+          TOURNAMENT_DICT_PATH_WTA: docs/wta_tournaments_2026.json
+          TOURNAMENT_DICT_PATH_ATP: docs/atp_tournaments_2026.json
         run: |
           set -euo pipefail
           echo "TIDS_INPUT=${TIDS_INPUT}"
-          # invoke scraping_main with --tournament-ids and --tournament-dict-path
-          python3 scripts/scraping_main.py --tournament-ids "${TIDS_INPUT}" --tournament-dict-path "${TOURNAMENT_DICT_PATH}" --created-files-out created_files.txt
+          echo "TOUR_TYPE=${TOUR_TYPE}"
 
-      - name: Run scraping_atp_matches for requested tournaments
-        env:
-          TOURNAMENT_DICT_PATH: docs/atp_tournaments_2026.json
-          # pass the workflow input as env
-          TIDS_INPUT: ${{ github.event.inputs.tournament_ids }}
-          # expose PAT so scripts/steps that expect PAT_FOR_CI or PAT can use it
-          PAT_FOR_CI: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
-          PAT_UPDATE_TOURNAMENT: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
-        run: |
-          set -euo pipefail
-          echo "TIDS_INPUT=${TIDS_INPUT}"
-          # invoke scraping_atp_matches.py (must accept same CLI as previous scraping_main)
-          python3 scripts/scraping_atp_matches.py --tournament-ids "${TIDS_INPUT}" --tournament-dict-path "${TOURNAMENT_DICT_PATH}" --created-files-out created_files.txt
+          # ensure output dirs exist
+          mkdir -p matches/wta_matches matches/atp_matches
+          rm -f created_files.txt || true
 
+          if [ "${TOUR_TYPE}" = "atp" ]; then
+            echo "Running ATP scraper for tids: ${TIDS_INPUT}"
+            # example invocation — adapte les flags si ton script les attend différemment
+            python3 scripts/scraping_atp_matches.py \  --tournament-ids "${TIDS_INPUT}" \  --tournaments-json "${TOURNAMENT_DICT_PATH_ATP}" \--out-folder "matches/atp_matches" \--created-files-out created_files.txt \--headless \--max-attempts 10
+            OUT_DIR="matches/atp_matches"
+          else
+            echo "Running WTA scraper (scraping_main) for tids: ${TIDS_INPUT}"
+            python3 scripts/scraping_main.py --tournament-ids "${TIDS_INPUT}" --tournament-dict-path "${TOURNAMENT_DICT_PATH_WTA}" --created-files-out created_files.txt
+            OUT_DIR="matches/wta_matches"
+          fi
 
-
-      - name: Show created files
-        run: |
-          echo "created_files.txt content:"
+          echo "Scraper finished. created_files.txt:"
           cat created_files.txt || true
-          ls -la matches/wta_matches || true
+          echo "Listing $OUT_DIR:"
+          ls -la "${OUT_DIR}" || true
 
       - name: Generate JSON per match for the newly scraped CSVs
         run: |
@@ -89,9 +93,9 @@ jobs:
         env:
           GIT_AUTHOR_NAME: "github-actions[bot]"
           GIT_AUTHOR_EMAIL: "github-actions[bot]@users.noreply.github.com"
-          # expose PAT for push step as well (fallback to GITHUB_TOKEN in commit step)
           PAT: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TOUR_TYPE: ${{ github.event.inputs.tour_type }}
         run: |
           set -euo pipefail
           mkdir -p site_static/matches_json
@@ -100,17 +104,24 @@ jobs:
           git config user.name "$GIT_AUTHOR_NAME"
           git config user.email "$GIT_AUTHOR_EMAIL"
 
-          git add -f docs/matches_json site_static/matches_json matches/wta_matches || true
+          # Stage generated JSONs always
+          git add -f docs/matches_json site_static/matches_json || true
+
+          # Stage the appropriate matches dir for commit
+          if [ "${TOUR_TYPE}" = "atp" ]; then
+            git add -f matches/atp_matches || true
+          else
+            git add -f matches/wta_matches || true
+          fi
 
           if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "ci(update_tournament): add scraped tournaments and generated jsons" || true
-            # push using token (PAT preferred, else GITHUB_TOKEN)
+            git commit -m "ci(update_tournament): add scraped ${TOUR_TYPE} tournaments and generated jsons" || true
             AUTH="${PAT:-${GITHUB_TOKEN}}"
-            if [ -z "$AUTH" ]; then
-              echo "No auth available to push — skipping push"
-            else
+            if [ -n "$AUTH" ]; then
               git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}"
               git push origin HEAD:main || git push --force-with-lease origin HEAD:main || true
+            else
+              echo "No auth available to push — skipping push"
             fi
           else
             echo "No changes to commit"
