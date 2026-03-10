@@ -29,9 +29,10 @@ jobs:
           echo "Workspace: $GITHUB_WORKSPACE"
           ls -la | sed -n '1,200p'
 
-      - name: Check tournaments and dispatch update_tournament (if needed)
+      # ---------------- EXISTING: WTA check & dispatch (unchanged) ----------------
+      - name: Check tournaments and dispatch update_tournament (if needed)  # WTA
         env:
-          TOURNAMENT_DICT_PATH: docs/data/tournament_player_counts_2026.json
+          TOURNAMENT_DICT_PATH: docs/wta_tournaments_2026.json
           # expose the secrets under several env names (pick the one you created)
           PAT_UPDATE_TOURNAMENT: ${{ secrets.PAT_UPDATE_TOURNAMENT || '' }}
           UPDATE_TOURNAMENT: ${{ secrets.UPDATE_TOURNAMENT || '' }}
@@ -47,6 +48,26 @@ jobs:
           if [ -z "${PAT_UPDATE_TOURNAMENT:-}" ]; then echo "  PAT_UPDATE_TOURNAMENT: MISSING"; else echo "  PAT_UPDATE_TOURNAMENT: PRESENT"; fi
           if [ -z "${UPDATE_TOURNAMENT:-}" ]; then echo "  UPDATE_TOURNAMENT: MISSING"; else echo "  UPDATE_TOURNAMENT: PRESENT"; fi
           echo "--- now calling check_and_dispatch_update_tournament.py ---"
+          python3 scripts/check_and_dispatch_update_tournament.py
+
+      # ---------------- NEW: ATP check & dispatch (added only) ----------------
+      - name: Check ATP tournaments and dispatch update_tournament (if needed)  # ATP
+        env:
+          TOURNAMENT_DICT_PATH: docs/atp_tournaments_2026.json
+          # expose the secrets under several env names (pick the one you created)
+          PAT_UPDATE_TOURNAMENT: ${{ secrets.PAT_UPDATE_TOURNAMENT || '' }}
+          UPDATE_TOURNAMENT: ${{ secrets.UPDATE_TOURNAMENT || '' }}
+          PAT_FOR_CI: ${{ secrets.PAT_UPDATE_TOURNAMENT || secrets.UPDATE_TOURNAMENT || '' }}
+          # keep GITHUB_TOKEN available as usual
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # debug: report which env vars are present (no secret values printed)
+          echo "ENV presence check (ATP):"
+          if [ -z "${GITHUB_TOKEN:-}" ]; then echo "  GITHUB_TOKEN: MISSING"; else echo "  GITHUB_TOKEN: PRESENT"; fi
+          if [ -z "${PAT_FOR_CI:-}" ]; then echo "  PAT_FOR_CI: MISSING"; else echo "  PAT_FOR_CI: PRESENT"; fi
+          if [ -z "${PAT_UPDATE_TOURNAMENT:-}" ]; then echo "  PAT_UPDATE_TOURNAMENT: MISSING"; else echo "  PAT_UPDATE_TOURNAMENT: PRESENT"; fi
+          echo "--- now calling check_and_dispatch_update_tournament.py (ATP JSON) ---"
           python3 scripts/check_and_dispatch_update_tournament.py
 
       - name: Decide whether to proceed (Europe/Paris hour in [00:00..00:59])
@@ -264,7 +285,7 @@ jobs:
       - name: Push changes (use PAT if available, else GITHUB_TOKEN)
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         env:
-          # use the PAT you created; fallback to GITHUB_TOKEN if needed
+          # use the PAT you created; fallback to GITHUB_TOKEN
           PAT: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

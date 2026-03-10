@@ -26,6 +26,73 @@ POTENTIAL_TEMP_DIR = "data_wta"
 
 # ---------------- utilitaires ----------------
 # -------------------- Helpers pour normalisation ATP --------------------
+
+
+
+# ---------- Conversion JSON WTA -> tournament_player_counts (format attendu) ----------
+def convert_wta_json_obj_to_tpc(js_obj):
+    """
+    Convertit un objet JSON provenant de docs/wta_tournaments_YYYY.json
+    (forme { "pageInfo":..., "content":[{...}, ...] } ou directement une liste)
+    en dict { tid_str: [draw, start_iso, end_iso, is_gc_flag] } compatible avec le reste
+    du code (details[0]=draw, details[1]=start_date, details[2]=end_date, details[3]=is_gc(1/0)).
+    Heuristique tid: on prend liveScoringId si présent et non-vide, sinon tournamentGroup.id.
+    """
+    try:
+        # repérer la liste d'items
+        if isinstance(js_obj, dict) and "content" in js_obj:
+            items = js_obj.get("content", []) or []
+        elif isinstance(js_obj, list):
+            items = js_obj
+        else:
+            # si c'est déjà le bon mapping (ancien format), on renvoie tel quel
+            if isinstance(js_obj, dict):
+                # vérifier si valeurs sont des listes de longueur >=4
+                ok = all(isinstance(v, (list,tuple)) and len(v) >= 4 for v in js_obj.values())
+                if ok:
+                    return js_obj
+            return {}
+
+        tpc = {}
+        for it in items:
+            try:
+                # tid heuristique
+                live = it.get("liveScoringId") if isinstance(it, dict) else None
+                tg = it.get("tournamentGroup") if isinstance(it, dict) else None
+                tid = None
+                if live and str(live).strip() != "":
+                    tid = str(live).strip()
+                elif isinstance(tg, dict) and tg.get("id") is not None:
+                    tid = str(tg.get("id"))
+                else:
+                    # fallback: try top-level id keys
+                    if it.get("id") is not None:
+                        tid = str(it.get("id"))
+                if not tid:
+                    # skip entries without any usable id
+                    continue
+
+                # draw
+                draw = it.get("singlesDrawSize") or it.get("singles_draw_size") or None
+
+                # dates -> utiliser la fonction existante parse_date_to_iso
+                start = parse_date_to_iso(it.get("startDate") or it.get("start_date"))
+                end = parse_date_to_iso(it.get("endDate") or it.get("end_date"))
+
+                # detect Grand Slam
+                level = (it.get("level") or "").strip() if isinstance(it, dict) else ""
+                is_gc = 1 if (str(level).strip().lower() == "grand slam" or str(level).strip().upper() in ("GC","GRAND SLAM")) else 0
+
+                tpc[tid] = [draw, start, end, is_gc]
+            except Exception:
+                # ignore entry on error
+                continue
+        return tpc
+    except Exception:
+        return {}
+    
+
+
 def _safe_float(v):
     try:
         if v is None:
@@ -1815,12 +1882,23 @@ def parse_args_and_run():
         years = [y.strip() for y in args.years.split(",") if y.strip()]
 
     # load external tournament dict if provided
+        # load external tournament dict if provided
     tpc_map = None
     if args.tournament_dict_path:
         try:
             with open(args.tournament_dict_path, "r", encoding="utf-8") as fh:
-                tpc_map = json.load(fh)
-            print(f"Loaded tournament dict from {args.tournament_dict_path}")
+                raw = json.load(fh)
+            # si le JSON est du nouveau format (pageInfo/content ou liste d'objets), le convertir
+            if isinstance(raw, dict) and (("pageInfo" in raw) or ("content" in raw)):
+                tpc_map = convert_wta_json_obj_to_tpc(raw)
+                print(f"Loaded & converted WTA tournaments JSON from {args.tournament_dict_path}")
+            elif isinstance(raw, list):
+                tpc_map = convert_wta_json_obj_to_tpc(raw)
+                print(f"Loaded & converted WTA tournaments JSON (list) from {args.tournament_dict_path}")
+            else:
+                # supposer que c'est déjà le mapping attendu (ancien format)
+                tpc_map = raw
+                print(f"Loaded tournament dict from {args.tournament_dict_path}")
         except Exception as e:
             print(f"Cannot load tournament dict from {args.tournament_dict_path}: {e}")
             tpc_map = None
