@@ -23,6 +23,7 @@ jobs:
       OUT_MATCHES_DIR: matches/wta_matches
       TOURNAMENT_DICT_PATH_WTA: docs/wta_tournaments_2026.json
       TOURNAMENT_DICT_PATH_ATP: docs/atp_tournaments_2026.json
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,6 +35,7 @@ jobs:
       - name: Show workspace (debug)
         run: |
           echo "Workspace: $GITHUB_WORKSPACE"
+          pwd
           ls -la | sed -n '1,200p'
 
       - name: Setup Python
@@ -43,6 +45,7 @@ jobs:
 
       - name: Install build deps
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
           if [ -f requirements-build.txt ]; then pip install -r requirements-build.txt; fi
           pip install geopy pandas "selenium>=4.8" "webdriver-manager>=4.0" playwright
@@ -72,7 +75,7 @@ jobs:
           if [ "${TOUR_TYPE}" = "atp" ]; then
             echo "Running ATP scraper for tids: ${TIDS_TRIMMED:-(none)}"
 
-            # build args safely (handles empty TIDS_INPUT => use date-based selection inside the script)
+            # build args safely
             ARGS=(scripts/scraping_atp_matches.py)
             if [ -n "${TIDS_TRIMMED}" ]; then
               ARGS+=(--tournament-ids "${TIDS_TRIMMED}")
@@ -90,7 +93,6 @@ jobs:
           else
             echo "Running WTA scraper (scraping_main) for tids: ${TIDS_TRIMMED:-(none)}"
 
-            # WTA path: if TIDS present, pass them, otherwise let script select by date
             ARGS=(scripts/scraping_main.py)
             if [ -n "${TIDS_TRIMMED}" ]; then
               ARGS+=(--tournament-ids "${TIDS_TRIMMED}")
@@ -103,90 +105,43 @@ jobs:
             OUT_DIR="matches/wta_matches"
           fi
 
-          echo "Scraper finished. created_files.txt:"
-          cat created_files.txt || true
+          echo "Scraper finished. created_files.txt (raw):"
+          if [ -f created_files.txt ]; then
+            cat created_files.txt || true
+          else
+            echo " - created_files.txt not found"
+          fi
+
           echo "Listing $OUT_DIR:"
           ls -la "${OUT_DIR}" || true
 
-      - name: Convert scraped CSVs -> per-tournament JSONs (docs/data/tournaments)
+          # If created_files.txt is missing or empty, try to auto-discover CSVs in OUT_DIR
+          if [ ! -s created_files.txt ]; then
+            echo "created_files.txt is missing or empty — discovering CSVs under ${OUT_DIR}..."
+            if [ -d "${OUT_DIR}" ]; then
+              find "${OUT_DIR}" -type f -name '*.csv' -print > created_files.txt || true
+            fi
+            echo "After discovery, created_files.txt:"
+            cat created_files.txt || true
+          fi
+
+      - name: Generate JSON per match for the newly scraped CSVs (to docs/data/tournaments)
         run: |
           set -euo pipefail
-          mkdir -p docs/data/tournaments
+          # New target dir requested by you
+          OUTPUT_JSON_DIR=docs/data/tournaments
+          mkdir -p "${OUTPUT_JSON_DIR}"
 
-          # Build list of CSVs from created_files.txt if available, else glob both matches dirs
-          FILES=()
           if [ -f created_files.txt ]; then
-            while IFS= read -r L || [ -n "$L" ]; do
-              LTRIM="$(echo "$L" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-              [ -n "$LTRIM" ] && FILES+=("$LTRIM")
-            done < created_files.txt
+            echo "Calling generate_match_jsons.py -> ${OUTPUT_JSON_DIR}"
+            python3 scripts/generate_match_jsons.py --input-list created_files.txt --output "${OUTPUT_JSON_DIR}"
+            echo "Listing ${OUTPUT_JSON_DIR}:"
+            ls -la "${OUTPUT_JSON_DIR}" || true
           else
-            for p in matches/wta_matches matches/atp_matches; do
-              [ -d "$p" ] || continue
-              for f in "$p"/*.csv; do
-                [ -f "$f" ] && FILES+=("$f")
-              done
-            done
+            echo "No created_files.txt found, skipping json generation"
           fi
 
-          if [ ${#FILES[@]} -eq 0 ]; then
-            echo "No CSV files found to convert -> nothing to do"
-            exit 0
-          fi
-
-          echo "Files to process:"
-          for f in "${FILES[@]}"; do echo "  - $f"; done
-
-          # create a temporary list so Python can read reliably
-          TMPLIST=".ci_created_csvs.txt"
-          printf "%s\n" "${FILES[@]}" > "$TMPLIST"
-
-          python3 - <<'PY'
-import os, json, re
-import pandas as pd
-tmp = ".ci_created_csvs.txt"
-out_dir = "docs/data/tournaments"
-os.makedirs(out_dir, exist_ok=True)
-created = []
-with open(tmp, "r", encoding="utf-8") as fh:
-    for line in fh:
-        path = line.strip()
-        if not path:
-            continue
-        if not os.path.exists(path):
-            print(f"Warning: {path} does not exist, skipping")
-            continue
-        base = os.path.basename(path)
-        m = re.match(r'^(wta|atp)_(\d+)_(\d{4})\.csv$', base, re.IGNORECASE)
-        if not m:
-            print(f"Skipping {base}: unexpected filename format (expected wta|atp_<id>_<year>.csv)")
-            continue
-        prefix = m.group(1).lower()
-        tid = m.group(2)
-        year = m.group(3)
-        out_name = f"{prefix}_{tid}_{year}.json"
-        out_path = os.path.join(out_dir, out_name)
-        try:
-            df = pd.read_csv(path)
-            # replace NaN by None for JSON serialisation
-            data = df.where(pd.notnull(df), None).to_dict(orient='records')
-            with open(out_path, "w", encoding="utf-8") as of:
-                json.dump(data, of, ensure_ascii=False, indent=2)
-            print(f"WROTE {out_path} ({len(data)} records)")
-            created.append(out_path)
-        except Exception as e:
-            print(f"Error converting {path} -> {e}")
-with open("created_tournament_jsons.txt", "w", encoding="utf-8") as fh:
-    for p in created:
-        fh.write(p + "\n")
-print("Conversion finished.")
-PY
-
-          rm -f "$TMPLIST" || true
-          echo "Created JSON list (created_tournament_jsons.txt):"
-          cat created_tournament_jsons.txt || true
-
-      - name: Commit CSVs and generated tournament JSONs and push (with PR fallback)
+      - name: Copy generated JSONs into site_static/docs/data/tournaments and commit
         env:
           GIT_AUTHOR_NAME: "github-actions[bot]"
           GIT_AUTHOR_EMAIL: "github-actions[bot]@users.noreply.github.com"
@@ -195,61 +150,43 @@ PY
           TOUR_TYPE: ${{ github.event.inputs.tour_type }}
         run: |
           set -euo pipefail
+          OUTPUT_JSON_DIR=docs/data/tournaments
+          SITE_JSON_DIR=site_static/docs/data/tournaments
+
+          mkdir -p "${SITE_JSON_DIR}"
+          # copy generated JSONs (if any) to site_static
+          if [ -d "${OUTPUT_JSON_DIR}" ]; then
+            cp -av "${OUTPUT_JSON_DIR}/"* "${SITE_JSON_DIR}/" || true
+          else
+            echo "${OUTPUT_JSON_DIR} does not exist — nothing to copy"
+          fi
 
           git config user.name "$GIT_AUTHOR_NAME"
           git config user.email "$GIT_AUTHOR_EMAIL"
 
-          # Force-add CSVs (they may be in .gitignore)
-          git add -f matches/wta_matches/*.csv || true
-          git add -f matches/atp_matches/*.csv || true
+          # Stage everything relevant (force add on paths that might be gitignored)
+          git add -A || true
+          git add -f "${OUTPUT_JSON_DIR}" "${SITE_JSON_DIR}" || true
 
-          # Add generated JSONs
-          git add -f docs/data/tournaments || true
+          if [ "${TOUR_TYPE}" = "atp" ]; then
+            git add -f matches/atp_matches || true
+          else
+            git add -f matches/wta_matches || true
+          fi
 
-          # Traceability
-          git add -f created_files.txt created_tournament_jsons.txt || true
-
-          echo "---- git status (porcelain) ----"
-          git status --porcelain -uall || true
-          echo "---- staged files ----"
-          git diff --staged --name-only || true
-
+          echo "Git status (porcelain):"
+          git status --porcelain || true
           if [ -n "$(git status --porcelain)" ]; then
-            echo "Committing..."
-            git commit -m "ci(update_tournament): add scraped ${TOUR_TYPE} CSVs and per-tournament JSONs" || echo "No commit created (maybe nothing to commit)"
-
-            AUTH="${PAT:-${GITHUB_TOKEN:-}}"
-            if [ -z "$AUTH" ]; then
-              echo "ERROR: No auth available to push. Set secrets.PAT_UPDATE_TOURNAMENT (recommended) or ensure GITHUB_TOKEN is present and has appropriate rights."
-              exit 1
-            fi
-
-            # set remote to use token
-            REMOTE_URL="https://x-access-token:${AUTH}@github.com/${{ github.repository }}"
-            git remote set-url origin "$REMOTE_URL"
-
-            echo "Attempting to push directly to main..."
-            if git push origin HEAD:main; then
-              echo "Push to main succeeded."
+            # commit and push using PAT if available, otherwise fallback to GITHUB_TOKEN
+            git commit -m "ci(update_tournament): add scraped ${TOUR_TYPE} tournaments and generated jsons" || true
+            AUTH="${PAT:-${GITHUB_TOKEN}}"
+            if [ -n "$AUTH" ]; then
+              # set remote with token for push
+              git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}" || true
+              # push to main branch (adjust branch name if needed)
+              git push origin HEAD:main || git push --force-with-lease origin HEAD:main || true
             else
-              echo "Push to main failed (branch protected or rejected). Falling back to branch + PR..."
-              BRANCH="ci/update-tournaments-$(date +%s)"
-              echo "Pushing to branch ${BRANCH}..."
-              git push origin HEAD:${BRANCH}
-
-              PR_TITLE="ci(update): add scraped ${TOUR_TYPE} CSVs + per-tournament JSONs"
-              PR_BODY="Automated PR created by CI to add scraped CSVs and generated per-tournament JSONs (docs/data/tournaments)."
-
-              # create PR
-              DATA=$(printf '{"title":"%s","head":"%s","base":"main","body":"%s"}' "$PR_TITLE" "$BRANCH" "$PR_BODY")
-              curl -sS -X POST \
-                -H "Authorization: token ${AUTH}" \
-                -H "Accept: application/vnd.github+json" \
-                "https://api.github.com/repos/${{ github.repository }}/pulls" \
-                -d "$DATA" -o /tmp/pr_resp.json -w "\nHTTP_STATUS:%{http_code}\n"
-
-              cat /tmp/pr_resp.json || true
-              echo "If PR creation failed, inspect the above JSON and the job logs."
+              echo "No auth available to push — skipping push"
             fi
           else
             echo "No changes to commit"
