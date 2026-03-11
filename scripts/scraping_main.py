@@ -1902,6 +1902,23 @@ def parse_args_and_run():
         except Exception as e:
             print(f"Cannot load tournament dict from {args.tournament_dict_path}: {e}")
             tpc_map = None
+            
+
+
+
+        # --- normalize shape: if tpc_map looks like { tid: details }, wrap under YEAR -> { "2026": { tid: details } }
+    try:
+        if isinstance(tpc_map, dict) and tpc_map:
+            # sample value: if it's a list/tuple (draw,start,end,is_gc) -> it's tid->details mapping
+            sample_val = next(iter(tpc_map.values()))
+            if isinstance(sample_val, (list, tuple)):
+                # wrap under YEAR string so run_years will detect it as an year's dict
+                # keep YEAR as string because parse_args_and_run earlier turns years into strings
+                tpc_map = { str(YEAR): tpc_map }
+                print(f"Note: wrapped tournament dict under year {YEAR} (detected tid->details mapping).")
+    except Exception:
+        # non-fatal: if detection fails, keep original tpc_map and let run_years handle missing years
+        pass
 
     # parse requested ids
     requested_ids = None
