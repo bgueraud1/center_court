@@ -65,14 +65,41 @@ jobs:
           mkdir -p matches/wta_matches matches/atp_matches
           rm -f created_files.txt || true
 
+          # helper to trim whitespace and check non-empty
+          trim() { printf '%s' "$1" | awk '{$1=$1;print}'; }
+          TIDS_TRIMMED="$(trim "${TIDS_INPUT:-}")"
+
           if [ "${TOUR_TYPE}" = "atp" ]; then
-            echo "Running ATP scraper for tids: ${TIDS_INPUT}"
-            # example invocation — adapte les flags si ton script les attend différemment
-            python3 scripts/scraping_atp_matches.py \  --tournament-ids "${TIDS_INPUT}" \  --tournaments-json "${TOURNAMENT_DICT_PATH_ATP}" \--out-folder "matches/atp_matches" \--created-files-out created_files.txt \--headless \--max-attempts 10
+            echo "Running ATP scraper for tids: ${TIDS_TRIMMED:-(none)}"
+
+            # build args safely (handles empty TIDS_INPUT => use date-based selection inside the script)
+            ARGS=(scripts/scraping_atp_matches.py)
+            if [ -n "${TIDS_TRIMMED}" ]; then
+              ARGS+=(--tournament-ids "${TIDS_TRIMMED}")
+            fi
+            ARGS+=(--tournaments-json "${TOURNAMENT_DICT_PATH_ATP}")
+            ARGS+=(--out-folder "matches/atp_matches")
+            ARGS+=(--created-files-out created_files.txt)
+            ARGS+=(--headless)
+            ARGS+=(--max-attempts 10)
+
+            echo "Calling: python3 ${ARGS[*]}"
+            python3 "${ARGS[@]}"
             OUT_DIR="matches/atp_matches"
+
           else
-            echo "Running WTA scraper (scraping_main) for tids: ${TIDS_INPUT}"
-            python3 scripts/scraping_main.py --tournament-ids "${TIDS_INPUT}" --tournament-dict-path "${TOURNAMENT_DICT_PATH_WTA}" --created-files-out created_files.txt
+            echo "Running WTA scraper (scraping_main) for tids: ${TIDS_TRIMMED:-(none)}"
+
+            # WTA path: if TIDS present, pass them, otherwise let script select by date
+            ARGS=(scripts/scraping_main.py)
+            if [ -n "${TIDS_TRIMMED}" ]; then
+              ARGS+=(--tournament-ids "${TIDS_TRIMMED}")
+            fi
+            ARGS+=(--tournament-dict-path "${TOURNAMENT_DICT_PATH_WTA}")
+            ARGS+=(--created-files-out created_files.txt)
+
+            echo "Calling: python3 ${ARGS[*]}"
+            python3 "${ARGS[@]}"
             OUT_DIR="matches/wta_matches"
           fi
 
@@ -80,6 +107,7 @@ jobs:
           cat created_files.txt || true
           echo "Listing $OUT_DIR:"
           ls -la "${OUT_DIR}" || true
+
 
       - name: Generate JSON per match for the newly scraped CSVs
         run: |
