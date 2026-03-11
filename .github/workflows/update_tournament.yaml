@@ -141,12 +141,30 @@ jobs:
 
           # Force-add generated JSONs (even if .gitignore would exclude them)
           echo "Staging generated JSONs and scraped matches (force-add)..."
+          # 1) Force-add JSON output dir (parent)
           git add -f docs/data/tournaments || true
-
-          if [ "${TOUR_TYPE}" = "atp" ]; then
-            git add -f matches/atp_matches || true
+          
+          # 2) If created_files.txt exists, add each created CSV path exactly (force add)
+          if [ -f created_files.txt ]; then
+            echo "Adding created files from created_files.txt..."
+            while IFS= read -r line || [ -n "$line" ]; do
+              line="$(echo "$line" | sed -e 's/\r$//')"
+              [ -z "$line" ] && continue
+              # ensure the file exists before adding (debug)
+              if [ -f "$line" ]; then
+                echo "  git add -f $line"
+                git add -f "$line" || true
+              else
+                echo "  [WARN] listed file not found (will skip): $line"
+              fi
+            done < created_files.txt
           else
-            git add -f matches/wta_matches || true
+            # fallback: add whole matches folder for the requested tour
+            if [ "${TOUR_TYPE}" = "atp" ]; then
+              git add -f matches/atp_matches || true
+            else
+              git add -f matches/wta_matches || true
+            fi
           fi
 
           # Safety: prevent accidental commit of index.html or other manual files
