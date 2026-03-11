@@ -610,7 +610,7 @@ def run_scrape_with_retries(
         if rows:
             df = pd.DataFrame(rows)
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            outpath = out_folder / f"atp_{tourn_id}_{year}_{ts}.csv"
+            outpath = out_folder / f"atp_{tourn_id}_{year}.csv"
             df.to_csv(outpath, index=False)
             if verbose:
                 print(f"[proc] sauvegardé -> {outpath} ({len(df)} lignes, {len(df.columns)} colonnes)")

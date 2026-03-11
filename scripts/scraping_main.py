@@ -1770,13 +1770,22 @@ def main(year=None, tournament_player_counts=None, verbose=True, requested_tourn
                 df_tid.drop(columns=[c], inplace=True)
 
         # ecriture UNIQUE sur disque : le CSV final par tournoi
+        # --- write csv into OUT_DIR (ensured earlier with ensure_out_dir())
         outfile = os.path.join(OUT_DIR, f"wta_{tid_str}_{year_str}.csv")
         try:
             df_tid.to_csv(outfile, index=False)
-            if verbose:
-                print(f"[OUT] Sauvé fichier final tournoi {tid_str} -> {outfile} ({len(df_tid)} rows)")
-            # collect created file path (relatif)
-            created_files.append(os.path.normpath(outfile))
+            # sanity check: ensure file was actually written
+            if not os.path.exists(outfile):
+                print(f"[ERROR] after to_csv file not found: {outfile}")
+            else:
+                if verbose:
+                    print(f"[OUT] Sauvé fichier final tournoi {tid_str} -> {outfile} ({len(df_tid)} rows)")
+            # store path RELATIVE to repo root (important for git add later)
+            try:
+                rel = os.path.relpath(outfile, start=os.getcwd())
+            except Exception:
+                rel = os.path.normpath(outfile)
+            created_files.append(rel)
         except Exception as e:
             print(f"Erreur sauvegarde fichier tournoi {tid_str}: {e}")
 
@@ -1790,11 +1799,12 @@ def main(year=None, tournament_player_counts=None, verbose=True, requested_tourn
         with open(created_out, "w", encoding="utf-8") as fh:
             for p in created_files:
                 fh.write(p + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
         if verbose:
             print(f"Wrote list of created CSVs to {created_out} ({len(created_files)} entries)")
     except Exception as e:
         print(f"Unable to write created_files_out {created_out}: {e}")
-        # ensure file exists (empty) so callers don't fail
         try:
             open(created_out, "w", encoding="utf-8").close()
         except Exception:
