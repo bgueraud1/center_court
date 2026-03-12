@@ -130,36 +130,38 @@ jobs:
           TOUR_TYPE: ${{ github.event.inputs.tour_type }}
         run: |
           set -euo pipefail
-          # Safety: remove build artifacts to avoid rebase conflicts
-          if [ -d "${BUILD_DIR}" ]; then
-            rm -rf "${BUILD_DIR}" || true
-            echo "Removed ${BUILD_DIR} to avoid rebase conflicts"
-          fi
 
           git config user.name "$GIT_AUTHOR_NAME"
           git config user.email "$GIT_AUTHOR_EMAIL"
 
-          # Force-add generated JSONs (even if .gitignore would exclude them)
-          echo "Staging generated JSONs and scraped matches (force-add)..."
-          # 1) Force-add JSON output dir (parent)
+          echo "=== Debug: listing candidates before staging ==="
+          echo "--- matches dir ---"
+          ls -la matches || true
+          echo "--- docs/data/tournaments ---"
+          ls -la docs/data/tournaments || true
+          echo "--- created_files.txt content ---"
+          cat created_files.txt || true
+
+          # 1) Force-add output json dir (parent) so the directory itself is tracked if needed
           git add -f docs/data/tournaments || true
-          
+
           # 2) If created_files.txt exists, add each created CSV path exactly (force add)
           if [ -f created_files.txt ]; then
             echo "Adding created files from created_files.txt..."
             while IFS= read -r line || [ -n "$line" ]; do
               line="$(echo "$line" | sed -e 's/\r$//')"
               [ -z "$line" ] && continue
-              # ensure the file exists before adding (debug)
               if [ -f "$line" ]; then
-                echo "  git add -f $line"
+                echo "  git add -f \"$line\""
                 git add -f "$line" || true
               else
                 echo "  [WARN] listed file not found (will skip): $line"
               fi
             done < created_files.txt
+            # also add the list itself for traceability
+            git add -f created_files.txt || true
           else
-            # fallback: add whole matches folder for the requested tour
+            echo "No created_files.txt — falling back to add matches/${TOUR_TYPE}_matches"
             if [ "${TOUR_TYPE}" = "atp" ]; then
               git add -f matches/atp_matches || true
             else
@@ -182,6 +184,18 @@ jobs:
             echo "No generated changes to commit"
           fi
 
+      - name: Prepare workspace for rebase (restore tracked build files if deleted)
+        run: |
+          set -euo pipefail
+          # Some build steps remove docs_build/ tracked files -> this shows as unstaged deletions.
+          # Restore tracked docs_build files from HEAD so rebase can run cleanly.
+          if git ls-files --error-unmatch docs_build >/dev/null 2>&1; then
+            echo "Restoring tracked docs_build files to avoid unstaged deletions..."
+            git checkout -- docs_build || true
+          else
+            echo "docs_build not tracked or not present in HEAD — skipping restore"
+          fi
+
       - name: Push changes (fetch/rebase, then push with safe fallbacks)
         env:
           PAT: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
@@ -196,43 +210,51 @@ jobs:
 
           git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}" || true
 
+          # Show working tree status (debug)
+          echo "Working tree status before fetch/rebase:"
+          git status --porcelain || true
+
           # Fetch remote main
           git fetch origin main --quiet || true
 
-          echo "Working tree status before rebase:"
-          git status --porcelain || true
-
-          # If origin/main exists, try to rebase to avoid push rejects
+          # If origin/main exists, attempt to rebase local commits onto it
           if git rev-parse --verify origin/main >/dev/null 2>&1; then
             echo "Rebasing onto origin/main..."
             if ! git rebase origin/main; then
-              echo "Rebase failed — aborting rebase attempt and proceeding carefully"
+              echo "Rebase failed — aborting rebase attempt"
               git rebase --abort || true
-              # Optional: you could try a merge instead of rebase. For now proceed to push fallback.
+              # If rebase fails, attempt a merge instead to preserve local commits
+              echo "Attempting git pull --no-rebase to merge remote changes..."
+              git pull --no-rebase origin main || true
             fi
           else
             echo "origin/main not found; skipping rebase"
           fi
 
-          # Try push (normal), then fallback to force-with-lease, then last-resort --force
-          if git rev-parse --verify origin/main >/dev/null 2>&1; then
-            echo "Pushing to origin main (normal)..."
-            if git push origin HEAD:main; then
-              echo "Push successful"
-            else
-              echo "Normal push failed — trying push --force-with-lease"
-              if git push --force-with-lease origin HEAD:main; then
-                echo "Push --force-with-lease successful"
-              else
-                echo "Force-with-lease failed — trying git push --force (last resort)"
-                # LAST RESORT: force push (this can overwrite remote changes)
-                git push --force origin HEAD:main || true
-              fi
-            fi
-          else
-            # If origin/main doesn't exist, push normally (creates branch)
-            git push origin HEAD:main || true
+          # Show what is in local HEAD (debug)
+          if git rev-parse --verify HEAD >/dev/null 2>&1; then
+            echo "Committed files in HEAD:"
+            git show --name-only --pretty="" HEAD || true
           fi
+
+          # Try push (normal), then fallback to force-with-lease, then last-resort --force
+          echo "Attempting push to origin main..."
+          if git push origin HEAD:main; then
+            echo "Push successful"
+          else
+            echo "Normal push failed — trying push --force-with-lease"
+            if git push --force-with-lease origin HEAD:main; then
+              echo "Push --force-with-lease successful"
+            else
+              echo "Force-with-lease failed — trying git push --force (last resort)"
+              git push --force origin HEAD:main || true
+            fi
+          fi
+
+          echo "Push finished. Remote HEAD now:"
+          git ls-remote --heads origin main || true
+
+
 
       - name: Trigger Netlify deploy via build hook
         env:
