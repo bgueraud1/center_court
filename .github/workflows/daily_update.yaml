@@ -264,12 +264,12 @@ jobs:
           git clean -fd -n || true
           echo "Workspace cleaned (dry-run shown above)."
 
-      - name: Push changes (use PAT if available, else GITHUB_TOKEN)
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+      - name: Push changes (fetch/merge, then push with safe fallbacks)
         env:
-          # use the PAT you created; fallback to GITHUB_TOKEN if needed
           PAT: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          TOUR_TYPE: ${{ github.event.inputs.tour_type }}
         run: |
           set -euo pipefail
           AUTH="${PAT:-${GITHUB_TOKEN}}"
@@ -277,22 +277,90 @@ jobs:
             echo "No auth token available — skipping push"
             exit 0
           fi
+
           git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}" || true
+
+          # Show working tree status (debug)
+          echo "Working tree status before fetch/merge:"
+          git status --porcelain || true
 
           # Fetch remote main
           git fetch origin main --quiet || true
 
-          # Show working tree status for debug
-          echo "Working tree status before rebase (should be clean):"
-          git status --porcelain || true
-
-          # Rebase local HEAD onto origin/main to reduce conflicts (si origin/main existe)
+          # If origin/main exists, merge it into local HEAD (safer than rebase for concurrency)
           if git rev-parse --verify origin/main >/dev/null 2>&1; then
-            git rebase origin/main || (echo "rebase failed: aborting rebase attempt" && git rebase --abort || true)
+            echo "Merging origin/main into local branch..."
+            # try a non-interactive merge; prefer default merge behaviour so added files are preserved
+            if ! git merge --no-edit origin/main; then
+              echo "Merge reported conflicts — attempting automatic conflict resolution for text hunks (-X ours)"
+              # try to resolve conflicts automatically preferring local changes for conflicting hunks
+              git merge --strategy-option=ours --no-edit origin/main || true
+              # if still conflicts, abort merge and fall back to a pull merge
+              if git merge --abort >/dev/null 2>&1; then
+                echo "Automatic merge failed; attempting 'git pull --no-rebase' fallback"
+                git pull --no-rebase origin main || true
+              fi
+            fi
+          else
+            echo "origin/main not found; skipping merge"
           fi
 
-          # attempt push (normal then force-with-lease fallback)
-          git push origin HEAD:main || git push --force-with-lease origin HEAD:main || true
+          # Show what is in local HEAD (debug)
+          if git rev-parse --verify HEAD >/dev/null 2>&1; then
+            echo "Committed files in HEAD (local):"
+            git show --name-only --pretty="" HEAD || true
+          fi
+
+          # Attempt push (normal). If push fails, refetch+merge and retry a couple times.
+          echo "Attempting push to origin main..."
+          if git push origin HEAD:main; then
+            echo "Push successful"
+            exit 0
+          fi
+
+          echo "Normal push failed — will retry with fetch+merge attempts (no blind --force)."
+
+          RETRIES=3
+          i=0
+          while [ $i -lt $RETRIES ]; do
+            i=$((i+1))
+            echo "Retry #$i: fetch origin/main and merge..."
+            git fetch origin main --quiet || true
+            # attempt to merge remote changes; prefer fast-forward/merge
+            if git rev-parse --verify origin/main >/dev/null 2>&1; then
+              if git merge --no-edit origin/main; then
+                echo "Merge succeeded on retry #$i"
+              else
+                echo "Merge reported conflicts on retry #$i; attempting to continue by favoring local hunks"
+                git merge --strategy-option=ours --no-edit origin/main || true
+                # if still conflicted, abort and continue to next attempt
+                git merge --abort || true
+              fi
+            fi
+
+            echo "Attempting push after merge (retry #$i)..."
+            if git push origin HEAD:main; then
+              echo "Push successful on retry #$i"
+              exit 0
+            fi
+            echo "Push still failed on retry #$i"
+            sleep 1
+          done
+
+          echo "Push attempts exhausted. As a safe fallback, we will push this run to a dedicated branch so work is preserved and no remote history is overwritten."
+
+          BRANCH_NAME="update/${TOUR_TYPE}/${GITHUB_RUN_ID}"
+          echo "Creating and pushing branch ${BRANCH_NAME}..."
+          git checkout -b "${BRANCH_NAME}" || true
+          git push --set-upstream origin "${BRANCH_NAME}" || true
+
+          echo "Branch pushed: ${BRANCH_NAME}"
+          echo "Please merge this branch into main (manually or via an automated PR) to integrate these changes without risking overwriting other runs."
+          echo "Remote HEAD now (refs):"
+          git ls-remote --heads origin main || true
+
+          # Optionally, you could fail the job here to force manual attention:
+          # exit 1
 
       - name: Trigger Netlify deploy via build hook
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}

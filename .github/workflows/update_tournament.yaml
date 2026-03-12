@@ -115,6 +115,7 @@ jobs:
 
           if [ -f created_files.txt ]; then
             echo "Calling generate_match_jsons.py -> ${OUTPUT_JSON_DIR}"
+            # NOTE: adapted argument name to what your script expects (--output)
             python3 scripts/generate_match_jsons.py --input-list created_files.txt --output "${OUTPUT_JSON_DIR}"
             echo "Listing ${OUTPUT_JSON_DIR}:"
             ls -la "${OUTPUT_JSON_DIR}" || true
@@ -122,82 +123,140 @@ jobs:
             echo "No created_files.txt found, skipping json generation"
           fi
 
-      - name: Commit generated JSONs & created_files to branch (per-run branch)
+      - name: Stage generated CSVs and JSONs, commit
         env:
           GIT_AUTHOR_NAME: "github-actions[bot]"
           GIT_AUTHOR_EMAIL: "github-actions[bot]@users.noreply.github.com"
           TOUR_TYPE: ${{ github.event.inputs.tour_type }}
-          PAT: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+
           git config user.name "$GIT_AUTHOR_NAME"
           git config user.email "$GIT_AUTHOR_EMAIL"
 
-          # ensure merge helper exists (scripts/merge_indexes.py)
-          if [ ! -f scripts/merge_indexes.py ]; then
-            echo "ERROR: scripts/merge_indexes.py missing — add it to repo."
-            exit 2
-          fi
+          echo "=== Debug: listing candidates before staging ==="
+          echo "--- matches dir ---"
+          ls -la matches || true
+          echo "--- docs/data/tournaments ---"
+          ls -la docs/data/tournaments || true
+          echo "--- created_files.txt content ---"
+          cat created_files.txt || true
 
-          # Create a unique branch per run
-          BRANCH="data-updates/ci-$(date -u +%Y%m%dT%H%M%SZ)-${TOUR_TYPE}"
-          echo "Using branch ${BRANCH}"
-
-          # stage outputs
+          # 1) Force-add output json dir (parent) so the directory itself is tracked if needed
           git add -f docs/data/tournaments || true
+
+          # 2) If created_files.txt exists, add each created CSV path exactly (force add)
           if [ -f created_files.txt ]; then
-            while IFS= read -r f || [ -n "$f" ]; do
-              f="$(echo "$f" | sed -e 's/\r$//')"
-              [ -z "$f" ] && continue
-              if [ -f "$f" ]; then
-                git add -f "$f" || true
+            echo "Adding created files from created_files.txt..."
+            while IFS= read -r line || [ -n "$line" ]; do
+              line="$(echo "$line" | sed -e 's/\r$//')"
+              [ -z "$line" ] && continue
+              if [ -f "$line" ]; then
+                echo "  git add -f \"$line\""
+                git add -f "$line" || true
               else
-                echo "[WARN] listed CSV not found: $f"
+                echo "  [WARN] listed file not found (will skip): $line"
               fi
             done < created_files.txt
+            # also add the list itself for traceability
             git add -f created_files.txt || true
+          else
+            echo "No created_files.txt — falling back to add matches/${TOUR_TYPE}_matches"
+            if [ "${TOUR_TYPE}" = "atp" ]; then
+              git add -f matches/atp_matches || true
+            else
+              git add -f matches/wta_matches || true
+            fi
           fi
 
-          # safety: do not stage index.html
+          # Safety: prevent accidental commit of index.html or other manual files
           if git diff --cached --name-only | grep -Eiq '(^|/)index\.html$'; then
-            echo "ERROR: index.html would be staged — aborting."
+            echo "ERROR: index.html would be staged — aborting to avoid overwrite."
             git diff --cached --name-only || true
             exit 1
           fi
 
-          # create a branch and commit
-          git checkout -b "${BRANCH}"
           if [ -n "$(git diff --cached --name-only)" ]; then
+            echo "Files staged to commit:"
+            git diff --cached --name-only || true
             git commit -m "ci(update_tournament): add scraped ${TOUR_TYPE} tournaments and generated jsons" || true
           else
-            echo "No generated changes to commit on branch ${BRANCH}"
+            echo "No generated changes to commit"
           fi
 
-          # push branch (force to create/update branch for this run)
+      - name: Prepare workspace for rebase (restore tracked build files if deleted)
+        run: |
+          set -euo pipefail
+          # Some build steps remove docs_build/ tracked files -> this shows as unstaged deletions.
+          # Restore tracked docs_build files from HEAD so rebase can run cleanly.
+          if git ls-files --error-unmatch docs_build >/dev/null 2>&1; then
+            echo "Restoring tracked docs_build files to avoid unstaged deletions..."
+            git checkout -- docs_build || true
+          else
+            echo "docs_build not tracked or not present in HEAD — skipping restore"
+          fi
+
+      - name: Push changes (fetch/rebase, then push with safe fallbacks)
+        env:
+          PAT: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
           AUTH="${PAT:-${GITHUB_TOKEN}}"
           if [ -z "$AUTH" ]; then
-            echo "No auth token available — skipping push of branch (but branch created locally)."
-          else
-            git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}" || true
-            git push origin HEAD:refs/heads/"${BRANCH}" --force
-            echo "Pushed run branch: ${BRANCH}"
+            echo "No auth token available — skipping push"
+            exit 0
           fi
 
-          # trigger merge workflow via repository_dispatch (payload includes branch and tour_type)
-          if [ -n "$AUTH" ]; then
-            echo "Triggering merge workflow via repository_dispatch for ${BRANCH}"
-            curl -s -X POST \
-              -H "Accept: application/vnd.github+json" \
-              -H "Authorization: token ${AUTH}" \
-              "https://api.github.com/repos/${{ github.repository }}/dispatches" \
-              -d "{\"event_type\":\"ci_merge_data\",\"client_payload\":{\"branch\":\"${BRANCH}\",\"tour_type\":\"${TOUR_TYPE}\"}}"
+          git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}" || true
+
+          # Show working tree status (debug)
+          echo "Working tree status before fetch/rebase:"
+          git status --porcelain || true
+
+          # Fetch remote main
+          git fetch origin main --quiet || true
+
+          # If origin/main exists, attempt to rebase local commits onto it
+          if git rev-parse --verify origin/main >/dev/null 2>&1; then
+            echo "Rebasing onto origin/main..."
+            if ! git rebase origin/main; then
+              echo "Rebase failed — aborting rebase attempt"
+              git rebase --abort || true
+              # If rebase fails, attempt a merge instead to preserve local commits
+              echo "Attempting git pull --no-rebase to merge remote changes..."
+              git pull --no-rebase origin main || true
+            fi
           else
-            echo "No auth to fire repository_dispatch — skipping dispatch"
+            echo "origin/main not found; skipping rebase"
           fi
 
-      - name: Trigger Netlify deploy via build hook (optional)
-        if: ${{ always() }}
+          # Show what is in local HEAD (debug)
+          if git rev-parse --verify HEAD >/dev/null 2>&1; then
+            echo "Committed files in HEAD:"
+            git show --name-only --pretty="" HEAD || true
+          fi
+
+          # Try push (normal), then fallback to force-with-lease, then last-resort --force
+          echo "Attempting push to origin main..."
+          if git push origin HEAD:main; then
+            echo "Push successful"
+          else
+            echo "Normal push failed — trying push --force-with-lease"
+            if git push --force-with-lease origin HEAD:main; then
+              echo "Push --force-with-lease successful"
+            else
+              echo "Force-with-lease failed — trying git push --force (last resort)"
+              git push --force origin HEAD:main || true
+            fi
+          fi
+
+          echo "Push finished. Remote HEAD now:"
+          git ls-remote --heads origin main || true
+
+
+
+      - name: Trigger Netlify deploy via build hook
         env:
           NETLIFY_BUILD_HOOK_DAILY: ${{ secrets.NETLIFY_BUILD_HOOK_DAILY }}
         run: |
