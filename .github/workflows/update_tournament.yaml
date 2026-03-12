@@ -115,7 +115,6 @@ jobs:
 
           if [ -f created_files.txt ]; then
             echo "Calling generate_match_jsons.py -> ${OUTPUT_JSON_DIR}"
-            # NOTE: adapted argument name to what your script expects (--output)
             python3 scripts/generate_match_jsons.py --input-list created_files.txt --output "${OUTPUT_JSON_DIR}"
             echo "Listing ${OUTPUT_JSON_DIR}:"
             ls -la "${OUTPUT_JSON_DIR}" || true
@@ -123,55 +122,87 @@ jobs:
             echo "No created_files.txt found, skipping json generation"
           fi
 
-      - name: Stage generated CSVs and JSONs, commit
+      - name: Merge remote lists + Stage generated CSVs and JSONs, commit
         env:
           GIT_AUTHOR_NAME: "github-actions[bot]"
           GIT_AUTHOR_EMAIL: "github-actions[bot]@users.noreply.github.com"
           TOUR_TYPE: ${{ github.event.inputs.tour_type }}
         run: |
           set -euo pipefail
-
           git config user.name "$GIT_AUTHOR_NAME"
           git config user.email "$GIT_AUTHOR_EMAIL"
 
           echo "=== Debug: listing candidates before staging ==="
-          echo "--- matches dir ---"
           ls -la matches || true
-          echo "--- docs/data/tournaments ---"
           ls -la docs/data/tournaments || true
-          echo "--- created_files.txt content ---"
           cat created_files.txt || true
 
-          # 1) Force-add output json dir (parent) so the directory itself is tracked if needed
-          git add -f docs/data/tournaments || true
+          # Ensure origin/main is fetched
+          git fetch origin main --quiet || true
 
-          # 2) If created_files.txt exists, add each created CSV path exactly (force add)
-          if [ -f created_files.txt ]; then
-            echo "Adding created files from created_files.txt..."
-            while IFS= read -r line || [ -n "$line" ]; do
-              line="$(echo "$line" | sed -e 's/\r$//')"
-              [ -z "$line" ] && continue
-              if [ -f "$line" ]; then
-                echo "  git add -f \"$line\""
-                git add -f "$line" || true
-              else
-                echo "  [WARN] listed file not found (will skip): $line"
-              fi
-            done < created_files.txt
-            # also add the list itself for traceability
-            git add -f created_files.txt || true
+          TMPDIR="$(mktemp -d)"
+          REMOTE_CREATED="${TMPDIR}/created_files_remote.txt"
+          REMOTE_INDEX="${TMPDIR}/matches_index_remote.json"
+
+          # extract remote created_files.txt if present, otherwise empty
+          if git ls-tree -r origin/main --name-only | grep -q '^created_files.txt'; then
+            git show origin/main:created_files.txt > "${REMOTE_CREATED}" || : > "${REMOTE_CREATED}"
           else
-            echo "No created_files.txt — falling back to add matches/${TOUR_TYPE}_matches"
-            if [ "${TOUR_TYPE}" = "atp" ]; then
-              git add -f matches/atp_matches || true
-            else
-              git add -f matches/wta_matches || true
-            fi
+            : > "${REMOTE_CREATED}"
           fi
 
-          # Safety: prevent accidental commit of index.html or other manual files
+          # extract remote matches_index.json if present, otherwise empty
+          if git ls-tree -r origin/main --name-only | grep -q '^docs/data/tournaments/matches_index.json'; then
+            git show origin/main:docs/data/tournaments/matches_index.json > "${REMOTE_INDEX}" || : > "${REMOTE_INDEX}"
+          else
+            : > "${REMOTE_INDEX}"
+          fi
+
+          # ensure local placeholders exist
+          [ -f created_files.txt ] || : > created_files.txt
+          [ -f docs/data/tournaments/matches_index.json ] || mkdir -p docs/data/tournaments && : > docs/data/tournaments/matches_index.json
+
+          # check for merge helper script
+          if [ ! -f scripts/merge_indexes.py ]; then
+            echo "ERROR: scripts/merge_indexes.py not found. Please add it to the repo."
+            exit 2
+          fi
+
+          # call merge helper (remote first, local second -> outputs overwrite local)
+          python3 scripts/merge_indexes.py \
+            --remote-created "${REMOTE_CREATED}" \
+            --local-created created_files.txt \
+            --remote-index "${REMOTE_INDEX}" \
+            --local-index docs/data/tournaments/matches_index.json \
+            --out-created created_files.txt \
+            --out-index docs/data/tournaments/matches_index.json
+
+          echo "After merge - created_files.txt head:"
+          sed -n '1,200p' created_files.txt || true
+          echo "After merge - matches_index.json head:"
+          sed -n '1,120p' docs/data/tournaments/matches_index.json || true
+
+          # Stage outputs: index + CSVs listed + JSONs
+          git add -f docs/data/tournaments || true
+
+          if [ -f created_files.txt ]; then
+            while IFS= read -r f || [ -n "$f" ]; do
+              f="$(echo "$f" | sed -e 's/\r$//')"
+              [ -z "$f" ] && continue
+              if [ -f "$f" ]; then
+                echo " staging $f"
+                git add -f "$f" || true
+              else
+                echo "[WARN] listed CSV not found: $f"
+              fi
+            done < created_files.txt
+          fi
+
+          git add -f created_files.txt || true
+
+          # Safety: do not stage index.html
           if git diff --cached --name-only | grep -Eiq '(^|/)index\.html$'; then
-            echo "ERROR: index.html would be staged — aborting to avoid overwrite."
+            echo "ERROR: index.html would be staged — aborting."
             git diff --cached --name-only || true
             exit 1
           fi
@@ -179,24 +210,14 @@ jobs:
           if [ -n "$(git diff --cached --name-only)" ]; then
             echo "Files staged to commit:"
             git diff --cached --name-only || true
-            git commit -m "ci(update_tournament): add scraped ${TOUR_TYPE} tournaments and generated jsons" || true
+            git commit -m "ci(update_tournament): add scraped ${TOUR_TYPE} tournaments and merged generated jsons" || true
           else
             echo "No generated changes to commit"
           fi
 
-      - name: Prepare workspace for rebase (restore tracked build files if deleted)
-        run: |
-          set -euo pipefail
-          # Some build steps remove docs_build/ tracked files -> this shows as unstaged deletions.
-          # Restore tracked docs_build files from HEAD so rebase can run cleanly.
-          if git ls-files --error-unmatch docs_build >/dev/null 2>&1; then
-            echo "Restoring tracked docs_build files to avoid unstaged deletions..."
-            git checkout -- docs_build || true
-          else
-            echo "docs_build not tracked or not present in HEAD — skipping restore"
-          fi
+          rm -rf "${TMPDIR}" || true
 
-      - name: Push changes (safe retry, no force)
+      - name: Push changes (merge loop, retry, no force)
         env:
           PAT: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -211,74 +232,76 @@ jobs:
 
           git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}" || true
 
-          # show current status for debug
-          echo "Working tree status before pushing:"
-          git status --porcelain || true
-
           MAX_RETRIES=5
           attempt=0
 
-          # If there are no local commits to push, exit early
-          # We detect local commits by comparing HEAD with origin/main
-          # (if origin/main doesn't exist, proceed to push which will create it)
-          if git rev-parse --verify origin/main >/dev/null 2>&1; then
-            UPSTREAM=origin/main
-          else
-            UPSTREAM=""
-          fi
+          remerge_and_commit() {
+            echo "Re-merging remote lists into local (retry ${attempt})..."
+            TMPDIR2="$(mktemp -d)"
+            REMOTE_CREATED2="${TMPDIR2}/created_files_remote.txt"
+            REMOTE_INDEX2="${TMPDIR2}/matches_index_remote.json"
+
+            if git ls-tree -r origin/main --name-only | grep -q '^created_files.txt'; then
+              git show origin/main:created_files.txt > "${REMOTE_CREATED2}" || : > "${REMOTE_CREATED2}"
+            else
+              : > "${REMOTE_CREATED2}"
+            fi
+
+            if git ls-tree -r origin/main --name-only | grep -q '^docs/data/tournaments/matches_index.json'; then
+              git show origin/main:docs/data/tournaments/matches_index.json > "${REMOTE_INDEX2}" || : > "${REMOTE_INDEX2}"
+            else
+              : > "${REMOTE_INDEX2}"
+            fi
+
+            # ensure local placeholders
+            [ -f created_files.txt ] || : > created_files.txt
+            [ -f docs/data/tournaments/matches_index.json ] || mkdir -p docs/data/tournaments && : > docs/data/tournaments/matches_index.json
+
+            # call merge helper (script in repo)
+            python3 scripts/merge_indexes.py \
+              --remote-created "${REMOTE_CREATED2}" \
+              --local-created created_files.txt \
+              --remote-index "${REMOTE_INDEX2}" \
+              --local-index docs/data/tournaments/matches_index.json \
+              --out-created created_files.txt \
+              --out-index docs/data/tournaments/matches_index.json
+
+            git add -f created_files.txt || true
+            git add -f docs/data/tournaments/matches_index.json || true
+            git add -f docs/data/tournaments || true
+
+            # ensure CSVs present in created_files.txt are staged
+            while IFS= read -r f || [ -n "$f" ]; do
+              f="$(echo "$f" | sed -e 's/\r$//')"
+              [ -z "$f" ] && continue
+              if [ -f "$f" ]; then
+                git add -f "$f" || true
+              fi
+            done < created_files.txt
+
+            if [ -n "$(git diff --cached --name-only)" ]; then
+              git commit -m "ci(update_tournament): merge remote changes and add generated files (retry ${attempt})" || true
+            fi
+
+            rm -rf "${TMPDIR2}" || true
+          }
 
           while [ $attempt -lt $MAX_RETRIES ]; do
             echo "Push attempt $((attempt+1))/$MAX_RETRIES..."
-
-            # If origin/main exists, fetch it to be up-to-date
-            if [ -n "$UPSTREAM" ]; then
-              git fetch origin main --quiet || true
-            fi
-
-            # If there are no local commits relative to origin/main, nothing to do
-            if [ -n "$UPSTREAM" ] && git rev-list --count HEAD "^${UPSTREAM}" >/dev/null 2>&1; then
-              LOCAL_COMMITS=$(git rev-list --count HEAD ^${UPSTREAM} || echo "0")
-            else
-              LOCAL_COMMITS=$(git rev-list --count HEAD 2>/dev/null || echo "0")
-            fi
-
-            if [ "$LOCAL_COMMITS" = "0" ]; then
-              echo "No local commits to push (local HEAD matches origin/main)."
-              break
-            fi
-
-            # Try push
             if git push origin HEAD:main; then
               echo "Push successful."
               exit 0
             fi
 
-            echo "Push rejected. Will try to integrate remote changes and retry."
-
-            # Integrate remote changes by rebasing our local commits onto origin/main
-            if git rev-parse --verify origin/main >/dev/null 2>&1; then
-              echo "Rebasing local commits onto origin/main..."
-              if git rebase origin/main; then
-                echo "Rebase succeeded."
-              else
-                echo "Rebase failed; aborting rebase and attempting a merge-based pull..."
-                git rebase --abort || true
-                git pull --no-rebase origin main || true
-              fi
-            else
-              echo "origin/main not found; skipping rebase/pull"
-            fi
-
+            echo "Push rejected. Fetching and re-merging remote changes..."
+            git fetch origin main --quiet || true
+            remerge_and_commit
             attempt=$((attempt+1))
-            echo "Sleeping briefly before retry..."
-            sleep 2
+            sleep 1
           done
 
           echo "Push attempts exhausted ($MAX_RETRIES). Not forcing push to avoid overwriting remote changes."
-          # fail the job so the situation is investigated explicitly
           exit 1
-
-
 
       - name: Trigger Netlify deploy via build hook
         env:
