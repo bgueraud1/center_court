@@ -1,0 +1,154 @@
+name: Merge data-updates into main (CI)
+
+on:
+  repository_dispatch:
+    types: [ci_merge_data]
+
+concurrency:
+  group: merge-data
+  cancel-in-progress: false
+
+jobs:
+  merge_into_main:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install deps (if any)
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install pandas || true
+
+      - name: Prepare env and variables
+        env:
+          PAT: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # branch name is passed in payload
+          BRANCH="${{ github.event.client_payload.branch || '' }}"
+          TOUR_TYPE="${{ github.event.client_payload.tour_type || '' }}"
+          if [ -z "${BRANCH}" ]; then
+            echo "No branch in payload — aborting"
+            exit 1
+          fi
+          echo "Merging branch: ${BRANCH} (tour_type=${TOUR_TYPE})"
+          echo "AUTH method: using PAT if present"
+          AUTH="${PAT:-${GITHUB_TOKEN}}"
+          if [ -z "$AUTH" ]; then
+            echo "No auth available — aborting"
+            exit 1
+          fi
+          # set remote to authenticated url
+          git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}" || true
+          echo "Fetched refs before merge:"
+          git fetch origin main --quiet || true
+          git fetch origin "${BRANCH}" --quiet || true
+          # ensure main up-to-date locally
+          git checkout main
+          git reset --hard origin/main || true
+          # perform merge without committing so we can resolve generated-file conflicts
+          echo "Merging origin/${BRANCH} into main (no commit)"
+          if git merge --no-commit --no-ff "origin/${BRANCH}"; then
+            echo "Merge applied cleanly (no conflicts detected)"
+          else
+            echo "Merge reported conflicts (we will attempt to resolve generated-file conflicts automatically)"
+          fi
+
+          # ensure our merge helper exists
+          if [ ! -f scripts/merge_indexes.py ]; then
+            echo "ERROR: scripts/merge_indexes.py missing in repo — cannot auto-merge generated lists"
+            exit 2
+          fi
+
+          # Extract remote main versions of created_files & index (for merging)
+          TMPDIR="$(mktemp -d)"
+          REM_CREATED="${TMPDIR}/created_files_remote.txt"
+          REM_INDEX="${TMPDIR}/matches_index_remote.json"
+          # if origin/main has created_files.txt, fetch it
+          if git ls-tree -r origin/main --name-only | grep -q '^created_files.txt'; then
+            git show origin/main:created_files.txt > "${REM_CREATED}" || : > "${REM_CREATED}"
+          else
+            : > "${REM_CREATED}"
+          fi
+          # if origin/main has matches_index.json, fetch it
+          if git ls-tree -r origin/main --name-only | grep -q '^docs/data/tournaments/matches_index.json'; then
+            git show origin/main:docs/data/tournaments/matches_index.json > "${REM_INDEX}" || : > "${REM_INDEX}"
+          else
+            : > "${REM_INDEX}"
+          fi
+
+          # Ensure local placeholders (after merge attempt these files may be present in working tree)
+          [ -f created_files.txt ] || : > created_files.txt
+          [ -f docs/data/tournaments/matches_index.json ] || mkdir -p docs/data/tournaments && : > docs/data/tournaments/matches_index.json
+
+          # Use merge script to combine remote-main + local (local contains the merged branch content)
+          python3 scripts/merge_indexes.py \
+            --remote-created "${REM_CREATED}" \
+            --local-created created_files.txt \
+            --remote-index "${REM_INDEX}" \
+            --local-index docs/data/tournaments/matches_index.json \
+            --out-created created_files.txt \
+            --out-index docs/data/tournaments/matches_index.json
+
+          echo "After auto-merge of generated lists:"
+          sed -n '1,200p' created_files.txt || true
+          sed -n '1,120p' docs/data/tournaments/matches_index.json || true
+
+          # Mark those files as added/resolved for the merge
+          git add -f created_files.txt || true
+          git add -f docs/data/tournaments/matches_index.json || true
+
+          # Also make sure any generated CSV/JSON introduced by the branch are added
+          if [ -f created_files.txt ]; then
+            while IFS= read -r f || [ -n "$f" ]; do
+              f="$(echo "$f" | sed -e 's/\r$//')"
+              [ -z "$f" ] && continue
+              if [ -f "$f" ]; then
+                git add -f "$f" || true
+              fi
+            done < created_files.txt
+          fi
+
+          # If there are other unmerged/conflicted files, attempt to prefer the branch changes for non-generated files
+          # (This is a pragmatic choice: keep branch's content for other files)
+          if git diff --name-only --diff-filter=U | sed -n '1,200p' | grep -q .; then
+            echo "There are unresolved conflicts still present. Attempting to resolve non-generated files by preferring branch versions..."
+            for file in $(git diff --name-only --diff-filter=U || true); do
+              echo "Resolving conflict for $file by preferring branch version"
+              git checkout --theirs -- "$file" || true
+              git add "$file" || true
+            done
+          fi
+
+          # Commit the merged result
+          if [ -n "$(git diff --cached --name-only)" ]; then
+            git commit -m "ci(merge): merge branch ${BRANCH} into main (auto-merged generated lists)" || true
+          else
+            echo "Nothing staged to commit after merge steps."
+          fi
+
+          # Push main
+          echo "Pushing main (merged result) to origin..."
+          git push origin main || { echo "Push failed"; exit 1; }
+
+          # Optionally delete the branch on remote (cleanup)
+          echo "Deleting remote branch origin/${BRANCH}"
+          git push origin --delete "${BRANCH}" || true
+
+          # cleanup
+          rm -rf "${TMPDIR}" || true
+
+      - name: Done
+        run: echo "Merge job finished."
