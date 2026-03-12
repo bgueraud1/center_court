@@ -264,7 +264,7 @@ jobs:
           git clean -fd -n || true
           echo "Workspace cleaned (dry-run shown above)."
 
-      - name: Push changes (fetch/merge, then push with safe fallbacks)
+      - name: Push changes (branch-from-remote -> push -> merge to main)
         env:
           PAT: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -272,6 +272,7 @@ jobs:
           TOUR_TYPE: ${{ github.event.inputs.tour_type }}
         run: |
           set -euo pipefail
+
           AUTH="${PAT:-${GITHUB_TOKEN}}"
           if [ -z "$AUTH" ]; then
             echo "No auth token available — skipping push"
@@ -280,87 +281,149 @@ jobs:
 
           git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}" || true
 
-          # Show working tree status (debug)
-          echo "Working tree status before fetch/merge:"
-          git status --porcelain || true
-
-          # Fetch remote main
+          # --- prepare: ensure we have origin/main ---
           git fetch origin main --quiet || true
 
-          # If origin/main exists, merge it into local HEAD (safer than rebase for concurrency)
+          TMP_BRANCH="update/${TOUR_TYPE}/${GITHUB_RUN_ID}"
+          echo "TMP_BRANCH=${TMP_BRANCH}"
+
+          # Create or reset local tmp branch to origin/main (base on most recent remote)
           if git rev-parse --verify origin/main >/dev/null 2>&1; then
-            echo "Merging origin/main into local branch..."
-            # try a non-interactive merge; prefer default merge behaviour so added files are preserved
-            if ! git merge --no-edit origin/main; then
-              echo "Merge reported conflicts — attempting automatic conflict resolution for text hunks (-X ours)"
-              # try to resolve conflicts automatically preferring local changes for conflicting hunks
-              git merge --strategy-option=ours --no-edit origin/main || true
-              # if still conflicts, abort merge and fall back to a pull merge
-              if git merge --abort >/dev/null 2>&1; then
-                echo "Automatic merge failed; attempting 'git pull --no-rebase' fallback"
-                git pull --no-rebase origin main || true
-              fi
-            fi
+            git checkout -B "${TMP_BRANCH}" origin/main
           else
-            echo "origin/main not found; skipping merge"
+            # origin/main not available (fresh repo?), create branch from current HEAD
+            git checkout -B "${TMP_BRANCH}" || true
           fi
 
-          # Show what is in local HEAD (debug)
-          if git rev-parse --verify HEAD >/dev/null 2>&1; then
-            echo "Committed files in HEAD (local):"
-            git show --name-only --pretty="" HEAD || true
-          fi
+          # Debug: show branch / status
+          echo "On branch: $(git branch --show-current)"
+          git status --porcelain || true
 
-          # Attempt push (normal). If push fails, refetch+merge and retry a couple times.
-          echo "Attempting push to origin main..."
-          if git push origin HEAD:main; then
-            echo "Push successful"
-            exit 0
-          fi
+          # Stage only the generated files (like earlier logic).
+          # IMPORTANT: do not stage deletions from working tree (we want to preserve remote files).
+          echo "Staging generated artefacts for commit..."
+          # Force-add the output json dir so directory is tracked if needed
+          git add -f docs/data/tournaments || true
 
-          echo "Normal push failed — will retry with fetch+merge attempts (no blind --force)."
-
-          RETRIES=3
-          i=0
-          while [ $i -lt $RETRIES ]; do
-            i=$((i+1))
-            echo "Retry #$i: fetch origin/main and merge..."
-            git fetch origin main --quiet || true
-            # attempt to merge remote changes; prefer fast-forward/merge
-            if git rev-parse --verify origin/main >/dev/null 2>&1; then
-              if git merge --no-edit origin/main; then
-                echo "Merge succeeded on retry #$i"
+          if [ -f created_files.txt ]; then
+            while IFS= read -r line || [ -n "$line" ]; do
+              line="$(echo "$line" | sed -e 's/\r$//')"
+              [ -z "$line" ] && continue
+              if [ -f "$line" ]; then
+                git add -f "$line" || true
               else
-                echo "Merge reported conflicts on retry #$i; attempting to continue by favoring local hunks"
-                git merge --strategy-option=ours --no-edit origin/main || true
-                # if still conflicted, abort and continue to next attempt
-                git merge --abort || true
+                echo "[WARN] listed file not found (skip): $line"
+              fi
+            done < created_files.txt
+            git add -f created_files.txt || true
+          else
+            if [ "${TOUR_TYPE}" = "atp" ]; then
+              git add -f matches/atp_matches || true
+            else
+              git add -f matches/wta_matches || true
+            fi
+          fi
+
+          # Also add generated docs JSON (if present)
+          git add -f docs/data/tournaments || true
+
+          # Avoid accidentally committing staged deletions:
+          # unstage any path that is marked as deleted in the index (so we never commit removals)
+          DELETED_PATHS="$(git diff --cached --name-only --diff-filter=D || true)"
+          if [ -n "$DELETED_PATHS" ]; then
+            echo "Unstaging deletions to avoid removing remote files:"
+            echo "$DELETED_PATHS" | sed -n '1,200p'
+            echo "$DELETED_PATHS" | while IFS= read -r p; do
+              [ -z "$p" ] && continue
+              git restore --staged -- "$p" || true
+            done
+          fi
+
+          if [ -n "$(git diff --cached --name-only)" ]; then
+            echo "Committing staged files on ${TMP_BRANCH}:"
+            git diff --cached --name-only || true
+            git commit -m "ci(update_tournament): add scraped ${TOUR_TYPE} tournaments (run ${GITHUB_RUN_ID})" || true
+          else
+            echo "No changes staged for commit on ${TMP_BRANCH}"
+          fi
+
+          # Push the tmp branch (unique per run). Use --force-with-lease for the tmp branch
+          echo "Pushing tmp branch ${TMP_BRANCH}..."
+          git push --set-upstream origin "${TMP_BRANCH}" --force-with-lease || git push --set-upstream origin "${TMP_BRANCH}" || true
+
+          # Now attempt to merge the tmp branch into main safely:
+          # We'll try a few times: fetch origin/main, update local main, merge tmp branch, push main.
+          MAX_RETRIES=4
+          attempt=0
+          merged_success=false
+
+          while [ $attempt -lt $MAX_RETRIES ]; do
+            attempt=$((attempt+1))
+            echo "Merge attempt ${attempt}/${MAX_RETRIES}: update local main and merge ${TMP_BRANCH}..."
+
+            # Ensure local main exists; create from origin/main if needed
+            if git show-ref --verify --quiet refs/heads/main; then
+              git checkout main
+            else
+              # create local main from origin/main if present, else from current HEAD
+              if git rev-parse --verify origin/main >/dev/null 2>&1; then
+                git checkout -B main origin/main
+              else
+                git checkout -B main || true
               fi
             fi
 
-            echo "Attempting push after merge (retry #$i)..."
-            if git push origin HEAD:main; then
-              echo "Push successful on retry #$i"
-              exit 0
+            # Make sure local main is up-to-date with remote
+            git fetch origin main --quiet || true
+            if git rev-parse --verify origin/main >/dev/null 2>&1; then
+              git merge --ff-only origin/main || git merge --no-edit origin/main || true
             fi
-            echo "Push still failed on retry #$i"
+
+            # Merge the tmp branch into main (non-fast-forward allowed)
+            if git merge --no-edit --no-ff "${TMP_BRANCH}"; then
+              echo "Merge of ${TMP_BRANCH} into main succeeded locally."
+            else
+              echo "Merge reported issues; attempting to auto-resolve by favoring additions."
+              # Try to favor our added files for trivial conflicts; do not remove files present remotely
+              git merge --strategy-option=ours --no-edit "${TMP_BRANCH}" || true
+            fi
+
+            # Unstage any accidental deletions again (safety)
+            DELETED_PATHS="$(git diff --cached --name-only --diff-filter=D || true)"
+            if [ -n "$DELETED_PATHS" ]; then
+              echo "Unstaging deletions before push:"
+              echo "$DELETED_PATHS"
+              echo "$DELETED_PATHS" | while IFS= read -r p; do
+                [ -z "$p" ] && continue
+                git restore --staged -- "$p" || true
+              done
+              # ensure merge commit contains no deletions: recommit if necessary
+              git commit --allow-empty -m "ci(update_tournament): merge ${TMP_BRANCH} (clean deletions)" || true
+            fi
+
+            echo "Attempting to push main to origin (attempt ${attempt})..."
+            if git push origin HEAD:main; then
+              echo "Push of main successful."
+              merged_success=true
+              break
+            fi
+
+            echo "Push failed on attempt ${attempt}. Will retry after refetch."
+            # refresh tmp branch from origin in case it was updated (shouldn't happen but safe)
+            git fetch origin "${TMP_BRANCH}" --quiet || true
             sleep 1
           done
 
-          echo "Push attempts exhausted. As a safe fallback, we will push this run to a dedicated branch so work is preserved and no remote history is overwritten."
+          if [ "$merged_success" = "false" ]; then
+            echo "Failed to merge & push main after ${MAX_RETRIES} attempts."
+            echo "Work has been preserved on branch: ${TMP_BRANCH} (pushed)."
+            echo "Please merge ${TMP_BRANCH} into main manually (or via an automated PR)."
+            # Optionally fail the job to draw attention:
+            # exit 1
+          fi
 
-          BRANCH_NAME="update/${TOUR_TYPE}/${GITHUB_RUN_ID}"
-          echo "Creating and pushing branch ${BRANCH_NAME}..."
-          git checkout -b "${BRANCH_NAME}" || true
-          git push --set-upstream origin "${BRANCH_NAME}" || true
-
-          echo "Branch pushed: ${BRANCH_NAME}"
-          echo "Please merge this branch into main (manually or via an automated PR) to integrate these changes without risking overwriting other runs."
-          echo "Remote HEAD now (refs):"
-          git ls-remote --heads origin main || true
-
-          # Optionally, you could fail the job here to force manual attention:
-          # exit 1
+          echo "Done. Remote refs:"
+          git ls-remote --heads origin main "${TMP_BRANCH}" || true
 
       - name: Trigger Netlify deploy via build hook
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
