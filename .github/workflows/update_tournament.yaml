@@ -196,12 +196,13 @@ jobs:
             echo "docs_build not tracked or not present in HEAD — skipping restore"
           fi
 
-      - name: Push changes (fetch/rebase, then push with safe fallbacks)
+      - name: Push changes (safe retry, no force)
         env:
           PAT: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+
           AUTH="${PAT:-${GITHUB_TOKEN}}"
           if [ -z "$AUTH" ]; then
             echo "No auth token available — skipping push"
@@ -210,49 +211,72 @@ jobs:
 
           git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}" || true
 
-          # Show working tree status (debug)
-          echo "Working tree status before fetch/rebase:"
+          # show current status for debug
+          echo "Working tree status before pushing:"
           git status --porcelain || true
 
-          # Fetch remote main
-          git fetch origin main --quiet || true
+          MAX_RETRIES=5
+          attempt=0
 
-          # If origin/main exists, attempt to rebase local commits onto it
+          # If there are no local commits to push, exit early
+          # We detect local commits by comparing HEAD with origin/main
+          # (if origin/main doesn't exist, proceed to push which will create it)
           if git rev-parse --verify origin/main >/dev/null 2>&1; then
-            echo "Rebasing onto origin/main..."
-            if ! git rebase origin/main; then
-              echo "Rebase failed — aborting rebase attempt"
-              git rebase --abort || true
-              # If rebase fails, attempt a merge instead to preserve local commits
-              echo "Attempting git pull --no-rebase to merge remote changes..."
-              git pull --no-rebase origin main || true
+            UPSTREAM=origin/main
+          else
+            UPSTREAM=""
+          fi
+
+          while [ $attempt -lt $MAX_RETRIES ]; do
+            echo "Push attempt $((attempt+1))/$MAX_RETRIES..."
+
+            # If origin/main exists, fetch it to be up-to-date
+            if [ -n "$UPSTREAM" ]; then
+              git fetch origin main --quiet || true
             fi
-          else
-            echo "origin/main not found; skipping rebase"
-          fi
 
-          # Show what is in local HEAD (debug)
-          if git rev-parse --verify HEAD >/dev/null 2>&1; then
-            echo "Committed files in HEAD:"
-            git show --name-only --pretty="" HEAD || true
-          fi
-
-          # Try push (normal), then fallback to force-with-lease, then last-resort --force
-          echo "Attempting push to origin main..."
-          if git push origin HEAD:main; then
-            echo "Push successful"
-          else
-            echo "Normal push failed — trying push --force-with-lease"
-            if git push --force-with-lease origin HEAD:main; then
-              echo "Push --force-with-lease successful"
+            # If there are no local commits relative to origin/main, nothing to do
+            if [ -n "$UPSTREAM" ] && git rev-list --count HEAD "^${UPSTREAM}" >/dev/null 2>&1; then
+              LOCAL_COMMITS=$(git rev-list --count HEAD ^${UPSTREAM} || echo "0")
             else
-              echo "Force-with-lease failed — trying git push --force (last resort)"
-              git push --force origin HEAD:main || true
+              LOCAL_COMMITS=$(git rev-list --count HEAD 2>/dev/null || echo "0")
             fi
-          fi
 
-          echo "Push finished. Remote HEAD now:"
-          git ls-remote --heads origin main || true
+            if [ "$LOCAL_COMMITS" = "0" ]; then
+              echo "No local commits to push (local HEAD matches origin/main)."
+              break
+            fi
+
+            # Try push
+            if git push origin HEAD:main; then
+              echo "Push successful."
+              exit 0
+            fi
+
+            echo "Push rejected. Will try to integrate remote changes and retry."
+
+            # Integrate remote changes by rebasing our local commits onto origin/main
+            if git rev-parse --verify origin/main >/dev/null 2>&1; then
+              echo "Rebasing local commits onto origin/main..."
+              if git rebase origin/main; then
+                echo "Rebase succeeded."
+              else
+                echo "Rebase failed; aborting rebase and attempting a merge-based pull..."
+                git rebase --abort || true
+                git pull --no-rebase origin main || true
+              fi
+            else
+              echo "origin/main not found; skipping rebase/pull"
+            fi
+
+            attempt=$((attempt+1))
+            echo "Sleeping briefly before retry..."
+            sleep 2
+          done
+
+          echo "Push attempts exhausted ($MAX_RETRIES). Not forcing push to avoid overwriting remote changes."
+          # fail the job so the situation is investigated explicitly
+          exit 1
 
 
 
