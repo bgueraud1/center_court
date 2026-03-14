@@ -231,66 +231,64 @@ jobs:
             echo "docs_build not tracked or not present in HEAD — skipping restore"
           fi
 
-      - name: Push changes safely (rebase then push, no blind --force)
+      - name: Push changes (fetch/rebase, then push with safe fallbacks)
         env:
           PAT: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GIT_AUTHOR_NAME: "github-actions[bot]"
-          GIT_AUTHOR_EMAIL: "github-actions[bot]@users.noreply.github.com"
         run: |
           set -euo pipefail
-      
-          AUTH="${PAT:-${GITHUB_TOKEN:-}}"
+          AUTH="${PAT:-${GITHUB_TOKEN}}"
           if [ -z "$AUTH" ]; then
             echo "No auth token available — skipping push"
             exit 0
           fi
-      
+
           git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}" || true
-          git config user.name "$GIT_AUTHOR_NAME"
-          git config user.email "$GIT_AUTHOR_EMAIL"
-      
-          # Ensure we have the remote main
+
+          # Show working tree status (debug)
+          echo "Working tree status before fetch/rebase:"
+          git status --porcelain || true
+
+          # Fetch remote main
           git fetch origin main --quiet || true
-      
-          # Make sure local main exists and reflect origin/main
+
+          # If origin/main exists, attempt to rebase local commits onto it
           if git rev-parse --verify origin/main >/dev/null 2>&1; then
-            git checkout -B main origin/main
-          else
-            git checkout -B main || true
-          fi
-      
-          # If there are local commits staged/committed, rebase them on origin/main
-          # (if no local commits, rebase is a no-op)
-          if git rev-parse --verify HEAD >/dev/null 2>&1; then
-            # Try to rebase; if it fails, abort and fail the job to avoid dangerous force.
+            echo "Rebasing onto origin/main..."
             if ! git rebase origin/main; then
-              echo "ERROR: rebase onto origin/main failed. Aborting rebase and job to avoid overwriting remote."
+              echo "Rebase failed — aborting rebase attempt"
               git rebase --abort || true
-              # show debug info
-              echo "==== Local HEAD (top 5) ===="
-              git --no-pager log -n 5 --oneline || true
-              echo "==== origin/main (top 5) ===="
-              git --no-pager log origin/main -n 5 --oneline || true
-              exit 1
+              # If rebase fails, attempt a merge instead to preserve local commits
+              echo "Attempting git pull --no-rebase to merge remote changes..."
+              git pull --no-rebase origin main || true
             fi
+          else
+            echo "origin/main not found; skipping rebase"
           fi
-      
-          # Try normal push; if rejected, try --force-with-lease once only.
+
+          # Show what is in local HEAD (debug)
+          if git rev-parse --verify HEAD >/dev/null 2>&1; then
+            echo "Committed files in HEAD:"
+            git show --name-only --pretty="" HEAD || true
+          fi
+
+          # Try push (normal), then fallback to force-with-lease, then last-resort --force
+          echo "Attempting push to origin main..."
           if git push origin HEAD:main; then
             echo "Push successful"
-            exit 0
+          else
+            echo "Normal push failed — trying push --force-with-lease"
+            if git push --force-with-lease origin HEAD:main; then
+              echo "Push --force-with-lease successful"
+            else
+              echo "Force-with-lease failed — trying git push --force (last resort)"
+              git push --force origin HEAD:main || true
+            fi
           fi
-      
-          echo "Normal push failed — trying push --force-with-lease"
-          if git push --force-with-lease origin HEAD:main; then
-            echo "Push --force-with-lease successful"
-            exit 0
-          fi
-      
-          echo "Push failed even with --force-with-lease. Refusing to perform blind --force to avoid overwriting remote. Exiting with error."
-          git --no-pager log -n 10 --oneline || true
-          exit 1
+
+          echo "Push finished. Remote HEAD now:"
+          git ls-remote --heads origin main || true
+
 
 
       - name: Trigger Netlify deploy via build hook
