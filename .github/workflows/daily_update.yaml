@@ -30,7 +30,40 @@ jobs:
           ls -la | sed -n '1,200p'
 
 
-
+      - name: Wait for existing update_tournament runs to finish (safety) 
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_UPDATE_TOURNAMENT || secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          WORKFLOW_FILE: update_tournament.yml   # <-- ADAPTE le nom exact du fichier workflow
+          WAIT_TIMEOUT_MIN: 10                  # <-- augmente si tu veux attendre plus longtemps
+        run: |
+          set -euo pipefail
+          AUTH_HEADER="Authorization: token ${GITHUB_TOKEN}"
+          timeout=$(( WAIT_TIMEOUT_MIN * 60 ))
+          interval=5
+          elapsed=0
+      
+          echo "Polling workflow runs for ${WORKFLOW_FILE} in ${OWNER}/${REPO} (status=in_progress)..."
+          while :; do
+            # Query runs with status=in_progress for that workflow file
+            api="https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/${WORKFLOW_FILE}/runs?status=in_progress"
+            out=$(curl -s -H "$AUTH_HEADER" "$api")
+            # Extract "total_count" with a simple sed (avoid jq dependency)
+            total=$(echo "$out" | sed -n 's/.*"total_count":[[:space:]]*\([0-9]\+\).*/\1/p' || echo 0)
+            total=${total:-0}
+            if [ "$total" -eq 0 ]; then
+              echo "No in-progress runs of ${WORKFLOW_FILE} found. OK to proceed."
+              break
+            fi
+            echo "Found ${total} in-progress run(s). Waiting ${interval}s..."
+            sleep "$interval"
+            elapsed=$(( elapsed + interval ))
+            if [ $elapsed -ge $timeout ]; then
+              echo "Timeout waiting for other runs to finish (waited ${elapsed}s). Aborting to avoid race conditions."
+              exit 1
+            fi
+          done
 
       - name: Check tournaments and dispatch update_tournament (if needed)
         env:
