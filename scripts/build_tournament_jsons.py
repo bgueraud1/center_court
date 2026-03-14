@@ -24,13 +24,52 @@ from pathlib import Path
 import pandas as pd
 import re
 
-# ---- Helpers ----
 def read_geocodes(path):
-    with open(path, 'r', encoding='utf-8') as fh:
-        j = json.load(fh)
-    # expects structure { "geocode": { "Key": [lat,lon], ... } }
-    geos = j.get('geocode', j)
-    return {k: tuple(v) for k, v in geos.items()}
+    """
+    Lecture robuste de docs/tools/geocodes_combined.json.
+    - accepte ces formes :
+      { "geocode": { "City, Country": [lat, lon], ... } }
+      ou top-level mapping { "City, Country": [lat,lon], ... }
+      ou nested mapping under any top-level key.
+    - lève une erreur claire si aucun mapping n'est trouvé.
+    """
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Geocodes file not found: {path}")
+
+    with path.open('r', encoding='utf-8') as fh:
+        try:
+            j = json.load(fh)
+        except Exception as e:
+            raise RuntimeError(f"Failed to parse JSON from {path}: {e}")
+
+    if j is None:
+        raise ValueError(f"Geocodes JSON {path} parsed to null (None). Check file contents.")
+
+    # 1) case: { "geocode": { ... } }
+    if isinstance(j, dict):
+        ge = j.get('geocode')
+        if isinstance(ge, dict) and ge:
+            return {k: tuple(v) for k, v in ge.items()}
+
+        # 2) case: top-level mapping of keys -> [lat,lon]
+        candidates = {k: tuple(v) for k, v in j.items() if isinstance(v, (list, tuple)) and len(v) >= 2}
+        if candidates:
+            return candidates
+
+        # 3) case: nested under another top-level key (search)
+        for v in j.values():
+            if isinstance(v, dict):
+                cand = {k: tuple(val) for k, val in v.items() if isinstance(val, (list, tuple)) and len(val) >= 2}
+                if cand:
+                    return cand
+
+    # nothing found
+    raise ValueError(
+        f"Could not find geocode mapping in {path}. "
+        "Expected structure: { 'geocode': { 'City, Country': [lat, lon], ... } } "
+        "or top-level mapping. Inspect the file."
+    )
 
 def _first_of(cols, candidates):
     for c in candidates:
