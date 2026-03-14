@@ -231,7 +231,7 @@ jobs:
             echo "docs_build not tracked or not present in HEAD — skipping restore"
           fi
 
-      - name: Push generated files (safe: tmp branch -> merge to main)
+      - name: Push generated files (safe tmp branch -> merge to main)
         env:
           PAT: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -240,26 +240,26 @@ jobs:
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
-      
+
           AUTH="${PAT:-${GITHUB_TOKEN:-}}"
           if [ -z "$AUTH" ]; then
             echo "No auth token available — skipping push"
             exit 0
           fi
-      
+
           git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}" || true
           git config user.name "$GIT_AUTHOR_NAME"
           git config user.email "$GIT_AUTHOR_EMAIL"
-      
+
           # Create a unique tmp branch from the current working tree (this preserves generated files)
           TMP_BRANCH="ci/update/${GITHUB_RUN_ID}"
           echo "Creating tmp branch from current HEAD/worktree: ${TMP_BRANCH}"
           # Make sure index reflects working tree changes
           git add -A || true
-      
+
           # Create or switch to tmp branch based on current HEAD (do NOT reset to origin)
           git checkout -B "${TMP_BRANCH}" || true
-      
+
           # Stage the files you want to track (adapt as needed)
           # Force-add the generated per-tournament jsons and any created_files list
           git add -f docs/data/tournaments/json_by_tournaments || true
@@ -279,7 +279,7 @@ jobs:
             if [ -d "matches/wta_matches" ]; then git add -f matches/wta_matches || true; fi
             if [ -d "matches/atp_matches" ]; then git add -f matches/atp_matches || true; fi
           fi
-      
+
           # Avoid committing accidental deletions - unstage deletions if any
           DELETED_PATHS="$(git diff --cached --name-only --diff-filter=D || true)"
           if [ -n "$DELETED_PATHS" ]; then
@@ -290,7 +290,7 @@ jobs:
               git restore --staged -- "$p" || true
             done
           fi
-      
+
           # Commit if there are staged changes
           if [ -n "$(git diff --cached --name-only)" ]; then
             echo "Committing staged files on ${TMP_BRANCH}:"
@@ -299,20 +299,20 @@ jobs:
           else
             echo "No changes staged to commit on ${TMP_BRANCH}"
           fi
-      
+
           # Push tmp branch to remote (so work is preserved even if merge fails)
           echo "Pushing tmp branch ${TMP_BRANCH} to origin..."
           git push --set-upstream origin "${TMP_BRANCH}" --force-with-lease || git push --set-upstream origin "${TMP_BRANCH}" || true
-      
+
           # Now, merge tmp branch into main safely
           MAX_RETRIES=4
           attempt=0
           merged_success=false
-      
+
           while [ $attempt -lt $MAX_RETRIES ]; do
             attempt=$((attempt+1))
             echo "Merge attempt ${attempt}/${MAX_RETRIES}: update local main and merge ${TMP_BRANCH}..."
-      
+
             # Ensure local main exists and reflect origin/main
             git fetch origin main --quiet || true
             if git rev-parse --verify origin/main >/dev/null 2>&1; then
@@ -320,7 +320,7 @@ jobs:
             else
               git checkout -B main || true
             fi
-      
+
             # Merge the tmp branch into main (create a merge commit if needed)
             if git merge --no-edit --no-ff "${TMP_BRANCH}"; then
               echo "Merge of ${TMP_BRANCH} into main succeeded locally."
@@ -328,7 +328,7 @@ jobs:
               echo "Merge reported conflicts; attempting to favor additions (do not remove remote files)."
               git merge --strategy-option=ours --no-edit "${TMP_BRANCH}" || true
             fi
-      
+
             # Ensure no staged deletions (safety)
             DELETED_PATHS="$(git diff --cached --name-only --diff-filter=D || true)"
             if [ -n "$DELETED_PATHS" ]; then
@@ -340,19 +340,19 @@ jobs:
               done
               git commit --allow-empty -m "ci(update_tournament): merge ${TMP_BRANCH} (clean deletions)" || true
             fi
-      
+
             echo "Attempting to push main to origin (attempt ${attempt})..."
             if git push origin HEAD:main; then
               echo "Push of main successful."
               merged_success=true
               break
             fi
-      
+
             echo "Push failed on attempt ${attempt}. Will retry after refetch."
             sleep 1
             git fetch origin "${TMP_BRANCH}" --quiet || true
           done
-      
+
           if [ "$merged_success" = "false" ]; then
             echo "Failed to merge & push main after ${MAX_RETRIES} attempts."
             echo "Work has been preserved on branch: ${TMP_BRANCH} (pushed)."
@@ -360,7 +360,7 @@ jobs:
             # Optionally fail the job to draw attention:
             # exit 1
           fi
-      
+
           echo "Done. Remote refs (main and ${TMP_BRANCH}):"
           git ls-remote --heads origin main "${TMP_BRANCH}" || true
 
