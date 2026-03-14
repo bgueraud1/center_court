@@ -123,6 +123,21 @@ jobs:
             echo "No created_files.txt found, skipping json generation"
           fi
 
+    
+      - name: Build per-tournament JSONs (group by tournament + add geocode)
+        env:
+          # created_files.txt est généré par l'étape précédente
+          TOURNAMENT_JSON_OUT_BASE: docs/data/tournaments/json_by_tournaments
+        run: |
+          set -euo pipefail
+          echo "Building per-tournament JSONs into ${TOURNAMENT_JSON_OUT_BASE} ..."
+          python3 scripts/build_tournament_jsons.py \
+            --input-list created_files.txt \
+            --geocodes docs/tools/geocodes_combined.json \
+            --out-base "${TOURNAMENT_JSON_OUT_BASE}"
+          echo "After building tournament jsons, listing ${TOURNAMENT_JSON_OUT_BASE}:"
+          ls -la "${TOURNAMENT_JSON_OUT_BASE}" || true
+
       - name: Stage generated CSVs and JSONs, commit
         env:
           GIT_AUTHOR_NAME: "github-actions[bot]"
