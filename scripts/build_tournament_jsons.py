@@ -26,50 +26,93 @@ import re
 
 def read_geocodes(path):
     """
-    Lecture robuste de docs/tools/geocodes_combined.json.
-    - accepte ces formes :
-      { "geocode": { "City, Country": [lat, lon], ... } }
-      ou top-level mapping { "City, Country": [lat,lon], ... }
-      ou nested mapping under any top-level key.
-    - lève une erreur claire si aucun mapping n'est trouvé.
+    Lecture tolérante de docs/tools/geocodes_combined.json.
+
+    Comportement :
+    - accepte soit {"geocode": { ... }} soit un top-level mapping { "City,...": [lat,lon], ... }.
+    - ignore les entrées dont la valeur est null ou non convertible en (lat, lon).
+    - si le JSON est invalide à cause de trailing-commas, tente un nettoyage simple et retente.
+    - retourne un dict { key: (lat, lon), ... } (peut être vide).
     """
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Geocodes file not found: {path}")
 
-    with path.open('r', encoding='utf-8') as fh:
+    text = path.read_text(encoding='utf-8')
+
+    def try_load(s):
         try:
-            j = json.load(fh)
+            return json.loads(s)
         except Exception as e:
-            raise RuntimeError(f"Failed to parse JSON from {path}: {e}")
+            raise
 
-    if j is None:
-        raise ValueError(f"Geocodes JSON {path} parsed to null (None). Check file contents.")
+    j = None
+    # 1) Try normal load
+    try:
+        j = json.loads(text)
+    except Exception as e:
+        # 2) Attempt a simple sanitize: remove trailing commas before } or ]
+        sanitized = re.sub(r',\s*(\]|})', r'\1', text)
+        # Also remove lone commas on lines (e.g. lines that contain only a comma)
+        sanitized = re.sub(r'^[ \t]*,[ \t]*$', '', sanitized, flags=re.MULTILINE)
+        try:
+            j = json.loads(sanitized)
+            print(f"[INFO] geocodes: JSON parsed after sanitizing trailing commas ({path})")
+        except Exception as e2:
+            print(f"[WARN] Failed to parse geocodes JSON (even after sanitize): {e2}")
+            print(f"[DEBUG] First 800 chars of file:\n{text[:800]}")
+            # Return empty mapping rather than crashing
+            return {}
 
-    # 1) case: { "geocode": { ... } }
-    if isinstance(j, dict):
-        ge = j.get('geocode')
-        if isinstance(ge, dict) and ge:
-            return {k: tuple(v) for k, v in ge.items()}
+    if not isinstance(j, dict):
+        print(f"[WARN] geocodes JSON root is not an object/dict: {type(j)} — returning empty mapping")
+        return {}
 
-        # 2) case: top-level mapping of keys -> [lat,lon]
-        candidates = {k: tuple(v) for k, v in j.items() if isinstance(v, (list, tuple)) and len(v) >= 2}
-        if candidates:
-            return candidates
+    # find candidate dict that maps keys -> [lat, lon]
+    def extract_map_from_obj(obj):
+        out = {}
+        if not isinstance(obj, dict):
+            return out
+        for k, v in obj.items():
+            # Skip nulls
+            if v is None:
+                continue
+            # Accept lists/tuples/iterables of length >= 2 with numeric entries
+            if isinstance(v, (list, tuple)) and len(v) >= 2:
+                try:
+                    lat = float(v[0])
+                    lon = float(v[1])
+                    out[str(k)] = (lat, lon)
+                except Exception:
+                    # ignore malformed numeric values
+                    continue
+        return out
 
-        # 3) case: nested under another top-level key (search)
+    # 1) prefer j['geocode'] if it's a mapping
+    ge = j.get('geocode') if isinstance(j, dict) else None
+    mapping = {}
+    if isinstance(ge, dict):
+        mapping = extract_map_from_obj(ge)
+
+    # 2) if empty, try top-level entries that look like lat/lon lists
+    if not mapping:
+        mapping = extract_map_from_obj(j)
+
+    # 3) if still empty, search nested dicts for any candidate mapping
+    if not mapping:
         for v in j.values():
             if isinstance(v, dict):
-                cand = {k: tuple(val) for k, val in v.items() if isinstance(val, (list, tuple)) and len(val) >= 2}
-                if cand:
-                    return cand
+                candidate = extract_map_from_obj(v)
+                if candidate:
+                    mapping.update(candidate)
 
-    # nothing found
-    raise ValueError(
-        f"Could not find geocode mapping in {path}. "
-        "Expected structure: { 'geocode': { 'City, Country': [lat, lon], ... } } "
-        "or top-level mapping. Inspect the file."
-    )
+    print(f"[INFO] geocodes: loaded {len(mapping)} entries from {path}")
+    # optionally print a sample for debug
+    if len(mapping) > 0:
+        sample_k = next(iter(mapping))
+        print(f"[INFO] geocodes: sample key -> {sample_k} -> {mapping[sample_k]}")
+
+    return mapping
 
 def _first_of(cols, candidates):
     for c in candidates:
