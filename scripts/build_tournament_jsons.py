@@ -281,6 +281,32 @@ def process_csv_file(csv_path: Path, geos, out_base: Path, report):
 
 
 def build_tournament_jsons(report, geos, country_map):
+    # helper: normalize & map country name -> IOC 3-letter code (uses outer country_map)
+    def map_country_to_ioc(country_value):
+        if not country_value:
+            return None
+        c = str(country_value).strip()
+        # If already 3 letters and alpha -> assume IOC
+        if re.fullmatch(r'^[A-Za-z]{3}$', c):
+            return c.upper()
+        nk = _normalize_token(c)
+        # direct lookup
+        if nk in country_map:
+            return country_map[nk]
+        # try splitting tokens (last token often is country)
+        parts = [p.strip() for p in re.split(r'[,\-()]+', c) if p.strip()]
+        for p in reversed(parts):
+            np = _normalize_token(p)
+            if np in country_map:
+                return country_map[np]
+        # fallback: try partial tokens (e.g. 'rep chile', 'chilean rep' etc)
+        for p in parts:
+            np = _normalize_token(p)
+            # try progressive shortening
+            if np in country_map:
+                return country_map[np]
+        return None
+    
     results = []
     for key, info in report['tournaments'].items():
         tour_label, event_id, event_year = key
@@ -347,31 +373,33 @@ def build_tournament_jsons(report, geos, country_map):
             matched_key = special_key if geocode else matched_key
 
         if geocode:
-            meta['geocode'] = list(geocode)
-            # CHANGED: only derive country text from matched_key if matched_key contains a comma (City, Country)
-            if not meta['country'] and isinstance(matched_key, str) and ',' in matched_key:
-                last = matched_key.split(',')[-1].strip()
-                if last and re.search(r'[A-Za-z]', last) and len(last) > 1:
-                    meta['country'] = last
-
-        # CHANGED: convert meta['country'] (if present as full name) to IOC 3-letter using country_map
-        def map_country_to_ioc(country_value):
-            if not country_value:
-                return None
-            c = str(country_value).strip()
-            # If already 3 letters and alpha -> assume IOC
-            if re.fullmatch(r'^[A-Za-z]{3}$', c):
-                return c.upper()
-            nk = _normalize_token(c)
-            # direct lookup
-            if nk in country_map:
-                return country_map[nk]
-            # try splitting tokens (last token often is country)
-            parts = [p.strip() for p in re.split(r'[,\-()]+', c) if p.strip()]
-            for p in reversed(parts):
-                if _normalize_token(p) in country_map:
-                    return country_map[_normalize_token(p)]
-            return None
+           meta['geocode'] = list(geocode)
+           # If we have a matched_key that looks like "City, Country", prefer deriving the country from it
+           derived_country = None
+           if isinstance(matched_key, str) and ',' in matched_key:
+               # last token after comma is usually the country name
+               cand = matched_key.split(',')[-1].strip()
+               if cand and re.search(r'[A-Za-z]', cand):
+                   derived_country = cand
+           # If we already have a country from CSV/rows, try to map it first
+           mapped_from_csv = None
+           if meta.get('country'):
+               mapped_from_csv = map_country_to_ioc(meta['country'])
+           # Try to map derived_country (from matched_key) preferentially
+           mapped_from_derived = None
+           if derived_country:
+               mapped_from_derived = map_country_to_ioc(derived_country)
+           # Decide which to use (prefer derived_mapped, then csv_mapped, then raw derived)
+           if mapped_from_derived:
+               meta['country'] = mapped_from_derived
+               print(f"[INFO] country derived from matched_key '{matched_key}' -> '{derived_country}' mapped to IOC '{mapped_from_derived}'")
+           elif mapped_from_csv:
+               meta['country'] = mapped_from_csv
+               print(f"[INFO] country taken from CSV '{meta.get('country')}' mapped to IOC '{mapped_from_csv}'")
+           elif derived_country:
+               # keep textual derived country (not mapped)
+               meta['country'] = derived_country
+               print(f"[INFO] country derived from matched_key (not mappable): '{derived_country}' -- leaving as text")
 
         mapped = map_country_to_ioc(meta.get('country'))
         if mapped:
