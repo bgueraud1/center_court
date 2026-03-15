@@ -13,8 +13,8 @@
       --muted:#9aa6bf;
       --accent-blue:#2b6cb0;
       --accent-purple:#9b59b6;
-      --row-blue: linear-gradient(90deg, rgba(43,108,176,0.12), rgba(255,255,255,0.01));
-      --row-purple: linear-gradient(90deg, rgba(155,89,182,0.12), rgba(255,255,255,0.01));
+      --row-blue-strong: linear-gradient(90deg, rgba(43,108,176,0.22), rgba(255,255,255,0.02));
+      --row-purple-strong: linear-gradient(90deg, rgba(155,89,182,0.22), rgba(255,255,255,0.02));
     }
     html,body{height:100%;margin:0;padding:0;background:linear-gradient(180deg,#000,#060406);color:#e9f2ff;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial}
     .wrap{max-width:1100px;margin:28px auto;padding:0 18px}
@@ -26,13 +26,18 @@
     .btn.active{color:#fff;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01))}
     .btn-blue{border-color: rgba(43,108,176,0.25)}
     .btn-purple{border-color: rgba(155,89,182,0.25)}
+    .btn-toggle { border-radius:8px; padding:6px 10px; font-weight:700; cursor:pointer; border:1px solid rgba(255,255,255,0.06); color:var(--muted); background:transparent }
+    .btn-toggle.on { color:#111; background:linear-gradient(180deg,#ffd8a8,#ffb86b); } /* placeholder will be overridden per level via classes */
+    .btn-toggle.level1.on { background: linear-gradient(180deg,#ffb86b,#ff9a2e); color:#0b0b0b; }
+    .btn-toggle.level2.on { background: linear-gradient(180deg,#fff09a,#ffd84a); color:#0b0b0b; }
+    .btn-toggle.level3.on { background: linear-gradient(180deg,#dfffc8,#98f08a); color:#0b0b0b; }
     .card{background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.00));padding:14px;border-radius:10px;border:1px solid rgba(255,255,255,0.03)}
     .meta{color:var(--muted);font-size:13px;margin-top:6px}
     table{width:100%;border-collapse:collapse;margin-top:12px}
     th,td{padding:12px;text-align:left;border-bottom:1px dashed rgba(255,255,255,0.03);font-size:14px;vertical-align:middle}
     thead th{color:var(--muted);font-weight:700;cursor:default}
-    tbody tr.atp{background: var(--row-blue)}
-    tbody tr.wta{background: var(--row-purple)}
+    tbody tr.atp{background: var(--row-blue-strong)}
+    tbody tr.wta{background: var(--row-purple-strong)}
     .surface-badge { padding:.35rem .6rem; border-radius:.35rem; color:#fff; font-weight:700; font-size:.82rem; text-transform:capitalize; display:inline-block; min-width:54px; text-align:center }
     .surface-hard { background:var(--accent-blue); } /* blue */
     .surface-clay { background:#c53030; } /* red */
@@ -48,9 +53,19 @@
     a.row-link { color: inherit; text-decoration: none; display:block; border-radius:8px; padding:6px }
     a.row-link:hover { filter:brightness(1.03); text-decoration:none; }
     .card-head{display:flex;align-items:center;gap:12px;margin-bottom:6px}
-    .date-col{min-width:156px; max-width:180px}
+    .date-col{min-width:220px; max-width:320px}
     .grow{flex:1}
     .loading{color:var(--muted);padding:18px 0;text-align:center}
+    /* tournament name coloring by level */
+    .tname-level1 { color:#ff8a00; font-weight:800; } /* orange */
+    .tname-level2 { color:#ffd400; font-weight:800; } /* yellow */
+    .tname-level3 { color:#b9ff9a; font-weight:800; } /* light green */
+    .tname-gs     { color:#ff4d4d; font-weight:900; } /* red for GS */
+    /* winner colors */
+    .winner-atp { color:#8fd1ff; font-weight:700; }
+    .winner-wta { color:#ff9bd6; font-weight:700; }
+    /* small utility for nowrap */
+    .nowrap{white-space:nowrap}
   </style>
 </head>
 <body>
@@ -70,11 +85,19 @@
 
     <div class="card" id="cardMain">
       <div class="card-head">
-        <div class="controls-line">
+        <div style="display:flex;gap:10px;align-items:center">
           <button id="btnAll" class="btn active">All</button>
           <button id="btnATP" class="btn btn-blue">ATP</button>
           <button id="btnWTA" class="btn btn-purple">WTA</button>
         </div>
+
+        <div style="margin-left:16px" class="controls-line">
+          <!-- level toggles: independent, start with Level1 ON -->
+          <button id="lvl1" class="btn-toggle level1 on" data-level="1">Level 1</button>
+          <button id="lvl2" class="btn-toggle level2" data-level="2">Level 2</button>
+          <button id="lvl3" class="btn-toggle level3" data-level="3">Level 3</button>
+        </div>
+
         <div class="grow" style="text-align:right">
           <div class="small" id="summaryText">Loading…</div>
         </div>
@@ -91,18 +114,15 @@
   </div>
 
 <script>
-/* ---------- Configuration ----------
-   IMPORTANT: we request the JSON files directly at the root of the deploy.
-   Examples the script will try: "/atp_tournaments_2026.json" and "atp_tournaments_2026.json".
-*/
+/* ---------- Configuration ---------- */
 const MIN_YEAR = 2018;
-const MAX_YEAR = (new Date()).getFullYear() + 1; // try next year too
+const MAX_YEAR = (new Date()).getFullYear() + 1;
+const ATP_BASENAMES = ['atp_tournaments_','atp_tournament_'];
+const WTA_BASENAMES = ['wta_tournaments_','wta_tournament_'];
+const ATP_WINNER_FILES = ['atp_tournaments_winner.json','/atp_tournaments_winner.json'];
+const WTA_WINNER_FILES = ['wta_tournaments_winner.json','/wta_tournaments_winner.json'];
 
-// basenames (no path prefix). We try plural first; singular is a tolerant fallback.
-const ATP_BASENAMES = ['atp_tournaments_', 'atp_tournament_'];
-const WTA_BASENAMES = ['wta_tournaments_', 'wta_tournament_'];
-
-/* ---------- utilities ---------- */
+/* ---------- helpers ---------- */
 const el = id => document.getElementById(id);
 const fmtDate = (iso) => {
   if(!iso) return '—';
@@ -112,7 +132,9 @@ const fmtDate = (iso) => {
     return d.toLocaleDateString('en-GB', { year:'numeric', month:'short', day:'numeric' });
   } catch(e){ return iso; }
 };
+function escapeHtml(s){ if(s===undefined||s===null) return ''; return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m]); }
 
+/* ---------- surface helper ---------- */
 function surfaceClass(s){
   if(!s) return 'surface-hard';
   s = String(s).toLowerCase();
@@ -123,13 +145,12 @@ function surfaceClass(s){
   return 'surface-hard';
 }
 
-/* ---------- ATP date parsing (same as before) ---------- */
+/* ---------- ATP date parsing (robust) ---------- */
 function parseAtpFormattedDate(fd){
   if(!fd || typeof fd !== 'string') return null;
   const s = fd.trim();
   const yearMatches = s.match(/\b(20\d{2})\b/g);
   let lastYear = yearMatches ? Number(yearMatches[yearMatches.length - 1]) : null;
-
   const rangeMonthMatch = s.match(/^\s*(\d{1,2})\s*[-–—]\s*(\d{1,2})\s*([A-Za-z]+)/i);
   if(rangeMonthMatch){
     const day = Number(rangeMonthMatch[1]);
@@ -137,27 +158,18 @@ function parseAtpFormattedDate(fd){
     const year = lastYear || new Date().getFullYear();
     return tryBuildISO(day, month, year);
   }
-
   const numMonthRegex = /(\d{1,2})\s*([A-Za-z]+)/g;
-  let m; const pairs = [];
-  while((m = numMonthRegex.exec(s)) !== null){
-    pairs.push([m[1], m[2]]);
-  }
-  if(pairs.length > 0){
-    const day = Number(pairs[0][0]);
-    const month = pairs[0][1];
+  let m; const pairs=[];
+  while((m = numMonthRegex.exec(s)) !== null) pairs.push([m[1],m[2]]);
+  if(pairs.length>0){
+    const day=Number(pairs[0][0]); const month=pairs[0][1];
     const year = lastYear || new Date().getFullYear();
     return tryBuildISO(day, month, year);
   }
-
   const monthYear = s.match(/([A-Za-z]+)\s*,\s*(20\d{2})/i);
-  if(monthYear){
-    return tryBuildISO(1, monthYear[1], Number(monthYear[2]));
-  }
-
+  if(monthYear) return tryBuildISO(1, monthYear[1], Number(monthYear[2]));
   const parsed = Date.parse(s);
   if(!isNaN(parsed)) return (new Date(parsed)).toISOString().slice(0,10);
-
   return null;
 
   function tryBuildISO(day, monthName, year){
@@ -176,7 +188,7 @@ function parseAtpFormattedDate(fd){
 /* ---------- normalize payloads ---------- */
 function normalizeAtpTournament(t, yearFromFile){
   const name = t.Name || '—';
-  const id = t.Id || (t.TournamentOverviewUrl ? t.TournamentOverviewUrl.split('/').pop() : name);
+  const id = (t.Id !== undefined && t.Id !== null) ? String(t.Id) : (t.TournamentOverviewUrl ? t.TournamentOverviewUrl.split('/').pop() : name);
   const formatted = t.FormattedDate || '';
   const start_iso = parseAtpFormattedDate(formatted) || (yearFromFile ? `${yearFromFile}-01-01` : null);
   let end_iso = null;
@@ -198,7 +210,6 @@ function normalizeAtpTournament(t, yearFromFile){
       }
     }
   }
-
   return {
     source: 'atp',
     tourney_id: String(id),
@@ -215,7 +226,7 @@ function normalizeAtpTournament(t, yearFromFile){
 
 function normalizeWtaTournament(c){
   const tg = c.tournamentGroup || c.tournament || {};
-  const id = tg.id || (c.title ? c.title.replace(/\s+/g,'_') : '');
+  const id = (tg && tg.id) ? String(tg.id) : (c.tournament && c.tournament.id ? String(c.tournament.id) : (c.title ? c.title.replace(/\s+/g,'_') : ''));
   const name = c.title || (tg.name ? tg.name : '—');
   const start = c.startDate || (c.tournament && c.tournament.startDate) || null;
   const end = c.endDate || (c.tournament && c.tournament.endDate) || null;
@@ -233,190 +244,275 @@ function normalizeWtaTournament(c){
   };
 }
 
-/* ---------- robust fetch: try root and relative filenames ---------- */
-async function tryFetchJsonCandidates(urls){
-  for(const url of urls){
+/* ---------- fetch utilities ---------- */
+async function tryFetchJson(urls){
+  for(const u of urls){
     try {
-      console.log('[trying json] ', url);
-      const r = await fetch(url, {cache:'no-cache'});
+      console.log('[trying]', u);
+      const r = await fetch(u, {cache:'no-cache'});
       if(r.ok){
-        try { return await r.json(); } catch(e){ console.warn('JSON parse failed for', url, e); continue; }
+        try { return await r.json(); } catch(e){ console.warn('json parse', u, e); continue; }
       } else {
-        console.debug(`fetch ${url} -> ${r.status}`);
+        console.debug('fetch', u, '->', r.status);
       }
-    } catch(err){
-      console.debug('fetch error', url, err);
-    }
+    } catch(e){ console.debug('fetch err', u, e); }
   }
   return null;
 }
-
-function buildCandidatesForBasenames(basenames, year){
+function buildCandidates(basenames, year){
   const urls = [];
   for(const bn of basenames){
-    // with leading slash (root) and without (relative)
     urls.push(`/${bn}${year}.json`);
     urls.push(`${bn}${year}.json`);
-    // also try lowercase/uppercase extension variant (rarely needed but harmless)
-    urls.push(`/${bn}${year}.JSON`);
-    urls.push(`${bn}${year}.JSON`);
   }
   return urls;
 }
 
-/* fetch both ATP and WTA files for a given year and return list of normalized events */
+/* ---------- winners load ---------- */
+let WINNERS_MAP = {}; // key: `${source.toLowerCase()}|${tourney_id}|${year}` -> winner name
+async function loadWinners(){
+  WINNERS_MAP = {};
+  const atp = await tryFetchJson(ATP_WINNER_FILES);
+  const wta = await tryFetchJson(WTA_WINNER_FILES);
+  if(Array.isArray(atp)){
+    for(const r of atp){
+      const key = `${(r.source||'atp').toLowerCase()}|${String(r.tourney_id)}|${String(r.year)}`;
+      if(r.winner_player_name) WINNERS_MAP[key] = r.winner_player_name;
+    }
+  }
+  if(Array.isArray(wta)){
+    for(const r of wta){
+      const key = `${(r.source||'wta').toLowerCase()}|${String(r.tourney_id)}|${String(r.year)}`;
+      if(r.winner_player_name) WINNERS_MAP[key] = r.winner_player_name;
+    }
+  }
+}
+
+/* ---------- fetch per year ---------- */
 async function fetchForYear(y){
   const out = [];
-
-  const atpCandidates = buildCandidatesForBasenames(ATP_BASENAMES, y);
-  const atpJson = await tryFetchJsonCandidates(atpCandidates);
+  const atpCandidates = buildCandidates(ATP_BASENAMES, y);
+  const atpJson = await tryFetchJson(atpCandidates);
   if(atpJson && Array.isArray(atpJson.TournamentDates)){
     for(const block of atpJson.TournamentDates){
       if(!Array.isArray(block.Tournaments)) continue;
       for(const t of block.Tournaments) out.push(normalizeAtpTournament(t, y));
     }
-  } else {
-    // could be empty or not found; that's fine, we continue
   }
-
-  const wtaCandidates = buildCandidatesForBasenames(WTA_BASENAMES, y);
-  const wtaJson = await tryFetchJsonCandidates(wtaCandidates);
+  const wtaCandidates = buildCandidates(WTA_BASENAMES, y);
+  const wtaJson = await tryFetchJson(wtaCandidates);
   if(wtaJson){
     const content = wtaJson.content || wtaJson.tournaments || [];
     if(Array.isArray(content)){
       for(const c of content) out.push(normalizeWtaTournament(c));
     }
   }
-
   return out;
 }
 
-/* ---------- main app (unchanged rendering logic) ---------- */
-let ALL_EVENTS = []; // normalized events
-let YEARS = []; // available years
-let visibleFilter = 'all'; // 'all' | 'atp' | 'wta'
+/* ---------- level determination ---------- */
+/* return object { group: 1|2|3, isGS: boolean } */
+function determineLevel(e){
+  if(!e || !e.source) return { group: 3, isGS: false };
+  const src = String(e.source).toLowerCase();
+  if(src === 'atp'){
+    const t = (e.level || '').toString().toUpperCase();
+    // Level 1: GS, 1000, 500, 250
+    if(t === 'GS' || t.includes('1000') || t.includes('500') || t.includes('250')) return { group:1, isGS: t==='GS' };
+    // Sometimes Grand Slam might be indicated elsewhere - check title/name
+    if((e.tourney_name || '').toUpperCase().includes('GRAND SLAM') || (e.tourney_name || '').toUpperCase().includes('GS')) return { group:1, isGS:true };
+    // Level 2: CH
+    if(t.includes('CH')) return { group:2, isGS:false };
+    // Level 3: FU or fallback
+    if(t.includes('FU')) return { group:3, isGS:false };
+    // fallback heuristics: if title contains 'Challenger' -> lvl2
+    if((e.tourney_name||'').toLowerCase().includes('challenger')) return { group:2, isGS:false };
+    return { group:3, isGS:false };
+  } else {
+    // WTA
+    const lvl = (e.level || '').toString();
+    const title = ( (e.raw && (e.raw.title || e.raw.tournament && e.raw.tournament.title)) || (e.tourney_name||'') ).toString();
+    const L = lvl.toUpperCase();
+    const T = title.toUpperCase();
+    // Level 1: "WTA 250", "WTA 500", "WTA 1000", "Grand Slam"
+    if(L.includes('WTA 250')||L.includes('WTA 500')||L.includes('WTA 1000')||L.includes('GRAND SLAM')) return { group:1, isGS: L.includes('GRAND SLAM') || T.includes('GRAND SLAM') };
+    if(T.includes('GRAND SLAM') || T.includes('GS')) return { group:1, isGS:true };
+    // Level 2: title contains W100 or W75 or W50 OR level == 'WTA 125'
+    if(T.match(/\bW100\b/) || T.match(/\bW75\b/) || T.match(/\bW50\b/) || L.includes('WTA 125')) return { group:2, isGS:false };
+    // Level 3: title contains W35 or W15
+    if(T.match(/\bW35\b/) || T.match(/\bW15\b/)) return { group:3, isGS:false };
+    // fallback: if level contains 'ITF' and prize small -> level3
+    if(L.includes('ITF')) return { group:3, isGS:false };
+    // default to Group 1 if top-level strings (WTA) present
+    if(L.includes('WTA') && (L.includes('250')||L.includes('500')||L.includes('1000'))) return { group:1, isGS:false };
+    // else fallback 3
+    return { group:3, isGS:false };
+  }
+}
+
+/* ---------- main app ---------- */
+let ALL_EVENTS = [];
+let YEARS = [];
+let visibleFilter = 'all'; // 'all'|'atp'|'wta'
+let enabledLevels = new Set([1]); // default Level 1 enabled
 
 async function loadAllData(){
   el('listContainer').innerHTML = '<div class="loading">Scanning available JSON files…</div>';
-  ALL_EVENTS = [];
-  YEARS = [];
+  ALL_EVENTS = []; YEARS = [];
+  await loadWinners();
   const yearPromises = [];
-  for(let y = MIN_YEAR; y <= MAX_YEAR; y++){
-    yearPromises.push((async ()=> {
+  for(let y=MIN_YEAR; y<=MAX_YEAR; y++){
+    yearPromises.push((async ()=>{
       const items = await fetchForYear(y);
-      if(items && items.length > 0) return { year: y, items };
+      if(items && items.length) return { year:y, items };
       return null;
     })());
   }
-
   const results = await Promise.all(yearPromises);
-  for(const r of results){
-    if(r && r.items && r.items.length > 0){
-      ALL_EVENTS.push(...r.items);
-      YEARS.push(r.year);
-    }
-  }
+  for(const r of results) if(r && r.items && r.items.length){ ALL_EVENTS.push(...r.items); YEARS.push(r.year); }
   YEARS = Array.from(new Set(YEARS)).sort((a,b)=>b-a);
-
   if(YEARS.length === 0){
-    el('listContainer').innerHTML = '<div class="loading">No tournament JSONs found. Place files like atp_tournaments_2026.json and/or wta_tournaments_2026.json at the root of the deploy (i.e. in docs/ for GitHub Pages).</div>';
+    el('listContainer').innerHTML = '<div class="loading">No tournament JSONs found. Place files like atp_tournaments_2026.json and/or wta_tournaments_2026.json at the root of the deploy (docs/).</div>';
     el('summaryText').textContent = 'No data';
     return;
   }
-
   const defaultYear = YEARS[0];
   const sel = el('yearSelect'); sel.innerHTML = '';
-  for(const y of YEARS){ const o = document.createElement('option'); o.value = y; o.textContent = y; sel.appendChild(o); }
+  for(const y of YEARS){ const o=document.createElement('option'); o.value=y; o.textContent=y; sel.appendChild(o); }
   sel.value = defaultYear;
-  renderForYear(defaultYear);
   sel.onchange = () => renderForYear(Number(sel.value));
+  renderForYear(defaultYear);
 }
 
+/* ---------- render ---------- */
 function renderForYear(y){
-  const container = el('listContainer');
-  container.innerHTML = '<div class="loading">Rendering…</div>';
+  const container = el('listContainer'); container.innerHTML = '<div class="loading">Rendering…</div>';
   let entries = ALL_EVENTS.filter(e => Number(e.year) === Number(y));
   entries = entries.map(e => {
     const sd = e.start_date ? new Date(e.start_date) : null;
-    const sortKey = sd ? sd.getTime() : (Number.MAX_SAFE_INTEGER - (e.source === 'atp' ? 0 : 1));
-    return { ...e, _sortKey: sortKey };
+    return { ...e, _sortKey: sd ? sd.getTime() : Number.MAX_SAFE_INTEGER };
   });
-
+  // apply source filter
   if(visibleFilter === 'atp') entries = entries.filter(e => e.source === 'atp');
   if(visibleFilter === 'wta') entries = entries.filter(e => e.source === 'wta');
-
+  // apply level filter: determineLevel(e) in enabledLevels
+  entries = entries.filter(e => {
+    const det = determineLevel(e);
+    return enabledLevels.has(det.group);
+  });
+  // sort by date ascending
   entries.sort((a,b) => {
-    if(a._sortKey === b._sortKey) return (a.tourney_name || '').localeCompare(b.tourney_name || '');
+    if(a._sortKey === b._sortKey) return (a.tourney_name||'').localeCompare(b.tourney_name||'');
     return a._sortKey - b._sortKey;
   });
-
   if(entries.length === 0){
-    container.innerHTML = '<div class="p-3 text-muted">No tournaments found for this year / filter.</div>';
+    container.innerHTML = '<div class="p-3 text-muted">No tournaments found for this year / filter / levels.</div>';
     el('summaryText').textContent = `${y} — 0 tournaments`;
     return;
   }
 
-  const table = document.createElement('table'); table.setAttribute('aria-live','polite');
+  // table header: Start • Level | Winner | Surface | Source
+  const table = document.createElement('table');
+  table.setAttribute('aria-live','polite');
   const thead = document.createElement('thead');
   thead.innerHTML = `<tr>
     <th class="date-col">Start • Level</th>
-    <th>Tournament</th>
+    <th>Winner</th>
     <th class="small">Surface</th>
     <th class="small">Source</th>
   </tr>`;
   const tbody = document.createElement('tbody');
 
   for(const e of entries){
-    const tr = document.createElement('tr'); tr.classList.add(e.source === 'atp' ? 'atp' : 'wta');
-    const href = `/tournament.html?source=${encodeURIComponent(e.source)}&t=${encodeURIComponent(e.tourney_id)}&year=${encodeURIComponent(e.year || y)}`;
+    const det = determineLevel(e);
+    const levelClass = det.isGS ? 'tname-gs' : (det.group===1 ? 'tname-level1' : (det.group===2 ? 'tname-level2' : 'tname-level3'));
+    const tr = document.createElement('tr');
+    tr.classList.add(e.source === 'atp' ? 'atp' : 'wta');
+
+    // Start/Level cell (first column) contains tournament name + date/level/location (only place showing name)
     const startDisplay = e.start_date ? fmtDate(e.start_date) : (e.raw && e.raw.FormattedDate ? e.raw.FormattedDate : '—');
-    const level = e.level || '—';
+    const levelText = e.level || (e.source==='wta' && e.raw && e.raw.level ? e.raw.level : '—');
+    const meta = `${escapeHtml(startDisplay)} • ${escapeHtml(levelText)}${e.location ? ' • ' + escapeHtml(e.location) : ''}`;
+    const nameHtml = `<div class="${levelClass}">${escapeHtml(e.tourney_name)}</div><div class="small text-muted">${meta}</div>`;
+
+    // Winner lookup
+    const key = `${(e.source||'').toLowerCase()}|${String(e.tourney_id)}|${String(e.year||y)}`;
+    const winnerName = WINNERS_MAP[key] || '';
+    const winnerHtml = winnerName ? `<span class="${e.source==='atp' ? 'winner-atp' : 'winner-wta'}">${escapeHtml(winnerName)}</span>` : '<span class="small">—</span>';
+
+    // Surface + source
     const surf = e.surface || 'Hard';
-    const loc = e.location || '';
-    const leftHtml = `<div><div style="font-weight:700">${escapeHtml(e.tourney_name)}</div><div class="small text-muted">${escapeHtml(startDisplay)} • ${escapeHtml(level)} ${loc ? ' • ' + escapeHtml(loc) : ''}</div></div>`;
-    const rightHtml = `<div style="display:flex;gap:10px;align-items:center;justify-content:flex-end">
-      <div class="surface-badge ${surfaceClass(surf)}">${escapeHtml(surf)}</div>
-      <div class="small">${e.source === 'atp' ? '<span class="source-atp">ATP</span>' : '<span class="source-wta">WTA</span>'}</div>
-    </div>`;
-    const a = document.createElement('a'); a.href = href; a.className = 'row-link';
-    a.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center">
-      <div style="min-width:220px;max-width:280px">${leftHtml}</div>
-      <div style="flex:1;padding-left:12px">${escapeHtml(e.tourney_name)}</div>
-      <div style="min-width:180px;text-align:right">${rightHtml}</div>
-    </div>`;
-    const td = document.createElement('td'); td.colSpan = 4; td.style.padding = '6px'; td.appendChild(a);
-    tr.appendChild(td); tbody.appendChild(tr);
+    const sourceHtml = e.source === 'atp' ? '<span class="source-atp">ATP</span>' : '<span class="source-wta">WTA</span>';
+
+    const td1 = document.createElement('td');
+    td1.innerHTML = nameHtml;
+
+    const td2 = document.createElement('td');
+    td2.innerHTML = winnerHtml;
+
+    const td3 = document.createElement('td');
+    td3.innerHTML = `<div class="surface-badge ${surfaceClass(surf)}">${escapeHtml(surf)}</div>`;
+
+    const td4 = document.createElement('td');
+    td4.innerHTML = sourceHtml;
+
+    // make first cell clickable to the tournament page (preserve old link)
+    const href = `/tournament.html?source=${encodeURIComponent(e.source)}&t=${encodeURIComponent(e.tourney_id)}&year=${encodeURIComponent(e.year || y)}`;
+    td1.style.cursor = 'pointer';
+    td1.onclick = ()=> location.href = href;
+
+    // optionally make whole row clickable for keyboard: wrap accessible link in first cell
+    tbody.appendChild(tr);
+    tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); tr.appendChild(td4);
   }
 
   table.appendChild(thead); table.appendChild(tbody);
-  container.innerHTML = ''; container.appendChild(table);
+  container.innerHTML = '';
+  container.appendChild(table);
 
   const cnt = entries.length;
-  el('summaryText').textContent = `${y} — ${cnt} tournament${cnt>1?'s':''} • Showing: ${visibleFilter.toUpperCase()}`;
-  container.setAttribute('tabindex','-1'); container.focus();
+  el('summaryText').textContent = `${y} — ${cnt} tournament${cnt>1?'s':''} • Showing: ${visibleFilter.toUpperCase()} • Levels: ${Array.from(enabledLevels).sort().join(',')}`;
 }
 
-function escapeHtml(s){
-  if(s === undefined || s === null) return '';
-  return String(s).replace(/[&<>"']/g, (m)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-}
-
-/* ---------- filter buttons wiring ---------- */
+/* ---------- UI wiring ---------- */
 el('btnAll').addEventListener('click', ()=> {
   visibleFilter = 'all';
   el('btnAll').classList.add('active'); el('btnATP').classList.remove('active'); el('btnWTA').classList.remove('active');
-  const y = Number(el('yearSelect').value); renderForYear(y);
+  renderForYear(Number(el('yearSelect').value));
 });
 el('btnATP').addEventListener('click', ()=> {
   visibleFilter = 'atp';
   el('btnAll').classList.remove('active'); el('btnATP').classList.add('active'); el('btnWTA').classList.remove('active');
-  const y = Number(el('yearSelect').value); renderForYear(y);
+  renderForYear(Number(el('yearSelect').value));
 });
 el('btnWTA').addEventListener('click', ()=> {
   visibleFilter = 'wta';
   el('btnAll').classList.remove('active'); el('btnATP').classList.remove('active'); el('btnWTA').classList.add('active');
-  const y = Number(el('yearSelect').value); renderForYear(y);
+  renderForYear(Number(el('yearSelect').value));
 });
+
+/* level toggles behavior */
+function toggleLevelButton(btn){
+  const lvl = Number(btn.dataset.level);
+  if(btn.classList.contains('on')){
+    // turn off
+    btn.classList.remove('on');
+    enabledLevels.delete(lvl);
+  } else {
+    btn.classList.add('on');
+    enabledLevels.add(lvl);
+  }
+  // ensure at least one level remains selected (prevent empty)
+  if(enabledLevels.size === 0){
+    // re-enable Level 1
+    enabledLevels.add(1);
+    el('lvl1').classList.add('on');
+  }
+  renderForYear(Number(el('yearSelect').value));
+}
+el('lvl1').addEventListener('click', ()=> toggleLevelButton(el('lvl1')));
+el('lvl2').addEventListener('click', ()=> toggleLevelButton(el('lvl2')));
+el('lvl3').addEventListener('click', ()=> toggleLevelButton(el('lvl3')));
 
 /* ---------- initial load ---------- */
 loadAllData();
