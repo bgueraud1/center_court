@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Match WTA - Détails</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; padding: 20px; color: #111; background: #f6f7f9; }
+    .card { background: white; border-radius: 10px; padding: 18px; box-shadow: 0 6px 20px rgba(0,0,0,0.06); max-width: 900px; margin: 0 auto; }
+    h1 { margin: 0 0 12px 0; font-size: 20px; }
+    .score { font-size: 28px; font-weight: 700; margin: 8px 0 18px; }
+    .players { display:flex; justify-content:space-between; gap:20px; align-items:center; }
+    .player { flex:1; text-align:center; }
+    .player .name { font-weight:600; }
+    .sets { width:100%; border-collapse: collapse; margin-top: 14px; }
+    .sets th, .sets td { border-bottom: 1px solid #eee; padding: 8px 10px; text-align:center; }
+    .stat-compare { display:flex; gap:12px; margin-top: 16px; }
+    .stat { flex:1; background:#fafafa; border-radius:8px; padding:12px; text-align:center; }
+    .muted { color:#666; font-size:13px; }
+    .error { color: #b00020; text-align:center; padding: 20px; }
+    .meta { margin-top:8px; color:#444; font-size:14px; }
+  </style>
+</head>
+<body>
+  <div class="card" id="root">
+    <h1 id="tourneyTitle">Chargement…</h1>
+    <div id="meta" class="meta"></div>
+
+    <div id="mainContent" style="display:none;">
+      <div class="players">
+        <div class="player" id="winnerBox">
+          <div class="name" id="winnerName"></div>
+          <div class="muted" id="winnerMeta"></div>
+        </div>
+        <div style="text-align:center;">
+          <div class="score" id="scoreString"></div>
+          <div class="muted" id="matchTime"></div>
+        </div>
+        <div class="player" id="loserBox">
+          <div class="name" id="loserName"></div>
+          <div class="muted" id="loserMeta"></div>
+        </div>
+      </div>
+
+      <table class="sets" id="setsTable" aria-label="Sets">
+        <thead><tr><th>Set</th><th>Score</th></tr></thead>
+        <tbody></tbody>
+      </table>
+
+      <div class="stat-compare">
+        <div class="stat">
+          <div class="muted">Aces</div>
+          <div id="acesWinner">-</div>
+          <div class="muted">—</div>
+          <div id="acesLoser">-</div>
+        </div>
+        <div class="stat">
+          <div class="muted">Double faults</div>
+          <div id="dblWinner">-</div>
+          <div class="muted">—</div>
+          <div id="dblLoser">-</div>
+        </div>
+        <div class="stat">
+          <div class="muted">1st serve %</div>
+          <div id="fsWinner">-</div>
+          <div class="muted">—</div>
+          <div id="fsLoser">-</div>
+        </div>
+        <div class="stat">
+          <div class="muted">Total points %</div>
+          <div id="tpWinner">-</div>
+          <div class="muted">—</div>
+          <div id="tpLoser">-</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="error" class="error" style="display:none;"></div>
+  </div>
+
+<script>
+(function(){
+  function qs(keys){
+    const params = new URLSearchParams(location.search);
+    for(const k of keys){
+      if(params.has(k)) return params.get(k);
+    }
+    return null;
+  }
+
+  const tourney = qs(['t','tourney','tourney_id']);
+  const year = qs(['y','year','tourney_year']);
+  const match = qs(['m','match','match_id']);
+
+  if(!tourney || !year || !match){
+    const err = document.getElementById('error');
+    err.style.display = 'block';
+    err.textContent = "Paramètres manquants dans l'URL. Ex: ?t=609&y=2021&m=LS001";
+    document.getElementById('tourneyTitle').textContent = "Impossible de charger le match";
+    return;
+  }
+
+  const jsonPath = `/matches/wta_matches/${tourney}_${year}/${match}.json`;
+
+  fetch(jsonPath)
+    .then(res => {
+      if(!res.ok) throw new Error("Fichier JSON introuvable: " + jsonPath);
+      return res.json();
+    })
+    .then(data => {
+      document.getElementById('tourneyTitle').textContent = (data.tourney_name || ("Tourney " + tourney)) + " — " + (data.year || year);
+      if(data.start_date || data.end_date){
+        document.getElementById('meta').textContent = (data.start_date || '') + (data.end_date ? ' → ' + data.end_date : '');
+      }
+      document.getElementById('mainContent').style.display = 'block';
+      document.getElementById('scoreString').textContent = data.score_string || data.raw && data.raw.score_string || '—';
+      document.getElementById('matchTime').textContent = data.match_time_total || data.raw && data.raw.match_time_total || '';
+
+      // players
+      const win = data.players && data.players.winner || {};
+      const los = data.players && data.players.loser || {};
+      document.getElementById('winnerName').textContent = win.name || (data.raw && data.raw.winner) || 'Winner';
+      document.getElementById('winnerMeta').textContent = (win.country ? win.country + (win.seed ? ' • #' + win.seed : '') : '');
+      document.getElementById('loserName').textContent = los.name || (data.raw && data.raw.loser) || 'Loser';
+      document.getElementById('loserMeta').textContent = (los.country ? los.country + (los.seed ? ' • #' + los.seed : '') : '');
+
+      // sets
+      const tbody = document.querySelector('#setsTable tbody');
+      tbody.innerHTML = '';
+      const sets = data.sets || [];
+      if(sets.length === 0 && data.raw){
+        for(let i=1;i<=5;i++){
+          const k = 'set' + i + '_score';
+          if(data.raw[k]) sets.push(data.raw[k]);
+        }
+      }
+      if(sets.length === 0){
+        const tr = document.createElement('tr');
+        tr.innerHTML = '<td colspan="2" class="muted">Pas de détail de sets</td>';
+        tbody.appendChild(tr);
+      } else {
+        sets.forEach((s, idx) => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = '<td>Set ' + (idx+1) + '</td><td>' + s + '</td>';
+          tbody.appendChild(tr);
+        });
+      }
+
+      // stats
+      const stats = data.stats || {};
+      const sw = stats.winner || {};
+      const sl = stats.loser || {};
+
+      function showOrDash(v){ return (v===null || v===undefined || v==='') ? '—' : v; }
+      document.getElementById('acesWinner').textContent = showOrDash(sw.aces);
+      document.getElementById('acesLoser').textContent = showOrDash(sl.aces);
+      document.getElementById('dblWinner').textContent = showOrDash(sw.doublefaults);
+      document.getElementById('dblLoser').textContent = showOrDash(sl.doublefaults);
+      document.getElementById('fsWinner').textContent = showOrDash(sw.firstserve_percent) ? showOrDash(sw.firstserve_percent) + '%' : '—';
+      document.getElementById('fsLoser').textContent = showOrDash(sl.firstserve_percent) ? showOrDash(sl.firstserve_percent) + '%' : '—';
+      document.getElementById('tpWinner').textContent = showOrDash(sw.totalpointswon_percent) ? showOrDash(sw.totalpointswon_percent) + '%' : '—';
+      document.getElementById('tpLoser').textContent = showOrDash(sl.totalpointswon_percent) ? showOrDash(sl.totalpointswon_percent) + '%' : '—';
+    })
+    .catch(err => {
+      document.getElementById('tourneyTitle').textContent = "Erreur de chargement";
+      const e = document.getElementById('error');
+      e.style.display = 'block';
+      e.textContent = err.message;
+    });
+
+})();
+</script>
+</body>
+</html

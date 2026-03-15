@@ -1,145 +1,496 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Tournament Calendar — Center Court</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <title>Calendar — Center Court</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
   <style>
-    .surface-badge { padding:.35rem .6rem; border-radius:.35rem; color:#fff; font-weight:600; font-size:.85rem; }
-    .surface-hard { background:#2b6cb0; } /* blue */
+    :root{
+      --bg:#000000;
+      --card:#08101a;
+      --muted:#9aa6bf;
+      --accent-blue:#2b6cb0;
+      --accent-purple:#9b59b6;
+      --row-blue: linear-gradient(90deg, rgba(43,108,176,0.12), rgba(255,255,255,0.01));
+      --row-purple: linear-gradient(90deg, rgba(155,89,182,0.12), rgba(255,255,255,0.01));
+    }
+    html,body{height:100%;margin:0;padding:0;background:linear-gradient(180deg,#000,#060406);color:#e9f2ff;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial}
+    .wrap{max-width:1100px;margin:28px auto;padding:0 18px}
+    header{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+    .brand{font-weight:800;letter-spacing:0.2px}
+    h1{margin:0;font-size:20px}
+    .controls{margin-left:auto;display:flex;gap:8px;align-items:center}
+    .btn{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--muted);padding:8px 12px;border-radius:10px;cursor:pointer;font-weight:700}
+    .btn.active{color:#fff;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01))}
+    .btn-blue{border-color: rgba(43,108,176,0.25)}
+    .btn-purple{border-color: rgba(155,89,182,0.25)}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.00));padding:14px;border-radius:10px;border:1px solid rgba(255,255,255,0.03)}
+    .meta{color:var(--muted);font-size:13px;margin-top:6px}
+    table{width:100%;border-collapse:collapse;margin-top:12px}
+    th,td{padding:12px;text-align:left;border-bottom:1px dashed rgba(255,255,255,0.03);font-size:14px;vertical-align:middle}
+    thead th{color:var(--muted);font-weight:700;cursor:default}
+    tbody tr.atp{background: var(--row-blue)}
+    tbody tr.wta{background: var(--row-purple)}
+    .surface-badge { padding:.35rem .6rem; border-radius:.35rem; color:#fff; font-weight:700; font-size:.82rem; text-transform:capitalize; display:inline-block; min-width:54px; text-align:center }
+    .surface-hard { background:var(--accent-blue); } /* blue */
     .surface-clay { background:#c53030; } /* red */
     .surface-grass { background:#2f855a; } /* green */
     .surface-carpet { background:#6b46c1; } /* purple */
-    .source-atp { color:#0d6efd; font-weight:600; }
-    .source-wta { color:#9b59b6; font-weight:600; }
-    .table-row { cursor:pointer; }
+    .source-atp { color:var(--accent-blue); font-weight:700; }
+    .source-wta { color:var(--accent-purple); font-weight:700; }
+    .small{font-size:13px;color:var(--muted)}
+    .city{color:var(--muted);font-size:13px}
+    .year-select{background:transparent;border:1px solid rgba(255,255,255,0.04);color:#fff;padding:6px 8px;border-radius:8px}
+    .controls-line{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+    @media (max-width:880px){ th,td{padding:10px;font-size:13px} .surface-badge{font-size:0.75rem;padding:.25rem .5rem} }
+    /* clickable row style */
+    a.row-link { color: inherit; text-decoration: none; display:block; border-radius:8px; padding:6px }
+    a.row-link:hover { filter:brightness(1.03); text-decoration:none; }
+    /* subtle card heading */
+    .card-head{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+    .date-col{min-width:156px; max-width:180px}
+    .grow{flex:1}
+    .loading{color:var(--muted);padding:18px 0;text-align:center}
   </style>
 </head>
-<body class="bg-light">
-  <nav class="navbar navbar-dark bg-dark">
-    <div class="container">
-      <a class="navbar-brand" href="/">Center Court</a>
-      <div class="text-white small">Calendar</div>
-    </div>
-  </nav>
-
-  <main class="container py-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <h1 class="h4 mb-0">Tournament Calendar</h1>
+<body>
+  <div class="wrap">
+    <header>
       <div>
-        <label for="yearSelect" class="form-label small mb-0">Year</label>
-        <select id="yearSelect" class="form-select form-select-sm"></select>
+        <div class="brand">Center Court</div>
+        <h1>Tournament Calendar</h1>
+        <div class="meta">Data from local JSONs (ATP / WTA)</div>
+      </div>
+
+      <div class="controls">
+        <label for="yearSelect" class="small" style="margin-right:8px;color:var(--muted)">Year</label>
+        <select id="yearSelect" class="year-select"></select>
+      </div>
+    </header>
+
+    <div class="card" id="cardMain">
+      <div class="card-head">
+        <div class="controls-line">
+          <button id="btnAll" class="btn active">All</button>
+          <button id="btnATP" class="btn btn-blue">ATP</button>
+          <button id="btnWTA" class="btn btn-purple">WTA</button>
+        </div>
+        <div class="grow" style="text-align:right">
+          <div class="small" id="summaryText">Loading…</div>
+        </div>
+      </div>
+
+      <div id="listContainer">
+        <div class="loading">Loading tournaments…</div>
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-body p-2">
-        <div id="listContainer">Loading tournaments…</div>
-      </div>
-    </div>
-  </main>
+    <footer style="margin-top:18px;color:var(--muted);font-size:13px">
+      <div>Center Court — stylish calendar • links point to tournament pages</div>
+    </footer>
+  </div>
 
-  <footer class="site-footer py-4 mt-4">
-    <div class="container d-flex justify-content-between align-items-center">
-      <div><small class="text-muted">Center Court</small></div>
-      <div class="small text-muted">Data from local CSVs</div>
-    </div>
-  </footer>
+<script>
+/* ---------- Configuration ---------- */
+/* modify if you want to try more/less years */
+const MIN_YEAR = 2018;
+const MAX_YEAR = (new Date()).getFullYear() + 1; // try next year too
+const BASE_PATH = '/data/tournaments'; // where files are expected
+const ATP_PREFIX = 'atp_tournaments_'; // atp_tournaments_YEAR.json
+const WTA_PREFIX = 'wta_tournaments_'; // wta_tournaments_YEAR.json
 
-  <script>
-    const surfaceClass = (s)=> {
-      if(!s) return 'surface-hard';
-      s = (s+'').toLowerCase();
-      if(s.includes('hard')) return 'surface-hard';
-      if(s.includes('clay')) return 'surface-clay';
-      if(s.includes('grass')) return 'surface-grass';
-      if(s.includes('carpet')) return 'surface-carpet';
-      return 'surface-hard';
-    };
+/* ---------- utilities ---------- */
+const el = id => document.getElementById(id);
+const fmtDate = (iso) => {
+  if(!iso) return '—';
+  try {
+    const d = new Date(iso);
+    if(isNaN(d)) return iso;
+    return d.toLocaleDateString('en-GB', { year:'numeric', month:'short', day:'numeric' });
+  } catch(e){ return iso; }
+};
 
-    function formatDate(d){
-      if(!d) return '—';
-      try {
-        return new Date(d).toLocaleDateString('en-GB', {year:'numeric',month:'short',day:'numeric'});
-      } catch(e){
-        return d;
+function surfaceClass(s){
+  if(!s) return 'surface-hard';
+  s = String(s).toLowerCase();
+  if(s.includes('hard')) return 'surface-hard';
+  if(s.includes('clay')) return 'surface-clay';
+  if(s.includes('grass')) return 'surface-grass';
+  if(s.includes('carpet')) return 'surface-carpet';
+  return 'surface-hard';
+}
+
+/* parse ATP FormattedDate like:
+   - "4 - 11 January, 2026" -> 2026-01-04
+   - "28 march, 4 april 2026" -> 2026-03-28
+   - "30 december 2025, 6 january 2026" -> 2025-12-30
+   - "January, 2026" -> fallback to first day of month
+*/
+function parseAtpFormattedDate(fd){
+  if(!fd || typeof fd !== 'string') return null;
+  const s = fd.trim();
+  // try to extract explicit 4-digit years present
+  const yearMatches = s.match(/\b(20\d{2})\b/g);
+  let lastYear = yearMatches ? Number(yearMatches[yearMatches.length - 1]) : null;
+
+  // pattern 1: "4 - 11 January, 2026" or "4–11 January, 2026"
+  const rangeMonthMatch = s.match(/^\s*(\d{1,2})\s*[-–—]\s*(\d{1,2})\s*([A-Za-z]+)/i);
+  if(rangeMonthMatch){
+    const day = Number(rangeMonthMatch[1]);
+    const month = rangeMonthMatch[3];
+    const year = lastYear || new Date().getFullYear();
+    return tryBuildISO(day, month, year);
+  }
+
+  // pattern 2: look for first occurrence of "number month" or "month, year"
+  // find all number+word occurrences
+  const numMonthRegex = /(\d{1,2})\s*([A-Za-z]+)/g;
+  let m;
+  const pairs = [];
+  while((m = numMonthRegex.exec(s)) !== null){
+    pairs.push([m[1], m[2]]);
+  }
+  if(pairs.length > 0){
+    const day = Number(pairs[0][0]);
+    const month = pairs[0][1];
+    // determine year for this pair:
+    // if the main string contains two years (start and end in different years), we try to infer:
+    // find segment index of this pair to see if its trailing comma with year applies
+    // simpler: if there is any year before the comma that belongs to the pair, use nearest year; otherwise use lastYear
+    const year = lastYear || new Date().getFullYear();
+    return tryBuildISO(day, month, year);
+  }
+
+  // pattern 3: "January, 2026" -> pick day 1
+  const monthYear = s.match(/([A-Za-z]+)\s*,\s*(20\d{2})/i);
+  if(monthYear){
+    return tryBuildISO(1, monthYear[1], Number(monthYear[2]));
+  }
+
+  // fallback: try to parse using Date directly
+  const parsed = Date.parse(s);
+  if(!isNaN(parsed)) return (new Date(parsed)).toISOString().slice(0,10);
+
+  return null;
+
+  function tryBuildISO(day, monthName, year){
+    // normalize month name
+    try {
+      const mon = monthName.trim();
+      const candidate = new Date(`${day} ${mon} ${year}`);
+      if(!isNaN(candidate)) return candidate.toISOString().slice(0,10);
+      // try capitalizing first letter
+      const cap = mon.charAt(0).toUpperCase() + mon.slice(1).toLowerCase();
+      const cand2 = new Date(`${day} ${cap} ${year}`);
+      if(!isNaN(cand2)) return cand2.toISOString().slice(0,10);
+    } catch(e){}
+    return null;
+  }
+}
+
+/* ---------- normalize payload entry to unified shape ----------
+   shape:
+   {
+     source: 'atp'|'wta',
+     tourney_id: string,
+     tourney_name: string,
+     start_date: 'YYYY-MM-DD',
+     end_date: 'YYYY-MM-DD' | null,
+     level: string,
+     surface: string,
+     location: string,
+     year: number,
+     raw: originalObject
+   }
+*/
+function normalizeAtpTournament(t, yearFromFile){
+  // t is one tournament object inside Tournaments array
+  const name = t.Name || t.Name || '—';
+  const id = t.Id || (t.TournamentOverviewUrl ? t.TournamentOverviewUrl.split('/').pop() : name);
+  const formatted = t.FormattedDate || '';
+  const start_iso = parseAtpFormattedDate(formatted) || (yearFromFile ? `${yearFromFile}-01-01` : null);
+  // attempt to parse end date: look for patterns where there's an end with different month/day
+  let end_iso = null;
+  if(formatted){
+    // try to find last "number month year" occurrence
+    const matches = formatted.match(/(\d{1,2}\s+[A-Za-z]+(?:\s*,\s*\d{4})?)/gi);
+    if(matches && matches.length > 1){
+      // take last
+      const last = matches[matches.length - 1];
+      const y = (last.match(/\b(20\d{2})\b/) || [null, yearFromFile])[1] || yearFromFile;
+      const parsed = Date.parse(last + (/\b20\d{2}\b/.test(last) ? '' : ' ' + y));
+      if(!isNaN(parsed)) end_iso = (new Date(parsed)).toISOString().slice(0,10);
+    } else {
+      // sometimes FormattedDate like "4 - 11 January, 2026" -> handle end day + month
+      const rangeMatch = formatted.match(/(\d{1,2})\s*[-–]\s*(\d{1,2})\s*([A-Za-z]+),?\s*(20\d{2})?/i);
+      if(rangeMatch){
+        const endDay = Number(rangeMatch[2]);
+        const month = rangeMatch[3];
+        const y = Number(rangeMatch[4]) || yearFromFile || (new Date()).getFullYear();
+        const dd = Date.parse(`${endDay} ${month} ${y}`);
+        if(!isNaN(dd)) end_iso = (new Date(dd)).toISOString().slice(0,10);
       }
     }
+  }
 
-    (async function(){
-      try {
-        const res = await fetch('/data/tournaments/tournaments_calendar.json');
-        if(!res.ok) throw new Error('Calendar data not found');
-        const all = await res.json();
+  return {
+    source: 'atp',
+    tourney_id: String(id),
+    tourney_name: name,
+    start_date: start_iso,
+    end_date: end_iso,
+    level: t.Type || t.EventType || '',
+    surface: t.Surface || '',
+    location: t.Location || '',
+    year: Number(yearFromFile) || (t.FormattedDate && (t.FormattedDate.match(/\b(20\d{2})\b/) ? Number(t.FormattedDate.match(/\b(20\d{2})\b/)[1]) : null)),
+    raw: t
+  };
+}
 
-        // build set of years present
-        const yearsSet = new Set(all.map(i => i.year));
-        const years = Array.from(yearsSet).sort((a,b)=>b-a);
+function normalizeWtaTournament(c){
+  // c is an object inside content array
+  const tg = c.tournamentGroup || c.tournament || {};
+  const id = tg.id || (c.tournamentGroup && c.tournamentGroup.id) || (c.tournament && c.tournament.tournamentGroup && c.tournament.tournamentGroup.id) || (c.tournament && c.tournament.id) || (c.tournamentGroup && c.tournamentGroup.id) || (c.title ? c.title.replace(/\s+/g,'_') : '');
+  const name = c.title || (tg.name ? tg.name : '—');
+  const start = c.startDate || (c.tournament && c.tournament.startDate) || null;
+  const end = c.endDate || (c.tournament && c.tournament.endDate) || null;
+  return {
+    source: 'wta',
+    tourney_id: String(id),
+    tourney_name: name,
+    start_date: start || null,
+    end_date: end || null,
+    level: c.level || (tg.level || '') || '',
+    surface: c.surface || (c.tournament && c.tournament.surface) || '',
+    location: (c.city ? (c.city + (c.country ? ', ' + c.country : '')) : (c.country || '')),
+    year: Number(c.year) || (start ? Number(start.slice(0,4)) : null),
+    raw: c
+  };
+}
 
-        const yearSelect = document.getElementById('yearSelect');
-        const currentYear = (new Date()).getFullYear();
-        if(!years.includes(currentYear)) years.unshift(currentYear);
-        years.forEach(y => {
-          const opt = document.createElement('option');
-          opt.value = y; opt.textContent = y;
-          yearSelect.appendChild(opt);
-        });
+/* ---------- load JSON files for many years ---------- */
+async function tryFetchJson(path){
+  try {
+    const r = await fetch(path, {cache:'no-cache'});
+    if(!r.ok) throw new Error('notfound');
+    return await r.json();
+  } catch(e){
+    return null;
+  }
+}
 
-        // default to current year (or most recent available)
-        const defaultYear = years.includes(currentYear) ? currentYear : (years[0] || currentYear);
-        yearSelect.value = defaultYear;
-
-        function renderForYear(y){
-          const container = document.getElementById('listContainer');
-          const entries = all.filter(e => Number(e.year) === Number(y));
-          // sort by start_date
-          entries.sort((a,b) => {
-            const da = a.start_date || '9999-12-31', db = b.start_date || '9999-12-31';
-            return da.localeCompare(db);
-          });
-
-          if(entries.length === 0){
-            container.innerHTML = '<div class="p-3 text-muted">No tournaments found for this year.</div>';
-            return;
-          }
-
-          const table = document.createElement('div');
-          table.className = 'list-group list-group-flush';
-
-          entries.forEach(e => {
-            const item = document.createElement('a');
-            item.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center table-row';
-            item.href = `/tournament.html?source=${encodeURIComponent(e.source)}&t=${encodeURIComponent(e.tourney_id)}&year=${encodeURIComponent(e.year)}`;
-            const left = document.createElement('div');
-            left.innerHTML = `<div><strong>${e.tourney_name || '—'}</strong></div><div class="small text-muted">${formatDate(e.start_date)} • ${e.level || '—'}</div>`;
-            const right = document.createElement('div');
-            right.style.display = 'flex'; right.style.gap = '8px'; right.style.alignItems = 'center';
-            const surf = document.createElement('div');
-            surf.className = 'surface-badge ' + surfaceClass(e.surface);
-            surf.textContent = e.surface || 'Hard';
-            const src = document.createElement('div');
-            src.className = 'small';
-            src.innerHTML = e.source === 'atp' ? '<span class="source-atp">ATP</span>' : '<span class="source-wta">WTA</span>';
-            right.appendChild(surf); right.appendChild(src);
-            item.appendChild(left); item.appendChild(right);
-            table.appendChild(item);
-          });
-
-          container.innerHTML = '';
-          container.appendChild(table);
-        }
-
-        renderForYear(defaultYear);
-        yearSelect.addEventListener('change', (e) => renderForYear(e.target.value));
-
-      } catch (err) {
-        document.getElementById('listContainer').innerText = 'Error loading calendar: ' + err.message;
-        console.error(err);
+/* fetch both ATP and WTA files for a given year and return list of normalized events */
+async function fetchForYear(y){
+  const out = [];
+  // try ATP
+  const atpPath = `${BASE_PATH}/${ATP_PREFIX}${y}.json`;
+  const wtaPath = `${BASE_PATH}/${WTA_PREFIX}${y}.json`;
+  const [atpJson, wtaJson] = await Promise.all([ tryFetchJson(atpPath), tryFetchJson(wtaPath) ]);
+  if(atpJson && Array.isArray(atpJson.TournamentDates)){
+    // TournamentDates -> each has Tournaments array
+    for(const block of atpJson.TournamentDates){
+      if(!Array.isArray(block.Tournaments)) continue;
+      for(const t of block.Tournaments){
+        const n = normalizeAtpTournament(t, y);
+        out.push(n);
       }
-    })();
-  </script>
+    }
+  }
+  if(wtaJson){
+    // WTA payload uses "content" array
+    const content = wtaJson.content || wtaJson.tournaments || [];
+    if(Array.isArray(content)){
+      for(const c of content){
+        const n = normalizeWtaTournament(c);
+        out.push(n);
+      }
+    }
+  }
+  return out;
+}
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+/* ---------- main app ---------- */
+let ALL_EVENTS = []; // normalized events
+let YEARS = []; // available years
+let visibleFilter = 'all'; // 'all' | 'atp' | 'wta'
+
+async function loadAllData(){
+  el('listContainer').innerHTML = '<div class="loading">Scanning available JSON files…</div>';
+  ALL_EVENTS = [];
+  YEARS = [];
+  const yearPromises = [];
+  for(let y = MIN_YEAR; y <= MAX_YEAR; y++){
+    yearPromises.push((async ()=> {
+      const items = await fetchForYear(y);
+      if(items && items.length > 0){
+        return { year: y, items };
+      } else {
+        return null;
+      }
+    })());
+  }
+
+  const results = await Promise.all(yearPromises);
+  for(const r of results){
+    if(r && r.items && r.items.length > 0){
+      ALL_EVENTS.push(...r.items);
+      YEARS.push(r.year);
+    }
+  }
+  // dedupe years and sort descending
+  YEARS = Array.from(new Set(YEARS)).sort((a,b)=>b-a);
+
+  if(YEARS.length === 0){
+    el('listContainer').innerHTML = '<div class="loading">No tournament JSONs found. Place files like atp_tournaments_2026.json and/or wta_tournaments_2026.json under ' + BASE_PATH + '.</div>';
+    el('summaryText').textContent = 'No data';
+    return;
+  }
+
+  // compute default (most recent year among loaded files)
+  const defaultYear = YEARS[0];
+
+  // populate year select
+  const sel = el('yearSelect');
+  sel.innerHTML = '';
+  for(const y of YEARS){
+    const o = document.createElement('option');
+    o.value = y; o.textContent = y;
+    sel.appendChild(o);
+  }
+  sel.value = defaultYear;
+
+  // render
+  renderForYear(defaultYear);
+
+  // wire change
+  sel.onchange = () => renderForYear(Number(sel.value));
+}
+
+/* filter by year and source, and sort strictly by start_date */
+function renderForYear(y){
+  const container = el('listContainer');
+  container.innerHTML = '<div class="loading">Rendering…</div>';
+  // filter
+  let entries = ALL_EVENTS.filter(e => Number(e.year) === Number(y));
+  // filter out items without start_date if possible (we can still show them last)
+  // parse start_date into Date objects for sorting; if missing, use very large date to push to end
+  entries = entries.map(e => {
+    const sd = e.start_date ? new Date(e.start_date) : null;
+    const sortKey = sd ? sd.getTime() : (Number.MAX_SAFE_INTEGER - (e.source === 'atp' ? 0 : 1));
+    return { ...e, _sortKey: sortKey };
+  });
+
+  // apply source filter
+  if(visibleFilter === 'atp') entries = entries.filter(e => e.source === 'atp');
+  if(visibleFilter === 'wta') entries = entries.filter(e => e.source === 'wta');
+
+  // strict sort by start_date ascending
+  entries.sort((a,b) => {
+    if(a._sortKey === b._sortKey) {
+      // fallback tie-breaker: name
+      return (a.tourney_name || '').localeCompare(b.tourney_name || '');
+    }
+    return a._sortKey - b._sortKey;
+  });
+
+  if(entries.length === 0){
+    container.innerHTML = '<div class="p-3 text-muted">No tournaments found for this year / filter.</div>';
+    el('summaryText').textContent = `${y} — 0 tournaments`;
+    return;
+  }
+
+  // build HTML table
+  const table = document.createElement('table');
+  table.setAttribute('aria-live','polite');
+  const thead = document.createElement('thead');
+  thead.innerHTML = `<tr>
+    <th class="date-col">Start • Level</th>
+    <th>Tournament</th>
+    <th class="small">Surface</th>
+    <th class="small">Source</th>
+  </tr>`;
+  const tbody = document.createElement('tbody');
+
+  for(const e of entries){
+    const tr = document.createElement('tr');
+    tr.classList.add(e.source === 'atp' ? 'atp' : 'wta');
+
+    // build link preserving old query params structure:
+    const href = `/tournament.html?source=${encodeURIComponent(e.source)}&t=${encodeURIComponent(e.tourney_id)}&year=${encodeURIComponent(e.year || y)}`;
+
+    // start display
+    const startDisplay = e.start_date ? fmtDate(e.start_date) : (e.raw && e.raw.FormattedDate ? e.raw.FormattedDate : '—');
+    const level = e.level || '—';
+    const surf = e.surface || 'Hard';
+    const loc = e.location || '';
+
+    const leftHtml = `<div><div style="font-weight:700">${escapeHtml(e.tourney_name)}</div><div class="small text-muted">${escapeHtml(startDisplay)} • ${escapeHtml(level)} ${loc ? ' • ' + escapeHtml(loc) : ''}</div></div>`;
+    const rightHtml = `<div style="display:flex;gap:10px;align-items:center;justify-content:flex-end">
+      <div class="surface-badge ${surfaceClass(surf)}">${escapeHtml(surf)}</div>
+      <div class="small">${e.source === 'atp' ? '<span class="source-atp">ATP</span>' : '<span class="source-wta">WTA</span>'}</div>
+    </div>`;
+
+    const a = document.createElement('a');
+    a.href = href;
+    a.className = 'row-link';
+    a.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center">
+      <div style="min-width:220px;max-width:280px">${leftHtml}</div>
+      <div style="flex:1;padding-left:12px">${escapeHtml(e.tourney_name)}</div>
+      <div style="min-width:180px;text-align:right">${rightHtml}</div>
+    </div>`;
+    const td = document.createElement('td');
+    td.colSpan = 4;
+    td.style.padding = '6px';
+    td.appendChild(a);
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+
+  table.appendChild(thead);
+  table.appendChild(tbody);
+  container.innerHTML = '';
+  container.appendChild(table);
+
+  // summary
+  const cnt = entries.length;
+  el('summaryText').textContent = `${y} — ${cnt} tournament${cnt>1?'s':''} • Showing: ${visibleFilter.toUpperCase()}`;
+
+  // small accessibility: focus the container briefly
+  container.setAttribute('tabindex','-1');
+  container.focus();
+}
+
+/* helper escape */
+function escapeHtml(s){
+  if(s === undefined || s === null) return '';
+  return String(s).replace(/[&<>"']/g, (m)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+/* ---------- filter buttons wiring ---------- */
+el('btnAll').addEventListener('click', ()=> {
+  visibleFilter = 'all';
+  el('btnAll').classList.add('active'); el('btnATP').classList.remove('active'); el('btnWTA').classList.remove('active');
+  const y = Number(el('yearSelect').value);
+  renderForYear(y);
+});
+el('btnATP').addEventListener('click', ()=> {
+  visibleFilter = 'atp';
+  el('btnAll').classList.remove('active'); el('btnATP').classList.add('active'); el('btnWTA').classList.remove('active');
+  const y = Number(el('yearSelect').value);
+  renderForYear(y);
+});
+el('btnWTA').addEventListener('click', ()=> {
+  visibleFilter = 'wta';
+  el('btnAll').classList.remove('active'); el('btnATP').classList.remove('active'); el('btnWTA').classList.add('active');
+  const y = Number(el('yearSelect').value);
+  renderForYear(y);
+});
+
+/* ---------- initial load ---------- */
+loadAllData();
+
+</script>
 </body>
 </html>
