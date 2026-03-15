@@ -80,7 +80,7 @@ jobs:
           echo "TIDS_INPUT=${TIDS_INPUT}"
           echo "TOUR_TYPE=${TOUR_TYPE}"
 
-          mkdir -p matches/wta_matches matches/atp_matches
+          mkdir -p docs/matches/wta_matches docs/matches/atp_matches
           rm -f created_files.txt || true
 
           trim() { printf '%s' "$1" | awk '{$1=$1;print}'; }
@@ -92,13 +92,13 @@ jobs:
               ARGS+=(--tournament-ids "${TIDS_TRIMMED}")
             fi
             ARGS+=(--tournaments-json "${TOURNAMENT_DICT_PATH_ATP}")
-            ARGS+=(--out-folder "matches/atp_matches")
+            ARGS+=(--out-folder "docs/matches/atp_matches")
             ARGS+=(--created-files-out created_files.txt)
             ARGS+=(--headless)
             ARGS+=(--max-attempts 10)
             echo "Calling: python3 ${ARGS[*]}"
             python3 "${ARGS[@]}"
-            OUT_DIR="matches/atp_matches"
+            OUT_DIR="docs/matches/atp_matches"
           else
             ARGS=(scripts/scraping_main.py)
             if [ -n "${TIDS_TRIMMED}" ]; then
@@ -108,7 +108,7 @@ jobs:
             ARGS+=(--created-files-out created_files.txt)
             echo "Calling: python3 ${ARGS[*]}"
             python3 "${ARGS[@]}"
-            OUT_DIR="matches/wta_matches"
+            OUT_DIR="docs/matches/wta_matches"
           fi
 
           echo "Scraper finished. created_files.txt (raw):"
@@ -201,11 +201,11 @@ jobs:
             # also add the list itself for traceability
             git add -f created_files.txt || true
           else
-            echo "No created_files.txt — falling back to add matches/${TOUR_TYPE}_matches"
+            echo "No created_files.txt — falling back to add docs/matches/${TOUR_TYPE}_matches"
             if [ "${TOUR_TYPE}" = "atp" ]; then
-              git add -f matches/atp_matches || true
+              git add -f docs/matches/atp_matches || true
             else
-              git add -f matches/wta_matches || true
+              git add -f docs/matches/wta_matches || true
             fi
           fi
 
@@ -286,12 +286,12 @@ jobs:
             git add -f created_files.txt || true
           else
             # fallback: add existing match csvs only
-            if [ -d "matches/wta_matches" ]; then
-              find matches/wta_matches -type f -name '*.csv' -print0 \
+            if [ -d "docs/matches/wta_matches" ]; then
+              find docs/matches/wta_matches -type f -name '*.csv' -print0 \
                 | xargs -0 --no-run-if-empty git add -f || true
             fi
-            if [ -d "matches/atp_matches" ]; then
-              find matches/atp_matches -type f -name '*.csv' -print0 \
+            if [ -d "docs/matches/atp_matches" ]; then
+              find docs/matches/atp_matches -type f -name '*.csv' -print0 \
                 | xargs -0 --no-run-if-empty git add -f || true
             fi
           fi
