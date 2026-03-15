@@ -45,10 +45,8 @@
     .year-select{background:transparent;border:1px solid rgba(255,255,255,0.04);color:#fff;padding:6px 8px;border-radius:8px}
     .controls-line{display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
     @media (max-width:880px){ th,td{padding:10px;font-size:13px} .surface-badge{font-size:0.75rem;padding:.25rem .5rem} }
-    /* clickable row style */
     a.row-link { color: inherit; text-decoration: none; display:block; border-radius:8px; padding:6px }
     a.row-link:hover { filter:brightness(1.03); text-decoration:none; }
-    /* subtle card heading */
     .card-head{display:flex;align-items:center;gap:12px;margin-bottom:6px}
     .date-col{min-width:156px; max-width:180px}
     .grow{flex:1}
@@ -93,13 +91,16 @@
   </div>
 
 <script>
-/* ---------- Configuration ---------- */
-/* modify if you want to try more/less years */
+/* ---------- Configuration ----------
+   IMPORTANT: we request the JSON files directly at the root of the deploy.
+   Examples the script will try: "/atp_tournaments_2026.json" and "atp_tournaments_2026.json".
+*/
 const MIN_YEAR = 2018;
 const MAX_YEAR = (new Date()).getFullYear() + 1; // try next year too
-const BASE_PATH = '/data/tournaments'; // where files are expected
-const ATP_PREFIX = 'docs/atp_tournaments_'; // atp_tournaments_YEAR.json
-const WTA_PREFIX = 'docs/wta_tournaments_'; // wta_tournaments_YEAR.json
+
+// basenames (no path prefix). We try plural first; singular is a tolerant fallback.
+const ATP_BASENAMES = ['atp_tournaments_', 'atp_tournament_'];
+const WTA_BASENAMES = ['wta_tournaments_', 'wta_tournament_'];
 
 /* ---------- utilities ---------- */
 const el = id => document.getElementById(id);
@@ -122,20 +123,13 @@ function surfaceClass(s){
   return 'surface-hard';
 }
 
-/* parse ATP FormattedDate like:
-   - "4 - 11 January, 2026" -> 2026-01-04
-   - "28 march, 4 april 2026" -> 2026-03-28
-   - "30 december 2025, 6 january 2026" -> 2025-12-30
-   - "January, 2026" -> fallback to first day of month
-*/
+/* ---------- ATP date parsing (same as before) ---------- */
 function parseAtpFormattedDate(fd){
   if(!fd || typeof fd !== 'string') return null;
   const s = fd.trim();
-  // try to extract explicit 4-digit years present
   const yearMatches = s.match(/\b(20\d{2})\b/g);
   let lastYear = yearMatches ? Number(yearMatches[yearMatches.length - 1]) : null;
 
-  // pattern 1: "4 - 11 January, 2026" or "4–11 January, 2026"
   const rangeMonthMatch = s.match(/^\s*(\d{1,2})\s*[-–—]\s*(\d{1,2})\s*([A-Za-z]+)/i);
   if(rangeMonthMatch){
     const day = Number(rangeMonthMatch[1]);
@@ -144,44 +138,33 @@ function parseAtpFormattedDate(fd){
     return tryBuildISO(day, month, year);
   }
 
-  // pattern 2: look for first occurrence of "number month" or "month, year"
-  // find all number+word occurrences
   const numMonthRegex = /(\d{1,2})\s*([A-Za-z]+)/g;
-  let m;
-  const pairs = [];
+  let m; const pairs = [];
   while((m = numMonthRegex.exec(s)) !== null){
     pairs.push([m[1], m[2]]);
   }
   if(pairs.length > 0){
     const day = Number(pairs[0][0]);
     const month = pairs[0][1];
-    // determine year for this pair:
-    // if the main string contains two years (start and end in different years), we try to infer:
-    // find segment index of this pair to see if its trailing comma with year applies
-    // simpler: if there is any year before the comma that belongs to the pair, use nearest year; otherwise use lastYear
     const year = lastYear || new Date().getFullYear();
     return tryBuildISO(day, month, year);
   }
 
-  // pattern 3: "January, 2026" -> pick day 1
   const monthYear = s.match(/([A-Za-z]+)\s*,\s*(20\d{2})/i);
   if(monthYear){
     return tryBuildISO(1, monthYear[1], Number(monthYear[2]));
   }
 
-  // fallback: try to parse using Date directly
   const parsed = Date.parse(s);
   if(!isNaN(parsed)) return (new Date(parsed)).toISOString().slice(0,10);
 
   return null;
 
   function tryBuildISO(day, monthName, year){
-    // normalize month name
     try {
       const mon = monthName.trim();
       const candidate = new Date(`${day} ${mon} ${year}`);
       if(!isNaN(candidate)) return candidate.toISOString().slice(0,10);
-      // try capitalizing first letter
       const cap = mon.charAt(0).toUpperCase() + mon.slice(1).toLowerCase();
       const cand2 = new Date(`${day} ${cap} ${year}`);
       if(!isNaN(cand2)) return cand2.toISOString().slice(0,10);
@@ -190,40 +173,21 @@ function parseAtpFormattedDate(fd){
   }
 }
 
-/* ---------- normalize payload entry to unified shape ----------
-   shape:
-   {
-     source: 'atp'|'wta',
-     tourney_id: string,
-     tourney_name: string,
-     start_date: 'YYYY-MM-DD',
-     end_date: 'YYYY-MM-DD' | null,
-     level: string,
-     surface: string,
-     location: string,
-     year: number,
-     raw: originalObject
-   }
-*/
+/* ---------- normalize payloads ---------- */
 function normalizeAtpTournament(t, yearFromFile){
-  // t is one tournament object inside Tournaments array
-  const name = t.Name || t.Name || '—';
+  const name = t.Name || '—';
   const id = t.Id || (t.TournamentOverviewUrl ? t.TournamentOverviewUrl.split('/').pop() : name);
   const formatted = t.FormattedDate || '';
   const start_iso = parseAtpFormattedDate(formatted) || (yearFromFile ? `${yearFromFile}-01-01` : null);
-  // attempt to parse end date: look for patterns where there's an end with different month/day
   let end_iso = null;
   if(formatted){
-    // try to find last "number month year" occurrence
     const matches = formatted.match(/(\d{1,2}\s+[A-Za-z]+(?:\s*,\s*\d{4})?)/gi);
     if(matches && matches.length > 1){
-      // take last
       const last = matches[matches.length - 1];
       const y = (last.match(/\b(20\d{2})\b/) || [null, yearFromFile])[1] || yearFromFile;
       const parsed = Date.parse(last + (/\b20\d{2}\b/.test(last) ? '' : ' ' + y));
       if(!isNaN(parsed)) end_iso = (new Date(parsed)).toISOString().slice(0,10);
     } else {
-      // sometimes FormattedDate like "4 - 11 January, 2026" -> handle end day + month
       const rangeMatch = formatted.match(/(\d{1,2})\s*[-–]\s*(\d{1,2})\s*([A-Za-z]+),?\s*(20\d{2})?/i);
       if(rangeMatch){
         const endDay = Number(rangeMatch[2]);
@@ -244,15 +208,14 @@ function normalizeAtpTournament(t, yearFromFile){
     level: t.Type || t.EventType || '',
     surface: t.Surface || '',
     location: t.Location || '',
-    year: Number(yearFromFile) || (t.FormattedDate && (t.FormattedDate.match(/\b(20\d{2})\b/) ? Number(t.FormattedDate.match(/\b(20\d{2})\b/)[1]) : null)),
+    year: Number(yearFromFile) || (formatted && (formatted.match(/\b(20\d{2})\b/) ? Number(formatted.match(/\b(20\d{2})\b/)[1]) : null)),
     raw: t
   };
 }
 
 function normalizeWtaTournament(c){
-  // c is an object inside content array
   const tg = c.tournamentGroup || c.tournament || {};
-  const id = tg.id || (c.tournamentGroup && c.tournamentGroup.id) || (c.tournament && c.tournament.tournamentGroup && c.tournament.tournamentGroup.id) || (c.tournament && c.tournament.id) || (c.tournamentGroup && c.tournamentGroup.id) || (c.title ? c.title.replace(/\s+/g,'_') : '');
+  const id = tg.id || (c.title ? c.title.replace(/\s+/g,'_') : '');
   const name = c.title || (tg.name ? tg.name : '—');
   const start = c.startDate || (c.tournament && c.tournament.startDate) || null;
   const end = c.endDate || (c.tournament && c.tournament.endDate) || null;
@@ -270,48 +233,65 @@ function normalizeWtaTournament(c){
   };
 }
 
-/* ---------- load JSON files for many years ---------- */
-async function tryFetchJson(path){
-  try {
-    const r = await fetch(path, {cache:'no-cache'});
-    if(!r.ok) throw new Error('notfound');
-    return await r.json();
-  } catch(e){
-    return null;
+/* ---------- robust fetch: try root and relative filenames ---------- */
+async function tryFetchJsonCandidates(urls){
+  for(const url of urls){
+    try {
+      console.log('[trying json] ', url);
+      const r = await fetch(url, {cache:'no-cache'});
+      if(r.ok){
+        try { return await r.json(); } catch(e){ console.warn('JSON parse failed for', url, e); continue; }
+      } else {
+        console.debug(`fetch ${url} -> ${r.status}`);
+      }
+    } catch(err){
+      console.debug('fetch error', url, err);
+    }
   }
+  return null;
+}
+
+function buildCandidatesForBasenames(basenames, year){
+  const urls = [];
+  for(const bn of basenames){
+    // with leading slash (root) and without (relative)
+    urls.push(`/${bn}${year}.json`);
+    urls.push(`${bn}${year}.json`);
+    // also try lowercase/uppercase extension variant (rarely needed but harmless)
+    urls.push(`/${bn}${year}.JSON`);
+    urls.push(`${bn}${year}.JSON`);
+  }
+  return urls;
 }
 
 /* fetch both ATP and WTA files for a given year and return list of normalized events */
 async function fetchForYear(y){
   const out = [];
-  // try ATP
-  const atpPath = `${BASE_PATH}/${ATP_PREFIX}${y}.json`;
-  const wtaPath = `${BASE_PATH}/${WTA_PREFIX}${y}.json`;
-  const [atpJson, wtaJson] = await Promise.all([ tryFetchJson(atpPath), tryFetchJson(wtaPath) ]);
+
+  const atpCandidates = buildCandidatesForBasenames(ATP_BASENAMES, y);
+  const atpJson = await tryFetchJsonCandidates(atpCandidates);
   if(atpJson && Array.isArray(atpJson.TournamentDates)){
-    // TournamentDates -> each has Tournaments array
     for(const block of atpJson.TournamentDates){
       if(!Array.isArray(block.Tournaments)) continue;
-      for(const t of block.Tournaments){
-        const n = normalizeAtpTournament(t, y);
-        out.push(n);
-      }
+      for(const t of block.Tournaments) out.push(normalizeAtpTournament(t, y));
     }
+  } else {
+    // could be empty or not found; that's fine, we continue
   }
+
+  const wtaCandidates = buildCandidatesForBasenames(WTA_BASENAMES, y);
+  const wtaJson = await tryFetchJsonCandidates(wtaCandidates);
   if(wtaJson){
-    // WTA payload uses "content" array
     const content = wtaJson.content || wtaJson.tournaments || [];
     if(Array.isArray(content)){
-      for(const c of content){
-        const n = normalizeWtaTournament(c);
-        out.push(n);
-      }
+      for(const c of content) out.push(normalizeWtaTournament(c));
     }
   }
+
   return out;
 }
 
-/* ---------- main app ---------- */
+/* ---------- main app (unchanged rendering logic) ---------- */
 let ALL_EVENTS = []; // normalized events
 let YEARS = []; // available years
 let visibleFilter = 'all'; // 'all' | 'atp' | 'wta'
@@ -324,11 +304,8 @@ async function loadAllData(){
   for(let y = MIN_YEAR; y <= MAX_YEAR; y++){
     yearPromises.push((async ()=> {
       const items = await fetchForYear(y);
-      if(items && items.length > 0){
-        return { year: y, items };
-      } else {
-        return null;
-      }
+      if(items && items.length > 0) return { year: y, items };
+      return null;
     })());
   }
 
@@ -339,59 +316,37 @@ async function loadAllData(){
       YEARS.push(r.year);
     }
   }
-  // dedupe years and sort descending
   YEARS = Array.from(new Set(YEARS)).sort((a,b)=>b-a);
 
   if(YEARS.length === 0){
-    el('listContainer').innerHTML = '<div class="loading">No tournament JSONs found. Place files like atp_tournaments_2026.json and/or wta_tournaments_2026.json under ' + BASE_PATH + '.</div>';
+    el('listContainer').innerHTML = '<div class="loading">No tournament JSONs found. Place files like atp_tournaments_2026.json and/or wta_tournaments_2026.json at the root of the deploy (i.e. in docs/ for GitHub Pages).</div>';
     el('summaryText').textContent = 'No data';
     return;
   }
 
-  // compute default (most recent year among loaded files)
   const defaultYear = YEARS[0];
-
-  // populate year select
-  const sel = el('yearSelect');
-  sel.innerHTML = '';
-  for(const y of YEARS){
-    const o = document.createElement('option');
-    o.value = y; o.textContent = y;
-    sel.appendChild(o);
-  }
+  const sel = el('yearSelect'); sel.innerHTML = '';
+  for(const y of YEARS){ const o = document.createElement('option'); o.value = y; o.textContent = y; sel.appendChild(o); }
   sel.value = defaultYear;
-
-  // render
   renderForYear(defaultYear);
-
-  // wire change
   sel.onchange = () => renderForYear(Number(sel.value));
 }
 
-/* filter by year and source, and sort strictly by start_date */
 function renderForYear(y){
   const container = el('listContainer');
   container.innerHTML = '<div class="loading">Rendering…</div>';
-  // filter
   let entries = ALL_EVENTS.filter(e => Number(e.year) === Number(y));
-  // filter out items without start_date if possible (we can still show them last)
-  // parse start_date into Date objects for sorting; if missing, use very large date to push to end
   entries = entries.map(e => {
     const sd = e.start_date ? new Date(e.start_date) : null;
     const sortKey = sd ? sd.getTime() : (Number.MAX_SAFE_INTEGER - (e.source === 'atp' ? 0 : 1));
     return { ...e, _sortKey: sortKey };
   });
 
-  // apply source filter
   if(visibleFilter === 'atp') entries = entries.filter(e => e.source === 'atp');
   if(visibleFilter === 'wta') entries = entries.filter(e => e.source === 'wta');
 
-  // strict sort by start_date ascending
   entries.sort((a,b) => {
-    if(a._sortKey === b._sortKey) {
-      // fallback tie-breaker: name
-      return (a.tourney_name || '').localeCompare(b.tourney_name || '');
-    }
+    if(a._sortKey === b._sortKey) return (a.tourney_name || '').localeCompare(b.tourney_name || '');
     return a._sortKey - b._sortKey;
   });
 
@@ -401,9 +356,7 @@ function renderForYear(y){
     return;
   }
 
-  // build HTML table
-  const table = document.createElement('table');
-  table.setAttribute('aria-live','polite');
+  const table = document.createElement('table'); table.setAttribute('aria-live','polite');
   const thead = document.createElement('thead');
   thead.innerHTML = `<tr>
     <th class="date-col">Start • Level</th>
@@ -414,55 +367,35 @@ function renderForYear(y){
   const tbody = document.createElement('tbody');
 
   for(const e of entries){
-    const tr = document.createElement('tr');
-    tr.classList.add(e.source === 'atp' ? 'atp' : 'wta');
-
-    // build link preserving old query params structure:
+    const tr = document.createElement('tr'); tr.classList.add(e.source === 'atp' ? 'atp' : 'wta');
     const href = `/tournament.html?source=${encodeURIComponent(e.source)}&t=${encodeURIComponent(e.tourney_id)}&year=${encodeURIComponent(e.year || y)}`;
-
-    // start display
     const startDisplay = e.start_date ? fmtDate(e.start_date) : (e.raw && e.raw.FormattedDate ? e.raw.FormattedDate : '—');
     const level = e.level || '—';
     const surf = e.surface || 'Hard';
     const loc = e.location || '';
-
     const leftHtml = `<div><div style="font-weight:700">${escapeHtml(e.tourney_name)}</div><div class="small text-muted">${escapeHtml(startDisplay)} • ${escapeHtml(level)} ${loc ? ' • ' + escapeHtml(loc) : ''}</div></div>`;
     const rightHtml = `<div style="display:flex;gap:10px;align-items:center;justify-content:flex-end">
       <div class="surface-badge ${surfaceClass(surf)}">${escapeHtml(surf)}</div>
       <div class="small">${e.source === 'atp' ? '<span class="source-atp">ATP</span>' : '<span class="source-wta">WTA</span>'}</div>
     </div>`;
-
-    const a = document.createElement('a');
-    a.href = href;
-    a.className = 'row-link';
+    const a = document.createElement('a'); a.href = href; a.className = 'row-link';
     a.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center">
       <div style="min-width:220px;max-width:280px">${leftHtml}</div>
       <div style="flex:1;padding-left:12px">${escapeHtml(e.tourney_name)}</div>
       <div style="min-width:180px;text-align:right">${rightHtml}</div>
     </div>`;
-    const td = document.createElement('td');
-    td.colSpan = 4;
-    td.style.padding = '6px';
-    td.appendChild(a);
-    tr.appendChild(td);
-    tbody.appendChild(tr);
+    const td = document.createElement('td'); td.colSpan = 4; td.style.padding = '6px'; td.appendChild(a);
+    tr.appendChild(td); tbody.appendChild(tr);
   }
 
-  table.appendChild(thead);
-  table.appendChild(tbody);
-  container.innerHTML = '';
-  container.appendChild(table);
+  table.appendChild(thead); table.appendChild(tbody);
+  container.innerHTML = ''; container.appendChild(table);
 
-  // summary
   const cnt = entries.length;
   el('summaryText').textContent = `${y} — ${cnt} tournament${cnt>1?'s':''} • Showing: ${visibleFilter.toUpperCase()}`;
-
-  // small accessibility: focus the container briefly
-  container.setAttribute('tabindex','-1');
-  container.focus();
+  container.setAttribute('tabindex','-1'); container.focus();
 }
 
-/* helper escape */
 function escapeHtml(s){
   if(s === undefined || s === null) return '';
   return String(s).replace(/[&<>"']/g, (m)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
@@ -472,25 +405,21 @@ function escapeHtml(s){
 el('btnAll').addEventListener('click', ()=> {
   visibleFilter = 'all';
   el('btnAll').classList.add('active'); el('btnATP').classList.remove('active'); el('btnWTA').classList.remove('active');
-  const y = Number(el('yearSelect').value);
-  renderForYear(y);
+  const y = Number(el('yearSelect').value); renderForYear(y);
 });
 el('btnATP').addEventListener('click', ()=> {
   visibleFilter = 'atp';
   el('btnAll').classList.remove('active'); el('btnATP').classList.add('active'); el('btnWTA').classList.remove('active');
-  const y = Number(el('yearSelect').value);
-  renderForYear(y);
+  const y = Number(el('yearSelect').value); renderForYear(y);
 });
 el('btnWTA').addEventListener('click', ()=> {
   visibleFilter = 'wta';
   el('btnAll').classList.remove('active'); el('btnATP').classList.remove('active'); el('btnWTA').classList.add('active');
-  const y = Number(el('yearSelect').value);
-  renderForYear(y);
+  const y = Number(el('yearSelect').value); renderForYear(y);
 });
 
 /* ---------- initial load ---------- */
 loadAllData();
-
 </script>
 </body>
 </html>
