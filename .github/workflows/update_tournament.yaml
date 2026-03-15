@@ -159,6 +159,22 @@ jobs:
           echo "After building tournament jsons, listing ${TOURNAMENT_JSON_OUT_BASE}:"
           ls -la "${TOURNAMENT_JSON_OUT_BASE}" || true
 
+
+
+      - name: Update tournament winners JSONs (wta/atp)
+        env:
+          TOURNAMENT_JSON_OUT_BASE: docs/data/tournaments/json_by_tournaments
+          ALT_TOURNAMENT_JSON_BASE: docs/data/tournaments/tournaments_by_json
+        run: |
+          set -euo pipefail
+          echo "Running update_tournament_winners.py on created_files.txt..."
+          python3 scripts/update_tournament_winners.py \
+            --input-list created_files.txt \
+            --json-base "${TOURNAMENT_JSON_OUT_BASE}" \
+            --alt-json-base "${ALT_TOURNAMENT_JSON_BASE}" \
+            --out-wta docs/wta_tournaments_winners.json \
+            --out-atp docs/atp_tournaments_winners.json || true
+
       - name: Stage generated CSVs and JSONs, commit
         env:
           GIT_AUTHOR_NAME: "github-actions[bot]"
@@ -207,6 +223,18 @@ jobs:
             else
               git add -f docs/matches/wta_matches || true
             fi
+          fi
+
+
+
+          # Add winners files if created
+          if [ -f "docs/wta_tournaments_winners.json" ]; then
+            echo "Adding docs/wta_tournaments_winners.json"
+            git add -f docs/wta_tournaments_winners.json || true
+          fi
+          if [ -f "docs/atp_tournaments_winners.json" ]; then
+            echo "Adding docs/atp_tournaments_winners.json"
+            git add -f docs/atp_tournaments_winners.json || true
           fi
 
           # Safety: prevent accidental commit of index.html or other manual files
