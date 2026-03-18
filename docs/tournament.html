@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -18,8 +18,6 @@
     --panel-border: rgba(255,255,255,0.04);
     --accent-atp: #2b6cb0;
     --accent-wta: #9b59b6;
-    --accent-atp-light: rgba(43,108,176,0.18);
-    --accent-wta-light: rgba(155,89,182,0.18);
     --glass: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.00));
   }
   html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial;background:linear-gradient(180deg,#000,#061018);color:#eaf3ff}
@@ -37,6 +35,16 @@
   .card { background:var(--glass); border:1px solid var(--panel-border); padding:14px; border-radius:10px; min-width:220px; box-sizing:border-box; }
   .card .label { color:var(--muted); font-size:13px; }
   .card .value { font-weight:800; color:#fff; margin-top:6px; font-size:15px; display:flex;align-items:center;gap:10px;flex-wrap:wrap }
+  /* light tournament-specific card tinting */
+  .card.circuit-atp {
+    background: linear-gradient(180deg, rgba(191,224,255,0.08), rgba(191,224,255,0.02));
+    border-color: rgba(43,108,176,0.12);
+  }
+  .card.circuit-wta {
+    background: linear-gradient(180deg, rgba(237,215,255,0.08), rgba(237,215,255,0.02));
+    border-color: rgba(155,89,182,0.12);
+  }
+
   /* champion badge */
   .champion-badge { padding:8px 10px;border-radius:999px;font-weight:800;display:inline-block }
   /* map */
@@ -49,8 +57,6 @@
   .tab { padding:8px 12px; border-radius:8px; background:transparent; border:1px solid var(--panel-border); color:var(--muted); cursor:pointer }
   .tab.active { background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); color:#fff; border-color: rgba(255,255,255,0.06); }
   .iframe-wrap { height:680px; border-radius:10px; overflow:hidden; border:1px solid var(--panel-border); margin-top:12px; background:#071427; }
-  /* debug */
-  pre.debug{max-height:260px;overflow:auto;background:#061425;color:#e6f7ff;padding:12px;border-radius:6px;font-size:12px;border:1px solid var(--panel-border); margin-top:12px}
   /* surface pill */
   .surface-pill { padding:6px 10px;border-radius:8px;font-weight:700;color:#fff }
   .surface-hard { background:var(--accent-atp); }
@@ -65,7 +71,7 @@
     <div class="banner" id="banner" aria-live="polite">
       <div>
         <div class="brand" id="tour-type">ATP</div>
-        <div class="title" id="tourney-name">Tourney</div>
+        <div class="title" id="tourney-name">Tournament</div>
         <div class="subtitle" id="tourney-sub">Surface • Level • Start date</div>
       </div>
 
@@ -124,11 +130,11 @@
           <div class="card" style="display:flex;flex-direction:column;gap:8px">
             <div style="display:flex;justify-content:space-between;align-items:center">
               <div>
-                <div class="label">Ville</div>
+                <div class="label">City</div>
                 <div class="value" id="meta-city">—</div>
               </div>
               <div style="text-align:right">
-                <div class="label">Pays</div>
+                <div class="label">Country</div>
                 <div class="value" id="meta-country">—</div>
               </div>
             </div>
@@ -138,7 +144,7 @@
               <div id="map" aria-hidden="false"></div>
             </div>
 
-            <div class="small note">Le pays est surligné dans la couleur pâle du circuit ; le point marque l'emplacement exact.</div>
+            <div class="small note">The country is highlighted; the point marks the exact location.</div>
           </div>
         </div>
       </div>
@@ -149,33 +155,53 @@
       <div class="iframe-wrap">
         <iframe id="draw-frame" src="about:blank" style="width:100%;height:100%;border:0;background:#fff"></iframe>
       </div>
-      <div class="note">Le template reçoit le JSON via <code>postMessage</code>.</div>
+      <div class="small note">The template receives the JSON via <code>postMessage</code>.</div>
     </div>
 
-    <details style="margin-top:12px">
-      <summary class="small">Debug (ouvrir si besoin)</summary>
-      <pre id="debug" class="debug" style="display:none"></pre>
-    </details>
   </div>
 
 <script>
-/* ----------------- Helpers ----------------- */
+/* ----------------- Small no-op debug helper (keeps existing calls safe) ----------------- */
+function debug(){ /* no-op: debug output removed */ }
+
+/* ----------------- Utilities ----------------- */
 function qs(k){ return new URLSearchParams(location.search).get(k); }
-function debug(msg){
-  const el = document.getElementById('debug');
-  if(!el) return;
-  el.style.display = 'block';
-  el.textContent += msg + "\\n";
-  console.log(msg);
-}
 function fmtDate(d){
   if(!d) return '—';
-  try{ return new Date(d).toLocaleDateString('fr-FR',{year:'numeric',month:'short',day:'numeric'}); }catch(e){ return d; }
+  try{ return new Date(d).toLocaleDateString('en-GB',{year:'numeric',month:'short',day:'numeric'}); }catch(e){ return d; }
 }
 function moneyFmt(amount, currency){
   if(!amount && amount !== 0) return '—';
   const n = Number(String(amount).replace(/[^0-9.-]/g,'')) || 0;
-  try { return (currency || '') + n.toLocaleString('fr-FR'); } catch(e) { return (currency||'') + n; }
+  try { return (currency || '') + n.toLocaleString('en-GB'); } catch(e) { return (currency||'') + n; }
+}
+
+/* ----------------- IOC country mapping (sourced from public gist / Wikipedia) -----------------
+   This object maps IOC three-letter codes to full country names.
+   Source: public gist with IOC codes. See assistant note for citations.
+-------------------------------------------------------------------------- */
+const IOC_COUNTRIES = {
+ "AFG":"Afghanistan","ALB":"Albania","ALG":"Algeria","ASA":"American Samoa","AND":"Andorra","ANG":"Angola","ANT":"Antigua And Barbuda","ARG":"Argentina","ARM":"Armenia","ARU":"Aruba","SHP":"Ascension Island","AUS":"Australia","AUT":"Austria","AZE":"Azerbaijan","BAH":"Bahamas","BRN":"Bahrain","BAN":"Bangladesh","BAR":"Barbados","BLR":"Belarus","BEL":"Belgium","BIZ":"Belize","BEN":"Benin","BER":"Bermuda","BHU":"Bhutan","BOL":"Bolivia","BIH":"Bosnia & Herzegovina","BOT":"Botswana","BRA":"Brazil","BRU":"Brunei Darussalam","BUL":"Bulgaria","BUR":"Burkina Faso","BDI":"Burundi","CPV":"Cabo Verde","CAM":"Cambodia","CMR":"Cameroon","CAN":"Canada","CAY":"Cayman Islands","CAF":"Central African Republic","CHA":"Chad","CHI":"Chile","CHN":"China","COL":"Colombia","COM":"Comoros","COK":"Cook Islands","CRC":"Costa Rica","CIV":"Cote d'Ivoire","CRO":"Croatia","CUB":"Cuba","CYP":"Cyprus","CZE":"Czech Republic","COD":"Democratic Republic Of Congo","DEN":"Denmark","DJI":"Djibouti","DMA":"Dominica","DOM":"Dominican Republic","ECU":"Ecuador","EGY":"Egypt","ESA":"El Salvador","GEQ":"Equatorial Guinea","ERI":"Eritrea","EST":"Estonia","ETH":"Ethiopia","FAI":"Faroe Islands","FIJ":"Fiji","FIN":"Finland","FRA":"France","GAB":"Gabon","GAM":"Gambia","GEO":"Georgia","GER":"Germany","GHA":"Ghana","GRE":"Greece","GRN":"Grenada","GUM":"Guam","GUA":"Guatemala","GCI":"Guernsey","GUI":"Guinea","GBS":"Guinea-bissau","GUY":"Guyana","HAI":"Haiti","HON":"Honduras","HKG":"Hong Kong","HUN":"Hungary","ISL":"Iceland","IND":"India","INA":"Indonesia","IRI":"Iran","IRQ":"Iraq","IRL":"Ireland","ISR":"Israel","ITA":"Italy","JAM":"Jamaica","JPN":"Japan","JCI":"Jersey","JOR":"Jordan","KAZ":"Kazakhstan","KEN":"Kenya","KIR":"Kiribati","PRK":"North Korea","KOR":"South Korea","KUW":"Kuwait","KGZ":"Kyrgyzstan","LAO":"Lao People's Democratic Republic","LAT":"Latvia","LIB":"Lebanon","LES":"Lesotho","LBR":"Liberia","LBA":"Libya","LIE":"Liechtenstein","LTU":"Lithuania","LUX":"Luxembourg","MAC":"Macao","MKD":"Macedonia","MAD":"Madagascar","MAW":"Malawi","MAS":"Malaysia","MDV":"Maldives","MLI":"Mali","MLT":"Malta","MHL":"Marshall Islands","MTN":"Mauritania","MRI":"Mauritius","MEX":"Mexico","MDA":"Moldova","MON":"Monaco","MGL":"Mongolia","MNE":"Montenegro","MAR":"Morocco","MOZ":"Mozambique","MYA":"Myanmar","NAM":"Namibia","NRU":"Nauru","NEP":"Nepal","NED":"Netherlands","NZL":"New Zealand","NCA":"Nicaragua","NIG":"Niger","NGR":"Nigeria","NOR":"Norway","OMA":"Oman","PAK":"Pakistan","PLW":"Palau","PLE":"Palestinian Territory","PAN":"Panama","PNG":"Papua New Guinea","PAR":"Paraguay","PER":"Peru","PHI":"Philippines","POL":"Poland","POR":"Portugal","PUR":"Puerto Rico","QAT":"Qatar","CGO":"Republic Of Congo","ROU":"Romania","RUS":"Russian Federation","RWA":"Rwanda","SKN":"Saint Kitts And Nevis","LCA":"Saint Lucia","VIN":"Saint Vincent And The Grenadines","SAM":"Samoa","SMR":"San Marino","KSA":"Saudi Arabia","SEN":"Senegal","SRB":"Serbia","SEY":"Seychelles","SLE":"Sierra Leone","SIN":"Singapore","SVK":"Slovakia","SLO":"Slovenia","SOL":"Solomon Islands","SOM":"Somalia","RSA":"South Africa","ESP":"Spain","SRI":"Sri Lanka","SUD":"Sudan","SUR":"Suriname","SWZ":"Swaziland","SWE":"Sweden","SUI":"Switzerland","SYR":"Syrian Arab Republic","STP":"São Tomé and Príncipe","TPE":"Taiwan","TJK":"Tajikistan","TAN":"Tanzania","THA":"Thailand","TLS":"Timor-Leste","TOG":"Togo","TGA":"Tonga","TRI":"Trinidad And Tobago","TUN":"Tunisia","TUR":"Turkey","TKM":"Turkmenistan","TUV":"Tuvalu","UGA":"Uganda","UKR":"Ukraine","UAE":"United Arab Emirates","GBR":"United Kingdom","USA":"United States","URU":"Uruguay","UZB":"Uzbekistan","VAN":"Vanuatu","VEN":"Venezuela","VIE":"Viet Nam","ISV":"Virgin Islands (US)","YEM":"Yemen","ZAM":"Zambia","ZIM":"Zimbabwe"
+};
+
+/* Helper: resolve IOC code or other country code/name to display name */
+function resolveCountryDisplay(codeOrName){
+  if(!codeOrName) return '—';
+  const s = String(codeOrName).trim();
+  const upper = s.toUpperCase();
+  // direct IOC lookup (3-letter)
+  if(IOC_COUNTRIES[upper]) return IOC_COUNTRIES[upper];
+  // if it's a 2-letter ISO, use Intl.DisplayNames as fallback
+  if(/^[A-Z]{2}$/.test(upper)){
+    try {
+      const dn = new Intl.DisplayNames(['en'], {type: 'region'});
+      return dn.of(upper) || s;
+    } catch(e){
+      return s;
+    }
+  }
+  // if it's already a full name, return it
+  return s;
 }
 
 /* ----------------- Build JSON candidate URLs ----------------- */
@@ -193,7 +219,6 @@ function buildJsonCandidates(source, id, year){
   candidates.push(`data/tournaments/${s}_${id}_${year}.json`);
   candidates.push(`/data/tournaments/${id}_${year}.json`);
   candidates.push(`data/tournaments/${id}_${year}.json`);
-  // debug param
   const maybe = qs('json');
   if(maybe) candidates.unshift(maybe);
   return Array.from(new Set(candidates));
@@ -203,17 +228,18 @@ function buildJsonCandidates(source, id, year){
 async function fetchFirst(candidates){
   for(const url of candidates){
     try{
-      debug('trying: ' + url);
+      // keep console debug only
+      console.debug('trying:', url);
       const r = await fetch(url, {cache:'no-cache'});
-      if(!r.ok){ debug(`fetch ${url} -> ${r.status}`); continue; }
+      if(!r.ok){ console.debug(`fetch ${url} -> ${r.status}`); continue; }
       const j = await r.json();
-      debug(`fetch ${url} -> OK`);
+      console.debug(`fetch ${url} -> OK`);
       return j;
     } catch(e){
-      debug('fetch error ' + url + ' — ' + (e && e.message));
+      console.debug('fetch error', url, e && e.message);
     }
   }
-  throw new Error('Aucun JSON trouvé (tests: ' + JSON.stringify(candidates) + ')');
+  throw new Error('No JSON found for candidates: ' + JSON.stringify(candidates));
 }
 
 /* ----------------- Normalize tournament JSON ----------------- */
@@ -223,18 +249,14 @@ function normalizeTournament(raw){
   const meta = (raw.meta && typeof raw.meta === 'object') ? raw.meta : raw;
   out.meta = Object.assign({}, meta);
 
-  // canonicalize
   out.meta.source = (out.meta.source || '').toUpperCase();
   out.meta.tourney_id = String(out.meta.tourney_id || out.meta.id || qs('t') || '');
   out.meta.year = Number(out.meta.year || qs('year') || (new Date()).getFullYear());
   out.meta.tourney_name = out.meta.tourney_name || out.meta.tourney_title || out.meta.title || '—';
-  // ATP level mapping: 250 -> ATP 250
   if(out.meta.source === 'ATP' && out.meta.level && /^[0-9]+$/.test(String(out.meta.level).trim())){
     out.meta.level = 'ATP ' + String(out.meta.level).trim();
   }
-  // numeric draw
   out.meta.singles_draw_size = Number(out.meta.singles_draw_size) || Number(out.meta.draw) || NaN;
-  // champion normalization if present
   if(out.meta.champion && typeof out.meta.champion === 'object'){
     out.meta.champion = {
       winner_player_name: out.meta.champion.winner_player_name || out.meta.champion.player_name || out.meta.champion.name || '',
@@ -244,7 +266,6 @@ function normalizeTournament(raw){
   } else {
     out.meta.champion = out.meta.champion || {};
   }
-  // matches — tolerant mapping (if present)
   const cand = ['matches','matchs','draw','data','results','items','matchList'];
   for(const k of cand) if(Array.isArray(raw[k])) { out.matches = raw[k]; break; }
   return out;
@@ -253,24 +274,20 @@ function normalizeTournament(raw){
 /* -------------- Map: load continent geojsons and highlight -------------- */
 
 const CONTINENTS = ['north_america','south_america','africa','asia','oceania','europe'];
-const BORDERS_BASE = '/tools/geojsons_borders'; // your folder
+const BORDERS_BASE = '/tools/geojsons_borders';
 let mapInstance = null;
-let baseLayer = null;
 let countryLayer = null;
 let markerLayer = null;
 
 async function loadAndShowBorders(meta){
-  // meta.country expected ISO3 e.g. "ROU" or ISO2 possibly
   const code = String(meta.country || '').toUpperCase();
   const latlon = Array.isArray(meta.geocode) && meta.geocode.length >= 2 ? [Number(meta.geocode[0]), Number(meta.geocode[1])] : null;
 
-  // init map if needed
   if(!mapInstance){
     mapInstance = L.map('map', { zoomControl:false, attributionControl:false });
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(mapInstance);
   }
 
-  // helper: add country feature layers with styling
   const defaultStyle = (feat) => ({
     color: 'rgba(255,255,255,0.06)',
     weight: 1,
@@ -285,20 +302,16 @@ async function loadAndShowBorders(meta){
     fillOpacity: 0.55
   });
 
-  // remove previous layers
   if(countryLayer) { try{ mapInstance.removeLayer(countryLayer); }catch(e){} countryLayer = null; }
   if(markerLayer) { try{ mapInstance.removeLayer(markerLayer); }catch(e){} markerLayer = null; }
 
-  // fetch all continent files in parallel (we'll select the one(s) containing the point)
   const fetches = CONTINENTS.map(c => fetch(`${BORDERS_BASE}/country_borders_${c}.json`, {cache:'no-cache'}).then(r => r.ok ? r.json().catch(()=>null) : null).catch(()=>null));
   const results = await Promise.all(fetches);
 
-  // build a GeoJSON layer for each file and see which one contains the point (by bounds)
   let matchedLayer = null;
   for(const js of results){
     if(!js || !js.features || !Array.isArray(js.features)) continue;
     const lyr = L.geoJSON(js, { style: defaultStyle, pane: 'overlayPane' });
-    // get bounds
     const bounds = lyr.getBounds ? lyr.getBounds() : null;
     if(latlon && bounds && bounds.contains([latlon[0], latlon[1]])){
       matchedLayer = lyr;
@@ -306,11 +319,9 @@ async function loadAndShowBorders(meta){
     }
   }
 
-  // If matchedLayer found, add it; else add all continent layers (fallback)
   if(matchedLayer){
     countryLayer = matchedLayer.addTo(mapInstance);
   } else {
-    // add all
     countryLayer = L.featureGroup();
     for(const js of results){
       if(!js || !js.features) continue;
@@ -320,79 +331,48 @@ async function loadAndShowBorders(meta){
     countryLayer.addTo(mapInstance);
   }
 
-  // find and highlight country matching meta.country (matching iso3 or iso_a3 or adm0_a3 or iso_a2 or postal)
-  // iterate through countryLayer's layers and features
   let foundFeatureLayer = null;
   const targetIso = code || '';
   countryLayer.eachLayer(layer => {
-    // layer may be a FeatureGroup (if we added many), drill down
-    if(layer.feature){
-      const props = layer.feature.properties || {};
-      const candidates = [
-        (props.iso_a3 || '').toUpperCase(),
-        (props.iso_a2 || '').toUpperCase(),
-        (props.adm0_a3 || '').toUpperCase(),
-        (props.sov_a3 || '').toUpperCase(),
-        (props.postal || '').toUpperCase(),
-        (props.filecode || '').toUpperCase(),
-        (props.admin || '').toUpperCase()
-      ];
-      if(targetIso && candidates.includes(targetIso)){
-        foundFeatureLayer = layer;
-      } else {
-        // also match by name (if iso not provided)
-        if(!foundFeatureLayer && meta.country && typeof meta.country === 'string'){
-          const n = (props.name || props.admin || '').toUpperCase();
-          if(n === meta.country.toUpperCase()) foundFeatureLayer = layer;
-        }
+    if(foundFeatureLayer) return;
+    const feature = layer.feature || (layer.getLayers && layer.getLayers()[0] && layer.getLayers()[0].feature);
+    const props = feature && feature.properties ? feature.properties : {};
+    const candidates = [
+      (props.iso_a3 || '').toUpperCase(),
+      (props.iso_a2 || '').toUpperCase(),
+      (props.adm0_a3 || '').toUpperCase(),
+      (props.sov_a3 || '').toUpperCase(),
+      (props.postal || '').toUpperCase(),
+      (props.filecode || '').toUpperCase(),
+      (props.admin || '').toUpperCase(),
+      (props.name || '').toUpperCase()
+    ];
+    if(targetIso && candidates.includes(targetIso)) foundFeatureLayer = layer;
+    else {
+      if(!foundFeatureLayer && meta.country && typeof meta.country === 'string'){
+        const n = (props.name || props.admin || '').toUpperCase();
+        if(n === meta.country.toUpperCase()) foundFeatureLayer = layer;
       }
-    } else if(layer.getLayers){
-      // group -> iterate
-      layer.eachLayer(sub => {
-        if(foundFeatureLayer) return;
-        const props = sub.feature && sub.feature.properties ? sub.feature.properties : {};
-        const candidates = [
-          (props.iso_a3 || '').toUpperCase(),
-          (props.iso_a2 || '').toUpperCase(),
-          (props.adm0_a3 || '').toUpperCase(),
-          (props.sov_a3 || '').toUpperCase(),
-          (props.postal || '').toUpperCase(),
-          (props.admin || '').toUpperCase()
-        ];
-        if(targetIso && candidates.includes(targetIso)) foundFeatureLayer = sub;
-        else {
-          if(meta.country && typeof meta.country === 'string'){
-            const n = (props.name || props.admin || '').toUpperCase();
-            if(n === meta.country.toUpperCase()) foundFeatureLayer = sub;
-          }
-        }
-      });
     }
   });
 
-  // apply highlight style if found
   if(foundFeatureLayer){
     const source = (meta.source||'ATP').toUpperCase();
     foundFeatureLayer.setStyle(highlightStyle(source));
-    // bring to front
     if(foundFeatureLayer.bringToFront) try{ foundFeatureLayer.bringToFront(); }catch(e){}
-    // fit map to the country's bounds with some padding
     try {
       mapInstance.fitBounds(foundFeatureLayer.getBounds().pad(0.6));
     } catch(e) {
-      // fallback: if no bounds, center on point
       if(latlon) mapInstance.setView(latlon, 6);
     }
   } else if(latlon){
-    // no matching country found: center on point, zoom regionally
     mapInstance.setView(latlon, 5);
   }
 
-  // add marker at exact geocode
   if(latlon){
     markerLayer = L.layerGroup();
     const isWta = (meta.source || '').toLowerCase() === 'wta';
-    const color = isWta ? '#5d1f66' : '#063b60'; // dark violet or dark blue
+    const color = isWta ? '#5d1f66' : '#063b60';
     const marker = L.circleMarker(latlon, {
       radius: 7,
       color: color,
@@ -416,7 +396,7 @@ tabInfo.addEventListener('click', ()=>{ tabInfo.classList.add('active'); tabDraw
 tabDraw.addEventListener('click', ()=>{ tabDraw.classList.add('active'); tabInfo.classList.remove('active'); panelInfo.style.display='none'; panelDraw.style.display='block'; if(!iframe.src || iframe.src==='about:blank') loadTemplateAndSend(lastPayload); });
 
 function chooseTemplate(drawSize, source){
-  const src = (source||'ATP').toUpperCase();
+  const src = (source||'').toUpperCase();
   const ds = Number(drawSize) || 32;
   if(src === 'WTA'){
     if(ds <= 32) return 'template_wta_5.html';
@@ -443,9 +423,9 @@ function loadTemplateAndSend(payload){
     try{
       if(iframe && iframe.contentWindow){
         iframe.contentWindow.postMessage({ type:'tourney-data', payload }, '*');
-        debug('postMessage envoyé');
+        console.debug('postMessage sent');
       }
-    }catch(e){ debug('postMessage err: ' + (e && e.message)); }
+    }catch(e){ console.debug('postMessage err', e && e.message); }
   };
   const onLoad = ()=>{
     tryPost();
@@ -455,13 +435,20 @@ function loadTemplateAndSend(payload){
   };
   iframe.addEventListener('load', onLoad);
 }
-window.addEventListener('message', (ev)=>{ const d = ev.data || {}; if(d && d.type === 'template-ready'){ debug('template-ready: ' + (d.template||'?')); if(lastPayload) try{ iframe.contentWindow.postMessage({ type:'tourney-data', payload:lastPayload }, '*'); }catch(e){} } }, false);
+window.addEventListener('message', (ev)=>{ const d = ev.data || {}; if(d && d.type === 'template-ready'){ console.debug('template-ready:', d.template||'?'); if(lastPayload) try{ iframe.contentWindow.postMessage({ type:'tourney-data', payload:lastPayload }, '*'); }catch(e){} } }, false);
 
 /* ----------------- Populate UI ----------------- */
 function populateInfo(meta){
-  document.getElementById('tour-type').textContent = (meta.source || 'TOUR').toUpperCase();
-  document.getElementById('tourney-name').textContent = meta.tourney_name || (meta.tourney_title || ('Tourney ' + (meta.tourney_id || '')));
+  const sourceKey = (meta.source || 'TOUR').toUpperCase();
+  document.getElementById('tour-type').textContent = sourceKey;
+  document.getElementById('tourney-name').textContent = meta.tourney_name || (meta.tourney_title || ('Tournament ' + (meta.tourney_id || '')));
   document.getElementById('tourney-sub').textContent = `${meta.surface || '—'} • ${meta.level || '—'} • ${meta.start_date ? fmtDate(meta.start_date) : '—'}`;
+
+  // apply circuit tint to all .card elements
+  document.querySelectorAll('.card').forEach(c => { c.classList.remove('circuit-atp','circuit-wta'); });
+  if(sourceKey === 'WTA') document.querySelectorAll('.card').forEach(c => c.classList.add('circuit-wta'));
+  else document.querySelectorAll('.card').forEach(c => c.classList.add('circuit-atp'));
+
   // left cards
   document.getElementById('meta-level').textContent = meta.level || '—';
   const surfaceEl = document.getElementById('meta-surface');
@@ -476,9 +463,13 @@ function populateInfo(meta){
   document.getElementById('meta-draw').textContent = (meta.singles_draw_size && !isNaN(Number(meta.singles_draw_size))) ? Number(meta.singles_draw_size) : '—';
   document.getElementById('meta-start').textContent = meta.start_date ? fmtDate(meta.start_date) : '—';
   document.getElementById('meta-city').textContent = meta.city || '—';
-  document.getElementById('meta-country').textContent = meta.country || '—';
+
+  // resolve country display using IOC mapping / fallback
+  document.getElementById('meta-country').textContent = resolveCountryDisplay(meta.country || meta.country_code || '');
+
   document.getElementById('meta-title').textContent = meta.tourney_title || meta.tourney_name || '—';
   document.getElementById('meta-source').textContent = meta.source || '—';
+
   // champion pill in banner
   const chip = document.getElementById('champion-pill');
   chip.innerHTML = '';
@@ -486,7 +477,7 @@ function populateInfo(meta){
     const b = document.createElement('div');
     b.className = 'champion-badge';
     b.textContent = meta.champion.winner_player_name;
-    if((meta.source||'').toUpperCase() === 'WTA') { b.style.background = 'linear-gradient(180deg,#ffd9f7,#ffb6e9)'; b.style.color='#380032'; }
+    if(sourceKey === 'WTA') { b.style.background = 'linear-gradient(180deg,#ffd9f7,#ffb6e9)'; b.style.color='#380032'; }
     else { b.style.background = 'linear-gradient(180deg,#dff5ff,#bfe8ff)'; b.style.color='#012231'; }
     chip.appendChild(b);
   }
@@ -499,10 +490,9 @@ async function main(){
   const year = qs('year') || qs('y') || new Date().getFullYear();
   if(!id){
     const el = document.createElement('div'); el.textContent = 'Missing tournament id in URL (param t).'; el.style.color = '#ff8888';
-    document.getElementById('panel-info').appendChild(el); debug('Missing id'); return;
+    document.getElementById('panel-info').appendChild(el); return;
   }
   const candidates = buildJsonCandidates(source, id, year);
-  debug('candidates: ' + JSON.stringify(candidates,null,2));
   try{
     const raw = await fetchFirst(candidates);
     const norm = normalizeTournament(raw);
@@ -511,17 +501,15 @@ async function main(){
     if(!norm.meta.year) norm.meta.year = Number(year);
     populateInfo(norm.meta);
     lastPayload = norm;
-    // map: load borders and highlight
     if(Array.isArray(norm.meta.geocode) && norm.meta.geocode.length >= 2){
       await loadAndShowBorders(norm.meta);
     } else {
-      debug('No geocode available - map not centered');
+      console.debug('No geocode available - map not centered');
     }
-    // load draw template
     loadTemplateAndSend(norm);
   } catch(e){
-    debug('load error: ' + (e && e.message));
-    const p = document.createElement('div'); p.textContent = 'Erreur chargement JSON: ' + (e && e.message); p.style.color = '#ff9a9a';
+    console.error('load error', e && e.message);
+    const p = document.createElement('div'); p.textContent = 'JSON loading error: ' + (e && e.message); p.style.color = '#ff9a9a';
     document.getElementById('panel-info').appendChild(p);
   }
 }
