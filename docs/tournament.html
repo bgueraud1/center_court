@@ -1,148 +1,230 @@
-
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Tournament — Center Court</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-  <style>
-    :root{
-      --accent-hard:#2b6cb0;
-      --accent-clay:#c53030;
-      --accent-grass:#2f855a;
-      --accent-carpet:#6b46c1;
-      --muted:#666;
-    }
-    body{font-family:Arial,Helvetica,sans-serif;background:#f6f7f9;color:#111;margin:0}
-    .banner{height:84px;display:flex;align-items:center;padding:18px 24px;color:#fff}
-    .brand{font-weight:700;font-size:14px;opacity:.95}
-    .title{font-size:24px;font-weight:800;margin-left:12px}
-    .subtitle{font-size:13px;margin-left:12px;opacity:.92}
-    .tabs{margin:18px 24px 0 24px;display:flex;gap:8px}
-    .tab{padding:8px 12px;border-radius:6px;background:#fff;border:1px solid #e6e6e6;cursor:pointer}
-    .tab.active{background:#fff;border-bottom:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.03)}
-    .panel{margin:12px 24px;padding:16px;background:#fff;border:1px solid #e6e6e6;border-radius:8px}
-    .label{color:var(--muted);width:140px}
-    .row{display:flex;gap:12px;align-items:center;margin-bottom:8px}
-    .surface-badge{padding:.35rem .6rem;border-radius:.35rem;color:#fff;font-weight:600;font-size:.85rem}
-    .surface-hard{background:var(--accent-hard)}
-    .surface-clay{background:var(--accent-clay)}
-    .surface-grass{background:var(--accent-grass)}
-    .surface-carpet{background:var(--accent-carpet)}
-    .iframe-wrap{height:720px;border-radius:8px;overflow:hidden;border:1px solid #e6e6e6}
-    .small-muted{color:var(--muted);font-size:13px}
-    .note{font-size:13px;color:#666;margin-top:8px}
-    pre.debug{max-height:240px;overflow:auto;background:#111;color:#fff;padding:12px;border-radius:6px;font-size:12px}
-  </style>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Tournament — Center Court</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+<!-- Leaflet CSS for map -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-sA+e2b4g2v2yP4hxv2kQm6wEoK4W1q1l2zqk0a3bE0M=" crossorigin=""/>
+
+<style>
+  :root{
+    --accent-hard:#2b6cb0;
+    --accent-clay:#c53030;
+    --accent-grass:#2f855a;
+    --accent-carpet:#6b46c1;
+    --muted:#9aa6bf;
+    --bg-1: #000; --bg-2:#061017;
+  }
+  html,body{height:100%;margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial;background:linear-gradient(180deg,var(--bg-1),var(--bg-2));color:#e9f2ff}
+  .wrap{max-width:1100px;margin:28px auto;padding:0 18px}
+  .banner{display:flex;align-items:center;padding:18px 20px;border-radius:10px;background:linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));box-shadow:0 8px 30px rgba(2,6,23,0.6)}
+  .brand{font-weight:800;font-size:14px;color:#fff;opacity:.95}
+  .title{font-size:20px;font-weight:800;margin-left:12px}
+  .subtitle{font-size:13px;margin-left:12px;opacity:.85;color:var(--muted)}
+  .tabs{display:flex;gap:8px;margin-top:12px}
+  .tab{padding:8px 12px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted);cursor:pointer}
+  .tab.active{color:#fff;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01))}
+  .panel{margin-top:12px;padding:14px;border-radius:10px;background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.00));border:1px solid rgba(255,255,255,0.03)}
+  .label{color:var(--muted);width:140px}
+  .row{display:flex;gap:12px;align-items:center;margin-bottom:8px}
+  .surface-badge{padding:.35rem .6rem;border-radius:.35rem;color:#fff;font-weight:700;font-size:.85rem}
+  .surface-hard{background:var(--accent-hard)}
+  .surface-clay{background:var(--accent-clay)}
+  .surface-grass{background:var(--accent-grass)}
+  .surface-carpet{background:var(--accent-carpet)}
+  .small-muted{color:var(--muted);font-size:13px}
+  .note{font-size:13px;color:var(--muted);margin-top:8px}
+  pre.debug{max-height:260px;overflow:auto;background:#061425;color:#e6f7ff;padding:12px;border-radius:6px;font-size:12px}
+  .meta-grid{display:flex;gap:24px;flex-wrap:wrap}
+  .meta-col{flex:1;min-width:260px}
+  /* winner / champion badge */
+  .champion { font-weight:800; color: #8fd1ff; } /* default ATP color, will be set per source */
+  /* map container */
+  #map { height:220px; border-radius:8px; border:1px solid rgba(255,255,255,0.04); overflow:hidden; background:#0b1720; }
+  /* responsive */
+  @media (max-width:880px){ .meta-grid{flex-direction:column} .label{width:110px} }
+</style>
 </head>
 <body>
-  <div id="banner" class="banner" style="background:var(--accent-hard)">
-    <div>
-      <div class="brand" id="tour-type">ATP</div>
-      <div class="title" id="tourney-name">Tourney</div>
-      <div class="subtitle" id="tourney-sub">Surface • Level • Start date</div>
-    </div>
-  </div>
-
-  <div class="tabs">
-    <div id="tab-info" class="tab active">Info</div>
-    <div id="tab-draw" class="tab">Draw</div>
-  </div>
-
-  <div id="panel-info" class="panel">
-    <div style="display:flex;gap:24px;flex-wrap:wrap;">
-      <div style="flex:1;min-width:260px">
-        <div class="row"><div class="label">Tour</div><div id="meta-level" class="small-muted">—</div></div>
-        <div class="row"><div class="label">Surface</div><div id="meta-surface" class="small-muted">—</div></div>
-        <div class="row"><div class="label">Prize money</div><div id="meta-prize" class="small-muted">—</div></div>
-        <div class="row"><div class="label">Draw (singles)</div><div id="meta-draw" class="small-muted">—</div></div>
-      </div>
-      <div style="flex:1;min-width:260px">
-        <div class="row"><div class="label">Ville</div><div id="meta-city" class="small-muted">—</div></div>
-        <div class="row"><div class="label">Pays</div><div id="meta-country" class="small-muted">—</div></div>
-        <div class="row"><div class="label">Official title</div><div id="meta-title" class="small-muted">—</div></div>
-        <div class="row"><div class="label">Source</div><div id="meta-source" class="small-muted">—</div></div>
+  <div class="wrap">
+    <div id="banner" class="banner" style="background:linear-gradient(90deg, rgba(6,40,80,0.9), rgba(3,18,38,0.6))">
+      <div>
+        <div class="brand" id="tour-type">ATP</div>
+        <div class="title" id="tourney-name">Tourney</div>
+        <div class="subtitle" id="tourney-sub">Surface • Level • Start date</div>
       </div>
     </div>
-    <div class="note">Le draw se charge dans l'onglet "Draw".</div>
-  </div>
 
-  <div id="panel-draw" class="panel" style="display:none">
-    <div style="margin-bottom:10px"><strong>Draw</strong></div>
-    <div class="iframe-wrap">
-      <iframe id="draw-frame" src="about:blank" style="width:100%;height:100%;border:0"></iframe>
+    <div class="tabs">
+      <div id="tab-info" class="tab active">Info</div>
+      <div id="tab-draw" class="tab">Draw</div>
     </div>
-    <div class="note">Le template (template_5/6/7) reçoit le JSON via <code>postMessage</code>.</div>
+
+    <div id="panel-info" class="panel">
+      <div class="meta-grid">
+        <div class="meta-col">
+          <div class="row"><div class="label">Tour</div><div id="meta-level" class="small-muted">—</div></div>
+          <div class="row"><div class="label">Surface</div><div id="meta-surface" class="small-muted">—</div></div>
+          <div class="row"><div class="label">Indoor/Outdoor</div><div id="meta-indoor" class="small-muted">—</div></div>
+          <div class="row"><div class="label">Prize money</div><div id="meta-prize" class="small-muted">—</div></div>
+          <div class="row"><div class="label">Draw (singles)</div><div id="meta-draw" class="small-muted">—</div></div>
+        </div>
+
+        <div class="meta-col">
+          <div class="row"><div class="label">Ville</div><div id="meta-city" class="small-muted">—</div></div>
+          <div class="row"><div class="label">Pays</div><div id="meta-country" class="small-muted">—</div></div>
+          <div class="row"><div class="label">Official title</div><div id="meta-title" class="small-muted">—</div></div>
+          <div class="row"><div class="label">Source</div><div id="meta-source" class="small-muted">—</div></div>
+          <div class="row"><div class="label">Champion</div><div id="meta-champion" class="small-muted">—</div></div>
+        </div>
+
+        <div class="meta-col">
+          <div class="row"><div class="label">Location (map)</div><div style="flex:1"><div id="map"></div></div></div>
+          <div class="note">La carte affiche la zone autour du point (halo approximatif). Pour une bordure pays exacte, fournir un GeoJSON frontière pays.</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="panel-draw" class="panel" style="display:none">
+      <div style="margin-bottom:10px"><strong>Draw</strong></div>
+      <div class="iframe-wrap" style="height:640px;border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,0.03)">
+        <iframe id="draw-frame" src="about:blank" style="width:100%;height:100%;border:0;background:#fff"></iframe>
+      </div>
+      <div class="note">Le template reçoit le JSON via <code>postMessage</code>.</div>
+    </div>
+
+    <div style="margin:16px 0;">
+      <details>
+        <summary class="small-muted">Debug (ouvrir si besoin)</summary>
+        <pre id="debug" class="debug" style="display:none"></pre>
+      </details>
+    </div>
+
   </div>
 
-  <div style="margin:16px 24px;">
-    <details>
-      <summary class="small-muted">Debug (ouvrir si besoin)</summary>
-      <pre id="debug" class="debug" style="display:none"></pre>
-    </details>
-  </div>
+<!-- Leaflet JS for the small map -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-1A/rpss9w+8gqLR3V1qQ5Qk4Y0A5wEv6wZ8p4vQ6V3o=" crossorigin=""></script>
 
 <script>
-/* tournament.html
-   - attendu URL: /tournament.html?source=atp&t=580&year=2025
-   - cherche JSON à: /data/tournaments/{source}_{t}_{year}.json (et quelques fallback)
-   - normalise et envoie au template choisi (template_5/6/7)
+/* tournament.html (updated)
+   - expected URL: /tournament.html?source=atp&t=580&year=2025
+   - JSON path for ATP: /data/tournaments/json_by_tournaments/atp/atp_{ID}_{YEAR}/tournament.json
+   - JSON path for WTA: /data/tournaments/json_by_tournaments/wta/wta_{ID}_{YEAR}/tournament.json
+   - robust fallbacks included
 */
 
-/* ---------- helpers ---------- */
+/* ---------------- helpers ---------------- */
 function qs(k){ return new URLSearchParams(location.search).get(k); }
-function debug(msg){ const el = document.getElementById('debug'); if(!el) return; el.style.display='block'; el.textContent += msg + "\\n"; }
-function formatDate(d){ if(!d) return '—'; try{ return new Date(d).toLocaleDateString('fr-FR',{year:'numeric',month:'short',day:'numeric'});}catch(e){return d;} }
+function debug(msg){ const el = document.getElementById('debug'); if(!el) return; el.style.display='block'; el.textContent += msg + "\\n"; console.log(msg); }
+function fmtDate(d){ if(!d) return '—'; try{ return new Date(d).toLocaleDateString('fr-FR',{year:'numeric',month:'short',day:'numeric'}); }catch(e){ return d; } }
 
-/* ---------- build candidate URLs (strict pattern requested) ---------- */
+/* ---------------- build JSON candidate URLs ---------------- */
 function buildJsonCandidates(source, id, year){
   const s = (source||'').toLowerCase();
   const candidates = [];
-  // primary pattern exactly as you said: data/tournaments/atp_580_2025.json
-  if(s && id && year) candidates.push(`/data/tournaments/${s}_${id}_${year}.json`);
-  // common fallbacks:
-  if(s && id) candidates.push(`/data/tournaments/${s}_${id}.json`);
-  if(id && year) candidates.push(`/data/tournaments/${id}_${year}.json`);
-  if(id) candidates.push(`/data/tournaments/${id}.json`);
-  // a generic location
-  candidates.push(`/data/tournament.json`);
-  // allow direct json param (handy for dev): ?json=/some/file.json
-  const maybe = qs('json'); if(maybe) candidates.unshift(maybe);
+  if(!id) return candidates;
+  // primary patterns (with and without leading slash)
+  if(s === 'atp' || s === 'wta'){
+    candidates.push(`/data/tournaments/json_by_tournaments/${s}/${s}_${id}_${year}/tournament.json`);
+    candidates.push(`data/tournaments/json_by_tournaments/${s}/${s}_${id}_${year}/tournament.json`);
+    // sometimes folder might omit the underscore year variant or include uppercase
+    candidates.push(`/data/tournaments/json_by_tournaments/${s}/${s}_${id}_${year}/tournament.JSON`);
+    candidates.push(`/data/tournaments/json_by_tournaments/${s}/${s}_${id}_${year}/tournament.json`);
+  }
+  // useful fallbacks (older patterns)
+  candidates.push(`/data/tournaments/${s}_${id}_${year}.json`);
+  candidates.push(`data/tournaments/${s}_${id}_${year}.json`);
+  candidates.push(`/data/tournaments/${id}_${year}.json`);
+  candidates.push(`data/tournaments/${id}_${year}.json`);
+  // dev helper: if user passed ?json=... use it first
+  const maybe = qs('json');
+  if(maybe) candidates.unshift(maybe);
   // unique
   return Array.from(new Set(candidates));
 }
 
-/* fetch first existing JSON */
+/* fetch first existing JSON from candidates */
 async function fetchFirst(candidates){
   for(const url of candidates){
     try{
+      debug('trying: ' + url);
       const r = await fetch(url, {cache:'no-cache'});
       if(!r.ok){ debug(`fetch ${url} -> ${r.status}`); continue; }
       const j = await r.json();
       debug(`fetch ${url} -> OK`);
       return j;
-    }catch(e){
-      debug(`fetch ${url} -> error ${e.message}`);
+    } catch(e){
+      debug(`fetch ${url} -> ERROR ${e && e.message}`);
     }
   }
-  throw new Error('Aucun JSON trouvé pour les chemins testés.');
+  throw new Error('Aucun JSON trouvé (tests: ' + JSON.stringify(candidates) + ')');
 }
 
-/* ---------- normalize tournament JSON (simple, robust) ---------- */
-function tryGet(obj, keys){
-  for(const k of keys) if(obj && k in obj) return obj[k];
-  return undefined;
+/* ---------------- normalize tournament JSON ----------------
+   your files already have a meta property, so use it directly.
+   but be tolerant: allow the whole payload to already be meta.
+*/
+function normalizeTournament(raw){
+  const out = { meta: {}, matches: [] };
+  if(!raw) return out;
+  const meta = raw.meta && typeof raw.meta === 'object' ? raw.meta : raw;
+  out.meta = Object.assign({}, meta);
+
+  // Ensure keys exist and normalize types
+  out.meta.source = (out.meta.source || '').toUpperCase();
+  out.meta.tourney_id = String(out.meta.tourney_id || out.meta.id || qs('t') || '');
+  out.meta.year = Number(out.meta.year || qs('year') || (new Date()).getFullYear());
+  out.meta.tourney_name = out.meta.tourney_name || out.meta.tourney_title || out.meta.title || meta.tourney_title || '—';
+  // normalize level: for ATP if numeric like "250" -> "ATP 250"
+  if(out.meta.source === 'ATP'){
+    if(out.meta.level && /^[0-9]+$/.test(String(out.meta.level).trim())){
+      out.meta.level = 'ATP ' + String(out.meta.level).trim();
+    } else if(out.meta.level && typeof out.meta.level === 'string' && out.meta.level.toUpperCase().includes('ATP')) {
+      // keep as-is
+    } else {
+      // leave as-is
+    }
+  }
+  // ensure draw size is number
+  out.meta.singles_draw_size = Number(out.meta.singles_draw_size) || Number(out.meta.draw) || NaN;
+  // champion normalization (if present)
+  if(out.meta.champion && typeof out.meta.champion === 'object'){
+    out.meta.champion = {
+      winner_player_name: out.meta.champion.winner_player_name || out.meta.champion.player_name || out.meta.champion.name || '',
+      player_id_winner: out.meta.champion.player_id_winner || out.meta.champion.player_id || '',
+      winner_country: out.meta.champion.winner_country || out.meta.champion.country || ''
+    };
+  } else {
+    out.meta.champion = out.meta.champion || {};
+  }
+
+  // matches may be in raw.matches, raw.data.matches, raw.draw etc.
+  const candKeys = ['matches','matchs','draw','data','results','items','matches_list','matchList'];
+  for(const k of candKeys){
+    if(Array.isArray(raw[k])){
+      out.matches = raw[k].map(mapMatch);
+      break;
+    }
+  }
+  // fallback: if raw contains arrays, pick the largest array
+  if(out.matches.length === 0){
+    let largest = null;
+    for(const k in raw){
+      if(Array.isArray(raw[k]) && (!largest || raw[k].length > largest.length)) largest = raw[k];
+    }
+    if(Array.isArray(largest)) out.matches = largest.map(mapMatch);
+  }
+
+  return out;
 }
-function locateMatches(obj){
-  if(!obj) return [];
-  const candidateKeys = ['matches','matchs','data','results','items','matches_list','matchList'];
-  for(const k of candidateKeys) if(Array.isArray(obj[k])) return obj[k];
-  if(Array.isArray(obj)) return obj;
-  // find largest array property
-  let largest=null;
-  for(const k in obj) if(Array.isArray(obj[k]) && (!largest || obj[k].length > largest.length)) largest = obj[k];
-  return largest || [];
+
+/* map a match object to simple shape (tolerant) */
+function tryGet(obj, keys){
+  for(const k of keys) if(obj && (k in obj)) return obj[k];
+  return undefined;
 }
 function mapMatch(m){
   const out = {};
@@ -153,82 +235,95 @@ function mapMatch(m){
   out.loser_player_name = tryGet(m, ['loser','loser_name','loser_player_name','l_name']) || tryGet(m, ['l','player_loser_name']) || '';
   out.player_id_winner = tryGet(m, ['winner_id','player_id_winner','w_id']) || '';
   out.player_id_loser = tryGet(m, ['loser_id','player_id_loser','l_id']) || '';
-  out.winner_country = tryGet(m, ['winner_country','w_country']) || '';
-  out.loser_country = tryGet(m, ['loser_country','l_country']) || '';
-  out.winner_seed = tryGet(m, ['winner_seed','w_seed','seed_w']) || '';
-  out.loser_seed = tryGet(m, ['loser_seed','l_seed','seed_l']) || '';
   return out;
 }
-function normalizeTournament(raw){
-  const meta = {};
-  // possible meta locations
-  const metaKeys = ['meta','tourney','tournament','info'];
-  for(const k of metaKeys) if(raw && raw[k] && typeof raw[k] === 'object'){ Object.assign(meta, raw[k]); break; }
-  // try root-level fallbacks
-  meta.tourney_id = meta.tourney_id || tryGet(raw, ['tourney_id','tourneyId','id']);
-  meta.tourney_name = meta.tourney_name || tryGet(raw, ['tourney_name','name','title']);
-  meta.year = meta.year || tryGet(raw, ['year','season']);
-  meta.surface = meta.surface || tryGet(raw, ['surface','court']);
-  meta.level = meta.level || tryGet(raw, ['level','tier']);
-  meta.prize_money = meta.prize_money || tryGet(raw, ['prize_money','prize']);
-  meta.prize_money_currency = meta.prize_money_currency || tryGet(raw, ['prize_money_currency','currency']);
-  meta.singles_draw_size = meta.singles_draw_size || tryGet(raw, ['singles_draw_size','draw','draw_size']);
-  meta.city = meta.city || tryGet(raw, ['city','location']);
-  meta.country = meta.country || tryGet(raw, ['country']);
-  meta.tourney_title = meta.tourney_title || tryGet(raw, ['tourney_title','official_name','officialTitle']);
-  meta.source = (meta.source || tryGet(raw, ['source']) || '').toUpperCase();
-  meta.start_date = meta.start_date || tryGet(raw, ['start_date','date','startDate']);
 
-  const rawMatches = locateMatches(raw) || [];
-  const matches = rawMatches.map(mapMatch);
-
-  // infer draw size if missing
-  let draw = Number(meta.singles_draw_size) || NaN;
-  if(!draw || isNaN(draw) || draw <= 0){
-    const players = new Set();
-    matches.forEach(m=>{
-      if(m.player_id_winner) players.add(m.player_id_winner);
-      if(m.player_id_loser) players.add(m.player_id_loser);
-      if(m.winner_player_name) players.add('N:'+m.winner_player_name);
-      if(m.loser_player_name) players.add('N:'+m.loser_player_name);
-    });
-    const count = players.size || 0;
-    if(count === 0) draw = 32;
-    else if(count <= 32) draw = 32;
-    else if(count <= 64) draw = 64;
-    else if(count <= 128) draw = 128;
-    else draw = 256;
-  }
-  meta.singles_draw_size = draw;
-
-  return { meta, matches };
-}
-
-/* ---------- UI helpers ---------- */
+/* ---------------- populate UI info ---------------- */
 function populateInfo(meta){
-  document.getElementById('tour-type').textContent = meta.source ? meta.source.toUpperCase() : 'TOUR';
-  document.getElementById('tourney-name').textContent = meta.tourney_name || (meta.tourney_title || ('Tourney ' + (meta.tourney_id || '')));
-  const sub = `${meta.surface || '—'} • ${meta.level || '—'} • ${meta.start_date ? formatDate(meta.start_date) : '—'}`;
-  document.getElementById('tourney-sub').textContent = sub;
+  document.getElementById('tour-type').textContent = meta.source || '';
+  document.getElementById('tourney-name').textContent = meta.tourney_name || ('Tourney ' + (meta.tourney_id||''));
+  document.getElementById('tourney-sub').textContent = `${meta.surface || '—'} • ${meta.level || '—'} • ${meta.start_date ? fmtDate(meta.start_date) : '—'}`;
 
   document.getElementById('meta-level').textContent = meta.level || '—';
   document.getElementById('meta-surface').textContent = meta.surface || '—';
-  document.getElementById('meta-prize').textContent = (meta.prize_money_currency||'') + (meta.prize_money ? Number(meta.prize_money).toLocaleString() : '—');
-  document.getElementById('meta-draw').textContent = meta.singles_draw_size || '—';
+  // indoor/outdoor: prefer inOutdoor or indoor_outdoor
+  const io = meta.inOutdoor || meta.indoor_outdoor || meta.in_outdoor || '';
+  document.getElementById('meta-indoor').textContent = io || '—';
+  const prize = (meta.prize_money_currency||'') + (meta.prize_money ? (Number(meta.prize_money).toLocaleString()) : '—');
+  document.getElementById('meta-prize').textContent = prize;
+  document.getElementById('meta-draw').textContent = (meta.singles_draw_size && !isNaN(Number(meta.singles_draw_size))) ? Number(meta.singles_draw_size) : '—';
   document.getElementById('meta-city').textContent = meta.city || '—';
   document.getElementById('meta-country').textContent = meta.country || '—';
-  document.getElementById('meta-title').textContent = meta.tourney_title || '—';
+  document.getElementById('meta-title').textContent = meta.tourney_title || meta.tourney_name || '—';
   document.getElementById('meta-source').textContent = meta.source || '—';
+  if(meta.champion && meta.champion.winner_player_name){
+    const champEl = document.getElementById('meta-champion');
+    champEl.textContent = meta.champion.winner_player_name;
+    // color champion depending on source
+    champEl.className = meta.source === 'WTA' ? 'small-muted champion winner-wta' : 'small-muted champion winner-atp';
+    // winners color CSS classes are defined in calendar snippet; define here:
+    champEl.style.color = meta.source === 'WTA' ? '#ff9bd6' : '#8fd1ff';
+  } else {
+    document.getElementById('meta-champion').textContent = '—';
+  }
 
+  // banner color by surface
   const banner = document.getElementById('banner');
   const s = (meta.surface || '').toLowerCase();
-  if(s.includes('hard')) banner.style.background = getComputedStyle(document.documentElement).getPropertyValue('--accent-hard');
-  else if(s.includes('clay')) banner.style.background = getComputedStyle(document.documentElement).getPropertyValue('--accent-clay');
-  else if(s.includes('grass')) banner.style.background = getComputedStyle(document.documentElement).getPropertyValue('--accent-grass');
-  else banner.style.background = getComputedStyle(document.documentElement).getPropertyValue('--accent-carpet');
+  if(s.includes('hard')) banner.style.background = 'linear-gradient(90deg, rgba(3,77,140,0.95), rgba(2,24,44,0.6))';
+  else if(s.includes('clay')) banner.style.background = 'linear-gradient(90deg, rgba(190,50,60,0.95), rgba(40,12,12,0.6))';
+  else if(s.includes('grass')) banner.style.background = 'linear-gradient(90deg, rgba(25,100,60,0.95), rgba(6,18,12,0.6))';
+  else banner.style.background = 'linear-gradient(90deg, rgba(90,50,140,0.95), rgba(18,8,22,0.6))';
 }
 
-/* ---------- iframe / draw template ---------- */
+/* ---------------- small map (Leaflet) ----------------
+   We center on meta.geocode: [lat, lon]
+   We draw a marker and a translucent circle (halo) to "highlight" the approximate country.
+*/
+let mapInstance = null;
+let marker = null;
+let halo = null;
+function initMap(containerId, lat, lon, source){
+  try {
+    if(!lat || !lon) return;
+    // create map if not present
+    if(!mapInstance){
+      mapInstance = L.map(containerId, { zoomControl:true, attributionControl:false });
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        minZoom: 1,
+      }).addTo(mapInstance);
+    }
+    const ll = [Number(lat), Number(lon)];
+    mapInstance.setView(ll, 6); // zoom into region
+    // remove previous
+    if(marker) mapInstance.removeLayer(marker);
+    if(halo) mapInstance.removeLayer(halo);
+    const isWta = (source||'').toLowerCase() === 'wta';
+    marker = L.circleMarker(ll, {
+      radius: 7,
+      color: isWta ? '#6b2a6a' : '#0b4f7a',
+      fillColor: isWta ? '#6b2a6a' : '#0b4f7a',
+      fillOpacity: 1,
+      weight: 1.2
+    }).addTo(mapInstance);
+    // halo/country approximate highlight
+    halo = L.circle(ll, {
+      radius: 140000, // 140km, approximative country halo
+      color: isWta ? 'rgba(155,89,182,0.25)' : 'rgba(43,108,176,0.25)',
+      fillColor: isWta ? 'rgba(155,89,182,0.12)' : 'rgba(43,108,176,0.12)',
+      weight: 0,
+      fillOpacity: 0.18
+    }).addTo(mapInstance);
+    // fit tighter
+    const bounds = halo.getBounds();
+    mapInstance.fitBounds(bounds.pad(0.7));
+  } catch(e){
+    debug('map init err: ' + (e && e.message));
+  }
+}
+
+/* ---------------- draw template loader / postMessage ---------------- */
 const iframe = document.getElementById('draw-frame');
 const tabInfo = document.getElementById('tab-info');
 const tabDraw = document.getElementById('tab-draw');
@@ -246,105 +341,98 @@ tabDraw.addEventListener('click', ()=>{
 });
 
 function chooseTemplate(drawSize, source){
-  if (source === 'WTA') {
-    if (drawSize <= 32) return 'template_wta_5.html';
-    if (drawSize <= 64) return 'template_wta_6.html';
+  // choose template name heuristically (you can adapt names/paths)
+  const src = (source||'ATP').toUpperCase();
+  const ds = Number(drawSize) || 32;
+  if(src === 'WTA'){
+    if(ds <= 32) return 'template_wta_5.html';
+    if(ds <= 64) return 'template_wta_6.html';
     return 'template_wta_7.html';
   }
-  // Default for ATP or other sources
-  if (drawSize <= 32) return 'template_5.html';
-  if (drawSize <= 64) return 'template_6.html';
+  // ATP default templates
+  if(ds <= 32) return 'template_5.html';
+  if(ds <= 64) return 'template_6.html';
   return 'template_7.html';
 }
 
-
 let lastPayload = null;
 function loadTemplateAndSend(payload){
-  if (!payload) return;
+  if(!payload) return;
   const drawSize = Number(payload.meta && payload.meta.singles_draw_size) || 32;
-  const source = payload.meta.source || 'ATP'; // Source par défaut à ATP si non définie
-  const template = chooseTemplate(drawSize, source); // Passez la source ici
-
-  // Ajoutez les paramètres de la requête comme fallback utile
+  const source = payload.meta.source || 'ATP';
+  const template = chooseTemplate(drawSize, source);
+  // pass source/id/year for template to fetch assets if needed
   const s = encodeURIComponent(source || qs('source') || 'atp');
-  const tid = encodeURIComponent(payload.meta.tourney_id || qs('t') || qs('id') || '');
-  const yr = encodeURIComponent(payload.meta.year || qs('year') || qs('y') || '');
+  const tid = encodeURIComponent(payload.meta.tourney_id || qs('t') || '');
+  const yr = encodeURIComponent(payload.meta.year || qs('year') || '');
   const templateUrl = `${template}?source=${s}&t=${tid}&year=${yr}`;
-
-  // Définir le src (cela déclenche le chargement)
   iframe.src = templateUrl;
 
-  // Tentatives pour envoyer un postMessage (sécurisé avec try/catch)
-  function tryPost(){
+  // send payload when iframe loads (and re-send a few times for robustness)
+  const tryPost = ()=>{
     try{
-      if (iframe && iframe.contentWindow){
-        iframe.contentWindow.postMessage({type: 'tourney-data', payload}, '*');
-        debug('postMessage envoyé (attempt)');
+      if(iframe && iframe.contentWindow){
+        iframe.contentWindow.postMessage({ type:'tourney-data', payload }, '*');
+        debug('postMessage envoyé');
       }
-    }catch(e){
-      debug('postMessage err: '+ (e && e.message));
-    }
-  }
-
-  // Sur le chargement, tenter immédiatement
-  const onLoad = () => {
-    tryPost();
-    // Réessayez quelques fois avec de petites délais (robustesse)
-    setTimeout(tryPost, 250);
-    setTimeout(tryPost, 700);
-    iframe.removeEventListener('load', onLoad);
+    }catch(e){ debug('postMessage err: ' + (e && e.message)); }
   };
+  const onLoad = ()=> { tryPost(); setTimeout(tryPost, 250); setTimeout(tryPost, 700); iframe.removeEventListener('load', onLoad); };
   iframe.addEventListener('load', onLoad);
 }
 
-
-
-/* ---------- main entry ---------- */
-async function main(){
-  const source = qs('source') || qs('s') || 'atp';
-  const id = qs('t') || qs('id') || '';
-  const year = qs('year') || qs('y') || new Date().getFullYear();
-
-  if(!id){
-    document.getElementById('panel-info').appendChild(Object.assign(document.createElement('div'), {textContent:'Missing tournament id in URL (param t).', className:'text-danger mt-2'}));
-    return;
+/* listen for template ready event and re-send if needed */
+window.addEventListener('message', (ev)=>{
+  const d = ev.data || {};
+  if(d && d.type === 'template-ready'){
+    debug('template-ready received: ' + (d.template||'?'));
+    if(lastPayload){
+      try { iframe.contentWindow.postMessage({ type:'tourney-data', payload:lastPayload }, '*'); } catch(e){}
+    }
   }
+}, false);
 
-  const candidates = buildJsonCandidates(source,id,year);
-  debug('candidates: ' + JSON.stringify(candidates,null,2));
-
+/* ---------------- main entry ---------------- */
+async function main(){
+  const source = (qs('source') || qs('s') || 'atp').toLowerCase();
+  const id = qs('t') || qs('id') || '';
+  const year = qs('year') || qs('y') || (new Date()).getFullYear();
+  if(!id){
+    const p = document.createElement('div'); p.textContent = 'Missing tournament id in URL (param t).'; p.style.color='#ffb4b4';
+    panelInfo.appendChild(p); debug('Missing id'); return;
+  }
+  const candidates = buildJsonCandidates(source, id, year);
+  debug('candidates: ' + JSON.stringify(candidates, null, 2));
   try{
     const raw = await fetchFirst(candidates);
     const norm = normalizeTournament(raw);
-    // fill missing meta from query
+    // fill query fallbacks
     if(!norm.meta.source) norm.meta.source = (source||'').toUpperCase();
     if(!norm.meta.tourney_id) norm.meta.tourney_id = id;
-    if(!norm.meta.year) norm.meta.year = year;
+    if(!norm.meta.year) norm.meta.year = Number(year);
     populateInfo(norm.meta);
     lastPayload = norm;
-    lastPayload = norm;
-    // nouvelle ligne : charge automatiquement le template et envoie les données
+    // init small map if geocode exists
+    const geo = norm.meta.geocode || norm.meta.geo || null;
+    if(Array.isArray(geo) && geo.length >= 2){
+      // your meta uses [lat, lon] as per example
+      const lat = Number(geo[0]), lon = Number(geo[1]);
+      initMap('map', lat, lon, norm.meta.source);
+    } else {
+      debug('no geocode found in meta');
+    }
+    // load draw template and send payload
     loadTemplateAndSend(norm);
-
-    // si draw tab déjà actif, on l'avait déjà prévu ; conserver l'ancien comportement reste ok
     if(tabDraw.classList.contains('active')) loadTemplateAndSend(norm);
-    // if draw tab already active (unlikely), load it
+
   }catch(e){
-    debug('load error: '+ e.message);
-    document.getElementById('panel-info').appendChild(Object.assign(document.createElement('div'), {textContent:'Erreur chargement JSON: '+e.message, className:'text-danger mt-2'}));
+    debug('load error: ' + (e && e.message));
+    const p = document.createElement('div'); p.textContent = 'Erreur chargement JSON: ' + (e && e.message); p.style.color='#ff9a9a';
+    panelInfo.appendChild(p);
   }
 }
 
-/* listen template ready optionally */
-window.addEventListener('message',(ev)=>{
-  const d = ev.data || {};
-  if(d && d.type === 'template-ready'){ debug('template ready: ' + (d.template||'?')); if(lastPayload) try{ iframe.contentWindow.postMessage({type:'tourney-data', payload:lastPayload}, '*'); }catch(e){} }
-}, false);
-
-/* start */
 document.addEventListener('DOMContentLoaded', main);
 </script>
-
 </body>
 </html>
-
