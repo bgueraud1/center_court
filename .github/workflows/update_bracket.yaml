@@ -1,0 +1,466 @@
+name: Update ATP/WTA tournament brackets
+
+on:
+  schedule:
+    # Toutes les 4 heures (UTC). Ajuste si tu veux plus ou moins de fréquence.
+    - cron: "0 */4 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: update_bracket_tournaments
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  BRACKET_DIR: docs/bracket/tournaments
+  ATP_TOURNAMENTS_JSON: docs/atp_tournaments_2026.json
+  WTA_TOURNAMENTS_JSON: docs/wta_tournaments_2026.json
+  ATP_YEAR: "2026"
+  TARGETS_DIR: ${{ runner.temp }}/bracket_targets
+
+jobs:
+  scrape_and_publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+          lfs: true
+
+      - name: Ensure local branch = origin/main
+        run: |
+          set -euo pipefail
+          git fetch origin main --quiet || true
+          if git rev-parse --verify origin/main >/dev/null 2>&1; then
+            git checkout -B main origin/main
+            git reset --hard origin/main
+          else
+            git checkout -B main || true
+          fi
+          git status --porcelain || true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4 playwright
+          playwright install --with-deps chromium
+
+      - name: Compute tournaments to scrape
+        run: |
+          set -euo pipefail
+          mkdir -p "$TARGETS_DIR"
+
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from datetime import date, datetime, timedelta, timezone
+          from pathlib import Path
+
+          workspace = Path(os.environ["GITHUB_WORKSPACE"])
+          bracket_dir = workspace / os.environ["BRACKET_DIR"]
+          atp_path = workspace / os.environ["ATP_TOURNAMENTS_JSON"]
+          wta_path = workspace / os.environ["WTA_TOURNAMENTS_JSON"]
+          targets_dir = Path(os.environ["TARGETS_DIR"])
+          atp_year_default = int(os.environ["ATP_YEAR"])
+
+          today = datetime.now(timezone.utc).date()
+
+          month_map = {
+              "january": 1, "february": 2, "march": 3, "april": 4,
+              "may": 5, "june": 6, "july": 7, "august": 8,
+              "september": 9, "october": 10, "november": 11, "december": 12,
+          }
+
+          def write_lines(path: Path, lines):
+              path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+
+          def json_match_count(path: Path):
+              if not path.exists():
+                  return None
+              try:
+                  payload = json.loads(path.read_text(encoding="utf-8"))
+                  if isinstance(payload, dict) and isinstance(payload.get("matches"), list):
+                      return len(payload["matches"])
+              except Exception:
+                  return None
+              return None
+
+          def next_power_of_two(n: int) -> int:
+              n = int(n)
+              if n <= 1:
+                  return 1
+              return 1 << (n - 1).bit_length()
+
+          def expected_count(num_players: int, tour: str, phase: str) -> int:
+              bracket = next_power_of_two(num_players)
+              if phase == "first-round":
+                  return bracket // 2
+              if tour == "atp":
+                  return bracket - 1
+              return max(int(num_players) - 1, 0)
+
+          def parse_atp_formatted_date(text: str, default_year: int):
+              s = " ".join(str(text).replace("–", "-").replace("—", "-").split())
+
+              patterns = [
+                  # 25 December 2025 - 01 January, 2026
+                  re.compile(
+                      r"^(?P<sd>\d{1,2})\s+(?P<sm>[A-Za-z]+)\s+(?P<sy>\d{4})\s*-\s*"
+                      r"(?P<ed>\d{1,2})\s+(?P<em>[A-Za-z]+),?\s+(?P<ey>\d{4})$"
+                  ),
+                  # 25 January - 01 February, 2026
+                  re.compile(
+                      r"^(?P<sd>\d{1,2})\s+(?P<sm>[A-Za-z]+)\s*-\s*"
+                      r"(?P<ed>\d{1,2})\s+(?P<em>[A-Za-z]+),?\s+(?P<ey>\d{4})$"
+                  ),
+                  # 5 - 11 January, 2026
+                  re.compile(
+                      r"^(?P<sd>\d{1,2})\s*-\s*"
+                      r"(?P<ed>\d{1,2})\s+(?P<em>[A-Za-z]+),?\s+(?P<ey>\d{4})$"
+                  ),
+              ]
+
+              for rx in patterns:
+                  m = rx.match(s)
+                  if not m:
+                      continue
+                  g = m.groupdict()
+
+                  ey = int(g["ey"])
+                  ed = int(g["ed"])
+                  em = month_map[g["em"].lower()]
+                  end_date = date(ey, em, ed)
+
+                  if "sy" in g and g.get("sy"):
+                      sy = int(g["sy"])
+                      sm = month_map[g["sm"].lower()]
+                      sd = int(g["sd"])
+                      start_date = date(sy, sm, sd)
+                  elif "sm" in g and g.get("sm"):
+                      sy = ey
+                      sm = month_map[g["sm"].lower()]
+                      sd = int(g["sd"])
+                      start_date = date(sy, sm, sd)
+                  else:
+                      sy = ey
+                      sm = em
+                      sd = int(g["sd"])
+                      start_date = date(sy, sm, sd)
+
+                  return start_date, end_date
+
+              raise ValueError(f"Impossible de parser ATP FormattedDate: {text!r}")
+
+          atp_draw_specs = []
+          atp_score_specs = []
+          wta_first_specs = []
+          wta_full_specs = []
+
+          # ---------- ATP ----------
+          try:
+              atp_data = json.loads(atp_path.read_text(encoding="utf-8"))
+          except Exception as e:
+              raise RuntimeError(f"Impossible de lire {atp_path}: {e}")
+
+          for group in atp_data.get("TournamentDates", []):
+              for t in group.get("Tournaments", []):
+                  formatted = t.get("FormattedDate")
+                  draws_url = t.get("DrawsUrl")
+                  draw_size = int(t.get("SglDrawSize") or 0)
+
+                  if not formatted or not draws_url or draw_size <= 0:
+                      continue
+
+                  try:
+                      start_date, end_date = parse_atp_formatted_date(formatted, atp_year_default)
+                  except Exception:
+                      continue
+
+                  # Exemple: /en/scores/archive/hong-kong/336/2026/draws
+                  m = re.search(r"/(?:archive|archives|current|current-challenger)/([^/]+)/(\d+)/(\d{4})/", draws_url)
+                  if not m:
+                      continue
+                  slug = m.group(1)
+                  tournament_id = int(m.group(2))
+                  year = int(m.group(3))
+
+                  out_path = bracket_dir / f"atp_{tournament_id}_{year}_temporary.json"
+                  current_count = json_match_count(out_path)
+
+                  first_round_day = start_date - timedelta(days=1)
+                  full_day = end_date + timedelta(days=1)
+
+                  expected_first = expected_count(draw_size, "atp", "first-round")
+                  expected_full = expected_count(draw_size, "atp", "full")
+
+                  if first_round_day <= today < full_day:
+                      # On retente le first-round tant qu'on n'a pas le JSON "plein" du premier tour.
+                      if current_count is None or current_count < expected_first:
+                          atp_draw_specs.append(f"{tournament_id}:{year}:{draw_size}:{slug}")
+                  elif today >= full_day:
+                      # Dès le lendemain de la fin, on repasse en full/score.
+                      if current_count is None or current_count < expected_full:
+                          atp_score_specs.append(f"{tournament_id}:{year}:{draw_size}:{slug}")
+
+          # ---------- WTA ----------
+          try:
+              wta_data = json.loads(wta_path.read_text(encoding="utf-8"))
+          except Exception as e:
+              raise RuntimeError(f"Impossible de lire {wta_path}: {e}")
+
+          for t in wta_data.get("content", []):
+              tournament_id = int((t.get("tournamentGroup") or {}).get("id") or 0)
+              year = int(t.get("year") or 0)
+              num_players = int(t.get("singlesDrawSize") or 0)
+              start_date_s = t.get("startDate")
+              end_date_s = t.get("endDate")
+
+              if tournament_id <= 0 or year <= 0 or num_players <= 0 or not start_date_s or not end_date_s:
+                  continue
+
+              try:
+                  start_date = date.fromisoformat(start_date_s)
+                  end_date = date.fromisoformat(end_date_s)
+              except Exception:
+                  continue
+
+              out_path = bracket_dir / f"wta_{tournament_id}_{year}_temporary.json"
+              current_count = json_match_count(out_path)
+
+              first_round_day = start_date - timedelta(days=1)
+              full_day = end_date + timedelta(days=1)
+
+              expected_first = expected_count(num_players, "wta", "first-round")
+              expected_full = expected_count(num_players, "wta", "full")
+
+              if first_round_day <= today < full_day:
+                  if current_count is None or current_count < expected_first:
+                      wta_first_specs.append((tournament_id, year, num_players, "first-round"))
+              elif today >= full_day:
+                  if current_count is None or current_count < expected_full:
+                      wta_full_specs.append((tournament_id, year, num_players, "full"))
+
+          write_lines(targets_dir / "atp_draw_specs.txt", atp_draw_specs)
+          write_lines(targets_dir / "atp_score_specs.txt", atp_score_specs)
+
+          def write_tsv(path: Path, rows):
+              if not rows:
+                  path.write_text("", encoding="utf-8")
+                  return
+              content = "\n".join("\t".join(map(str, row)) for row in rows) + "\n"
+              path.write_text(content, encoding="utf-8")
+
+          write_tsv(targets_dir / "wta_first_round_specs.tsv", wta_first_specs)
+          write_tsv(targets_dir / "wta_full_specs.tsv", wta_full_specs)
+
+          print(f"[compute] UTC today = {today.isoformat()}")
+          print(f"[compute] ATP draw targets   = {len(atp_draw_specs)}")
+          print(f"[compute] ATP score targets  = {len(atp_score_specs)}")
+          print(f"[compute] WTA first targets  = {len(wta_first_specs)}")
+          print(f"[compute] WTA full targets   = {len(wta_full_specs)}")
+          PY
+
+          echo "=== ATP draw targets ==="
+          cat "$TARGETS_DIR/atp_draw_specs.txt" || true
+          echo "=== ATP score targets ==="
+          cat "$TARGETS_DIR/atp_score_specs.txt" || true
+          echo "=== WTA first-round targets ==="
+          cat "$TARGETS_DIR/wta_first_round_specs.tsv" || true
+          echo "=== WTA full targets ==="
+          cat "$TARGETS_DIR/wta_full_specs.tsv" || true
+
+      - name: Run ATP draw scrapers
+        run: |
+          set -euo pipefail
+
+          if [ ! -s "$TARGETS_DIR/atp_draw_specs.txt" ]; then
+            echo "No ATP draw targets."
+            exit 0
+          fi
+
+          mapfile -t ATP_SPECS < "$TARGETS_DIR/atp_draw_specs.txt"
+
+          ARGS=(python3 scripts/scraping_atp_matches_temporary.py
+                --out-folder "$BRACKET_DIR"
+                --match-source draw
+                --headless
+                --verbose
+                --max-attempts 10)
+
+          for spec in "${ATP_SPECS[@]}"; do
+            [ -n "$spec" ] && ARGS+=(--tournament "$spec")
+          done
+
+          echo "Running: ${ARGS[*]}"
+          "${ARGS[@]}"
+
+      - name: Run ATP full scrapers
+        run: |
+          set -euo pipefail
+
+          if [ ! -s "$TARGETS_DIR/atp_score_specs.txt" ]; then
+            echo "No ATP score targets."
+            exit 0
+          fi
+
+          mapfile -t ATP_SPECS < "$TARGETS_DIR/atp_score_specs.txt"
+
+          ARGS=(python3 scripts/scraping_atp_matches_temporary.py
+                --out-folder "$BRACKET_DIR"
+                --match-source score
+                --headless
+                --verbose
+                --max-attempts 10)
+
+          for spec in "${ATP_SPECS[@]}"; do
+            [ -n "$spec" ] && ARGS+=(--tournament "$spec")
+          done
+
+          echo "Running: ${ARGS[*]}"
+          "${ARGS[@]}"
+
+      - name: Run WTA first-round scrapers
+        run: |
+          set -euo pipefail
+
+          if [ ! -s "$TARGETS_DIR/wta_first_round_specs.tsv" ]; then
+            echo "No WTA first-round targets."
+            exit 0
+          fi
+
+          while IFS=$'\t' read -r tournament_id year num_players mode; do
+            [ -z "${tournament_id:-}" ] && continue
+            echo "Running WTA first-round: ${tournament_id} ${year} ${num_players} ${mode}"
+            python3 scripts/scraping_wta_temporary.py \
+              --tournament-id "$tournament_id" \
+              --year "$year" \
+              --num-players "$num_players" \
+              --mode "$mode" \
+              --out-folder "$BRACKET_DIR" \
+              --verbose \
+              --max-attempts 5
+          done < "$TARGETS_DIR/wta_first_round_specs.tsv"
+
+      - name: Run WTA full scrapers
+        run: |
+          set -euo pipefail
+
+          if [ ! -s "$TARGETS_DIR/wta_full_specs.tsv" ]; then
+            echo "No WTA full targets."
+            exit 0
+          fi
+
+          while IFS=$'\t' read -r tournament_id year num_players mode; do
+            [ -z "${tournament_id:-}" ] && continue
+            echo "Running WTA full: ${tournament_id} ${year} ${num_players} ${mode}"
+            python3 scripts/scraping_wta_temporary.py \
+              --tournament-id "$tournament_id" \
+              --year "$year" \
+              --num-players "$num_players" \
+              --mode "$mode" \
+              --out-folder "$BRACKET_DIR" \
+              --verbose \
+              --max-attempts 5
+          done < "$TARGETS_DIR/wta_full_specs.tsv"
+
+      - name: Commit and push generated JSON files
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GIT_AUTHOR_NAME: "github-actions[bot]"
+          GIT_AUTHOR_EMAIL: "github-actions[bot]@users.noreply.github.com"
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          AUTH="${GITHUB_TOKEN:-}"
+          if [ -z "$AUTH" ]; then
+            echo "No GitHub token available, skipping push."
+            exit 0
+          fi
+
+          git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}"
+          git config user.name "$GIT_AUTHOR_NAME"
+          git config user.email "$GIT_AUTHOR_EMAIL"
+
+          TMP_BRANCH="ci/brackets/${GITHUB_RUN_ID}"
+          echo "Creating temporary branch: ${TMP_BRANCH}"
+          git checkout -B "${TMP_BRANCH}"
+
+          if [ -d "$BRACKET_DIR" ]; then
+            find "$BRACKET_DIR" -type f -name '*.json' -print0 | xargs -0 --no-run-if-empty git add -f || true
+          fi
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "ci(brackets): update ATP/WTA tournament JSONs"
+
+          echo "Pushing temporary branch..."
+          git push --set-upstream origin "${TMP_BRANCH}" --force-with-lease || git push --set-upstream origin "${TMP_BRANCH}" || true
+
+          MAX_RETRIES=4
+          attempt=0
+          merged_success=false
+
+          while [ $attempt -lt $MAX_RETRIES ]; do
+            attempt=$((attempt + 1))
+            echo "Merge attempt ${attempt}/${MAX_RETRIES}"
+
+            git fetch origin main --quiet || true
+            if git rev-parse --verify origin/main >/dev/null 2>&1; then
+              git checkout -B main origin/main
+              git reset --hard origin/main
+            else
+              git checkout -B main || true
+            fi
+
+            if git merge --no-edit --no-ff "${TMP_BRANCH}"; then
+              echo "Merge OK."
+            else
+              echo "Merge conflict or non-fast-forward; trying a safe merge strategy."
+              git merge --strategy-option=ours --no-edit "${TMP_BRANCH}" || true
+            fi
+
+            if [ -n "$(git diff --cached --name-only --diff-filter=D || true)" ]; then
+              echo "Unstaging deletions to avoid removing remote files."
+              git diff --cached --name-only --diff-filter=D | while IFS= read -r p; do
+                [ -z "$p" ] && continue
+                git restore --staged -- "$p" || true
+              done
+            fi
+
+            if git push origin HEAD:main; then
+              echo "Push to main succeeded."
+              merged_success=true
+              break
+            fi
+
+            echo "Push failed, retrying..."
+            sleep 2
+          done
+
+          if [ "$merged_success" = "false" ]; then
+            echo "Failed to merge and push main after retries."
+            echo "Temporary branch preserved: ${TMP_BRANCH}"
+            exit 1
+          fi
+
+      - name: Show final status
+        run: |
+          set -euo pipefail
+          git status --short || true
+          echo "Done."
