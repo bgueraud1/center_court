@@ -1,8 +1,7 @@
-name: Update ATP/WTA tournament brackets
+name: Update ATP/WTA bracket tournaments
 
 on:
   schedule:
-    # Toutes les 4 heures (UTC). Ajuste si tu veux plus ou moins de fréquence.
     - cron: "0 */4 * * *"
   workflow_dispatch:
 
@@ -18,11 +17,12 @@ env:
   ATP_TOURNAMENTS_JSON: docs/atp_tournaments_2026.json
   WTA_TOURNAMENTS_JSON: docs/wta_tournaments_2026.json
   ATP_YEAR: "2026"
-  TARGETS_DIR: ${{ runner.temp }}/bracket_targets
 
 jobs:
   scrape_and_publish:
     runs-on: ubuntu-latest
+    env:
+      TARGETS_DIR: ${{ github.workspace }}/bracket_targets
 
     steps:
       - name: Checkout
@@ -60,6 +60,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$TARGETS_DIR"
+          rm -f "$TARGETS_DIR/atp_draw_specs.txt" "$TARGETS_DIR/atp_score_specs.txt" \
+                "$TARGETS_DIR/wta_first_round_specs.tsv" "$TARGETS_DIR/wta_full_specs.tsv"
 
           python3 - <<'PY'
           import json
@@ -115,17 +117,14 @@ jobs:
               s = " ".join(str(text).replace("–", "-").replace("—", "-").split())
 
               patterns = [
-                  # 25 December 2025 - 01 January, 2026
                   re.compile(
                       r"^(?P<sd>\d{1,2})\s+(?P<sm>[A-Za-z]+)\s+(?P<sy>\d{4})\s*-\s*"
                       r"(?P<ed>\d{1,2})\s+(?P<em>[A-Za-z]+),?\s+(?P<ey>\d{4})$"
                   ),
-                  # 25 January - 01 February, 2026
                   re.compile(
                       r"^(?P<sd>\d{1,2})\s+(?P<sm>[A-Za-z]+)\s*-\s*"
                       r"(?P<ed>\d{1,2})\s+(?P<em>[A-Za-z]+),?\s+(?P<ey>\d{4})$"
                   ),
-                  # 5 - 11 January, 2026
                   re.compile(
                       r"^(?P<sd>\d{1,2})\s*-\s*"
                       r"(?P<ed>\d{1,2})\s+(?P<em>[A-Za-z]+),?\s+(?P<ey>\d{4})$"
@@ -143,12 +142,12 @@ jobs:
                   em = month_map[g["em"].lower()]
                   end_date = date(ey, em, ed)
 
-                  if "sy" in g and g.get("sy"):
+                  if g.get("sy"):
                       sy = int(g["sy"])
                       sm = month_map[g["sm"].lower()]
                       sd = int(g["sd"])
                       start_date = date(sy, sm, sd)
-                  elif "sm" in g and g.get("sm"):
+                  elif g.get("sm"):
                       sy = ey
                       sm = month_map[g["sm"].lower()]
                       sd = int(g["sd"])
@@ -163,17 +162,19 @@ jobs:
 
               raise ValueError(f"Impossible de parser ATP FormattedDate: {text!r}")
 
+          def extract_atp_tournament_id_and_slug(draws_url: str):
+              m = re.search(r"/scores/(?:archive|current)/([^/]+)/(\d+)/(\d{4})/", draws_url)
+              if not m:
+                  return None
+              return m.group(1), int(m.group(2)), int(m.group(3))
+
           atp_draw_specs = []
           atp_score_specs = []
           wta_first_specs = []
           wta_full_specs = []
 
-          # ---------- ATP ----------
-          try:
-              atp_data = json.loads(atp_path.read_text(encoding="utf-8"))
-          except Exception as e:
-              raise RuntimeError(f"Impossible de lire {atp_path}: {e}")
-
+          # ATP
+          atp_data = json.loads(atp_path.read_text(encoding="utf-8"))
           for group in atp_data.get("TournamentDates", []):
               for t in group.get("Tournaments", []):
                   formatted = t.get("FormattedDate")
@@ -188,13 +189,10 @@ jobs:
                   except Exception:
                       continue
 
-                  # Exemple: /en/scores/archive/hong-kong/336/2026/draws
-                  m = re.search(r"/(?:archive|archives|current|current-challenger)/([^/]+)/(\d+)/(\d{4})/", draws_url)
-                  if not m:
+                  parsed = extract_atp_tournament_id_and_slug(draws_url)
+                  if not parsed:
                       continue
-                  slug = m.group(1)
-                  tournament_id = int(m.group(2))
-                  year = int(m.group(3))
+                  slug, tournament_id, year = parsed
 
                   out_path = bracket_dir / f"atp_{tournament_id}_{year}_temporary.json"
                   current_count = json_match_count(out_path)
@@ -206,20 +204,14 @@ jobs:
                   expected_full = expected_count(draw_size, "atp", "full")
 
                   if first_round_day <= today < full_day:
-                      # On retente le first-round tant qu'on n'a pas le JSON "plein" du premier tour.
                       if current_count is None or current_count < expected_first:
                           atp_draw_specs.append(f"{tournament_id}:{year}:{draw_size}:{slug}")
                   elif today >= full_day:
-                      # Dès le lendemain de la fin, on repasse en full/score.
                       if current_count is None or current_count < expected_full:
                           atp_score_specs.append(f"{tournament_id}:{year}:{draw_size}:{slug}")
 
-          # ---------- WTA ----------
-          try:
-              wta_data = json.loads(wta_path.read_text(encoding="utf-8"))
-          except Exception as e:
-              raise RuntimeError(f"Impossible de lire {wta_path}: {e}")
-
+          # WTA
+          wta_data = json.loads(wta_path.read_text(encoding="utf-8"))
           for t in wta_data.get("content", []):
               tournament_id = int((t.get("tournamentGroup") or {}).get("id") or 0)
               year = int(t.get("year") or 0)
