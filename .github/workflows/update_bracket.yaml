@@ -2,7 +2,7 @@ name: Update ATP/WTA bracket tournaments
 
 on:
   schedule:
-    - cron: "0 */4 * * *"
+    - cron: "0 0,6,12,18 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -17,12 +17,19 @@ env:
   ATP_TOURNAMENTS_JSON: docs/atp_tournaments_2026.json
   WTA_TOURNAMENTS_JSON: docs/wta_tournaments_2026.json
   ATP_YEAR: "2026"
+  TARGETS_DIR: .tmp/bracket_targets
+  LOCAL_TIMEZONE: Europe/Dublin
 
 jobs:
   scrape_and_publish:
     runs-on: ubuntu-latest
     env:
-      TARGETS_DIR: ${{ github.workspace }}/bracket_targets
+      BRACKET_DIR: docs/bracket/tournaments
+      ATP_TOURNAMENTS_JSON: docs/atp_tournaments_2026.json
+      WTA_TOURNAMENTS_JSON: docs/wta_tournaments_2026.json
+      ATP_YEAR: "2026"
+      TARGETS_DIR: .tmp/bracket_targets
+      LOCAL_TIMEZONE: Europe/Dublin
 
     steps:
       - name: Checkout
@@ -53,6 +60,9 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
+          if [ -f requirements-build.txt ]; then
+            pip install -r requirements-build.txt
+          fi
           pip install requests beautifulsoup4 playwright
           playwright install --with-deps chromium
 
@@ -60,24 +70,34 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$TARGETS_DIR"
-          rm -f "$TARGETS_DIR/atp_draw_specs.txt" "$TARGETS_DIR/atp_score_specs.txt" \
-                "$TARGETS_DIR/wta_first_round_specs.tsv" "$TARGETS_DIR/wta_full_specs.tsv"
+          rm -f \
+            "$TARGETS_DIR/atp_draw_specs.txt" \
+            "$TARGETS_DIR/atp_score_specs.txt" \
+            "$TARGETS_DIR/wta_first_round_specs.tsv" \
+            "$TARGETS_DIR/wta_full_specs.tsv"
 
           python3 - <<'PY'
           import json
           import os
           import re
-          from datetime import date, datetime, timedelta, timezone
+          from datetime import date, datetime, timedelta
           from pathlib import Path
+
+          try:
+              from zoneinfo import ZoneInfo
+              LOCAL_TZ = ZoneInfo(os.environ.get("LOCAL_TIMEZONE", "Europe/Dublin"))
+          except Exception:
+              from datetime import timezone
+              LOCAL_TZ = timezone.utc
 
           workspace = Path(os.environ["GITHUB_WORKSPACE"])
           bracket_dir = workspace / os.environ["BRACKET_DIR"]
           atp_path = workspace / os.environ["ATP_TOURNAMENTS_JSON"]
           wta_path = workspace / os.environ["WTA_TOURNAMENTS_JSON"]
-          targets_dir = Path(os.environ["TARGETS_DIR"])
+          targets_dir = workspace / os.environ["TARGETS_DIR"]
           atp_year_default = int(os.environ["ATP_YEAR"])
 
-          today = datetime.now(timezone.utc).date()
+          today = datetime.now(LOCAL_TZ).date()
 
           month_map = {
               "january": 1, "february": 2, "march": 3, "april": 4,
@@ -88,15 +108,22 @@ jobs:
           def write_lines(path: Path, lines):
               path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
 
-          def json_match_count(path: Path):
+          def write_tsv(path: Path, rows):
+              if not rows:
+                  path.write_text("", encoding="utf-8")
+                  return
+              path.write_text("\n".join("\t".join(map(str, r)) for r in rows) + "\n", encoding="utf-8")
+
+          def read_json_count(path: Path):
               if not path.exists():
                   return None
               try:
                   payload = json.loads(path.read_text(encoding="utf-8"))
-                  if isinstance(payload, dict) and isinstance(payload.get("matches"), list):
-                      return len(payload["matches"])
               except Exception:
                   return None
+              matches = payload.get("matches")
+              if isinstance(matches, list):
+                  return len(matches)
               return None
 
           def next_power_of_two(n: int) -> int:
@@ -105,15 +132,25 @@ jobs:
                   return 1
               return 1 << (n - 1).bit_length()
 
-          def expected_count(num_players: int, tour: str, phase: str) -> int:
-              bracket = next_power_of_two(num_players)
-              if phase == "first-round":
-                  return bracket // 2
-              if tour == "atp":
-                  return bracket - 1
-              return max(int(num_players) - 1, 0)
+          def expected_first_round_atp(num_players: int) -> int:
+              return next_power_of_two(num_players) // 2
 
-          def parse_atp_formatted_date(text: str, default_year: int):
+          def expected_full_atp(num_players: int) -> int:
+              return next_power_of_two(num_players) - 1
+
+          def expected_first_round_wta(num_players: int) -> int:
+              return next_power_of_two(num_players) // 2
+
+          def expected_full_wta(num_players: int) -> int:
+              return max(0, num_players - 1)
+
+          def parse_atp_formatted_date(text: str):
+              """
+              Formats attendus:
+                - 5 - 11 January, 2026
+                - 25 January - 01 February, 2026
+                - 25 December 2025 - 01 January, 2026
+              """
               s = " ".join(str(text).replace("–", "-").replace("—", "-").split())
 
               patterns = [
@@ -160,20 +197,28 @@ jobs:
 
                   return start_date, end_date
 
-              raise ValueError(f"Impossible de parser ATP FormattedDate: {text!r}")
+              raise ValueError(f"ATP FormattedDate impossible à parser: {text!r}")
 
-          def extract_atp_tournament_id_and_slug(draws_url: str):
-              m = re.search(r"/scores/(?:archive|current)/([^/]+)/(\d+)/(\d{4})/", draws_url)
+          def atp_draw_slug(draws_url: str):
+              m = re.search(r"/en/scores/(?:archive|archives|current|current-challenger)/([^/]+)/(\d+)/(\d{4})/", draws_url)
               if not m:
                   return None
               return m.group(1), int(m.group(2)), int(m.group(3))
+
+          def output_path_atp(tournament_id: int, year: int):
+              return bracket_dir / f"atp_{tournament_id}_{year}_temporary.json"
+
+          def output_path_wta(tournament_id: int, year: int):
+              return bracket_dir / f"wta_{tournament_id}_{year}_temporary.json"
 
           atp_draw_specs = []
           atp_score_specs = []
           wta_first_specs = []
           wta_full_specs = []
 
+          # -----------------------
           # ATP
+          # -----------------------
           atp_data = json.loads(atp_path.read_text(encoding="utf-8"))
           for group in atp_data.get("TournamentDates", []):
               for t in group.get("Tournaments", []):
@@ -185,35 +230,41 @@ jobs:
                       continue
 
                   try:
-                      start_date, end_date = parse_atp_formatted_date(formatted, atp_year_default)
+                      start_date, end_date = parse_atp_formatted_date(formatted)
                   except Exception:
                       continue
 
-                  parsed = extract_atp_tournament_id_and_slug(draws_url)
+                  parsed = atp_draw_slug(draws_url)
                   if not parsed:
                       continue
+
                   slug, tournament_id, year = parsed
+                  out_path = output_path_atp(tournament_id, year)
+                  current_count = read_json_count(out_path)
 
-                  out_path = bracket_dir / f"atp_{tournament_id}_{year}_temporary.json"
-                  current_count = json_match_count(out_path)
-
-                  first_round_day = start_date - timedelta(days=1)
+                  draw_day = start_date - timedelta(days=1)
                   full_day = end_date + timedelta(days=1)
 
-                  expected_first = expected_count(draw_size, "atp", "first-round")
-                  expected_full = expected_count(draw_size, "atp", "full")
+                  expected_draw = expected_first_round_atp(draw_size)
+                  expected_full = expected_full_atp(draw_size)
 
-                  if first_round_day <= today < full_day:
-                      if current_count is None or current_count < expected_first:
+                  # Exactement la veille du début -> draw
+                  if today == draw_day:
+                      if current_count is None or current_count < expected_draw:
                           atp_draw_specs.append(f"{tournament_id}:{year}:{draw_size}:{slug}")
-                  elif today >= full_day:
+
+                  # Exactement le lendemain de la fin -> score
+                  elif today == full_day:
                       if current_count is None or current_count < expected_full:
                           atp_score_specs.append(f"{tournament_id}:{year}:{draw_size}:{slug}")
 
+          # -----------------------
           # WTA
+          # -----------------------
           wta_data = json.loads(wta_path.read_text(encoding="utf-8"))
           for t in wta_data.get("content", []):
-              tournament_id = int((t.get("tournamentGroup") or {}).get("id") or 0)
+              tournament_group = t.get("tournamentGroup") or {}
+              tournament_id = int(tournament_group.get("id") or 0)
               year = int(t.get("year") or 0)
               num_players = int(t.get("singlesDrawSize") or 0)
               start_date_s = t.get("startDate")
@@ -228,40 +279,35 @@ jobs:
               except Exception:
                   continue
 
-              out_path = bracket_dir / f"wta_{tournament_id}_{year}_temporary.json"
-              current_count = json_match_count(out_path)
+              out_path = output_path_wta(tournament_id, year)
+              current_count = read_json_count(out_path)
 
-              first_round_day = start_date - timedelta(days=1)
+              draw_day = start_date - timedelta(days=1)
               full_day = end_date + timedelta(days=1)
 
-              expected_first = expected_count(num_players, "wta", "first-round")
-              expected_full = expected_count(num_players, "wta", "full")
+              expected_draw = expected_first_round_wta(num_players)
+              expected_full = expected_full_wta(num_players)
 
-              if first_round_day <= today < full_day:
-                  if current_count is None or current_count < expected_first:
+              # Exactement la veille du début -> first-round
+              if today == draw_day:
+                  if current_count is None or current_count < expected_draw:
                       wta_first_specs.append((tournament_id, year, num_players, "first-round"))
-              elif today >= full_day:
+
+              # Exactement le lendemain de la fin -> full
+              elif today == full_day:
                   if current_count is None or current_count < expected_full:
                       wta_full_specs.append((tournament_id, year, num_players, "full"))
 
           write_lines(targets_dir / "atp_draw_specs.txt", atp_draw_specs)
           write_lines(targets_dir / "atp_score_specs.txt", atp_score_specs)
-
-          def write_tsv(path: Path, rows):
-              if not rows:
-                  path.write_text("", encoding="utf-8")
-                  return
-              content = "\n".join("\t".join(map(str, row)) for row in rows) + "\n"
-              path.write_text(content, encoding="utf-8")
-
           write_tsv(targets_dir / "wta_first_round_specs.tsv", wta_first_specs)
           write_tsv(targets_dir / "wta_full_specs.tsv", wta_full_specs)
 
-          print(f"[compute] UTC today = {today.isoformat()}")
-          print(f"[compute] ATP draw targets   = {len(atp_draw_specs)}")
-          print(f"[compute] ATP score targets  = {len(atp_score_specs)}")
-          print(f"[compute] WTA first targets  = {len(wta_first_specs)}")
-          print(f"[compute] WTA full targets   = {len(wta_full_specs)}")
+          print(f"[compute] local today = {today.isoformat()}")
+          print(f"[compute] ATP draw targets  = {len(atp_draw_specs)}")
+          print(f"[compute] ATP score targets = {len(atp_score_specs)}")
+          print(f"[compute] WTA first targets = {len(wta_first_specs)}")
+          print(f"[compute] WTA full targets  = {len(wta_full_specs)}")
           PY
 
           echo "=== ATP draw targets ==="
@@ -284,12 +330,14 @@ jobs:
 
           mapfile -t ATP_SPECS < "$TARGETS_DIR/atp_draw_specs.txt"
 
-          ARGS=(python3 scripts/scraping_atp_matches_temporary.py
-                --out-folder "$BRACKET_DIR"
-                --match-source draw
-                --headless
-                --verbose
-                --max-attempts 10)
+          ARGS=(
+            python3 scripts/scraping_atp_matches_temporary.py
+            --out-folder "$BRACKET_DIR"
+            --match-source draw
+            --headless
+            --verbose
+            --max-attempts 10
+          )
 
           for spec in "${ATP_SPECS[@]}"; do
             [ -n "$spec" ] && ARGS+=(--tournament "$spec")
@@ -309,12 +357,14 @@ jobs:
 
           mapfile -t ATP_SPECS < "$TARGETS_DIR/atp_score_specs.txt"
 
-          ARGS=(python3 scripts/scraping_atp_matches_temporary.py
-                --out-folder "$BRACKET_DIR"
-                --match-source score
-                --headless
-                --verbose
-                --max-attempts 10)
+          ARGS=(
+            python3 scripts/scraping_atp_matches_temporary.py
+            --out-folder "$BRACKET_DIR"
+            --match-source score
+            --headless
+            --verbose
+            --max-attempts 10
+          )
 
           for spec in "${ATP_SPECS[@]}"; do
             [ -n "$spec" ] && ARGS+=(--tournament "$spec")
@@ -391,7 +441,8 @@ jobs:
           git checkout -B "${TMP_BRANCH}"
 
           if [ -d "$BRACKET_DIR" ]; then
-            find "$BRACKET_DIR" -type f -name '*.json' -print0 | xargs -0 --no-run-if-empty git add -f || true
+            find "$BRACKET_DIR" -maxdepth 1 -type f -name '*_temporary.json' -print0 \
+              | xargs -0 --no-run-if-empty git add -f || true
           fi
 
           if git diff --cached --quiet; then
@@ -402,7 +453,8 @@ jobs:
           git commit -m "ci(brackets): update ATP/WTA tournament JSONs"
 
           echo "Pushing temporary branch..."
-          git push --set-upstream origin "${TMP_BRANCH}" --force-with-lease || git push --set-upstream origin "${TMP_BRANCH}" || true
+          git push --set-upstream origin "${TMP_BRANCH}" --force-with-lease || \
+          git push --set-upstream origin "${TMP_BRANCH}" || true
 
           MAX_RETRIES=4
           attempt=0
