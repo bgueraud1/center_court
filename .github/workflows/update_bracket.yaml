@@ -18,7 +18,9 @@ env:
   WTA_TOURNAMENTS_JSON: docs/wta_tournaments_2026.json
   ATP_YEAR: "2026"
   TARGETS_DIR: .tmp/bracket_targets
-  LOCAL_TIMEZONE: Europe/Dublin
+  LOCAL_TIMEZONE: Europe/Copenhagen
+  ITF_BASE_URL: https://www.itftennis.com
+  WTA_PLAYER_CSV: player_data_wta.csv
 
 jobs:
   scrape_and_publish:
@@ -29,7 +31,9 @@ jobs:
       WTA_TOURNAMENTS_JSON: docs/wta_tournaments_2026.json
       ATP_YEAR: "2026"
       TARGETS_DIR: .tmp/bracket_targets
-      LOCAL_TIMEZONE: Europe/Dublin
+      LOCAL_TIMEZONE: Europe/Copenhagen
+      ITF_BASE_URL: https://www.itftennis.com
+      WTA_PLAYER_CSV: player_data_wta.csv
 
     steps:
       - name: Checkout
@@ -70,10 +74,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$TARGETS_DIR"
+          mkdir -p "$BRACKET_DIR"
           rm -f \
             "$TARGETS_DIR/atp_draw_specs.txt" \
             "$TARGETS_DIR/atp_score_specs.txt" \
             "$TARGETS_DIR/wta_first_round_specs.tsv" \
+            "$TARGETS_DIR/wta_itf_first_round_specs.tsv" \
             "$TARGETS_DIR/wta_full_specs.tsv"
 
           python3 - <<'PY'
@@ -85,7 +91,7 @@ jobs:
 
           try:
               from zoneinfo import ZoneInfo
-              LOCAL_TZ = ZoneInfo(os.environ.get("LOCAL_TIMEZONE", "Europe/Dublin"))
+              LOCAL_TZ = ZoneInfo(os.environ.get("LOCAL_TIMEZONE", "Europe/Copenhagen"))
           except Exception:
               from datetime import timezone
               LOCAL_TZ = timezone.utc
@@ -96,6 +102,7 @@ jobs:
           wta_path = workspace / os.environ["WTA_TOURNAMENTS_JSON"]
           targets_dir = workspace / os.environ["TARGETS_DIR"]
           atp_year_default = int(os.environ["ATP_YEAR"])
+          itf_base_url = os.environ["ITF_BASE_URL"].rstrip("/")
 
           today = datetime.now(LOCAL_TZ).date()
 
@@ -141,16 +148,13 @@ jobs:
           def expected_first_round_wta(num_players: int) -> int:
               return next_power_of_two(num_players) // 2
 
+          def expected_first_round_itf(num_players: int) -> int:
+              return 16
+
           def expected_full_wta(num_players: int) -> int:
               return max(0, num_players - 1)
 
           def parse_atp_formatted_date(text: str):
-              """
-              Formats attendus:
-                - 5 - 11 January, 2026
-                - 25 January - 01 February, 2026
-                - 25 December 2025 - 01 January, 2026
-              """
               s = " ".join(str(text).replace("–", "-").replace("—", "-").split())
 
               patterns = [
@@ -214,6 +218,7 @@ jobs:
           atp_draw_specs = []
           atp_score_specs = []
           wta_first_specs = []
+          wta_itf_first_specs = []
           wta_full_specs = []
 
           # -----------------------
@@ -248,12 +253,10 @@ jobs:
                   expected_draw = expected_first_round_atp(draw_size)
                   expected_full = expected_full_atp(draw_size)
 
-                  # Exactement la veille du début -> draw
                   if today == draw_day:
                       if current_count is None or current_count < expected_draw:
                           atp_draw_specs.append(f"{tournament_id}:{year}:{draw_size}:{slug}")
 
-                  # Exactement le lendemain de la fin -> score
                   elif today == full_day:
                       if current_count is None or current_count < expected_full:
                           atp_score_specs.append(f"{tournament_id}:{year}:{draw_size}:{slug}")
@@ -265,10 +268,12 @@ jobs:
           for t in wta_data.get("content", []):
               tournament_group = t.get("tournamentGroup") or {}
               tournament_id = int(tournament_group.get("id") or 0)
+              level = (tournament_group.get("level") or "").strip().upper()
               year = int(t.get("year") or 0)
               num_players = int(t.get("singlesDrawSize") or 0)
               start_date_s = t.get("startDate")
               end_date_s = t.get("endDate")
+              tournament_link = (t.get("tournamentLink") or "").strip()
 
               if tournament_id <= 0 or year <= 0 or num_players <= 0 or not start_date_s or not end_date_s:
                   continue
@@ -285,29 +290,40 @@ jobs:
               draw_day = start_date - timedelta(days=1)
               full_day = end_date + timedelta(days=1)
 
-              expected_draw = expected_first_round_wta(num_players)
               expected_full = expected_full_wta(num_players)
 
-              # Exactement la veille du début -> first-round
-              if today == draw_day:
-                  if current_count is None or current_count < expected_draw:
-                      wta_first_specs.append((tournament_id, year, num_players, "first-round"))
+              if level == "ITF":
+                  expected_draw = expected_first_round_itf(num_players)
+                  if today == draw_day:
+                      if current_count is None or current_count < expected_draw:
+                          url = f"{itf_base_url}{tournament_link.rstrip('/')}/draws-and-results/"
+                          wta_itf_first_specs.append((tournament_id, year, num_players, url))
 
-              # Exactement le lendemain de la fin -> full
-              elif today == full_day:
-                  if current_count is None or current_count < expected_full:
-                      wta_full_specs.append((tournament_id, year, num_players, "full"))
+                  elif today == full_day:
+                      if current_count is None or current_count < expected_full:
+                          wta_full_specs.append((tournament_id, year, num_players, "full"))
+              else:
+                  expected_draw = expected_first_round_wta(num_players)
+                  if today == draw_day:
+                      if current_count is None or current_count < expected_draw:
+                          wta_first_specs.append((tournament_id, year, num_players, "first-round"))
+
+                  elif today == full_day:
+                      if current_count is None or current_count < expected_full:
+                          wta_full_specs.append((tournament_id, year, num_players, "full"))
 
           write_lines(targets_dir / "atp_draw_specs.txt", atp_draw_specs)
           write_lines(targets_dir / "atp_score_specs.txt", atp_score_specs)
           write_tsv(targets_dir / "wta_first_round_specs.tsv", wta_first_specs)
+          write_tsv(targets_dir / "wta_itf_first_round_specs.tsv", wta_itf_first_specs)
           write_tsv(targets_dir / "wta_full_specs.tsv", wta_full_specs)
 
           print(f"[compute] local today = {today.isoformat()}")
-          print(f"[compute] ATP draw targets  = {len(atp_draw_specs)}")
-          print(f"[compute] ATP score targets = {len(atp_score_specs)}")
-          print(f"[compute] WTA first targets = {len(wta_first_specs)}")
-          print(f"[compute] WTA full targets  = {len(wta_full_specs)}")
+          print(f"[compute] ATP draw targets   = {len(atp_draw_specs)}")
+          print(f"[compute] ATP score targets  = {len(atp_score_specs)}")
+          print(f"[compute] WTA first targets  = {len(wta_first_specs)}")
+          print(f"[compute] WTA ITF targets    = {len(wta_itf_first_specs)}")
+          print(f"[compute] WTA full targets   = {len(wta_full_specs)}")
           PY
 
           echo "=== ATP draw targets ==="
@@ -316,6 +332,8 @@ jobs:
           cat "$TARGETS_DIR/atp_score_specs.txt" || true
           echo "=== WTA first-round targets ==="
           cat "$TARGETS_DIR/wta_first_round_specs.tsv" || true
+          echo "=== WTA ITF first-round targets ==="
+          cat "$TARGETS_DIR/wta_itf_first_round_specs.tsv" || true
           echo "=== WTA full targets ==="
           cat "$TARGETS_DIR/wta_full_specs.tsv" || true
 
@@ -373,18 +391,18 @@ jobs:
           echo "Running: ${ARGS[*]}"
           "${ARGS[@]}"
 
-      - name: Run WTA first-round scrapers
+      - name: Run WTA regular first-round scrapers
         run: |
           set -euo pipefail
 
           if [ ! -s "$TARGETS_DIR/wta_first_round_specs.tsv" ]; then
-            echo "No WTA first-round targets."
+            echo "No WTA regular first-round targets."
             exit 0
           fi
 
           while IFS=$'\t' read -r tournament_id year num_players mode; do
             [ -z "${tournament_id:-}" ] && continue
-            echo "Running WTA first-round: ${tournament_id} ${year} ${num_players} ${mode}"
+            echo "Running WTA regular first-round: ${tournament_id} ${year} ${num_players} ${mode}"
             python3 scripts/scraping_wta_temporary.py \
               --tournament-id "$tournament_id" \
               --year "$year" \
@@ -394,6 +412,25 @@ jobs:
               --verbose \
               --max-attempts 5
           done < "$TARGETS_DIR/wta_first_round_specs.tsv"
+
+      - name: Run WTA ITF first-round scrapers
+        run: |
+          set -euo pipefail
+
+          if [ ! -s "$TARGETS_DIR/wta_itf_first_round_specs.tsv" ]; then
+            echo "No WTA ITF first-round targets."
+            exit 0
+          fi
+
+          while IFS=$'\t' read -r tournament_id year num_players url; do
+            [ -z "${tournament_id:-}" ] && continue
+            output_path="$BRACKET_DIR/wta_${tournament_id}_${year}_temporary.json"
+            echo "Running WTA ITF first-round: ${tournament_id} ${year} ${num_players} ${url}"
+            python3 scripts/scraping_itf_wta.py \
+              "$url" \
+              --csv "$WTA_PLAYER_CSV" \
+              --output "$output_path"
+          done < "$TARGETS_DIR/wta_itf_first_round_specs.tsv"
 
       - name: Run WTA full scrapers
         run: |
