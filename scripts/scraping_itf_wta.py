@@ -10,8 +10,7 @@ import unicodedata
 from pathlib import Path
 
 from bs4 import BeautifulSoup
-from playwright.sync_api import sync_playwright
-
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 def normalize_name(name: str) -> str:
     if not name:
@@ -137,10 +136,15 @@ def main():
         print("[debug] ouverture de la page...")
         page.goto(args.url, wait_until="domcontentloaded", timeout=120000)
 
-        print("[debug] attente du chargement réseau...")
-        page.wait_for_load_state("networkidle", timeout=120000)
+        print("[debug] attente du chargement minimal...")
+        try:
+            page.wait_for_selector(".drawsheet-widget-spacer .drawsheet-widget", timeout=30000)
+        except PlaywrightTimeoutError:
+            # Si le sélecteur n’apparaît pas, on garde quand même la page courante
+            # pour inspecter ce qui a été chargé.
+            print("[warn] widgets non visibles après 30s, on continue quand même")
 
-        page.wait_for_timeout(3000)
+        page.wait_for_timeout(2000)
 
         widget_count = page.locator(".drawsheet-widget-spacer .drawsheet-widget").count()
         print(f"[debug] widgets visibles dans le navigateur: {widget_count}")
