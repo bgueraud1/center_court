@@ -126,7 +126,7 @@ def main():
     with sync_playwright() as p:
         print("[debug] lancement du navigateur visible...")
         browser = p.chromium.launch(
-            headless=False,
+            headless=True,
             slow_mo=100,
             args=["--start-maximized"],
         )
