@@ -6,11 +6,13 @@ import csv
 import json
 import re
 import sys
+import time
 import unicodedata
 from pathlib import Path
 
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+
 
 def normalize_name(name: str) -> str:
     if not name:
@@ -59,6 +61,7 @@ def extract_team_info(team_wrapper):
         "is_winner": is_winner,
     }
 
+
 def scrape_from_html(html: str, player_lookup: dict, start_match_id: int = 16):
     soup = BeautifulSoup(html, "html.parser")
     widgets = soup.select(".drawsheet-widget-spacer .drawsheet-widget")
@@ -77,6 +80,10 @@ def scrape_from_html(html: str, player_lookup: dict, start_match_id: int = 16):
 
         team1 = extract_team_info(team_wrappers[0])
         team2 = extract_team_info(team_wrappers[1])
+
+        if not team1["player_name"] and not team2["player_name"]:
+            print(f"[debug] widget {idx}: noms vides, ignoré")
+            continue
 
         if team1["is_winner"] and not team2["is_winner"]:
             winner, loser = team1, team2
@@ -107,12 +114,40 @@ def scrape_from_html(html: str, player_lookup: dict, start_match_id: int = 16):
         )
 
     return results
+
+
+def wait_until_draw_is_ready(page, timeout_ms: int = 60000):
+    """
+    Ne pas se contenter de la présence des widgets :
+    on attend que les noms soient réellement remplis.
+    """
+    deadline = time.time() + timeout_ms / 1000.0
+
+    while time.time() < deadline:
+        try:
+            widgets = page.locator(".drawsheet-widget-spacer .drawsheet-widget")
+            count = widgets.count()
+            if count > 0:
+                first_name = widgets.first.locator(".drawsheet-widget__first-name").first.text_content(timeout=3000) or ""
+                last_name = widgets.first.locator(".drawsheet-widget__last-name").first.text_content(timeout=3000) or ""
+                if first_name.strip() or last_name.strip():
+                    return count
+        except Exception:
+            pass
+
+        page.wait_for_timeout(1000)
+
+    raise RuntimeError("Le drawsheet ITF n'a pas été chargé correctement : noms vides après attente.")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("url", help="URL de la page à scraper")
     parser.add_argument("--csv", default="player_data_wta.csv", help="Chemin du CSV joueur")
     parser.add_argument("--output", default="matches.json", help="Fichier JSON de sortie")
     parser.add_argument("--start-match-id", type=int, default=16, help="Départ pour LS016")
+    parser.add_argument("--event-id", type=int, required=True, help="ID événement à écrire dans le JSON")
+    parser.add_argument("--event-year", type=int, required=True, help="Année événement à écrire dans le JSON")
     args = parser.parse_args()
 
     csv_path = Path(args.csv)
@@ -137,23 +172,34 @@ def main():
         page.goto(args.url, wait_until="domcontentloaded", timeout=120000)
 
         print("[debug] attente du chargement minimal...")
-        try:
-            page.wait_for_selector(".drawsheet-widget-spacer .drawsheet-widget", timeout=30000)
-        except PlaywrightTimeoutError:
-            # Si le sélecteur n’apparaît pas, on garde quand même la page courante
-            # pour inspecter ce qui a été chargé.
-            print("[warn] widgets non visibles après 30s, on continue quand même")
-
         page.wait_for_timeout(2000)
 
-        widget_count = page.locator(".drawsheet-widget-spacer .drawsheet-widget").count()
+        # On attend que les noms soient effectivement présents.
+        try:
+            widget_count = wait_until_draw_is_ready(page, timeout_ms=60000)
+        except Exception as e:
+            context.close()
+            browser.close()
+            raise
+
         print(f"[debug] widgets visibles dans le navigateur: {widget_count}")
 
         html = page.content()
         matches = scrape_from_html(html, player_lookup, start_match_id=args.start_match_id)
 
+        if not matches:
+            context.close()
+            browser.close()
+            raise RuntimeError("Aucun match valide n'a été extrait. Le JSON ne sera pas écrit.")
+
+        payload = {
+            "event_id": args.event_id,
+            "event_year": args.event_year,
+            "matches": matches,
+        }
+
         with open(args.output, "w", encoding="utf-8") as f:
-            json.dump(matches, f, ensure_ascii=False, indent=2)
+            json.dump(payload, f, ensure_ascii=False, indent=2)
 
         print(f"{len(matches)} matchs écrits dans {args.output}")
 
