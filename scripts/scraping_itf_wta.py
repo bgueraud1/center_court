@@ -115,30 +115,41 @@ def scrape_from_html(html: str, player_lookup: dict, start_match_id: int = 16):
 
     return results
 
-
 def wait_until_draw_is_ready(page, timeout_ms: int = 60000):
     """
-    Ne pas se contenter de la présence des widgets :
-    on attend que les noms soient réellement remplis.
+    Attend qu'au moins un widget contienne des noms.
+    Certains ITF ont des widgets vides en tête de page.
     """
     deadline = time.time() + timeout_ms / 1000.0
+    last_count = 0
 
     while time.time() < deadline:
         try:
             widgets = page.locator(".drawsheet-widget-spacer .drawsheet-widget")
             count = widgets.count()
+            last_count = count
+
             if count > 0:
-                first_name = widgets.first.locator(".drawsheet-widget__first-name").first.text_content(timeout=3000) or ""
-                last_name = widgets.first.locator(".drawsheet-widget__last-name").first.text_content(timeout=3000) or ""
-                if first_name.strip() or last_name.strip():
-                    return count
+                # On teste plusieurs widgets, pas seulement le premier
+                sample_count = min(count, 10)
+                for i in range(sample_count):
+                    widget = widgets.nth(i)
+                    try:
+                        first_name = (widget.locator(".drawsheet-widget__first-name").first.text_content(timeout=2000) or "").strip()
+                        last_name = (widget.locator(".drawsheet-widget__last-name").first.text_content(timeout=2000) or "").strip()
+                    except Exception:
+                        first_name = ""
+                        last_name = ""
+
+                    if first_name or last_name:
+                        return count
         except Exception:
             pass
 
         page.wait_for_timeout(1000)
 
-    raise RuntimeError("Le drawsheet ITF n'a pas été chargé correctement : noms vides après attente.")
-
+    print(f"[warn] drawsheet non confirmé après {timeout_ms} ms, on continue quand même ({last_count} widgets vus).")
+    return last_count
 
 def main():
     parser = argparse.ArgumentParser()
@@ -175,12 +186,7 @@ def main():
         page.wait_for_timeout(2000)
 
         # On attend que les noms soient effectivement présents.
-        try:
-            widget_count = wait_until_draw_is_ready(page, timeout_ms=60000)
-        except Exception as e:
-            context.close()
-            browser.close()
-            raise
+        widget_count = wait_until_draw_is_ready(page, timeout_ms=60000)
 
         print(f"[debug] widgets visibles dans le navigateur: {widget_count}")
 

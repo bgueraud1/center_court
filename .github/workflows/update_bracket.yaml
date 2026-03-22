@@ -426,12 +426,15 @@ jobs:
             [ -z "${tournament_id:-}" ] && continue
             output_path="$BRACKET_DIR/wta_${tournament_id}_${year}_temporary.json"
             echo "Running WTA ITF first-round: ${tournament_id} ${year} ${num_players} ${url}"
-            python3 scripts/scraping_itf_wta.py \
+      
+            if ! python3 scripts/scraping_itf_wta.py \
               "$url" \
               --csv "$WTA_PLAYER_CSV" \
               --output "$output_path" \
               --event-id "$tournament_id" \
-              --event-year "$year"
+              --event-year "$year"; then
+              echo "[warn] ITF scrape failed for tournament ${tournament_id}, continuing..."
+            fi
           done < "$TARGETS_DIR/wta_itf_first_round_specs.tsv"
 
       - name: Run WTA full scrapers
