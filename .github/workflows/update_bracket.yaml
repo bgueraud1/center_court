@@ -416,12 +416,12 @@ jobs:
       - name: Run WTA ITF first-round scrapers
         run: |
           set -euo pipefail
-
+      
           if [ ! -s "$TARGETS_DIR/wta_itf_first_round_specs.tsv" ]; then
             echo "No WTA ITF first-round targets."
             exit 0
           fi
-
+      
           while IFS=$'\t' read -r tournament_id year num_players url; do
             [ -z "${tournament_id:-}" ] && continue
             output_path="$BRACKET_DIR/wta_${tournament_id}_${year}_temporary.json"
@@ -429,7 +429,9 @@ jobs:
             python3 scripts/scraping_itf_wta.py \
               "$url" \
               --csv "$WTA_PLAYER_CSV" \
-              --output "$output_path"
+              --output "$output_path" \
+              --event-id "$tournament_id" \
+              --event-year "$year"
           done < "$TARGETS_DIR/wta_itf_first_round_specs.tsv"
 
       - name: Run WTA full scrapers
