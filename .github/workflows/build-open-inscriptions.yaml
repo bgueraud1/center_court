@@ -1,0 +1,54 @@
+# .github/workflows/build-open-inscriptions.yml
+name: Build open inscriptions JSON
+
+on:
+  schedule:
+    - cron: "5 0 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: build-open-inscriptions
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  ATP_TOURNAMENTS_JSON: docs/atp_tournaments_2026.json
+  WTA_TOURNAMENTS_JSON: docs/wta_tournaments_2026.json
+  OUTPUT_JSON: docs/bracket/open_inscriptions.json
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build JSON
+        run: |
+          set -euo pipefail
+          python3 scripts/build_open_inscriptions_json.py
+
+      - name: Commit and push if changed
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- docs/bracket/open_inscriptions.json; then
+            echo "No change."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/bracket/open_inscriptions.json
+          git commit -m "ci: update open inscriptions JSON"
+          git push

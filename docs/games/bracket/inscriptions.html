@@ -1,0 +1,381 @@
+<!-- games/bracket/inscriptions.html -->
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Inscriptions tournoi</title>
+  <style>
+    :root{
+      --bg:#07101f;
+      --panel:#0c1629;
+      --panel-2:#0a1324;
+      --text:#e5eefc;
+      --muted:#90a4c3;
+      --accent:#4f8cff;
+      --ok:#16a34a;
+      --bad:#ef4444;
+      --line:rgba(255,255,255,.08);
+      --chip:rgba(255,255,255,.05);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      background:radial-gradient(900px 500px at 20% 0%, rgba(79,140,255,.12), transparent 55%),
+                 linear-gradient(180deg, var(--bg), #050a14);
+      color:var(--text);
+    }
+    .wrap{max-width:1200px;margin:24px auto;padding:16px}
+    .card{
+      background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.015));
+      border:1px solid var(--line);
+      border-radius:18px;
+      box-shadow:0 20px 60px rgba(0,0,0,.35);
+      padding:18px;
+      margin-bottom:16px;
+    }
+    h1{margin:0 0 8px 0;font-size:28px}
+    p{margin:8px 0;color:var(--muted);line-height:1.45}
+    .topbar{display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+    .chips{display:flex;gap:8px;flex-wrap:wrap}
+    .chip{
+      padding:8px 12px;border-radius:999px;background:var(--chip);
+      border:1px solid var(--line);color:var(--text);font-weight:600;font-size:14px;
+    }
+    .chip.ok{color:#b8f3c9}
+    .chip.bad{color:#ffb4b4}
+    .grid{display:grid;grid-template-columns:1fr;gap:16px}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:12px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+    th{color:var(--muted);font-size:13px;font-weight:700}
+    td{font-size:14px}
+    .btn{
+      border:none;border-radius:12px;padding:10px 14px;font-weight:700;
+      cursor:pointer;background:var(--accent);color:white;
+    }
+    .btn[disabled]{opacity:.45;cursor:not-allowed}
+    .btn.secondary{background:transparent;border:1px solid var(--line);color:var(--text)}
+    .btn.danger{background:var(--bad)}
+    .btn.ok{background:var(--ok)}
+    .message{
+      padding:14px 16px;border-radius:14px;background:rgba(255,255,255,.04);
+      border:1px solid var(--line);color:var(--text)
+    }
+    .message strong{display:block;margin-bottom:4px}
+    .row-actions{display:flex;gap:8px;flex-wrap:wrap}
+    .small{font-size:12px;color:var(--muted)}
+    .hidden{display:none}
+    .status-box{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .badge{
+      display:inline-block;padding:6px 10px;border-radius:999px;
+      background:rgba(255,255,255,.06);border:1px solid var(--line);font-size:12px
+    }
+    .right{text-align:right}
+    @media (max-width:860px){
+      th:nth-child(4), td:nth-child(4),
+      th:nth-child(5), td:nth-child(5),
+      th:nth-child(6), td:nth-child(6){display:none}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="topbar">
+        <div>
+          <h1>Inscriptions tournoi</h1>
+          <p id="pageSubtitle">Chargement des inscriptions ouvertes…</p>
+        </div>
+        <div class="status-box">
+          <span class="badge" id="authBadge">Connexion…</span>
+          <span class="badge" id="windowBadge">Fenêtre…</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="loginCard">
+      <div class="message">
+        <strong>Vous devez être connecté pour participer.</strong>
+        <span>La page se branche sur votre système de connexion existant. Si votre helper global est disponible, les boutons de login/register seront utilisés automatiquement.</span>
+      </div>
+      <div style="margin-top:12px" class="row-actions">
+        <button class="btn secondary" id="loginBtn">Log in</button>
+        <button class="btn secondary" id="registerBtn">Create account</button>
+      </div>
+    </div>
+
+    <div class="card hidden" id="userCard">
+      <div class="topbar">
+        <div>
+          <strong id="userTitle" style="font-size:18px">Utilisateur</strong>
+          <p id="userMeta"></p>
+        </div>
+        <div class="chips">
+          <span class="chip" id="weekChip">Semaine</span>
+          <span class="chip" id="restrictionChip">Règles</span>
+        </div>
+      </div>
+      <div class="message" id="currentRegBox" style="margin-top:14px;display:none"></div>
+    </div>
+
+    <div class="card" id="closedCard">
+      <div class="message">
+        <strong id="closedTitle">Les inscriptions sont fermées.</strong>
+        <span id="closedText">Le JSON des tournois ouverts sera vide hors dimanche, puis rempli pendant la fenêtre d'ouverture.</span>
+      </div>
+    </div>
+
+    <div class="card hidden" id="listCard">
+      <div class="topbar" style="margin-bottom:10px">
+        <div>
+          <strong style="font-size:18px">Tournois ouverts</strong>
+          <p id="listSubtitle">Sélectionnez un tournoi parmi ceux autorisés.</p>
+        </div>
+        <div class="chips">
+          <span class="chip" id="countChip">0 tournoi</span>
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Tour</th>
+            <th>Tournoi</th>
+            <th>Catégorie</th>
+            <th>Début</th>
+            <th>Fin</th>
+            <th>Places</th>
+            <th>Éligibilité</th>
+            <th class="right">Action</th>
+          </tr>
+        </thead>
+        <tbody id="tournamentsTbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+<script>
+const OPEN_JSON_URL = "/bracket/open_inscriptions.json";
+const API_URL = "/.netlify/functions/inscriptions";
+
+let state = {
+  openPayload: null,
+  user: null,
+  authenticated: false,
+  tournaments: [],
+  alreadyRegistered: null,
+};
+
+function $(id){ return document.getElementById(id); }
+
+function safeText(v){ return (v === null || v === undefined || v === "") ? "—" : String(v); }
+
+function fmtRank(v){
+  const n = Number(v);
+  return Number.isFinite(n) ? `#${n}` : "—";
+}
+
+function getLocalUser(){
+  try{
+    if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === "function"){
+      return window.LEADERBOARD.getLocalUser() || null;
+    }
+  }catch(e){}
+  return null;
+}
+
+function getAuthHeaders(){
+  const u = getLocalUser();
+  const headers = {};
+  if(u){
+    if(u.user_id || u.id) headers["x-user-id"] = u.user_id || u.id;
+    if(u.pseudo || u.name || u.email) headers["x-user-name"] = u.pseudo || u.name || u.email;
+    if(u.tour) headers["x-user-tour"] = u.tour;
+    if(u.country) headers["x-user-country"] = u.country;
+    if(u.user_world_rank || u.world_rank) headers["x-user-rank"] = u.user_world_rank || u.world_rank;
+    if(u.access_token) headers["Authorization"] = `Bearer ${u.access_token}`;
+  }
+  return headers;
+}
+
+async function fetchJson(url, options = {}){
+  const res = await fetch(url, { cache: "no-store", ...options });
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch(e) { data = null; }
+  if(!res.ok){
+    const msg = data && data.error ? data.error : `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  return data;
+}
+
+async function loadState(){
+  const headers = getAuthHeaders();
+  const data = await fetchJson(API_URL, { headers });
+  state = {
+    openPayload: data.open_payload || null,
+    user: data.user || null,
+    authenticated: Boolean(data.authenticated),
+    tournaments: data.tournaments || [],
+    alreadyRegistered: data.already_registered || null,
+    isOpenToday: Boolean(data.is_open_today),
+    targetStartDate: data.target_start_date || null,
+  };
+  render();
+}
+
+function openLogin(){
+  if(window.LEADERBOARD){
+    if(typeof window.LEADERBOARD.openLogin === "function") return window.LEADERBOARD.openLogin();
+    if(typeof window.LEADERBOARD.login === "function") return window.LEADERBOARD.login();
+    if(typeof window.LEADERBOARD.showAuth === "function") return window.LEADERBOARD.showAuth();
+  }
+  alert("Login unavailable from this page.");
+}
+
+function openRegister(){
+  if(window.LEADERBOARD){
+    if(typeof window.LEADERBOARD.openRegister === "function") return window.LEADERBOARD.openRegister();
+    if(typeof window.LEADERBOARD.register === "function") return window.LEADERBOARD.register();
+  }
+  alert("Register unavailable from this page.");
+}
+
+function render(){
+  const openCount = state.tournaments.length;
+  $("countChip").textContent = `${openCount} tournoi${openCount > 1 ? "s" : ""}`;
+
+  $("authBadge").textContent = state.authenticated ? "Connecté" : "Non connecté";
+  $("authBadge").className = `badge ${state.authenticated ? "ok" : "bad"}`;
+
+  $("windowBadge").textContent = state.isOpenToday ? "Inscriptions ouvertes" : "Inscriptions fermées";
+  $("windowBadge").className = `badge ${state.isOpenToday ? "ok" : "bad"}`;
+
+  $("pageSubtitle").textContent = state.openPayload
+    ? `Fenêtre du ${safeText(state.openPayload?.registration_window?.open_date)} pour les tournois commençant le ${safeText(state.targetStartDate)}.`
+    : "Chargement…";
+
+  $("loginCard").classList.toggle("hidden", state.authenticated);
+  $("userCard").classList.toggle("hidden", !state.authenticated);
+  $("closedCard").classList.toggle("hidden", state.isOpenToday && state.authenticated);
+  $("listCard").classList.toggle("hidden", !state.authenticated || !state.isOpenToday || openCount === 0);
+
+  if(!state.authenticated){
+    $("closedTitle").textContent = "Vous devez être connecté.";
+    $("closedText").textContent = "Connectez-vous pour voir vos tournois disponibles.";
+    return;
+  }
+
+  const user = state.user || {};
+  $("userTitle").textContent = user.user_name || user.pseudo || "Utilisateur";
+  $("userMeta").textContent = `${safeText(user.user_tour)} — rank ${fmtRank(user.user_world_rank)} — ${safeText(user.user_country)}`;
+  $("weekChip").textContent = `Semaine du ${safeText(state.openPayload?.registration_window?.open_date)}`;
+  $("restrictionChip").textContent = "ATP: CH/FU limitées";
+
+  if(state.alreadyRegistered){
+    $("currentRegBox").style.display = "block";
+    $("currentRegBox").innerHTML = `
+      <strong>Vous êtes déjà inscrit cette semaine.</strong><br>
+      ${safeText(state.alreadyRegistered.tournament_name)} (${safeText(state.alreadyRegistered.tour)} — ${safeText(state.alreadyRegistered.tournament_level)})`;
+  } else {
+    $("currentRegBox").style.display = "none";
+    $("currentRegBox").innerHTML = "";
+  }
+
+  if(!state.isOpenToday){
+    $("closedTitle").textContent = "Les inscriptions sont fermées.";
+    $("closedText").textContent = "La fenêtre s’ouvre uniquement le dimanche, pour les tournois commençant 7 jours plus tard.";
+    return;
+  }
+
+  if(openCount === 0){
+    $("closedTitle").textContent = "Aucun tournoi disponible.";
+    $("closedText").textContent = "Aucun tournoi de votre tour ne démarre dans 7 jours.";
+    return;
+  }
+
+  const tbody = $("tournamentsTbody");
+  tbody.innerHTML = "";
+
+  for(const t of state.tournaments){
+    const tr = document.createElement("tr");
+
+    const status = t.selected ? "Déjà choisi" : (t.eligible ? "OK" : (t.eligibility_reason || "Non éligible"));
+    const statusHtml = t.eligible
+      ? `<span style="color:#b8f3c9;font-weight:700">${status}</span>`
+      : `<span style="color:#ffb4b4;font-weight:700">${status}</span>`;
+
+    const btnDisabled = !t.eligible || t.slots_left <= 0 || Boolean(state.alreadyRegistered && !t.selected);
+    const btnLabel = t.selected ? "Sélectionné" : (state.alreadyRegistered ? "Bloqué" : "S'inscrire");
+
+    tr.innerHTML = `
+      <td>${safeText(t.tour)}</td>
+      <td>
+        <div style="font-weight:700">${safeText(t.tournament_name)}</div>
+        <div class="small">${safeText(t.location)}</div>
+      </td>
+      <td>${safeText(t.category)}</td>
+      <td>${safeText(t.start_date)}</td>
+      <td>${safeText(t.end_date)}</td>
+      <td>${safeText(t.slots_left)} / ${safeText(t.draw_size)}</td>
+      <td>${statusHtml}</td>
+      <td class="right">
+        <button class="btn ${t.eligible ? "ok" : "secondary"}" ${btnDisabled ? "disabled" : ""}>${btnLabel}</button>
+      </td>
+    `;
+
+    const btn = tr.querySelector("button");
+    btn.addEventListener("click", () => registerTournament(t));
+
+    tbody.appendChild(tr);
+  }
+}
+
+async function registerTournament(t){
+  if(!state.authenticated){
+    openLogin();
+    return;
+  }
+
+  const payload = {
+    tournament_id: t.tournament_id,
+    tournament_name: t.tournament_name,
+    tournament_num_players: t.draw_size,
+    tournament_start_date: t.start_date,
+    tour: t.tour,
+    tournament_level: t.category,
+  };
+
+  try{
+    const headers = {
+      "Content-Type": "application/json",
+      ...getAuthHeaders(),
+    };
+    await fetchJson(API_URL, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+    await loadState();
+  }catch(err){
+    alert(err.message || "Registration failed.");
+  }
+}
+
+$("loginBtn").addEventListener("click", openLogin);
+$("registerBtn").addEventListener("click", openRegister);
+
+document.addEventListener("DOMContentLoaded", async () => {
+  try{
+    await loadState();
+  }catch(err){
+    $("pageSubtitle").textContent = err.message || "Erreur de chargement.";
+    $("closedTitle").textContent = "Impossible de charger les inscriptions.";
+    $("closedText").textContent = err.message || "Vérifie le JSON open_inscriptions et la fonction serveur.";
+  }
+});
+</script>
+</body>
+</html>
