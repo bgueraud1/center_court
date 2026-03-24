@@ -1,10 +1,15 @@
-<!-- games/bracket/bracket.html -->
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Bracket</title>
+
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+
+  <script src="/js/auth.js" defer></script>
+
   <style>
     :root{
       --bg:#07101f;
@@ -19,13 +24,17 @@
       --chip:rgba(255,255,255,.05);
     }
     *{box-sizing:border-box}
-    body{
+    html,body{
       margin:0;
+      min-height:100%;
       background:radial-gradient(900px 500px at 20% 0%, rgba(79,140,255,.12), transparent 55%),
                  linear-gradient(180deg, var(--bg), #050a14);
       color:var(--text);
       font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
     }
+    a{color:inherit}
     .wrap{max-width:1600px;margin:0 auto;padding:20px}
     .card{
       background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.015));
@@ -40,19 +49,30 @@
     p{margin:6px 0;color:var(--muted);line-height:1.45}
     .badges{display:flex;gap:8px;flex-wrap:wrap}
     .badge{
-      padding:8px 12px;border-radius:999px;background:var(--chip);
-      border:1px solid var(--line);font-weight:700;font-size:13px
+      padding:8px 12px;
+      border-radius:999px;
+      background:var(--chip);
+      border:1px solid var(--line);
+      font-weight:700;
+      font-size:13px
     }
     .badge.ok{color:#c8f7d4}
     .badge.bad{color:#ffd0d0}
     .message{
-      padding:14px 16px;border-radius:14px;background:rgba(255,255,255,.04);
+      padding:14px 16px;
+      border-radius:14px;
+      background:rgba(255,255,255,.04);
       border:1px solid var(--line)
     }
     .message strong{display:block;margin-bottom:4px}
     .btn{
-      border:none;border-radius:12px;padding:11px 14px;font-weight:800;cursor:pointer;
-      background:var(--accent);color:#fff;
+      border:none;
+      border-radius:12px;
+      padding:11px 14px;
+      font-weight:800;
+      cursor:pointer;
+      background:var(--accent);
+      color:#fff;
     }
     .btn.secondary{background:transparent;border:1px solid var(--line)}
     .btn.good{background:var(--good)}
@@ -87,12 +107,18 @@
     }
     .match.winner-selected{outline:1px solid rgba(79,140,255,.35)}
     .match-head{
-      display:flex;justify-content:space-between;gap:8px;align-items:center;
+      display:flex;
+      justify-content:space-between;
+      gap:8px;
+      align-items:center;
       margin-bottom:8px
     }
     .match-id{font-size:12px;color:var(--muted);font-weight:700}
     .winner-tag{
-      font-size:12px;padding:5px 8px;border-radius:999px;background:rgba(255,255,255,.05);
+      font-size:12px;
+      padding:5px 8px;
+      border-radius:999px;
+      background:rgba(255,255,255,.05);
       border:1px solid var(--line)
     }
     .winner-tag.ok{color:#c8f7d4}
@@ -134,7 +160,10 @@
       padding-bottom:6px;
     }
     .footer-actions{
-      display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;
+      display:flex;
+      justify-content:flex-end;
+      gap:10px;
+      flex-wrap:wrap;
       margin-top:10px
     }
     .hidden{display:none !important}
@@ -216,377 +245,447 @@
     </div>
   </div>
 
+  <div class="card hidden" id="errorCard" style="max-width:1600px;margin:16px auto">
+    <div class="message">
+      <strong>Unable to load bracket.</strong>
+      <span id="errorText">Server or database error.</span>
+    </div>
+  </div>
+
 <script>
-const API_URL = "/.netlify/functions/bracket";
+(() => {
+  const API_URL = "/.netlify/functions/bracket";
+  const HUB_URL = "/games/tennis_arena/index.html";
+  const INSCRIPTIONS_URL = "/games/bracket/inscriptions.html";
 
-let state = {
-  authenticated: false,
-  status: "LOADING",
-  user: null,
-  tournament: null,
-  bracket: null,
-  locked: false,
-  message: "",
-};
-
-function $(id){ return document.getElementById(id); }
-
-function clone(obj){
-  return JSON.parse(JSON.stringify(obj));
-}
-
-function getLocalUser(){
-  try {
-    if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === "function"){
-      return window.LEADERBOARD.getLocalUser() || null;
-    }
-  } catch(e){}
-  return null;
-}
-
-function getAuthHeaders(){
-  const u = getLocalUser();
-  const headers = {};
-  if(u){
-    if(u.user_id || u.id) headers["x-user-id"] = u.user_id || u.id;
-    if(u.pseudo || u.name || u.email) headers["x-user-name"] = u.pseudo || u.name || u.email;
-    if(u.tour) headers["x-user-tour"] = u.tour;
-    if(u.country) headers["x-user-country"] = u.country;
-    if(u.user_world_rank || u.world_rank) headers["x-user-rank"] = u.user_world_rank || u.world_rank;
-    if(u.access_token) headers["Authorization"] = `Bearer ${u.access_token}`;
-  }
-  return headers;
-}
-
-async function fetchJson(url, options = {}){
-  const res = await fetch(url, { cache: "no-store", ...options });
-  const text = await res.text();
-  let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch(e) { data = null; }
-  if(!res.ok){
-    const msg = data && data.error ? data.error : `HTTP ${res.status}`;
-    throw new Error(msg);
-  }
-  return data;
-}
-
-function openLogin(){
-  if(window.LEADERBOARD){
-    if(typeof window.LEADERBOARD.openLogin === "function") return window.LEADERBOARD.openLogin();
-    if(typeof window.LEADERBOARD.login === "function") return window.LEADERBOARD.login();
-    if(typeof window.LEADERBOARD.showAuth === "function") return window.LEADERBOARD.showAuth();
-  }
-  alert("Login not available from this page.");
-}
-
-function openRegister(){
-  if(window.LEADERBOARD){
-    if(typeof window.LEADERBOARD.openRegister === "function") return window.LEADERBOARD.openRegister();
-    if(typeof window.LEADERBOARD.register === "function") return window.LEADERBOARD.register();
-  }
-  alert("Register not available from this page.");
-}
-
-function findMatch(bracket, matchId){
-  for(const round of bracket.rounds || []){
-    for(const match of round.matches || []){
-      if(String(match.match_id) === String(matchId)) return match;
-    }
-  }
-  return null;
-}
-
-function recomputeBracket(bracket){
-  const lookup = new Map();
-  for(const round of bracket.rounds || []){
-    for(const match of round.matches || []){
-      lookup.set(String(match.match_id), match);
-    }
-  }
-
-  for(const round of bracket.rounds || []){
-    for(const match of round.matches || []){
-      if(Number(match.round_number) > 1){
-        const leftChild = match.left_child_match_id ? lookup.get(String(match.left_child_match_id)) : null;
-        const rightChild = match.right_child_match_id ? lookup.get(String(match.right_child_match_id)) : null;
-
-        match.left_player = leftChild && leftChild.winner ? clone(leftChild.winner) : null;
-        match.right_player = rightChild && rightChild.winner ? clone(rightChild.winner) : null;
-      }
-
-      const players = [match.left_player, match.right_player].filter(Boolean);
-      if(players.length === 1){
-        match.winner = clone(players[0]);
-      } else if(players.length === 2 && match.winner){
-        const ok = players.some(p => String(p.player_id) === String(match.winner.player_id));
-        if(!ok) match.winner = null;
-      } else if(players.length === 0){
-        match.winner = null;
-      }
-    }
-  }
-}
-
-function isComplete(bracket){
-  const flat = [];
-  for(const round of bracket.rounds || []){
-    for(const match of round.matches || []){
-      flat.push(match);
-    }
-  }
-  return flat.every((m) => {
-    const players = [m.left_player, m.right_player].filter(Boolean);
-    if(players.length === 0) return true;
-    if(players.length === 1) return Boolean(m.winner);
-    return Boolean(m.winner);
-  });
-}
-
-function serializeBracketForSubmit(bracket){
-  const payload = clone(bracket);
-  recomputeBracket(payload);
-
-  const matches_flat = [];
-  for(const round of payload.rounds || []){
-    for(const match of round.matches || []){
-      matches_flat.push({
-        match_id: match.match_id,
-        round_number: match.round_number,
-        left_player_id: match.left_player ? match.left_player.player_id : null,
-        left_player_name: match.left_player ? match.left_player.player_name : null,
-        right_player_id: match.right_player ? match.right_player.player_id : null,
-        right_player_name: match.right_player ? match.right_player.player_name : null,
-        winner_player_id: match.winner ? match.winner.player_id : null,
-        winner_player_name: match.winner ? match.winner.player_name : null,
-      });
-    }
-  }
-
-  return {
-    version: 1,
-    generated_at: new Date().toISOString(),
-    tournament: payload.tournament || null,
-    rounds: payload.rounds || [],
-    matches_flat,
+  let state = {
+    authenticated: false,
+    status: "LOADING",
+    user: null,
+    tournament: null,
+    bracket: null,
+    locked: false,
+    message: "",
+    loading: true,
   };
-}
 
-function applyWinner(matchId, side){
-  if(state.locked) return;
-  const bracket = state.bracket;
-  const match = findMatch(bracket, matchId);
-  if(!match) return;
-  const chosen = side === "left" ? match.left_player : match.right_player;
-  if(!chosen) return;
-  match.winner = clone(chosen);
-  recomputeBracket(bracket);
-  render();
-}
+  function $(id){ return document.getElementById(id); }
 
-function renderMessage(){
-  $("authBadge").textContent = state.authenticated ? "Connected" : "Not connected";
-  $("authBadge").className = `badge ${state.authenticated ? "ok" : "bad"}`;
-
-  $("statusBadge").textContent = state.status || "UNKNOWN";
-  $("statusBadge").className = `badge ${state.status === "READY" ? "ok" : (state.status === "LOCKED" ? "ok" : "bad")}`;
-
-  $("subtitle").textContent = state.message || "Bracket page.";
-
-  $("loginCard").classList.toggle("hidden", state.authenticated);
-  $("infoCard").classList.toggle("hidden", !state.authenticated);
-  $("registerCard").classList.toggle("hidden", state.status !== "NOT_REGISTERED");
-  $("waitingCard").classList.toggle("hidden", state.status !== "BRACKET_NOT_READY");
-  $("rootCard").classList.toggle("hidden", !(state.status === "READY" || state.status === "LOCKED"));
-
-  if(!state.authenticated){
-    $("loginCard").classList.remove("hidden");
-    return;
+  function clone(obj){
+    return JSON.parse(JSON.stringify(obj));
   }
 
-  if(state.tournament){
-    $("tournamentTitle").textContent = state.tournament.current_tournament_bracket_name || "Tournament";
-    $("tournamentMeta").textContent =
-      `${state.tournament.tour || "?"} — ${state.tournament.tournament_level || ""} — ${state.tournament.tournament_start_date || ""}`;
+  function escapeHtml(s){
+    if(s === undefined || s === null) return "";
+    return String(s).replace(/[&<>"']/g, m => ({
+      "&":"&amp;",
+      "<":"&lt;",
+      ">":"&gt;",
+      '"':"&quot;",
+      "'":"&#39;"
+    })[m]);
   }
 
-  const user = state.user || {};
-  $("userBadge").textContent = `${user.user_name || "User"} — ${user.user_tour || ""} — rank ${user.user_world_rank || "—"}`;
-  $("lockBadge").textContent = state.locked ? "Locked" : "Editable";
-  $("lockBadge").className = `badge ${state.locked ? "ok" : ""}`.trim();
+  function getAuthApi(){
+    return window.TA_AUTH || null;
+  }
 
-  $("infoMessage").innerHTML = state.locked
-    ? "<strong>Your bracket is locked.</strong><span>You can review it, but you cannot change it anymore.</span>"
-    : "<strong>Your bracket is editable.</strong><span>Click winners round by round until the final match is filled.</span>";
+  function getSession(){
+    const api = getAuthApi();
+    if(api && typeof api.getSession === "function"){
+      return api.getSession();
+    }
+    return null;
+  }
 
-  $("validationText").textContent = state.locked
-    ? "This bracket has already been submitted."
-    : (isComplete(state.bracket) ? "Bracket complete. You can submit now." : "Continue until the final winner is selected.");
-}
+  function isConnected(){
+    const s = getSession();
+    return !!(s && s.pseudo);
+  }
 
-function renderBracket(){
-  const layout = $("bracketLayout");
-  layout.innerHTML = "";
+  function openLogin(){
+    window.location.href = `${HUB_URL}#login`;
+  }
 
-  if(!state.bracket || !state.bracket.rounds) return;
+  function openRegister(){
+    window.location.href = `${HUB_URL}#signup`;
+  }
 
-  layout.style.gridTemplateColumns = `repeat(${state.bracket.rounds.length}, minmax(250px, 1fr))`;
+  function getAuthHeaders(){
+    const s = getSession();
+    const headers = {};
+    if(s){
+      if(s.id) headers["x-user-id"] = s.id;
+      if(s.pseudo) headers["x-user-name"] = s.pseudo;
+      if(s.tour) headers["x-user-tour"] = s.tour;
+      if(s.country) headers["x-user-country"] = s.country;
+      if(s.league) headers["x-user-league"] = s.league;
+      if(s.user_world_rank) headers["x-user-rank"] = s.user_world_rank;
+      if(s.access_token) headers["Authorization"] = `Bearer ${s.access_token}`;
+    }
+    return headers;
+  }
 
-  state.bracket.rounds.forEach((round, roundIndex) => {
-    const col = document.createElement("div");
-    col.className = "round";
+  async function fetchJson(url, options = {}){
+    const res = await fetch(url, { cache: "no-store", ...options });
+    const text = await res.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch(e) { data = null; }
+    if(!res.ok){
+      const msg = data && data.error ? data.error : `HTTP ${res.status}`;
+      const err = new Error(msg);
+      err.status = res.status;
+      err.data = data;
+      throw err;
+    }
+    return data;
+  }
 
-    const title = document.createElement("div");
-    title.className = "round-title";
-    title.textContent = `Round ${round.round_number}`;
-    col.appendChild(title);
-
-    (round.matches || []).forEach((match) => {
-      const card = document.createElement("div");
-      card.className = `match ${match.winner ? "winner-selected" : ""}`;
-
-      const head = document.createElement("div");
-      head.className = "match-head";
-
-      const id = document.createElement("div");
-      id.className = "match-id";
-      id.textContent = match.match_id;
-      head.appendChild(id);
-
-      const wt = document.createElement("div");
-      wt.className = `winner-tag ${match.winner ? "ok" : ""}`;
-      wt.textContent = match.winner ? `Winner: ${match.winner.player_name}` : "No winner";
-      head.appendChild(wt);
-
-      card.appendChild(head);
-
-      const left = document.createElement("button");
-      left.type = "button";
-      left.className = `slot ${match.winner && match.left_player && String(match.winner.player_id) === String(match.left_player.player_id) ? "selected" : ""}`;
-      if(state.locked || !match.left_player) left.disabled = true;
-      left.innerHTML = match.left_player
-        ? `<span class="slot-name">${match.left_player.player_name}</span><span class="slot-country">${match.left_player.player_country || ""}</span>`
-        : `<span class="slot-name">—</span>`;
-      left.addEventListener("click", (e) => {
-        e.stopPropagation();
-        applyWinner(match.match_id, "left");
-      });
-      card.appendChild(left);
-
-      const right = document.createElement("button");
-      right.type = "button";
-      right.className = `slot ${match.winner && match.right_player && String(match.winner.player_id) === String(match.right_player.player_id) ? "selected" : ""}`;
-      if(state.locked || !match.right_player) right.disabled = true;
-      right.innerHTML = match.right_player
-        ? `<span class="slot-name">${match.right_player.player_name}</span><span class="slot-country">${match.right_player.player_country || ""}</span>`
-        : `<span class="slot-name">—</span>`;
-      right.addEventListener("click", (e) => {
-        e.stopPropagation();
-        applyWinner(match.match_id, "right");
-      });
-      card.appendChild(right);
-
-      if(!match.left_player && !match.right_player){
-        left.classList.add("empty");
-        right.classList.add("hidden");
+  function findMatch(bracket, matchId){
+    for(const round of bracket.rounds || []){
+      for(const match of round.matches || []){
+        if(String(match.match_id) === String(matchId)) return match;
       }
+    }
+    return null;
+  }
 
-      if(match.left_player && !match.right_player){
-        right.classList.add("empty");
-        right.disabled = true;
-        right.textContent = "Bye";
+  function recomputeBracket(bracket){
+    const lookup = new Map();
+    for(const round of bracket.rounds || []){
+      for(const match of round.matches || []){
+        lookup.set(String(match.match_id), match);
       }
+    }
 
-      col.appendChild(card);
+    for(const round of bracket.rounds || []){
+      for(const match of round.matches || []){
+        if(Number(match.round_number) > 1){
+          const leftChild = match.left_child_match_id ? lookup.get(String(match.left_child_match_id)) : null;
+          const rightChild = match.right_child_match_id ? lookup.get(String(match.right_child_match_id)) : null;
+          match.left_player = leftChild && leftChild.winner ? clone(leftChild.winner) : null;
+          match.right_player = rightChild && rightChild.winner ? clone(rightChild.winner) : null;
+        }
+
+        const players = [match.left_player, match.right_player].filter(Boolean);
+        if(players.length === 1){
+          match.winner = clone(players[0]);
+        } else if(players.length === 2 && match.winner){
+          const ok = players.some(p => String(p.player_id) === String(match.winner.player_id));
+          if(!ok) match.winner = null;
+        } else if(players.length === 0){
+          match.winner = null;
+        }
+      }
+    }
+  }
+
+  function isComplete(bracket){
+    const flat = [];
+    for(const round of bracket.rounds || []){
+      for(const match of round.matches || []){
+        flat.push(match);
+      }
+    }
+    return flat.every((m) => {
+      const players = [m.left_player, m.right_player].filter(Boolean);
+      if(players.length === 0) return true;
+      if(players.length === 1) return Boolean(m.winner);
+      return Boolean(m.winner);
     });
-
-    layout.appendChild(col);
-  });
-
-  const submitBtn = $("submitBtn");
-  submitBtn.classList.toggle("hidden", state.locked || !isComplete(state.bracket));
-}
-
-async function loadState(){
-  const headers = {
-    "Content-Type": "application/json",
-    ...getAuthHeaders(),
-  };
-
-  const data = await fetchJson(API_URL, { headers });
-  state = {
-    authenticated: Boolean(data.authenticated),
-    status: data.status || "UNKNOWN",
-    user: data.user || null,
-    tournament: data.tournament || null,
-    bracket: data.bracket || null,
-    locked: Boolean(data.locked),
-    message: data.message || "",
-  };
-
-  if(state.bracket){
-    recomputeBracket(state.bracket);
   }
 
-  renderMessage();
-  renderBracket();
-}
+  function serializeBracketForSubmit(bracket){
+    const payload = clone(bracket);
+    recomputeBracket(payload);
 
-async function submitBracket(){
-  if(state.locked) return;
-  if(!state.bracket) return;
+    const matches_flat = [];
+    for(const round of payload.rounds || []){
+      for(const match of round.matches || []){
+        matches_flat.push({
+          match_id: match.match_id,
+          round_number: match.round_number,
+          left_player_id: match.left_player ? match.left_player.player_id : null,
+          left_player_name: match.left_player ? match.left_player.player_name : null,
+          right_player_id: match.right_player ? match.right_player.player_id : null,
+          right_player_name: match.right_player ? match.right_player.player_name : null,
+          winner_player_id: match.winner ? match.winner.player_id : null,
+          winner_player_name: match.winner ? match.winner.player_name : null,
+        });
+      }
+    }
 
-  recomputeBracket(state.bracket);
-
-  if(!isComplete(state.bracket)){
-    alert("The bracket is not complete yet.");
-    return;
+    return {
+      version: 1,
+      generated_at: new Date().toISOString(),
+      tournament: payload.tournament || null,
+      rounds: payload.rounds || [],
+      matches_flat,
+    };
   }
 
-  const payload = {
-    tournament_id: state.tournament.current_tournament_bracket_id,
-    tournament_name: state.tournament.current_tournament_bracket_name,
-    bracket: serializeBracketForSubmit(state.bracket),
-  };
-
-  const headers = {
-    "Content-Type": "application/json",
-    ...getAuthHeaders(),
-  };
-
-  try{
-    const data = await fetchJson(API_URL, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload),
-    });
-    state.status = "LOCKED";
-    state.locked = true;
-    state.bracket = data.bracket || state.bracket;
-    state.message = "Bracket submitted successfully.";
-    renderMessage();
+  function applyWinner(matchId, side){
+    if(state.locked) return;
+    const bracket = state.bracket;
+    const match = findMatch(bracket, matchId);
+    if(!match) return;
+    const chosen = side === "left" ? match.left_player : match.right_player;
+    if(!chosen) return;
+    match.winner = clone(chosen);
+    recomputeBracket(bracket);
     renderBracket();
-    alert("Bracket submitted.");
-  }catch(err){
-    alert(err.message || "Submission failed.");
   }
-}
 
-$("loginBtn").addEventListener("click", openLogin);
-$("registerBtn").addEventListener("click", openRegister);
-$("submitBtn").addEventListener("click", submitBracket);
+  function renderMessage(){
+    $("authBadge").textContent = state.authenticated ? "Connected" : "Not connected";
+    $("authBadge").className = `badge ${state.authenticated ? "ok" : "bad"}`;
 
-document.addEventListener("DOMContentLoaded", async () => {
-  try{
-    await loadState();
-  }catch(err){
-    $("subtitle").textContent = err.message || "Failed to load.";
-    $("statusBadge").textContent = "ERROR";
-    $("statusBadge").className = "badge bad";
-    $("waitingCard").classList.remove("hidden");
-    $("waitingCard").querySelector(".message strong").textContent = "Unable to load bracket.";
-    $("waitingCard").querySelector(".message span").textContent = err.message || "Server or database error.";
+    $("statusBadge").textContent = state.status || "UNKNOWN";
+    $("statusBadge").className = `badge ${state.status === "READY" || state.status === "LOCKED" || state.status === "REGISTERED" ? "ok" : (state.status === "NOT_REGISTERED" ? "bad" : "")}`;
+
+    $("subtitle").textContent = state.message || "Bracket page.";
+
+    $("loginCard").classList.toggle("hidden", state.authenticated);
+    $("infoCard").classList.toggle("hidden", !state.authenticated);
+    $("registerCard").classList.toggle("hidden", !(state.authenticated && state.status === "NOT_REGISTERED"));
+    $("waitingCard").classList.toggle("hidden", !(state.authenticated && state.status === "BRACKET_NOT_READY"));
+    $("rootCard").classList.toggle("hidden", !(state.authenticated && (state.status === "READY" || state.status === "LOCKED" || state.status === "REGISTERED")));
+
+    if(!state.authenticated){
+      $("loginCard").classList.remove("hidden");
+      return;
+    }
+
+    if(state.tournament){
+      $("tournamentTitle").textContent = state.tournament.current_tournament_bracket_name || "Tournament";
+      $("tournamentMeta").textContent =
+        `${state.tournament.tour || "?"} — ${state.tournament.tournament_level || ""} — ${state.tournament.tournament_start_date || ""}`;
+    }
+
+    const user = state.user || {};
+    $("userBadge").textContent = `${user.user_name || "User"} — ${user.user_tour || ""} — rank ${user.user_world_rank || "—"}`;
+    $("lockBadge").textContent = state.locked ? "Locked" : "Editable";
+    $("lockBadge").className = `badge ${state.locked ? "ok" : ""}`.trim();
+
+    $("infoMessage").innerHTML = state.locked
+      ? "<strong>Your bracket is locked.</strong><span>You can review it, but you cannot change it anymore.</span>"
+      : "<strong>Your bracket is editable.</strong><span>Click winners round by round until the final match is filled.</span>";
+
+    $("validationText").textContent = state.locked
+      ? "This bracket has already been submitted."
+      : (state.bracket && isComplete(state.bracket) ? "Bracket complete. You can submit now." : "Continue until the final winner is selected.");
   }
-});
+
+  function renderBracket(){
+    const layout = $("bracketLayout");
+    layout.innerHTML = "";
+
+    if(!state.bracket || !state.bracket.rounds) return;
+
+    layout.style.gridTemplateColumns = `repeat(${state.bracket.rounds.length}, minmax(250px, 1fr))`;
+
+    state.bracket.rounds.forEach((round) => {
+      const col = document.createElement("div");
+      col.className = "round";
+
+      const title = document.createElement("div");
+      title.className = "round-title";
+      title.textContent = `Round ${round.round_number}`;
+      col.appendChild(title);
+
+      (round.matches || []).forEach((match) => {
+        const card = document.createElement("div");
+        card.className = `match ${match.winner ? "winner-selected" : ""}`;
+
+        const head = document.createElement("div");
+        head.className = "match-head";
+
+        const id = document.createElement("div");
+        id.className = "match-id";
+        id.textContent = match.match_id;
+        head.appendChild(id);
+
+        const wt = document.createElement("div");
+        wt.className = `winner-tag ${match.winner ? "ok" : ""}`;
+        wt.textContent = match.winner ? `Winner: ${match.winner.player_name}` : "No winner";
+        head.appendChild(wt);
+
+        card.appendChild(head);
+
+        const left = document.createElement("button");
+        left.type = "button";
+        left.className = `slot ${match.winner && match.left_player && String(match.winner.player_id) === String(match.left_player.player_id) ? "selected" : ""}`;
+        if(state.locked || !match.left_player) left.disabled = true;
+        left.innerHTML = match.left_player
+          ? `<span class="slot-name">${escapeHtml(match.left_player.player_name)}</span><span class="slot-country">${escapeHtml(match.left_player.player_country || "")}</span>`
+          : `<span class="slot-name">—</span>`;
+        left.addEventListener("click", (e) => {
+          e.stopPropagation();
+          applyWinner(match.match_id, "left");
+        });
+        card.appendChild(left);
+
+        const right = document.createElement("button");
+        right.type = "button";
+        right.className = `slot ${match.winner && match.right_player && String(match.winner.player_id) === String(match.right_player.player_id) ? "selected" : ""}`;
+        if(state.locked || !match.right_player) right.disabled = true;
+        right.innerHTML = match.right_player
+          ? `<span class="slot-name">${escapeHtml(match.right_player.player_name)}</span><span class="slot-country">${escapeHtml(match.right_player.player_country || "")}</span>`
+          : `<span class="slot-name">—</span>`;
+        right.addEventListener("click", (e) => {
+          e.stopPropagation();
+          applyWinner(match.match_id, "right");
+        });
+        card.appendChild(right);
+
+        if(!match.left_player && !match.right_player){
+          left.classList.add("empty");
+          right.classList.add("hidden");
+        }
+
+        if(match.left_player && !match.right_player){
+          right.classList.add("empty");
+          right.disabled = true;
+          right.textContent = "Bye";
+        }
+
+        col.appendChild(card);
+      });
+
+      layout.appendChild(col);
+    });
+
+    const submitBtn = $("submitBtn");
+    submitBtn.classList.toggle("hidden", state.locked || !state.bracket || !isComplete(state.bracket));
+  }
+
+  function renderConnectedState(){
+    const connected = isConnected();
+    $("authBadge").textContent = connected ? "Connected" : "Not connected";
+    $("authBadge").className = `badge ${connected ? "ok" : "bad"}`;
+    $("subtitle").textContent = connected
+      ? "You are connected. Load the bracket state or complete your inscription."
+      : "You must be logged in to participate.";
+  }
+
+  async function loadState(){
+    state.loading = true;
+    state.message = "";
+    renderConnectedState();
+    renderMessage();
+
+    try{
+      const data = await fetchJson(API_URL, {
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        }
+      });
+
+      state.authenticated = Boolean(data.authenticated);
+      state.status = data.status || "UNKNOWN";
+      state.user = data.user || null;
+      state.tournament = data.tournament || null;
+      state.bracket = data.bracket || null;
+      state.locked = Boolean(data.locked);
+      state.message = data.message || "";
+      state.loading = false;
+
+      if(state.bracket){
+        recomputeBracket(state.bracket);
+      }
+
+      renderMessage();
+      renderBracket();
+    }catch(err){
+      state.loading = false;
+      state.status = "ERROR";
+      renderMessage();
+
+      $("errorCard").classList.remove("hidden");
+      $("errorText").textContent = err.message || "Erreur inconnue.";
+      $("subtitle").textContent = "Impossible de charger les informations du bracket.";
+      $("statusBadge").textContent = "ERROR";
+      $("statusBadge").className = "badge bad";
+      console.error(err);
+    }
+  }
+
+  async function submitBracket(){
+    if(state.locked) return;
+    if(!state.bracket) return;
+
+    recomputeBracket(state.bracket);
+
+    if(!isComplete(state.bracket)){
+      alert("The bracket is not complete yet.");
+      return;
+    }
+
+    const payload = {
+      action: "submit",
+      tournament_id: state.tournament ? state.tournament.current_tournament_bracket_id : null,
+      tournament_name: state.tournament ? state.tournament.current_tournament_bracket_name : null,
+      bracket: serializeBracketForSubmit(state.bracket),
+    };
+
+    try{
+      const data = await fetchJson(API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify(payload),
+      });
+
+      state.status = data.status || "LOCKED";
+      state.locked = true;
+      state.bracket = data.bracket || state.bracket;
+      state.message = data.message || "Bracket submitted successfully.";
+      renderMessage();
+      renderBracket();
+      alert("Bracket submitted.");
+    }catch(err){
+      alert(err.message || "Submission failed.");
+    }
+  }
+
+  $("loginBtn").addEventListener("click", openLogin);
+  $("registerBtn").addEventListener("click", openRegister);
+  $("submitBtn").addEventListener("click", submitBracket);
+
+  function setAuthListeners(){
+    const authApi = getAuthApi();
+    if(authApi && typeof authApi.onAuthChange === "function"){
+      authApi.onAuthChange(() => {
+        loadState();
+      });
+    } else {
+      window.addEventListener("ta:auth-changed", () => {
+        loadState();
+      });
+      window.addEventListener("storage", () => {
+        loadState();
+      });
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", async () => {
+    try{
+      renderConnectedState();
+      setAuthListeners();
+      await loadState();
+    }catch(err){
+      $("subtitle").textContent = err.message || "Failed to load.";
+      $("statusBadge").textContent = "ERROR";
+      $("statusBadge").className = "badge bad";
+      $("waitingCard").classList.remove("hidden");
+      $("waitingCard").querySelector(".message strong").textContent = "Unable to load bracket.";
+      $("waitingCard").querySelector(".message span").textContent = err.message || "Server or database error.";
+    }
+  });
+})();
 </script>
 </body>
 </html>

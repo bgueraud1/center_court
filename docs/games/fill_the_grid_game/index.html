@@ -6,7 +6,6 @@
 <title>Fill the Grid — Game (fixed)</title>
 
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<!-- optional font -->
 <style>
   :root{--bg:#000;--font:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial;--cell-radius:8px}
   html,body{height:100%;margin:0;background:var(--bg);color:#eee;font-family:var(--font);-webkit-font-smoothing:antialiased}
@@ -19,11 +18,9 @@
   .game-wrap{display:grid;gap:16px}
   .board-wrap{padding:14px;border-radius:14px}
 
-  /* THEMES */
   .theme-wta{--cell-light:#EBDFFF;--cell-dark:#6a2d8a;--cell-mid:#CDA9F0;--grid-line:#6A2D8A;--good-text:#033d15;--bad:#ff3b3b}
   .theme-atp{--cell-light:#D8F0FF;--cell-dark:#165a99;--cell-mid:#88C9FF;--grid-line:#165a99;--good-text:#003847;--bad:#ff3b3b}
 
-  /* grid */
   .grid{display:grid;gap:0;background:transparent}
   .grid-header-cell{background:var(--cell-mid);color:var(--cell-dark);padding:10px;font-weight:700;border:1px solid var(--grid-line);text-align:center;min-width:140px;box-sizing:border-box;border-radius:6px}
   .grid-cell{min-width:140px;min-height:72px;display:flex;align-items:center;justify-content:center;padding:8px;box-sizing:border-box;border:1px solid var(--grid-line);cursor:pointer;position:relative;background:var(--cell-light);color:#111;font-weight:700;border-radius:6px}
@@ -38,7 +35,6 @@
   .cell-locked{pointer-events:none;box-shadow: inset 0 0 0 2px rgba(255,255,255,0.02)}
   .cond-small{font-size:13px;opacity:0.95}
 
-  /* Give Up reveal: red overlay for empty cells */
   .cell-revealed-empty { position: relative; }
   .cell-revealed-empty::after {
     content: '';
@@ -48,11 +44,9 @@
     pointer-events:none;
   }
 
-  /* Disable overlay while checking */
   .controls-disabled .grid-cell { pointer-events: none; opacity: 0.7; }
   .controls-disabled .btn { pointer-events: none; opacity: 0.6; }
 
-  /* input panel */
   .input-panel{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);background:#0b0b0b;border-radius:12px;padding:14px;min-width:420px;box-shadow:0 12px 40px rgba(0,0,0,0.8);z-index:2000;border:1px solid rgba(255,255,255,0.03)}
   .input-row{display:flex;gap:8px;align-items:center}
   .text-input{flex:1;padding:10px 12px;border-radius:8px;background:#0f0f10;color:#fff;border:1px solid #222;font-size:15px}
@@ -63,24 +57,19 @@
   .candidate-item{padding:6px 8px;border-radius:6px;cursor:pointer;color:#ddd}
   .candidate-item:hover{background:rgba(255,255,255,0.02)}
   .small-muted{color:#9a9a9a;font-size:13px}
-
   .candidate-item.locked{opacity:0.7;cursor:default}
 
-  /* score overlay */
   .score-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(0deg,rgba(0,0,0,0.55),rgba(0,0,0,0.55));z-index:3000}
   .score-card{background:#0b0b0b;padding:22px;border-radius:12px;color:#fff;border:1px solid rgba(255,255,255,0.03);min-width:320px;text-align:center}
 
-  /* already played modal */
   .modal { position: fixed; left:0; top:0; right:0; bottom:0; display:flex;align-items:center;justify-content:center; background: rgba(0,0,0,0.6); z-index:4000; opacity:0; pointer-events:none; transition:opacity .15s ease;}
   .modal.show{ opacity:1; pointer-events:auto; }
   .modal-card{ background:#071018; padding:18px; border-radius:12px; color:#fff; min-width:320px; border:1px solid rgba(255,255,255,0.03); box-shadow:0 12px 60px rgba(0,0,0,0.8); }
 
-  /* toast */
   .toast{position:fixed;right:18px;bottom:18px;background:rgba(0,0,0,0.8);color:#fff;padding:8px 12px;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,0.6);display:none;z-index:5000}
 
-  /* --- USER CHIP / DROPDOWN (top-right) --- */
-  .lb-card { display:flex; align-items:center; gap:8px; margin-right:8px; }
-  .user-chip{cursor:pointer;color:#fff; display:inline-flex; align-items:center; gap:8px; font-weight:700; padding:8px 12px; border-radius:999px; background: linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border:1px solid rgba(255,255,255,0.03); min-height:40px }
+  .lb-card { display:flex; align-items:center; gap:8px; margin-right:8px; position:relative; }
+  .user-chip{cursor:pointer;color:#fff; display:inline-flex; align-items:center; gap:8px; font-weight:700; padding:8px 12px; border-radius:999px; background: linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border:1px solid rgba(255,255,255,0.03); min-height:40px; text-decoration:none}
   .user-chip .lb-avatar{
     width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;color:white;background: linear-gradient(135deg,#2b8af6,#7b5cf6); box-shadow: 0 4px 12px rgba(43,138,246,0.18), inset 0 -2px 6px rgba(0,0,0,0.12);
   }
@@ -99,17 +88,17 @@
 
   @media (max-width:900px){.input-panel{min-width:300px}.grid-cell,.row-header,.grid-header-cell{min-width:110px;min-height:60px;font-size:13px}}
 </style>
+<script src="/js/auth.js" defer></script>
+<script src="/js/leaderboard-client.js" defer></script>
 </head>
 <body>
-<script src="/js/leaderboard-client.js" defer></script>
 
 <div id="app" class="app theme-wta">
   <div class="topbar">
     <div class="title">Fill the Grid</div>
 
-    <!-- LB area (top-right) -->
     <div class="controls" id="controlsBar" style="align-items:center">
-      <div class="lb-card" id="lbCard" aria-hidden="false" style="position:relative">
+      <div class="lb-card" id="lbCard" aria-hidden="false">
         <div id="lbBoxPlaceholder"></div>
         <div id="lb-status" style="color:#9aa6bd;font-size:0.95rem;margin-left:8px">Not connected</div>
       </div>
@@ -125,11 +114,9 @@
   <div class="game-wrap">
     <div class="board-wrap" id="boardWrap" aria-live="polite"></div>
     <div class="small-muted" id="infoLine">Based on data from 1990 to 2026. Please forgive any errors.</div>
-    <!-- leaderboard removed as requested -->
   </div>
 </div>
 
-<!-- input modal -->
 <div id="inputModal" style="display:none;">
   <div class="input-panel" role="dialog" aria-modal="true" aria-labelledby="panelTitle">
     <div id="panelTitle" style="color:#ddd;font-weight:700;margin-bottom:8px">Fill cell</div>
@@ -142,12 +129,10 @@
     <div class="small-muted" id="cellHint" style="margin-top:8px">Candidate players are hidden until the game ends or you press Give Up.</div>
 
     <div class="autocomplete-list" id="autocompleteList" role="listbox"></div>
-
     <div class="candidates-list" id="candidatesList" aria-hidden="true"></div>
   </div>
 </div>
 
-<!-- score overlay -->
 <div id="scoreOverlay" style="display:none;">
   <div class="score-overlay">
     <div class="score-card">
@@ -158,7 +143,6 @@
   </div>
 </div>
 
-<!-- already played modal -->
 <div id="playedModal" class="modal" aria-hidden="true">
   <div class="modal-card">
     <h3 id="playedTitle">Already completed</h3>
@@ -173,138 +157,140 @@
 <script>
 (() => {
   /* -------------------
-     USER CHIP / AUTH HOOKUP
+     USER CHIP / AUTH
      -------------------*/
+  const AUTH_HUB_URL = '/games/tennis_arena/index.html';
+
+  function getAuthApi(){
+    return window.TA_AUTH || null;
+  }
+
+  function getSession(){
+    try{
+      const api = getAuthApi();
+      if(api && typeof api.getSession === 'function') return api.getSession();
+    } catch(e){}
+    return null;
+  }
+
+  function getDisplayName(){
+    const s = getSession();
+    return s && s.pseudo ? String(s.pseudo).trim() : null;
+  }
+
+  function isConnected(){
+    const s = getSession();
+    return !!(s && s.pseudo);
+  }
+
   function renderLbBox(){
     const placeholder = document.getElementById('lbBoxPlaceholder');
-    placeholder.innerHTML = '';
-    let u = null;
-    try {
-      if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
-        u = window.LEADERBOARD.getLocalUser();
-      } else {
-        // fallback to older key names
-        const raw = localStorage.getItem('lb_user_v1') || localStorage.getItem('lb_local_user_v1') || null;
-        if (raw) u = JSON.parse(raw);
-      }
-    } catch(e){ u = null; }
+    if (!placeholder) return;
 
+    placeholder.innerHTML = '';
     const statusEl = document.getElementById('lb-status');
-    if (u && u.pseudo) {
-      // connected -> show chip-like user element
-      const box = document.createElement('div'); box.className = 'user-chip'; box.id = 'userChip';
-      const avatar = document.createElement('div'); avatar.className='lb-avatar';
-      avatar.textContent = (u.pseudo.split(/\s+/).map(x=>x[0]).slice(0,2).join('').toUpperCase() || '??');
-      const name = document.createElement('div'); name.className='lb-name'; name.textContent = u.pseudo;
-      box.appendChild(avatar); box.appendChild(name);
-      box.onclick = (e)=>{ e.stopPropagation(); toggleUserDropdown(box); };
+    const session = getSession();
+
+    if (session && session.pseudo) {
+      const box = document.createElement('div');
+      box.className = 'user-chip';
+      box.id = 'userChip';
+
+      const avatar = document.createElement('div');
+      avatar.className = 'lb-avatar';
+      avatar.textContent = (session.pseudo.split(/\s+/).map(x=>x[0]).slice(0,2).join('').toUpperCase() || '??');
+
+      const name = document.createElement('div');
+      name.className = 'lb-name';
+      name.textContent = session.pseudo;
+
+      box.appendChild(avatar);
+      box.appendChild(name);
+      box.onclick = (e) => { e.stopPropagation(); toggleUserDropdown(box); };
       placeholder.appendChild(box);
-      if (statusEl) statusEl.textContent = 'Connected';
+
+      if (statusEl) statusEl.textContent = `Connected as ${session.pseudo}`;
     } else {
-      // not connected -> show "Connect" chip
-      const btn = document.createElement('div'); btn.className='user-chip'; btn.id='connectChip';
-      btn.textContent='Connect';
-      btn.onclick = (e)=>{ e.stopPropagation(); toggleConnectDropdown(btn); };
-      placeholder.appendChild(btn);
+      const link = document.createElement('a');
+      link.className = 'user-chip';
+      link.href = AUTH_HUB_URL;
+      link.textContent = 'Connect';
+      link.title = 'Connectez-vous dans Tennis Arena';
+      placeholder.appendChild(link);
+
       if (statusEl) statusEl.textContent = 'Not connected';
     }
   }
 
   function toggleUserDropdown(anchor){
-    // remove existing dropdown
     const existing = document.querySelector('.user-dropdown');
     if (existing){ existing.remove(); return; }
-    const dd = document.createElement('div'); dd.className='user-dropdown';
-    const btnLogout = document.createElement('button'); btnLogout.type='button'; btnLogout.textContent='Log out';
+
+    const dd = document.createElement('div');
+    dd.className = 'user-dropdown';
+
+    const btnProfile = document.createElement('button');
+    btnProfile.type = 'button';
+    btnProfile.textContent = 'Connected';
+    btnProfile.disabled = true;
+    btnProfile.style.opacity = '0.9';
+
+    const btnLogout = document.createElement('button');
+    btnLogout.type = 'button';
+    btnLogout.textContent = 'Log out';
     btnLogout.onclick = async ()=> {
       try {
-        if (window.LEADERBOARD && typeof window.LEADERBOARD.logout === 'function') {
-          await window.LEADERBOARD.logout();
+        const api = getAuthApi();
+        if (api && typeof api.logout === 'function') {
+          await api.logout();
         } else {
-          // fallback: clear storage
-          localStorage.removeItem('lb_user_v1');
+          localStorage.removeItem('ta_session_v1');
+          window.dispatchEvent(new Event('ta:auth-changed'));
         }
       } catch(e){ console.warn('Logout failed', e); }
       dd.remove();
       renderLbBox();
-      // re-check mode now that user changed
       try { if (typeof ensureModeCheckedAndStart === 'function') ensureModeCheckedAndStart(); } catch(e){}
     };
-    const btnProfile = document.createElement('button'); btnProfile.type='button'; btnProfile.textContent='Profile (not implemented)';
+
     dd.appendChild(btnProfile);
     dd.appendChild(btnLogout);
     anchor.parentElement.appendChild(dd);
 
     setTimeout(()=> {
-      const onDoc = (ev)=>{ if(!anchor.parentElement.contains(ev.target)){ const d=document.querySelector('.user-dropdown'); if(d) d.remove(); document.removeEventListener('click', onDoc); } };
+      const onDoc = (ev)=>{
+        if(!anchor.parentElement.contains(ev.target)){
+          const d=document.querySelector('.user-dropdown');
+          if(d) d.remove();
+          document.removeEventListener('click', onDoc);
+        }
+      };
       document.addEventListener('click', onDoc);
     }, 10);
   }
 
-  function toggleConnectDropdown(anchor){
-    const existing = document.querySelector('.user-dropdown');
-    if (existing){ existing.remove(); return; }
-    const dd = document.createElement('div'); dd.className='user-dropdown';
-    const btnLogin = document.createElement('button'); btnLogin.type='button'; btnLogin.textContent='Log in';
-    btnLogin.onclick = async ()=> {
-      try {
-        // delegate to LEADERBOARD modal/client
-        if (window.LEADERBOARD && typeof window.LEADERBOARD.openLogin === 'function') {
-          await window.LEADERBOARD.openLogin();
-        } else if (window.LEADERBOARD && typeof window.LEADERBOARD.login === 'function') {
-          await window.LEADERBOARD.login();
-        } else {
-          alert('Login function not available (library not loaded).');
-        }
-      } catch(e){ console.warn('openLogin error', e); }
-      dd.remove();
-      // update UI after login
-      renderLbBox();
-      try { if (typeof ensureModeCheckedAndStart === 'function') ensureModeCheckedAndStart(); } catch(e){}
-    };
-    const btnSignup = document.createElement('button'); btnSignup.type='button'; btnSignup.textContent='Sign up';
-    btnSignup.onclick = async ()=> {
-      try {
-        if (window.LEADERBOARD && typeof window.LEADERBOARD.openRegister === 'function') {
-          await window.LEADERBOARD.openRegister();
-        } else if (window.LEADERBOARD && typeof window.LEADERBOARD.register === 'function') {
-          await window.LEADERBOARD.register();
-        } else {
-          alert('Register function not available (library not loaded).');
-        }
-      } catch(e){ console.warn('openRegister error', e); }
-      dd.remove();
-      renderLbBox();
-      try { if (typeof ensureModeCheckedAndStart === 'function') ensureModeCheckedAndStart(); } catch(e){}
-    };
-    dd.appendChild(btnLogin);
-    dd.appendChild(btnSignup);
-    anchor.parentElement.appendChild(dd);
-
-    setTimeout(()=> {
-      const onDoc = (ev)=>{ if(!anchor.parentElement.contains(ev.target)){ const d=document.querySelector('.user-dropdown'); if(d) d.remove(); document.removeEventListener('click', onDoc); } };
-      document.addEventListener('click', onDoc);
-    }, 10);
+  function applyAuthGate(){
+    if (!isConnected()){
+      gameBlockedDueToExisting = false;
+      gameStarted = false;
+      setControlsDisabled(true);
+      const info = document.getElementById('infoLine');
+      if (info) info.textContent = 'Connectez-vous via Tennis Arena pour jouer.';
+      return false;
+    }
+    return true;
   }
-
-  // react to global auth changes
-  window.addEventListener('lb:auth-changed', ()=> {
-    renderLbBox();
-    // re-check current mode to update "already played" logic
-    try { if (typeof ensureModeCheckedAndStart === 'function') ensureModeCheckedAndStart(); } catch(e){}
-    try { if (typeof updateControlsDisabledUI === 'function') updateControlsDisabledUI(); } catch(e){}
-  });
 
   /* ---------------------------
-     rest of game script
-  ----------------------------*/
+     Paths & state
+  ---------------------------- */
   const PATHS = {
     WTA: '/games/fill_the_grid_WTA.json',
     ATP: '/games/fill_the_grid_ATP.json',
     PLAYERS: '/tools/players_catalog.json'
   };
 
-  const GAME_ID = 'gill_the_grid'; // as requested (note: exact string from your message)
+  const GAME_ID = 'gill_the_grid'; // keep your current id to avoid breaking existing leaderboard history
 
   const COUNTRY_NAMES = {
     'RUS':'Russia','FRA':'France','ESP':'Spain','GBR':'United Kingdom','USA':'United States',
@@ -313,7 +299,6 @@
     'NZL':'New Zealand','IND':'India','BRA':'Brazil','MEX':'Mexico'
   };
 
-  // DOM
   const app = document.getElementById('app');
   const boardWrap = document.getElementById('boardWrap');
   const btnToggle = document.getElementById('btnToggle');
@@ -333,19 +318,16 @@
   const playedDetails = document.getElementById('playedDetails');
   const playedClose = document.getElementById('playedClose');
   const toastEl = document.getElementById('toast');
-  const controlsBar = document.getElementById('controlsBar');
 
-  // state
   let mode = 'WTA';
   let gridData = null;
   let playersCatalog = null;
   let idToPlayer = {};
   let nameIndex = [];
-  let cellState = {}; // map 'r-c' -> {locked,id,name}
-  let activeCell = null; // {r,c,cellData,domNode,key}
+  let cellState = {};
+  let activeCell = null;
   let gameOver = false;
 
-  // check/disable state (for duplicate-check behavior)
   let controlsDisabled = false;
   let gameBlockedDueToExisting = false;
   let _ensureCheckRunning = false;
@@ -359,7 +341,7 @@
   }
 
   async function fetchJson(path){
-    const r = await fetch(path, {cache: 'no-cache'});
+    const r = await fetch(path, {cache:'no-cache'});
     if (!r.ok) throw new Error(`${path} ${r.status}`);
     return r.json();
   }
@@ -453,7 +435,6 @@
       console.error('Failed loading grid JSON', e);
       boardWrap.innerHTML = `<div style="color:#f88">Failed to load grid: ${e.message}</div>`;
     } finally {
-      // ensure controls disabled flag updated if something changed
       updateControlsDisabledUI();
     }
   }
@@ -495,6 +476,7 @@
       rh.className = 'row-header';
       rh.innerHTML = `<div class="cond-small">${rows[i].label || rows[i].condition || ''}</div>`;
       gridEl.appendChild(rh);
+
       for (let j=0;j<cols.length;j++){
         const cellDiv = document.createElement('div');
         cellDiv.className = 'grid-cell';
@@ -506,7 +488,6 @@
           cellDiv.classList.add('disabled');
           cellDiv.innerHTML = `<div class="cell-empty">—</div>`;
         } else {
-          // if already locked, show value
           const key = `${i}-${j}`;
           if (cellState[key] && cellState[key].locked){
             cellDiv.classList.add('cell-locked');
@@ -516,6 +497,7 @@
             ((r,c,datum,node)=>{ node.addEventListener('click', ()=> onCellClick(r,c,node,datum)); })(i,j,cellData,cellDiv);
           }
         }
+
         const wrongOverlay = document.createElement('div');
         wrongOverlay.className = 'wrong-overlay';
         wrongOverlay.innerHTML = `<div class="wrong-box"><div class="wrong-icon">✖</div></div>`;
@@ -530,7 +512,10 @@
   }
 
   function onCellClick(r,c,node,cellData){
-    if (controlsDisabled || gameBlockedDueToExisting) { showToast('Check ongoing or play suspended — play impossible.'); return; }
+    if (controlsDisabled || gameBlockedDueToExisting) {
+      showToast('Check ongoing or play suspended — play impossible.');
+      return;
+    }
     const key = `${r}-${c}`;
     activeCell = { r, c, cellData, domNode: node, key };
     openModal(activeCell);
@@ -542,6 +527,7 @@
     candidatesList.innerHTML = '';
     inputModal.style.display = 'block';
     document.querySelector('.input-panel').style.display = 'block';
+
     if (gameOver){
       playerInput.disabled = true;
       autocompleteList.style.display = 'none';
@@ -579,12 +565,13 @@
     inputModal._candidatesSet = null;
   }
 
-  // Autocomplete
   let acIndex = -1;
   function onInput(){
     const q = playerInput.value.trim().toLowerCase();
-    autocompleteList.innerHTML = ''; acIndex = -1;
+    autocompleteList.innerHTML = '';
+    acIndex = -1;
     if (!q) return;
+
     const starts = [], includes = [];
     for (let i=0;i<nameIndex.length;i++){
       const n = nameIndex[i], s = n.label.toLowerCase();
@@ -593,6 +580,7 @@
       if (starts.length >= 40) break;
     }
     const results = starts.concat(includes).slice(0,60);
+
     for (const r of results){
       const div = document.createElement('div');
       div.className = 'autocomplete-item';
@@ -603,24 +591,49 @@
       autocompleteList.appendChild(div);
     }
   }
+
   function onInputKeyDown(e){
     const items = Array.from(autocompleteList.querySelectorAll('.autocomplete-item'));
-    if (e.key === 'ArrowDown'){ e.preventDefault(); if(items.length===0) return; acIndex = Math.min(acIndex+1, items.length-1); updateActive(items); }
-    else if (e.key === 'ArrowUp'){ e.preventDefault(); if(items.length===0) return; acIndex = Math.max(acIndex-1,0); updateActive(items); }
-    else if (e.key === 'Enter'){ e.preventDefault(); if (items.length>0 && acIndex>=0) chooseItem(items[acIndex].dataset.id); else onSubmit(); }
+    if (e.key === 'ArrowDown'){
+      e.preventDefault();
+      if(items.length===0) return;
+      acIndex = Math.min(acIndex+1, items.length-1);
+      updateActive(items);
+    } else if (e.key === 'ArrowUp'){
+      e.preventDefault();
+      if(items.length===0) return;
+      acIndex = Math.max(acIndex-1,0);
+      updateActive(items);
+    } else if (e.key === 'Enter'){
+      e.preventDefault();
+      if (items.length>0 && acIndex>=0) chooseItem(items[acIndex].dataset.id);
+      else onSubmit();
+    }
   }
-  function updateActive(items){ items.forEach((it,idx)=> it.classList.toggle('active', idx===acIndex)); if (acIndex>=0 && items[acIndex]) items[acIndex].scrollIntoView({block:'nearest'}); }
-  function chooseItem(pid){ const p = idToPlayer[pid]; playerInput.value = p ? p.full_name : pid; setTimeout(()=> attemptSubmit(pid, p ? p.full_name : pid), 80); }
+
+  function updateActive(items){
+    items.forEach((it,idx)=> it.classList.toggle('active', idx===acIndex));
+    if (acIndex>=0 && items[acIndex]) items[acIndex].scrollIntoView({block:'nearest'});
+  }
+
+  function chooseItem(pid){
+    const p = idToPlayer[pid];
+    playerInput.value = p ? p.full_name : pid;
+    setTimeout(()=> attemptSubmit(pid, p ? p.full_name : pid), 80);
+  }
 
   function onSubmit(){
     if (!activeCell) return;
     if (gameOver) return;
     const typed = playerInput.value.trim();
     if (!typed) return animateWrong();
+
     const exact = nameIndex.find(n => n.label.toLowerCase() === typed.toLowerCase());
     if (exact) return attemptSubmit(exact.id, idToPlayer[exact.id] ? idToPlayer[exact.id].full_name : exact.id);
+
     const partial = nameIndex.find(n => n.label.toLowerCase().includes(typed.toLowerCase()));
     if (partial) return attemptSubmit(partial.id, idToPlayer[partial.id] ? idToPlayer[partial.id].full_name : partial.id);
+
     animateWrong();
   }
 
@@ -628,6 +641,7 @@
     if (!activeCell) return;
     const key = activeCell.key;
     if (cellState[key] && cellState[key].locked) return;
+
     const candSet = inputModal._candidatesSet;
     if (candSet && candSet.has(String(playerId))){
       lockCell(activeCell.r, activeCell.c, playerId, playerName);
@@ -659,7 +673,13 @@
     if (!node) return;
     node.classList.add('cell-locked');
     node.innerHTML = `<div class="cell-value">${escapeHtml(pname)}</div>`;
-    const ok = document.createElement('div'); ok.style.position='absolute'; ok.style.top='6px'; ok.style.left='6px'; ok.style.fontSize='14px'; ok.style.color='var(--good-text)'; ok.textContent='✔';
+    const ok = document.createElement('div');
+    ok.style.position='absolute';
+    ok.style.top='6px';
+    ok.style.left='6px';
+    ok.style.fontSize='14px';
+    ok.style.color='var(--good-text)';
+    ok.textContent='✔';
     node.appendChild(ok);
   }
 
@@ -730,27 +750,13 @@
     return points;
   }
 
-  // When showing score, submit to leaderboard (robust)
   function showScore(s){
     scoreValue.textContent = s;
     scoreOverlay.style.display = 'block';
 
-    // try to infer displayName (same approach as first game)
-    let displayName = null;
-    try {
-      if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
-        const localUser = window.LEADERBOARD.getLocalUser();
-        if (localUser && localUser.pseudo) displayName = localUser.pseudo;
-      } else {
-        const raw = localStorage.getItem('lb_user_v1') || localStorage.getItem('lb_local_user_v1') || null;
-        if (raw) {
-          const o = JSON.parse(raw);
-          if (o && o.pseudo) displayName = o.pseudo;
-        }
-      }
-    } catch(e){ console.warn('getLocalUser threw', e); }
+    const displayName = getDisplayName();
 
-    const meta = { total_cells: (gridData ? gridData.rows.length * (gridData.cols?gridData.cols.length:0) : 0), completed: gameOver };
+    const meta = { total_cells: (gridData ? gridData.rows.length * (gridData.cols ? gridData.cols.length : 0) : 0), completed: gameOver };
     try {
       submitScoreToLeaderboardFill(s, meta, { displayName });
       console.info('[LB] submitScoreToLeaderboardFill called', { points: s, displayName, mode: `${mode}_fillgrid` });
@@ -766,7 +772,6 @@
     renderBoard();
   }
 
-  // --- Leaderboard helpers (robust) ---
   const LB_QUEUE_KEY_FILLGRID = 'lb_score_queue_fillgrid_v1';
 
   function pushToScoreQueueFill(entry){
@@ -814,16 +819,17 @@
 
     console.info('[LB-TRY] trySubmitEntryToLBFill start', { gameId, points, modeOpt, pseudo });
 
-    // 1) try library first
     if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
       try {
         console.info('[LB-TRY] call library submitScore', { gameId, points, options });
         const res = await window.LEADERBOARD.submitScore(gameId, points, options);
         console.info('[LB-TRY] library response', res);
 
-        if(res && (res.ok === true || res.success === true || res.status === 'ok')){ console.info('[LB-TRY] library confirmed success'); return true; }
+        if(res && (res.ok === true || res.success === true || res.status === 'ok')){
+          console.info('[LB-TRY] library confirmed success');
+          return true;
+        }
 
-        // If library reports already_submitted, still try server fallback to ensure DB consistency.
         if(res && res.error && String(res.error).toLowerCase().includes('already_submitted')){
           console.info('[LB-TRY] library reports already_submitted — will attempt server fallback', res);
         } else {
@@ -836,7 +842,6 @@
       console.warn('[LB-TRY] library not available — using fallback');
     }
 
-    // 2) fallback -> Netlify function
     const fallbackEndpoint = `${location.origin}/.netlify/functions/submit-score`;
     const payload = {
       game_id: gameId,
@@ -861,9 +866,11 @@
       try { parsed = text ? JSON.parse(text) : null; } catch(e){ parsed = text; }
       console.info('[LB-FALLBACK] response', resp.status, parsed);
 
-      if (resp.ok) { console.info('[LB-FALLBACK] server insert OK', parsed); return true; }
+      if (resp.ok) {
+        console.info('[LB-FALLBACK] server insert OK', parsed);
+        return true;
+      }
 
-      // duplicate -> treat as already submitted (ok)
       if (resp.status === 409) { console.info('[LB-FALLBACK] server indicates duplicate — treat as done', parsed); return true; }
       if (parsed && parsed.detail && parsed.detail.code === '23505') { console.info('[LB-FALLBACK] supabase duplicate detail detected — treat as done', parsed); return true; }
 
@@ -891,7 +898,7 @@
   }
 
   async function submitScoreToLeaderboardFill(points, meta = {}, extra = {}){
-    const displayName = extra.displayName || extra.pseudo || null;
+    const displayName = extra.displayName || extra.pseudo || getDisplayName();
     const modeString = `${mode}_fillgrid`;
     const options = { mode: modeString, meta: JSON.stringify(meta || {}), displayName };
 
@@ -901,10 +908,13 @@
       const ok = await trySubmitEntryToLBFill({ gameId:GAME_ID, points, options });
       if(ok){ console.info('[LB] Score successfully submitted (immediate)'); setTimeout(flushQueueFill, 300); return; }
       else { console.warn('[LB] immediate submit failed -> queueing for retry'); pushToScoreQueueFill({ gameId:GAME_ID, points, options }); setTimeout(flushQueueFill, 1000); return; }
-    } catch(err){ console.error('[LB] submitScoreToLeaderboardFill threw -> queueing', err); pushToScoreQueueFill({ gameId:GAME_ID, points, options }); setTimeout(flushQueueFill, 1000); }
+    } catch(err){
+      console.error('[LB] submitScoreToLeaderboardFill threw -> queueing', err);
+      pushToScoreQueueFill({ gameId:GAME_ID, points, options });
+      setTimeout(flushQueueFill, 1000);
+    }
   }
 
-  // watch for LB init and flush queued entries
   (function watchForLBFillInit(){
     if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
       setTimeout(flushQueueFill, 300);
@@ -918,18 +928,17 @@
     }, 300);
   })();
 
-  // --- Duplicate-check functions (identical semantics to other games) ---
   async function checkUserPlayedToday(modeString){
-    let localUser = null;
-    try { if(window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') localUser = window.LEADERBOARD.getLocalUser(); } catch(e){}
-    try { if(!localUser) localUser = JSON.parse(localStorage.getItem('lb_local_user_v1')||'null'); } catch(e){}
-    if(!localUser) return { exists:false };
-    const userId = localUser.user_id || localUser.id || null;
-    const pseudo = localUser.pseudo || null;
+    const session = getSession();
+    if(!session) return { exists:false, requiresAuth:true };
+
+    const userId = session.id || session.user_id || null;
+    const pseudo = session.pseudo || null;
     const dateStr = new Date().toISOString().slice(0,10);
     let qs = `?game_id=${encodeURIComponent(GAME_ID)}&date=${encodeURIComponent(dateStr)}&check_existing=1&mode=${encodeURIComponent(modeString)}`;
     if(userId) qs += `&user_id=${encodeURIComponent(userId)}`;
     if(pseudo) qs += `&pseudo=${encodeURIComponent(pseudo)}`;
+
     try {
       const res = await fetch(`/.netlify/functions/leaderboard${qs}`, { credentials: 'same-origin' });
       if(!res.ok) return { exists:false };
@@ -974,7 +983,6 @@
   function updateControlsDisabledUI(){
     if(controlsDisabled || gameBlockedDueToExisting){
       app.classList.add('controls-disabled');
-      // disable interactive buttons and input
       playerInput.disabled = true;
       btnSubmit.disabled = true;
       btnGiveUp.disabled = true;
@@ -990,12 +998,16 @@
     }
   }
 
-  // ensure check runs on load and on mode change; identical semantics to earlier games:
   async function ensureModeCheckedAndStart(){
-    // prepare UI & disable immediately
+    if (!isConnected()){
+      applyAuthGate();
+      return;
+    }
+
     setControlsDisabled(true);
     gameBlockedDueToExisting = false;
     updateControlsDisabledUI();
+
     const modeString = `${mode}_fillgrid`;
     document.getElementById('infoLine').textContent = 'Checking if you already played this mode today...';
 
@@ -1012,35 +1024,33 @@
       if(check && check.exists){
         showAlreadyPlayedModal(check, modeString);
         _ensureCheckRunning = false;
-        // if recheck requested, perform it after small delay
         if(_ensureRecheckRequested){
           _ensureRecheckRequested = false;
           setTimeout(()=> ensureModeCheckedAndStart(), 50);
         }
         return;
       } else {
-        // allowed to play: load grid and enable controls
         await loadGrid(mode);
         setControlsDisabled(false);
+        document.getElementById('infoLine').textContent = 'Game ready.';
         _ensureCheckRunning = false;
       }
     } catch(e){
       console.warn('ensureModeCheckedAndStart error', e);
-      // fallback: allow play but ensure controls re-enabled
       await loadGrid(mode);
       setControlsDisabled(false);
+      document.getElementById('infoLine').textContent = 'Game ready.';
       _ensureCheckRunning = false;
     }
 
-    // short polling for late login/leaderboard presence: if user logs in quickly, re-run check
     const start = Date.now();
     const maxWait = 8000;
     let lastSeen = null;
     const interval = setInterval(async ()=>{
       try {
-        const localUser = (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') ? window.LEADERBOARD.getLocalUser() : JSON.parse(localStorage.getItem('lb_local_user_v1') || 'null');
+        const session = getSession();
         const lbReady = window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function';
-        const seen = JSON.stringify({ u: localUser ? (localUser.user_id || localUser.pseudo || '') : '', lb:!!lbReady });
+        const seen = JSON.stringify({ u: session ? (session.id || session.user_id || session.pseudo || '') : '', lb:!!lbReady });
         if(seen !== lastSeen){
           lastSeen = seen;
           const check2 = await checkUserPlayedToday(modeString);
@@ -1048,29 +1058,41 @@
             clearInterval(interval);
             showAlreadyPlayedModal(check2, modeString);
             _ensureCheckRunning = false;
-            // leave controls disabled
             return;
           }
         }
         if(Date.now() - start > maxWait){ clearInterval(interval); return; }
-      } catch(err){ console.warn('Polling check error', err); if(Date.now() - start > maxWait){ clearInterval(interval); } }
+      } catch(err){
+        console.warn('Polling check error', err);
+        if(Date.now() - start > maxWait){ clearInterval(interval); }
+      }
     }, 600);
   }
 
-  // helper escape
-  function escapeHtml(s){ if(s===undefined||s===null) return ''; return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m]); }
+  function escapeHtml(s){
+    if(s===undefined||s===null) return '';
+    return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
 
-  // debug helper
   window._testSubmitFill = async function(points=7){
     console.info('TEST: submitScoreToLeaderboardFill', points);
     await submitScoreToLeaderboardFill(points, { test:true }, { displayName:'TEST_USER' });
     console.info('TEST: done');
   };
 
-  // init sequence
+  async function loadGridAndInit(modeToLoad){
+    await loadGrid(modeToLoad);
+    if (isConnected()){
+      setControlsDisabled(false);
+    } else {
+      setControlsDisabled(true);
+      const info = document.getElementById('infoLine');
+      if (info) info.textContent = 'Connectez-vous via Tennis Arena pour jouer.';
+    }
+  }
+
   (async () => {
     try {
-      // 1) load players catalog FIRST
       try {
         playersCatalog = await fetchJson(PATHS.PLAYERS);
         console.info('[INIT] players catalog loaded', playersCatalog && playersCatalog.players ? playersCatalog.players.length : 'no players');
@@ -1080,11 +1102,9 @@
       }
       buildPlayerIndex();
 
-      // wire up UI events (mode toggle should trigger the check)
       btnToggle.addEventListener('click', async ()=>{
         const newMode = (mode === 'WTA') ? 'ATP' : 'WTA';
         mode = newMode;
-        // immediately disable controls while check runs
         setControlsDisabled(true);
         await ensureModeCheckedAndStart();
       });
@@ -1096,20 +1116,46 @@
       playerInput.addEventListener('keydown', onInputKeyDown);
       scoreClose.addEventListener('click', ()=> scoreOverlay.style.display = 'none');
 
-      // initial render of LB box (so button exists immediately)
       renderLbBox();
 
-      // initial check & load (ensures duplicate check on page load)
-      await ensureModeCheckedAndStart();
+      if (isConnected()){
+        await ensureModeCheckedAndStart();
+      } else {
+        await loadGridAndInit(mode);
+        applyAuthGate();
+      }
+
+      const authApi = getAuthApi();
+      if (authApi && typeof authApi.onAuthChange === 'function'){
+        authApi.onAuthChange(async () => {
+          renderLbBox();
+          if (isConnected()){
+            await ensureModeCheckedAndStart();
+          } else {
+            applyAuthGate();
+            try { if (typeof loadGrid === 'function') await loadGrid(mode); } catch(e){}
+          }
+        });
+      } else {
+        window.addEventListener('ta:auth-changed', async () => {
+          renderLbBox();
+          if (isConnected()){
+            await ensureModeCheckedAndStart();
+          } else {
+            applyAuthGate();
+          }
+        });
+      }
 
       console.info('[INIT] done');
     } catch (err) {
       console.error('Init failed', err);
-      // fallback: try to load grid directly
-      try { await loadGrid(mode); setControlsDisabled(false); } catch(e){}
+      try {
+        await loadGrid(mode);
+        setControlsDisabled(false);
+      } catch(e){}
     }
   })();
-
 })();
 </script>
 </body>
