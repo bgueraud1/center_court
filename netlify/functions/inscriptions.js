@@ -9,7 +9,7 @@ const OPEN_JSON_PATH = path.join(process.cwd(), "docs/bracket/open_inscriptions.
 
 // Adjust if your DB names differ
 const USERS_TABLE = process.env.USERS_TABLE || "users";
-const BRACKET_USERS_TABLE = process.env.BRACKET_USERS_TABLE || "bracket_users";
+const BRACKET_USERS_TABLE = process.env.BRACKET_USERS_TABLE || "bracket";
 const INSCRIPTIONS_TABLE = process.env.INSCRIPTIONS_TABLE || "inscriptions";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
