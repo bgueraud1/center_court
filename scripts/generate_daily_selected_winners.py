@@ -39,11 +39,35 @@ def load_players(path: Path) -> List[Dict[str, Any]]:
     raise ValueError(f"Format JSON inattendu dans {path}")
 
 
-def pick_three_with_difficulties(players: List[Dict[str, Any]], rng: random.Random) -> List[Dict[str, Any]]:
-    if len(players) < 3:
-        raise ValueError(f"Il faut au moins 3 joueurs/joueuses, trouvé {len(players)}")
+def has_non_empty_geocode(tournament: Any) -> bool:
+    if not isinstance(tournament, dict):
+        return False
+    geocode = tournament.get("geocode")
+    return isinstance(geocode, list) and len(geocode) > 0
 
-    selected = rng.sample(players, 3)
+
+def eligible_player(player: Dict[str, Any]) -> bool:
+    tournaments = player.get("tournaments", [])
+    if not isinstance(tournaments, list):
+        return False
+    count = sum(1 for t in tournaments if has_non_empty_geocode(t))
+    return count >= 3
+
+
+def filter_eligible_players(players: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [p for p in players if eligible_player(p)]
+
+
+def pick_three_with_difficulties(players: List[Dict[str, Any]], rng: random.Random) -> List[Dict[str, Any]]:
+    eligible_players = filter_eligible_players(players)
+
+    if len(eligible_players) < 3:
+        raise ValueError(
+            f"Il faut au moins 3 joueurs/joueuses éligibles (avec >= 3 tournois ayant un geocode non vide), "
+            f"trouvé {len(eligible_players)}"
+        )
+
+    selected = rng.sample(eligible_players, 3)
     difficulties = DIFFICULTIES[:]
     rng.shuffle(difficulties)
 
