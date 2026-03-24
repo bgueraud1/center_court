@@ -8,70 +8,338 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700,800&display=swap" rel="stylesheet">
 
+<script src="/js/auth.js" defer></script>
+<script src="/js/leaderboard-client.js" defer></script>
+
 <style>
   :root{
-    --bg1: #071226; --bg2: #081428;
-    --muted:#94a3b8; --success:#16a34a; --danger:#ef4444;
+    --bg1: #071226;
+    --bg2: #081428;
+    --muted:#94a3b8;
+    --success:#16a34a;
+    --danger:#ef4444;
     font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
     color-scheme: dark;
   }
-  html,body{height:100%;margin:0;background:linear-gradient(180deg, var(--bg1) 0%, var(--bg2) 100%);-webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;}
-  .wrap{max-width:1100px;margin:28px auto;padding:20px;border-radius:14px;position:relative;z-index:2;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));box-shadow: 0 8px 40px rgba(2,6,23,0.6); border: 1px solid rgba(255,255,255,0.03);}
 
-  header{display:flex;align-items:center;gap:16px}
-  h1{margin:0;font-weight:800;color: #eef2ff; font-size:1.25rem}
-  .sub{color:var(--muted);font-size:0.9rem}
-  .controls{display:flex;gap:16px;flex-wrap:wrap;margin-top:18px;align-items:center}
-  .card{background:transparent;padding:12px;border-radius:12px}
-  .segment{display:flex;background:transparent;border-radius:10px;padding:4px;gap:6px}
-  .seg-btn{padding:8px 12px;border-radius:8px;border:none;color:var(--muted);cursor:pointer;font-weight:600;background:transparent;transition:all .18s ease}
-  .seg-btn.active{color:white; box-shadow:0 6px 18px rgba(2,6,23,0.6); transform:translateY(-2px)}
-  .tour-toggle{display:flex;gap:6px}
-  .tour-btn{
-    min-width:72px;padding:8px 12px;border-radius:999px;border:1px solid rgba(255,255,255,0.04);cursor:pointer;font-weight:700;background:transparent;color:var(--muted);
+  html,body{
+    height:100%;
+    margin:0;
+    background:linear-gradient(180deg, var(--bg1) 0%, var(--bg2) 100%);
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+  }
+
+  .wrap{
+    max-width:1100px;
+    margin:28px auto;
+    padding:20px;
+    border-radius:14px;
+    position:relative;
+    z-index:2;
+    background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    box-shadow: 0 8px 40px rgba(2,6,23,0.6);
+    border: 1px solid rgba(255,255,255,0.03);
+  }
+
+  header{
+    display:flex;
+    align-items:center;
+    gap:16px;
+  }
+
+  h1{
+    margin:0;
+    font-weight:800;
+    color:#eef2ff;
+    font-size:1.25rem;
+  }
+
+  .sub{
+    color:var(--muted);
+    font-size:0.9rem;
+    margin-top:4px;
+  }
+
+  .controls{
+    display:flex;
+    gap:16px;
+    flex-wrap:wrap;
+    margin-top:18px;
+    align-items:center;
+  }
+
+  .card{
+    background:transparent;
+    padding:12px;
+    border-radius:12px;
+  }
+
+  .segment{
+    display:flex;
+    background:transparent;
+    border-radius:10px;
+    padding:4px;
+    gap:6px;
+  }
+
+  .seg-btn{
+    padding:8px 12px;
+    border-radius:8px;
+    border:none;
+    color:var(--muted);
+    cursor:pointer;
+    font-weight:600;
+    background:transparent;
     transition:all .18s ease;
   }
-  /* Updated appearance: darker, more visible but not bright */
+
+  .seg-btn.active{
+    color:white;
+    box-shadow:0 6px 18px rgba(2,6,23,0.6);
+    transform:translateY(-2px);
+  }
+
+  .tour-toggle{
+    display:flex;
+    gap:6px;
+  }
+
+  .tour-btn{
+    min-width:72px;
+    padding:8px 12px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,0.04);
+    cursor:pointer;
+    font-weight:700;
+    background:transparent;
+    color:var(--muted);
+    transition:all .18s ease;
+  }
+
   .tour-btn.active.atp{
     background:linear-gradient(180deg,#0f274a,#132a44);
     color:#cfe8ff;
     border-color: rgba(31,70,120,0.35);
   }
+
   .tour-btn.active.wta{
     background:linear-gradient(180deg,#2c1b37,#372042);
     color:#efe6ff;
     border-color: rgba(90,50,120,0.28);
   }
 
-  .game-meta{display:flex;gap:12px;flex-wrap:wrap;margin-top:18px}
-  .chip{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));padding:8px 12px;border-radius:999px;color:var(--muted);font-weight:600;border:1px solid rgba(255,255,255,0.02)}
-  .chip strong {color:#fff}
-  .input-row{display:flex;gap:8px;align-items:center;margin-top:12px}
-  input[type="text"], input[type="password"]{padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:#fff;min-width:200px}
-  button.primary{padding:10px 14px;border-radius:10px;border:none;background:#1f7aec;color:white;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(31,122,236,0.12)}
-  button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted);padding:8px 10px;border-radius:8px;cursor:pointer}
-  .suggestions{position:relative}
-  .suggestions-list{position:absolute;left:0;top:44px;width:100%;max-height:220px;overflow:auto;background:linear-gradient(180deg,#0b1220,#071025);border-radius:8px;border:1px solid rgba(255,255,255,0.04);z-index:80;box-shadow:0 10px 40px rgba(2,6,23,0.6)}
-  .suggestions-list li{list-style:none;padding:8px 10px;color:#e6eef8;cursor:pointer;border-bottom:1px dashed rgba(255,255,255,0.02)}
-  .suggestions-list li:hover, .suggestions-list li.highlight{ background: rgba(255,255,255,0.02); color: #fff; }
-  table{width:100%;border-collapse:collapse;margin-top:14px;color:#e6eef8}
-  th,td{padding:10px;text-align:left;border-bottom:1px dashed rgba(255,255,255,0.03);font-size:0.95rem}
-  thead th{color:var(--muted);font-weight:700}
-  .country-text{margin-top:14px;padding:16px;border-radius:12px;background:rgba(0,0,0,0.5);backdrop-filter:blur(6px);color:#fff;border:1px solid rgba(255,255,255,0.04)}
-  .modal {position:fixed;left:0;top:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg, rgba(2,6,23,0.6), rgba(2,6,23,0.8));z-index:400;opacity:0;pointer-events:none;transition:opacity .18s ease}
-  .modal.show{opacity:1;pointer-events:auto}
-  .modal-card{background:linear-gradient(180deg, rgba(11,17,32,0.98), rgba(8,12,23,0.96));padding:26px;border-radius:16px;max-width:520px;width:94%;box-shadow:0 30px 80px rgba(2,6,23,0.8);border:1px solid rgba(255,255,255,0.03);text-align:center}
-  .toast{position:fixed;right:18px;bottom:18px;background:rgba(0,0,0,0.7);color:#fff;padding:10px 14px;border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,0.6);display:none;z-index:220}
-  .lb-card{margin-left:auto;display:flex;gap:8px;align-items:center;position:relative}
-  #lb-status{color:var(--muted);font-size:0.9rem;margin-left:8px}
-  /* make the top-right user UI look like the .chip (as requested) */
-  .user-chip{cursor:pointer;color:#fff; display:inline-flex; align-items:center; gap:8px; font-weight:700; padding:8px 12px;}
-  .user-chip .lb-avatar{
-    width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;color:white;background: linear-gradient(135deg,#2b8af6,#7b5cf6);
-    box-shadow: 0 4px 12px rgba(43,138,246,0.18), inset 0 -2px 6px rgba(0,0,0,0.12);
+  .game-meta{
+    display:flex;
+    gap:12px;
+    flex-wrap:wrap;
+    margin-top:18px;
   }
+
+  .chip{
+    background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    padding:8px 12px;
+    border-radius:999px;
+    color:var(--muted);
+    font-weight:600;
+    border:1px solid rgba(255,255,255,0.02);
+  }
+
+  .chip strong {
+    color:#fff;
+  }
+
+  .input-row{
+    display:flex;
+    gap:8px;
+    align-items:center;
+    margin-top:12px;
+  }
+
+  input[type="text"], input[type="password"]{
+    padding:10px 12px;
+    border-radius:10px;
+    border:1px solid rgba(255,255,255,0.06);
+    background:transparent;
+    color:#fff;
+    min-width:200px;
+  }
+
+  button.primary{
+    padding:10px 14px;
+    border-radius:10px;
+    border:none;
+    background:#1f7aec;
+    color:white;
+    font-weight:700;
+    cursor:pointer;
+    box-shadow:0 8px 24px rgba(31,122,236,0.12);
+  }
+
+  button.ghost{
+    background:transparent;
+    border:1px solid rgba(255,255,255,0.04);
+    color:var(--muted);
+    padding:8px 10px;
+    border-radius:8px;
+    cursor:pointer;
+  }
+
+  .suggestions{
+    position:relative;
+  }
+
+  .suggestions-list{
+    position:absolute;
+    left:0;
+    top:44px;
+    width:100%;
+    max-height:220px;
+    overflow:auto;
+    background:linear-gradient(180deg,#0b1220,#071025);
+    border-radius:8px;
+    border:1px solid rgba(255,255,255,0.04);
+    z-index:80;
+    box-shadow:0 10px 40px rgba(2,6,23,0.6);
+    padding:0;
+    margin:0;
+  }
+
+  .suggestions-list li{
+    list-style:none;
+    padding:8px 10px;
+    color:#e6eef8;
+    cursor:pointer;
+    border-bottom:1px dashed rgba(255,255,255,0.02);
+  }
+
+  .suggestions-list li:hover,
+  .suggestions-list li.highlight{
+    background: rgba(255,255,255,0.02);
+    color: #fff;
+  }
+
+  table{
+    width:100%;
+    border-collapse:collapse;
+    margin-top:14px;
+    color:#e6eef8;
+  }
+
+  th,td{
+    padding:10px;
+    text-align:left;
+    border-bottom:1px dashed rgba(255,255,255,0.03);
+    font-size:0.95rem;
+  }
+
+  thead th{
+    color:var(--muted);
+    font-weight:700;
+  }
+
+  .country-text{
+    margin-top:14px;
+    padding:16px;
+    border-radius:12px;
+    background:rgba(0,0,0,0.5);
+    backdrop-filter:blur(6px);
+    color:#fff;
+    border:1px solid rgba(255,255,255,0.04);
+  }
+
+  .modal {
+    position:fixed;
+    left:0;
+    top:0;
+    width:100%;
+    height:100%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:linear-gradient(180deg, rgba(2,6,23,0.6), rgba(2,6,23,0.8));
+    z-index:400;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .18s ease;
+  }
+
+  .modal.show{
+    opacity:1;
+    pointer-events:auto;
+  }
+
+  .modal-card{
+    background:linear-gradient(180deg, rgba(11,17,32,0.98), rgba(8,12,23,0.96));
+    padding:26px;
+    border-radius:16px;
+    max-width:520px;
+    width:94%;
+    box-shadow:0 30px 80px rgba(2,6,23,0.8);
+    border:1px solid rgba(255,255,255,0.03);
+    text-align:center;
+  }
+
+  .toast{
+    position:fixed;
+    right:18px;
+    bottom:18px;
+    background:rgba(0,0,0,0.7);
+    color:#fff;
+    padding:10px 14px;
+    border-radius:8px;
+    box-shadow:0 6px 24px rgba(0,0,0,0.6);
+    display:none;
+    z-index:220;
+  }
+
+  .lb-card{
+    margin-left:auto;
+    display:flex;
+    gap:8px;
+    align-items:center;
+    position:relative;
+  }
+
+  #lb-status{
+    color:var(--muted);
+    font-size:0.9rem;
+    margin-left:8px;
+    min-width: 220px;
+    text-align: right;
+  }
+
+  .user-chip{
+    cursor:pointer;
+    color:#fff;
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    font-weight:700;
+    padding:8px 12px;
+    border-radius:999px;
+    user-select:none;
+  }
+
+  .user-chip .lb-avatar{
+    width:28px;
+    height:28px;
+    border-radius:50%;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    font-weight:700;
+    font-size:12px;
+    color:white;
+    background: linear-gradient(135deg,#2b8af6,#7b5cf6);
+    box-shadow: 0 4px 12px rgba(43,138,246,0.18), inset 0 -2px 6px rgba(0,0,0,0.12);
+    flex: 0 0 auto;
+  }
+
   .user-dropdown {
-    position:absolute; right:0; top:54px;
+    position:absolute;
+    right:0;
+    top:54px;
     background: linear-gradient(180deg,#081025,#06101a);
     border-radius:8px;
     border:1px solid rgba(255,255,255,0.04);
@@ -80,22 +348,60 @@
     overflow:hidden;
     z-index:220;
   }
-  .user-dropdown button { display:block;width:100%;text-align:left;padding:10px 12px;background:transparent;border:none;color:var(--muted);cursor:pointer;font-weight:700;}
-  .user-dropdown button:hover{ color:#fff; background: rgba(255,255,255,0.02); }
 
-  @media (max-width:880px){ input[type="text"]{min-width:140px} .chip{font-size:0.85rem} th,td{padding:8px;font-size:0.9rem} }
+  .user-dropdown button {
+    display:block;
+    width:100%;
+    text-align:left;
+    padding:10px 12px;
+    background:transparent;
+    border:none;
+    color:var(--muted);
+    cursor:pointer;
+    font-weight:700;
+  }
+
+  .user-dropdown button:hover{
+    color:#fff;
+    background: rgba(255,255,255,0.02);
+  }
+
+  .connect-btn{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    text-decoration:none;
+    color:#fff;
+    background:linear-gradient(135deg, #1f7aec, #7b5cf6);
+  }
+
+  @media (max-width:880px){
+    input[type="text"]{min-width:140px}
+    .chip{font-size:0.85rem}
+    th,td{padding:8px;font-size:0.9rem}
+    #lb-status{min-width: 0; text-align: left;}
+    header{flex-direction:column; align-items:flex-start;}
+    .lb-card{margin-left:0; width:100%; justify-content:space-between;}
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *{
+      transition:none !important;
+      scroll-behavior:auto !important;
+    }
+  }
 </style>
 </head>
 <body>
-<script src="/js/leaderboard-client.js" defer></script>
 
   <div class="wrap">
     <header style="align-items:flex-start">
-      <div><h1>Guess the Player</h1><div class="sub">H2H game — Answers are updated daily.</div></div>
+      <div>
+        <h1>Guess the Player</h1>
+        <div class="sub">H2H game — Answers are updated daily.</div>
+      </div>
 
-      <!-- LB area -->
       <div class="lb-card card" id="lbCard" aria-hidden="false" style="margin-left:auto;align-items:center;position:relative">
-        <!-- Either user-chip (connected) or connect chip (not connected) -->
         <div id="lbBoxPlaceholder"></div>
         <div id="lb-status">Not connected</div>
       </div>
@@ -151,27 +457,6 @@
     </div>
   </div>
 
-  <!-- Login / Sign up modal (password required) -->
-  <div id="lbModal" class="modal" role="dialog" aria-modal="true" aria-hidden="true">
-    <div class="modal-card" style="max-width:420px">
-      <div style="display:flex;gap:8px;justify-content:center;margin-bottom:12px">
-        <button id="tabLogin" class="seg-btn active">Log in</button>
-        <button id="tabSignup" class="seg-btn">Sign up</button>
-      </div>
-      <div style="text-align:left">
-        <label style="display:block;margin-bottom:6px">Display name</label>
-        <input id="lbModalPseudo" type="text" autocomplete="username" />
-        <label style="display:block;margin-top:8px;margin-bottom:6px">Password (required)</label>
-        <input id="lbModalPassword" type="password" autocomplete="current-password" />
-        <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">
-          <button id="lbModalCancel" class="ghost">Cancel</button>
-          <button id="lbModalSubmit" class="primary">Continue</button>
-        </div>
-        <div id="lbModalMsg" style="margin-top:8px;color:var(--muted)"></div>
-      </div>
-    </div>
-  </div>
-
   <div id="modal" class="modal" role="dialog" aria-modal="true" aria-hidden="true">
     <div class="modal-card">
       <h2 id="modalTitle">Round result</h2>
@@ -194,8 +479,8 @@ const PLAYERS_CATALOG_JSON = '/tools/players_catalog.json';
 const GEOCODES_JSON = '/tools/geocodes_combined.json';
 const H2H_BY_PLAYER_BASE = '/data/h2h_by_player/';
 const LB_QUEUE_KEY = 'lb_score_queue_guess6_v1';
-const LB_LOCAL_USER_KEY = 'lb_local_user_v1';
 const GAME_ID = 'guess_player_h2h';
+const AUTH_HUB_URL = '/games/tennis_arena/index.html';
 
 /* ---------------------------
   STATE
@@ -217,83 +502,297 @@ let guessedNames = new Set();
 let h2hByPlayerCache = {};
 let composedH2HCache = {};
 let preloadedCount = 0;
+let assetsReady = false;
 
 /* ---------------------------
-  Ensure/check flags (modified: support queued rechecks)
-----------------------------*/
-let _ensureCheckRunning = false;
-let _ensureRecheckRequested = false;
-let _ensureRequestedMode = null;
+  DOM refs
+---------------------------- */
+let guessInput;
+let suggestionsList;
+let guessBtn;
+let preloadStatusEl;
+let levelLabelEl;
+let tourLabelEl;
+let remainingEl;
+let scoreEl;
+let lbStatusEl;
+let lbBoxPlaceholderEl;
 
 /* ---------------------------
   UTIL
 ---------------------------- */
-function showToast(msg, t=2000){ const el=document.getElementById('toast'); el.textContent=msg; el.style.display='block'; setTimeout(()=>el.style.display='none', t); }
-function escapeHtml(s){ if(s===undefined||s===null) return ''; return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m]); }
-function norm(s){ return s ? s.normalize().replace(/[\u0300-\u036f]/g,'').toLowerCase() : ''; }
-async function hashStringSHA256Hex(s){
-  if(!s) return null;
-  const enc = new TextEncoder(); const data = enc.encode(s);
-  const dig = await crypto.subtle.digest('SHA-256', data);
-  const arr = Array.from(new Uint8Array(dig)).map(b => b.toString(16).padStart(2,'0'));
-  return arr.join('');
+function showToast(msg, t=2000){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', t);
+}
+
+function escapeHtml(s){
+  if(s === undefined || s === null) return '';
+  return String(s).replace(/[&<>"']/g, m => (
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]
+  ));
+}
+
+function norm(s){
+  return s ? s.normalize().replace(/[\u0300-\u036f]/g,'').toLowerCase() : '';
+}
+
+function getAuthApi(){
+  return window.TA_AUTH || null;
+}
+
+function getSession(){
+  const api = getAuthApi();
+  if(api && typeof api.getSession === 'function'){
+    return api.getSession();
+  }
+  return null;
+}
+
+function isConnected(){
+  return !!getSession();
+}
+
+function getDisplayName(session){
+  if(!session) return '';
+  return String(session.pseudo || session.username || '').trim();
+}
+
+function setGuessEnabled(enabled){
+  guessInput.disabled = !enabled;
+  guessBtn.disabled = !enabled;
+  if(!enabled){
+    suggestionsList.style.display = 'none';
+  }
+}
+
+function updateTopStatus(){
+  const session = getSession();
+  if(session && session.pseudo){
+    lbStatusEl.textContent = `Connected as ${session.pseudo}`;
+    preloadStatusEl.textContent = assetsReady
+      ? 'Connected — preparing the round…'
+      : 'Connected — loading…';
+  } else {
+    lbStatusEl.textContent = 'Not connected';
+    preloadStatusEl.textContent = 'Connectez-vous via Tennis Arena pour jouer.';
+  }
+}
+
+function closeExistingDropdown(){
+  const existing = document.querySelector('.user-dropdown');
+  if(existing) existing.remove();
+}
+
+function closeAuthHubHint(){
+  closeExistingDropdown();
+}
+
+function renderAuthBox(){
+  const placeholder = lbBoxPlaceholderEl;
+  placeholder.innerHTML = '';
+  closeAuthHubHint();
+
+  const session = getSession();
+
+  if(session && session.pseudo){
+    const box = document.createElement('div');
+    box.className = 'chip user-chip';
+    box.id = 'userChip';
+
+    const avatar = document.createElement('div');
+    avatar.className = 'lb-avatar';
+    avatar.textContent = (session.pseudo.split(/\s+/).map(x => x[0]).slice(0,2).join('').toUpperCase() || '??');
+
+    const name = document.createElement('div');
+    name.className = 'lb-name';
+    name.textContent = session.pseudo;
+
+    box.appendChild(avatar);
+    box.appendChild(name);
+
+    box.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleUserDropdown(box);
+    });
+
+    placeholder.appendChild(box);
+  } else {
+    const link = document.createElement('a');
+    link.className = 'chip user-chip connect-btn';
+    link.href = AUTH_HUB_URL;
+    link.textContent = 'Connect';
+    link.title = 'Connectez-vous dans Tennis Arena';
+    placeholder.appendChild(link);
+  }
+
+  updateTopStatus();
+}
+
+function toggleUserDropdown(anchor){
+  const existing = document.querySelector('.user-dropdown');
+  if(existing){
+    existing.remove();
+    return;
+  }
+
+  const dd = document.createElement('div');
+  dd.className = 'user-dropdown';
+
+  const btnProfile = document.createElement('button');
+  btnProfile.type = 'button';
+  btnProfile.textContent = 'Connected';
+  btnProfile.disabled = true;
+  btnProfile.style.opacity = '0.9';
+
+  const btnLogout = document.createElement('button');
+  btnLogout.type = 'button';
+  btnLogout.textContent = 'Log out';
+  btnLogout.addEventListener('click', async () => {
+    try{
+      const api = getAuthApi();
+      if(api && typeof api.logout === 'function'){
+        await api.logout();
+      } else {
+        localStorage.removeItem('ta_session_v1');
+        window.dispatchEvent(new Event('ta:auth-changed'));
+      }
+    } catch(err){
+      console.warn('logout failed', err);
+    }
+    dd.remove();
+    renderAuthBox();
+    applyAuthGate();
+  });
+
+  dd.appendChild(btnProfile);
+  dd.appendChild(btnLogout);
+  anchor.parentElement.appendChild(dd);
+
+  setTimeout(() => {
+    const onDoc = (ev) => {
+      if(!anchor.parentElement.contains(ev.target)){
+        const d = document.querySelector('.user-dropdown');
+        if(d) d.remove();
+        document.removeEventListener('click', onDoc);
+      }
+    };
+    document.addEventListener('click', onDoc);
+  }, 10);
 }
 
 /* ---------------------------
   fetch helpers
 ---------------------------- */
-async function fetchJson(path){ try{ const r = await fetch(path, {cache:'no-cache'}); if(!r.ok) return null; return await r.json(); } catch(e){ return null; } }
+async function fetchJson(path){
+  try{
+    const r = await fetch(path, { cache:'no-cache' });
+    if(!r.ok) return null;
+    return await r.json();
+  } catch(e){
+    return null;
+  }
+}
 
 /* ---------------------------
   players + geocodes
 ---------------------------- */
-async function loadPlayersCatalog(){ const j = await fetchJson(PLAYERS_CATALOG_JSON); if(!j || !Array.isArray(j.players)) return false; playersCatalog = j.players.map(p => Object.assign({}, p)); return true; }
-async function loadGeocodes(){ const j = await fetchJson(GEOCODES_JSON); if(!j){ geocodes = {}; return false; } geocodes = j.geocode || j; return true; }
+async function loadPlayersCatalog(){
+  const j = await fetchJson(PLAYERS_CATALOG_JSON);
+  if(!j || !Array.isArray(j.players)) return false;
+  playersCatalog = j.players.map(p => Object.assign({}, p));
+  return true;
+}
+
+async function loadGeocodes(){
+  const j = await fetchJson(GEOCODES_JSON);
+  if(!j){
+    geocodes = {};
+    return false;
+  }
+  geocodes = j.geocode || j;
+  return true;
+}
 
 /* ---------------------------
   suggestions (autocomplete)
-  blocked while guessInput.disabled (so disabled until check finishes)
 ---------------------------- */
-const guessInput = document.getElementById('guessInput');
-const suggestionsList = document.getElementById('suggestionsList');
-let suggestionPool = [], suggestionIndex = -1;
+let suggestionPool = [];
+let suggestionIndex = -1;
 
 function updateSuggestions(){
-  if(guessInput.disabled) return; // blocked until check completes
-  const q = (guessInput.value||'').trim().toLowerCase();
-  if(q.length < 2){ suggestionsList.style.display='none'; suggestionPool=[]; return; }
-  let pool = playersCatalog.filter(p => p.full_name && p.full_name.toLowerCase().includes(q) && (String(p.source||'').toUpperCase() === currentTour));
-  if(pool.length === 0) pool = playersCatalog.filter(p => p.full_name && p.full_name.toLowerCase().includes(q));
-  pool = pool.filter(p => !guessedNames.has((p.full_name||'').trim())).slice(0,60);
-  suggestionPool = pool; renderSuggestions(pool);
+  if(guessInput.disabled) return;
+
+  const q = (guessInput.value || '').trim().toLowerCase();
+  if(q.length < 2){
+    suggestionsList.style.display = 'none';
+    suggestionPool = [];
+    return;
+  }
+
+  let pool = playersCatalog.filter(p =>
+    p.full_name &&
+    p.full_name.toLowerCase().includes(q) &&
+    (String(p.source || '').toUpperCase() === currentTour)
+  );
+
+  if(pool.length === 0){
+    pool = playersCatalog.filter(p =>
+      p.full_name &&
+      p.full_name.toLowerCase().includes(q)
+    );
+  }
+
+  pool = pool
+    .filter(p => !guessedNames.has((p.full_name || '').trim()))
+    .slice(0, 60);
+
+  suggestionPool = pool;
+  renderSuggestions(pool);
 }
+
 function renderSuggestions(list){
-  suggestionsList.innerHTML=''; suggestionIndex=-1;
-  if(!list || !list.length){ suggestionsList.style.display='none'; return; }
+  suggestionsList.innerHTML = '';
+  suggestionIndex = -1;
+
+  if(!list || !list.length){
+    suggestionsList.style.display = 'none';
+    return;
+  }
+
   const max = Math.min(12, list.length);
-  for(let i=0;i<max;i++){
+  for(let i = 0; i < max; i++){
     const pl = list[i];
     const li = document.createElement('li');
     li.textContent = pl.full_name;
     li.dataset.idx = i;
-    li.onclick = () => { guessInput.value = pl.full_name; suggestionsList.style.display='none'; handleGuessSubmission(pl.full_name); };
-    li.onmouseover = () => { Array.from(suggestionsList.children).forEach(n=>n.classList.remove('highlight')); li.classList.add('highlight'); suggestionIndex=i; };
+
+    li.onclick = () => {
+      guessInput.value = pl.full_name;
+      suggestionsList.style.display = 'none';
+      handleGuessSubmission(pl.full_name);
+    };
+
+    li.onmouseover = () => {
+      Array.from(suggestionsList.children).forEach(n => n.classList.remove('highlight'));
+      li.classList.add('highlight');
+      suggestionIndex = i;
+    };
+
     suggestionsList.appendChild(li);
   }
+
   suggestionsList.style.display = 'block';
 }
-guessInput.addEventListener('input', updateSuggestions);
-guessInput.addEventListener('focus', updateSuggestions);
-document.addEventListener('click', (e)=>{ if(!document.querySelector('.suggestions')?.contains(e.target)) suggestionsList.style.display='none'; });
-guessInput.addEventListener('keydown', (e) => {
-  if(suggestionsList.style.display==='block'){
-    const items = suggestionsList.children;
-    if(e.key === 'ArrowDown'){ e.preventDefault(); suggestionIndex = Math.min(suggestionIndex+1, items.length-1); highlightSuggestion(); }
-    else if(e.key === 'ArrowUp'){ e.preventDefault(); suggestionIndex = Math.max(suggestionIndex-1,0); highlightSuggestion(); }
-    else if(e.key === 'Enter'){ if(suggestionIndex >= 0 && suggestionPool[suggestionIndex]){ e.preventDefault(); const sel = suggestionPool[suggestionIndex]; guessInput.value = sel.full_name; suggestionsList.style.display='none'; handleGuessSubmission(sel.full_name); } }
+
+function highlightSuggestion(){
+  const items = suggestionsList.children;
+  for(let i = 0; i < items.length; i++){
+    items[i].classList.toggle('highlight', i === suggestionIndex);
   }
-});
-function highlightSuggestion(){ const items = suggestionsList.children; for(let i=0;i<items.length;i++) items[i].classList.toggle('highlight', i===suggestionIndex); }
+}
 
 /* ---------------------------
   find player by name
@@ -301,12 +800,19 @@ function highlightSuggestion(){ const items = suggestionsList.children; for(let 
 function findPlayerByName(name){
   if(!name) return null;
   const q = norm(name.trim());
-  let p = playersCatalog.find(x => x.player_id && String(x.player_id).toLowerCase() === name.trim().toLowerCase());
+
+  let p = playersCatalog.find(x =>
+    x.player_id &&
+    String(x.player_id).toLowerCase() === name.trim().toLowerCase()
+  );
   if(p) return p;
+
   p = playersCatalog.find(x => x.full_name && norm(x.full_name) === q);
   if(p) return p;
+
   p = playersCatalog.find(x => x.full_name && norm(x.full_name).startsWith(q));
   if(p) return p;
+
   p = playersCatalog.find(x => x.full_name && norm(x.full_name).includes(q));
   return p || null;
 }
@@ -317,40 +823,89 @@ function findPlayerByName(name){
 async function loadPerPlayerH2H(playerId){
   if(!playerId) return null;
   if(h2hByPlayerCache[playerId]) return h2hByPlayerCache[playerId];
+
   const path = `${H2H_BY_PLAYER_BASE}${encodeURIComponent(playerId)}.json`;
   const j = await fetchJson(path);
   if(!j) return null;
-  h2hByPlayerCache[playerId] = j; return j;
+
+  h2hByPlayerCache[playerId] = j;
+  return j;
 }
+
 function composeH2H(playerAId, playerBId){
   if(!playerAId || !playerBId) return null;
-  const aId = String(playerAId), bId = String(playerBId);
+
+  const aId = String(playerAId);
+  const bId = String(playerBId);
   const cacheKey = `${aId}_${bId}`;
+
   if(composedH2HCache[cacheKey]) return composedH2HCache[cacheKey];
 
   const A = h2hByPlayerCache[aId] || null;
   const B = h2hByPlayerCache[bId] || null;
+
   if(!A && !B){
-    const empty = { meta:{total_matches:0}, playerA:{id:aId}, playerB:{id:bId}, matches:[], aggregates:{A_wins:0,B_wins:0} };
-    composedH2HCache[cacheKey] = empty; return empty;
+    const empty = {
+      meta:{ total_matches:0 },
+      playerA:{ id:aId },
+      playerB:{ id:bId },
+      matches:[],
+      aggregates:{ A_wins:0, B_wins:0 }
+    };
+    composedH2HCache[cacheKey] = empty;
+    return empty;
   }
 
   const collected = [];
-  if(A && Array.isArray(A.matches)){ for(const m of A.matches) if(String(m.opponent_id) === bId) collected.push(Object.assign({}, m)); }
-  if(B && Array.isArray(B.matches)){ for(const m of B.matches) if(String(m.opponent_id) === aId) collected.push(Object.assign({}, m)); }
-  if(collected.length === 0){
-    const empty = { meta:{total_matches:0}, playerA:{id:aId}, playerB:{id:bId}, matches:[], aggregates:{A_wins:0,B_wins:0} };
-    composedH2HCache[cacheKey] = empty; return empty;
+
+  if(A && Array.isArray(A.matches)){
+    for(const m of A.matches){
+      if(String(m.opponent_id) === bId) collected.push(Object.assign({}, m));
+    }
   }
 
-  const seen = new Set(); const normalized = []; let A_wins=0,B_wins=0;
+  if(B && Array.isArray(B.matches)){
+    for(const m of B.matches){
+      if(String(m.opponent_id) === aId) collected.push(Object.assign({}, m));
+    }
+  }
+
+  if(collected.length === 0){
+    const empty = {
+      meta:{ total_matches:0 },
+      playerA:{ id:aId },
+      playerB:{ id:bId },
+      matches:[],
+      aggregates:{ A_wins:0, B_wins:0 }
+    };
+    composedH2HCache[cacheKey] = empty;
+    return empty;
+  }
+
+  const seen = new Set();
+  const normalized = [];
+  let A_wins = 0;
+  let B_wins = 0;
+
   for(const m of collected){
-    const mid = m.match_id || (m.event_id ? (m.event_id + '|' + (m.match_date||'')) : JSON.stringify([m.match_date,m.score,m.opponent_id]));
-    if(seen.has(mid)) continue; seen.add(mid);
+    const mid = m.match_id || (
+      m.event_id
+        ? (m.event_id + '|' + (m.match_date || ''))
+        : JSON.stringify([m.match_date, m.score, m.opponent_id])
+    );
+
+    if(seen.has(mid)) continue;
+    seen.add(mid);
+
     let winnerId = null;
     if(m.player_id_winner) winnerId = String(m.player_id_winner);
-    else if(typeof m.is_winner !== 'undefined'){ winnerId = m.is_winner ? String(aId) : String(bId); }
-    if(winnerId === aId) A_wins++; else if(winnerId === bId) B_wins++;
+    else if(typeof m.is_winner !== 'undefined'){
+      winnerId = m.is_winner ? String(aId) : String(bId);
+    }
+
+    if(winnerId === aId) A_wins++;
+    else if(winnerId === bId) B_wins++;
+
     normalized.push({
       match_id: m.match_id || mid,
       event_id: m.event_id || '',
@@ -364,187 +919,219 @@ function composeH2H(playerAId, playerBId){
       opponent_id: m.opponent_id || null
     });
   }
-  const h2h = { meta:{total_matches:normalized.length}, playerA:{id:aId}, playerB:{id:bId}, matches: normalized.sort((x,y)=>(String(y.event_year||'').localeCompare(String(x.event_year||'')) || (x.match_date||'').localeCompare(y.match_date||''))), aggregates:{A_wins,B_wins} };
-  composedH2HCache[cacheKey] = h2h; return h2h;
+
+  const h2h = {
+    meta:{ total_matches:normalized.length },
+    playerA:{ id:aId },
+    playerB:{ id:bId },
+    matches: normalized.sort((x, y) => (
+      String(y.event_year || '').localeCompare(String(x.event_year || '')) ||
+      (x.match_date || '').localeCompare(y.match_date || '')
+    )),
+    aggregates:{ A_wins, B_wins }
+  };
+
+  composedH2HCache[cacheKey] = h2h;
+  return h2h;
 }
 
 /* ---------------------------
   UI rendering helpers for H2H (easy/medium/hard)
 ---------------------------- */
 function ensureOutputSkeleton(){
-  const out = document.getElementById('h2hOutput'); out.innerHTML = '';
+  const out = document.getElementById('h2hOutput');
+  out.innerHTML = '';
+
   if(currentLevel === 'hard'){
-    const tbl = document.createElement('table'); tbl.id = 'h2hTableHard';
-    tbl.innerHTML = '<thead><tr><th>Guessed Name</th><th style="text-align:center">H2H (guess - target)</th></tr><tbody></tbody>';
+    const tbl = document.createElement('table');
+    tbl.id = 'h2hTableHard';
+    tbl.innerHTML = '<thead><tr><th>Guessed Name</th><th style="text-align:center">H2H (guess - target)</th></tr></thead><tbody></tbody>';
     out.appendChild(tbl);
   } else if(currentLevel === 'medium'){
-    const tbl = document.createElement('table'); tbl.id = 'h2hTableMedium';
-    tbl.innerHTML = '<thead><tr><th>Guessed Name</th><th>Clay</th><th>Grass</th><th>Hard</th><th>Carpet</th><th>Other</th></tr><tbody></tbody>';
+    const tbl = document.createElement('table');
+    tbl.id = 'h2hTableMedium';
+    tbl.innerHTML = '<thead><tr><th>Guessed Name</th><th>Clay</th><th>Grass</th><th>Hard</th><th>Carpet</th><th>Other</th></tr></thead><tbody></tbody>';
     out.appendChild(tbl);
   } else {
-    const tbl = document.createElement('table'); tbl.id = 'h2hTableEasy';
-    tbl.innerHTML = '<thead><tr><th>Guessed Name</th><th>Recent matches</th></tr><tbody></tbody>';
+    const tbl = document.createElement('table');
+    tbl.id = 'h2hTableEasy';
+    tbl.innerHTML = '<thead><tr><th>Guessed Name</th><th>Recent matches</th></tr></thead><tbody></tbody>';
     out.appendChild(tbl);
   }
 }
+
 function computeSurfaceCounts(h2h){
-  const map = {}; if(!h2h || !Array.isArray(h2h.matches)) return map;
-  for(const m of h2h.matches){ const s = m.surface || 'Other'; map[s] = map[s] || {A:0,B:0,total:0}; const winner = String(m.player_id_winner || ''); if(winner === String(h2h.playerA.id)) map[s].A++; else if(winner === String(h2h.playerB.id)) map[s].B++; map[s].total++; }
+  const map = {};
+  if(!h2h || !Array.isArray(h2h.matches)) return map;
+
+  for(const m of h2h.matches){
+    const s = m.surface || 'Other';
+    map[s] = map[s] || { A:0, B:0, total:0 };
+    const winner = String(m.player_id_winner || '');
+
+    if(winner === String(h2h.playerA.id)) map[s].A++;
+    else if(winner === String(h2h.playerB.id)) map[s].B++;
+    map[s].total++;
+  }
+
   return map;
 }
+
 function buildMatchLinesEasy(h2h, guessedPlayerId, guessedPlayerName){
   if(!h2h || !Array.isArray(h2h.matches) || h2h.matches.length === 0) return ['No matches'];
+
   const lines = [];
-  for(const m of h2h.matches.slice(0,6)){ const year = m.event_year || ''; const tournament = m.tourney_name || m.event_id || ''; const round = m.round || ''; const score = m.score_string || ''; const winner = String(m.player_id_winner || ''); const label = (winner === String(guessedPlayerId)) ? (escapeHtml(guessedPlayerName) || 'Guessed') : 'Target'; lines.push(`${escapeHtml(year)} — ${escapeHtml(tournament)} — ${escapeHtml(round)} — ${escapeHtml(score)} — Winner: ${label}`); }
+  for(const m of h2h.matches.slice(0, 6)){
+    const year = m.event_year || '';
+    const tournament = m.tourney_name || m.event_id || '';
+    const round = m.round || '';
+    const score = m.score_string || '';
+    const winner = String(m.player_id_winner || '');
+    const label = (winner === String(guessedPlayerId))
+      ? (escapeHtml(guessedPlayerName) || 'Guessed')
+      : 'Target';
+
+    lines.push(`${escapeHtml(year)} — ${escapeHtml(tournament)} — ${escapeHtml(round)} — ${escapeHtml(score)} — Winner: ${label}`);
+  }
   return lines;
 }
+
 function updateTablesWithGuess(guess, h2h){
-  const out = document.getElementById('h2hOutput'); if(!out.querySelector('table')) ensureOutputSkeleton();
+  const out = document.getElementById('h2hOutput');
+  if(!out.querySelector('table')) ensureOutputSkeleton();
+
   if(currentLevel === 'hard'){
-    const tbody = document.querySelector('#h2hTableHard tbody'); const tr = document.createElement('tr'); const tdName = document.createElement('td'); tdName.textContent = guess.full_name || ''; const tdH2H = document.createElement('td'); const A = (h2h && h2h.aggregates && typeof h2h.aggregates.A_wins !== 'undefined') ? h2h.aggregates.A_wins : 0; const B = (h2h && h2h.aggregates && typeof h2h.aggregates.B_wins !== 'undefined') ? h2h.aggregates.B_wins : 0; tdH2H.innerHTML = `<div style="font-weight:700;text-align:center">${B} - ${A}</div>`; tr.appendChild(tdName); tr.appendChild(tdH2H); tbody.prepend(tr);
+    const tbody = document.querySelector('#h2hTableHard tbody');
+    const tr = document.createElement('tr');
+
+    const tdName = document.createElement('td');
+    tdName.textContent = guess.full_name || '';
+
+    const tdH2H = document.createElement('td');
+    const A = (h2h && h2h.aggregates && typeof h2h.aggregates.A_wins !== 'undefined') ? h2h.aggregates.A_wins : 0;
+    const B = (h2h && h2h.aggregates && typeof h2h.aggregates.B_wins !== 'undefined') ? h2h.aggregates.B_wins : 0;
+    tdH2H.innerHTML = `<div style="font-weight:700;text-align:center">${B} - ${A}</div>`;
+
+    tr.appendChild(tdName);
+    tr.appendChild(tdH2H);
+    tbody.prepend(tr);
+
   } else if(currentLevel === 'medium'){
-    const tbody = document.querySelector('#h2hTableMedium tbody'); const tr = document.createElement('tr'); const tdName = document.createElement('td'); tdName.textContent = guess.full_name || ''; tr.appendChild(tdName); const counts = computeSurfaceCounts(h2h); const order = ['Clay','Grass','Hard','Carpet']; for(const s of order){ const c = counts[s] || {A:0,B:0,total:0}; const td = document.createElement('td'); td.innerHTML = `${c.B} - ${c.A} (${c.total})`; tr.appendChild(td); } const other = Object.keys(counts).filter(k => !order.includes(k)).reduce((acc,k)=>{ acc.A+=counts[k].A; acc.B+=counts[k].B; acc.total+=counts[k].total; return acc; }, {A:0,B:0,total:0}); const tdOther = document.createElement('td'); tdOther.innerHTML = `${other.B} - ${other.A} (${other.total})`; tr.appendChild(tdOther); tbody.prepend(tr);
+    const tbody = document.querySelector('#h2hTableMedium tbody');
+    const tr = document.createElement('tr');
+
+    const tdName = document.createElement('td');
+    tdName.textContent = guess.full_name || '';
+    tr.appendChild(tdName);
+
+    const counts = computeSurfaceCounts(h2h);
+    const order = ['Clay','Grass','Hard','Carpet'];
+
+    for(const s of order){
+      const c = counts[s] || { A:0, B:0, total:0 };
+      const td = document.createElement('td');
+      td.innerHTML = `${c.B} - ${c.A} (${c.total})`;
+      tr.appendChild(td);
+    }
+
+    const other = Object.keys(counts)
+      .filter(k => !order.includes(k))
+      .reduce((acc, k) => {
+        acc.A += counts[k].A;
+        acc.B += counts[k].B;
+        acc.total += counts[k].total;
+        return acc;
+      }, { A:0, B:0, total:0 });
+
+    const tdOther = document.createElement('td');
+    tdOther.innerHTML = `${other.B} - ${other.A} (${other.total})`;
+    tr.appendChild(tdOther);
+
+    tbody.prepend(tr);
+
   } else {
-    const tbody = document.querySelector('#h2hTableEasy tbody'); const tr = document.createElement('tr'); const tdName = document.createElement('td'); tdName.textContent = guess.full_name || ''; const tdMatches = document.createElement('td'); const pid = guess.player_id || guess.playerId || ''; const lines = buildMatchLinesEasy(h2h, pid, guess.full_name || ''); tdMatches.innerHTML = lines.map(l => `<div style="margin-bottom:6px">${escapeHtml(l)}</div>`).join(''); tr.appendChild(tdName); tr.appendChild(tdMatches); tbody.prepend(tr);
+    const tbody = document.querySelector('#h2hTableEasy tbody');
+    const tr = document.createElement('tr');
+
+    const tdName = document.createElement('td');
+    tdName.textContent = guess.full_name || '';
+
+    const tdMatches = document.createElement('td');
+    const pid = guess.player_id || guess.playerId || '';
+    const lines = buildMatchLinesEasy(h2h, pid, guess.full_name || '');
+    tdMatches.innerHTML = lines.map(l => `<div style="margin-bottom:6px">${escapeHtml(l)}</div>`).join('');
+
+    tr.appendChild(tdName);
+    tr.appendChild(tdMatches);
+    tbody.prepend(tr);
   }
 }
 
 /* ---------------------------
   guesses table helpers
 ---------------------------- */
-function clearGuessesTable(){ document.querySelector('#guessesTable tbody').innerHTML = ''; }
-function appendGuessRowSimple(guess){ const tbody = document.querySelector('#guessesTable tbody'); const tr = document.createElement('tr'); const idx = guesses.length; const tdIndex = document.createElement('td'); tdIndex.textContent = idx; const tdName = document.createElement('td'); tdName.textContent = guess.full_name || ''; tr.appendChild(tdIndex); tr.appendChild(tdName); tbody.prepend(tr); }
+function clearGuessesTable(){
+  document.querySelector('#guessesTable tbody').innerHTML = '';
+}
+
+function appendGuessRowSimple(guess){
+  const tbody = document.querySelector('#guessesTable tbody');
+  const tr = document.createElement('tr');
+
+  const idx = guesses.length;
+  const tdIndex = document.createElement('td');
+  tdIndex.textContent = idx;
+
+  const tdName = document.createElement('td');
+  tdName.textContent = guess.full_name || '';
+
+  tr.appendChild(tdIndex);
+  tr.appendChild(tdName);
+  tbody.prepend(tr);
+}
 
 /* ---------------------------
-  Local user helpers (session)
+  Auth gating
 ---------------------------- */
-/* ---------------------------
-  Local user helpers (session)
-  -> Prefer window.LEADERBOARD.getLocalUser() if available,
-     fallback to lb_user_v1 or legacy LB_LOCAL_USER_KEY.
-----------------------------*/
-function getLocalUserFromLibOrStorage(){
-  try {
-    if (window.LEADERBOARD && typeof window.LEADERBOARD.getLocalUser === 'function') {
-      const u = window.LEADERBOARD.getLocalUser();
-      if (u && u.pseudo) {
-        return {
-          pseudo: u.pseudo,
-          user_id: u.id || u.user_id || null,
-          id: u.id || u.user_id || null
-        };
-      }
-    }
-  } catch(e){ /* ignore */ }
+function applyAuthGate(){
+  const session = getSession();
+  const connected = !!(session && session.pseudo);
 
-  // fallback to storage keys (support both new key and legacy key)
-  try {
-    const raw = localStorage.getItem('lb_user_v1') || localStorage.getItem(LB_LOCAL_USER_KEY) || null;
-    if (!raw) return null;
-    const o = JSON.parse(raw);
-    return {
-      pseudo: o.pseudo || o.username || '',
-      user_id: o.id || o.user_id || null,
-      id: o.id || o.user_id || null
-    };
-  } catch(e) { return null; }
-}
+  renderAuthBox();
 
-/* ---------------------------
-  Render top-right box (connected / not connected)
-  and dropdown toggles
-  -> Modified to use .chip (visual parity with first game) while keeping behaviors
-----------------------------*/
-function renderLbBox(){
-  const placeholder = document.getElementById('lbBoxPlaceholder');
-  placeholder.innerHTML = '';
-  const u = getLocalUserFromLibOrStorage();
-  if(u && u.pseudo){
-    // connected -> show chip-like user element
-    const box = document.createElement('div'); box.className = 'chip user-chip'; box.id = 'userChip';
-    const avatar = document.createElement('div'); avatar.className='lb-avatar'; avatar.textContent = (u.pseudo.split(/\s+/).map(x=>x[0]).slice(0,2).join('').toUpperCase() || '??');
-    const name = document.createElement('div'); name.className='lb-name'; name.textContent = u.pseudo;
-    box.appendChild(avatar); box.appendChild(name);
-    box.onclick = (e)=>{ e.stopPropagation(); toggleUserDropdown(box); };
-    placeholder.appendChild(box);
-  } else {
-    // not connected -> show "Connect" chip
-    const btn = document.createElement('div'); btn.className='chip user-chip'; btn.id='connectChip';
-    btn.textContent='Connect';
-    btn.onclick = (e)=>{ e.stopPropagation(); toggleConnectDropdown(btn); };
-    placeholder.appendChild(btn);
+  if(!connected){
+    gameBlockedDueToExisting = false;
+    gameStarted = false;
+    setGuessEnabled(false);
+    preloadStatusEl.textContent = 'Connectez-vous via Tennis Arena pour jouer.';
+    suggestionsList.style.display = 'none';
+    return false;
   }
+
+  return true;
 }
 
-// Dropdown for connected user: Log out
-function toggleUserDropdown(anchor){
-  const existing = document.querySelector('.user-dropdown');
-  if(existing){ existing.remove(); return; }
-  const dd = document.createElement('div'); dd.className='user-dropdown';
-  const btnLogout = document.createElement('button'); btnLogout.type='button'; btnLogout.textContent='Log out';
-  btnLogout.onclick = async ()=> {
-  try {
-    // try to call leaderboard library logout if available
-    if (window.LEADERBOARD && typeof window.LEADERBOARD.logout === 'function') {
-      await window.LEADERBOARD.logout();
-    }
-  } catch(e){ console.warn('LEADERBOARD.logout failed', e); }
-
-  // remove minimal session stored by our flow and notify
-  try { localStorage.removeItem('lb_user_v1'); } catch(e){}
-  try { window.dispatchEvent(new Event('lb:auth-changed')); } catch(e){}
-
-  dd.remove();
-  renderLbBox(); if (typeof updateLBStatusUI === 'function') updateLBStatusUI();
-  setTimeout(()=> ensureModeCheckedAndStart(), 400);
-};
-  dd.appendChild(btnLogout);
-  anchor.parentElement.appendChild(dd);
-  // close on outside click
-  setTimeout(()=> {
-    const onDoc = (ev)=>{ if(!anchor.parentElement.contains(ev.target)){ const d=document.querySelector('.user-dropdown'); if(d) d.remove(); document.removeEventListener('click', onDoc); } };
-    document.addEventListener('click', onDoc);
-  }, 10);
-}
-
-// Dropdown for Connect: Log In / Sign Up
-function toggleConnectDropdown(anchor){
-  const existing = document.querySelector('.user-dropdown');
-  if(existing){ existing.remove(); return; }
-  const dd = document.createElement('div'); dd.className='user-dropdown';
-  const btnLogin = document.createElement('button'); btnLogin.type='button'; btnLogin.textContent='Log in';
-  btnLogin.onclick = ()=>{ openLBModalAndTab('login'); dd.remove(); };
-  const btnSignup = document.createElement('button'); btnSignup.type='button'; btnSignup.textContent='Sign up';
-  btnSignup.onclick = ()=>{ openLBModalAndTab('signup'); dd.remove(); };
-  dd.appendChild(btnLogin); dd.appendChild(btnSignup);
-  anchor.parentElement.appendChild(dd);
-  setTimeout(()=> {
-    const onDoc = (ev)=>{ if(!anchor.parentElement.contains(ev.target)){ const d=document.querySelector('.user-dropdown'); if(d) d.remove(); document.removeEventListener('click', onDoc); } };
-    document.addEventListener('click', onDoc);
-  }, 10);
-}
-function openLBModalAndTab(tab){
-  const m = document.getElementById('lbModal'); m.classList.add('show'); m.setAttribute('aria-hidden','false');
-  if(tab === 'signup'){ document.getElementById('tabSignup').classList.add('active'); document.getElementById('tabLogin').classList.remove('active'); document.getElementById('lbModalMsg').textContent='Sign up creates an account on the server (password required).'; }
-  else { document.getElementById('tabLogin').classList.add('active'); document.getElementById('tabSignup').classList.remove('active'); document.getElementById('lbModalMsg').textContent='Log in with your account (password required).'; }
-  const stored = (function(){ try{const s=localStorage.getItem(LB_LOCAL_USER_KEY); return s?JSON.parse(s):null;}catch(e){return null;} })();
-  if(stored && stored.pseudo) document.getElementById('lbModalPseudo').value = stored.pseudo; else document.getElementById('lbModalPseudo').value = '';
-  document.getElementById('lbModalPassword').value = '';
-  setTimeout(()=> document.getElementById('lbModalPseudo').focus(), 80);
+function checkAuthThenStart(){
+  if(!applyAuthGate()) return;
+  if(!assetsReady) return;
+  ensureModeCheckedAndStart();
 }
 
 /* ---------------------------
   Check whether user played today (mode-based)
-----------------------------*/
+---------------------------- */
 async function checkUserPlayedToday(mode){
-  let localUser = getLocalUserFromLibOrStorage();
-  if(!localUser) return { exists:false };
-  const userId = localUser.user_id || localUser.id || null;
-  const pseudo = localUser.pseudo || null;
+  const session = getSession();
+  if(!session) return { exists:false, requiresAuth:true };
+
+  const userId = session.id || session.user_id || null;
+  const pseudo = session.pseudo || null;
   const dateStr = new Date().toISOString().slice(0,10);
+
   let qs = `?game_id=${encodeURIComponent(GAME_ID)}&date=${encodeURIComponent(dateStr)}&check_existing=1&mode=${encodeURIComponent(mode)}`;
   if(userId) qs += `&user_id=${encodeURIComponent(userId)}`;
   if(pseudo) qs += `&pseudo=${encodeURIComponent(pseudo)}`;
+
   try {
     const res = await fetch(`/.netlify/functions/leaderboard${qs}`, { credentials: 'same-origin' });
     if(!res.ok) return { exists:false };
@@ -559,12 +1146,11 @@ async function checkUserPlayedToday(mode){
 
 /* ---------------------------
   showAlreadyPlayedModal
-----------------------------*/
+---------------------------- */
 function showAlreadyPlayedModal(check, mode){
   gameBlockedDueToExisting = true;
   gameStarted = false;
-  guessInput.disabled = true;
-  document.getElementById('guessBtn').disabled = true;
+  setGuessEnabled(false);
   suggestionsList.style.display = 'none';
 
   const modal = document.getElementById('modal');
@@ -584,61 +1170,91 @@ function showAlreadyPlayedModal(check, mode){
     infoHtml += `<div>No details available.</div>`;
   }
   infoHtml += `</div>`;
+
   details.innerHTML = infoHtml;
   modal.classList.add('show');
   modal.setAttribute('aria-hidden','false');
-  document.getElementById('closeModalBtn').onclick = function(){ modal.classList.remove('show'); modal.setAttribute('aria-hidden','true'); };
+
+  document.getElementById('closeModalBtn').onclick = function(){
+    modal.classList.remove('show');
+    modal.setAttribute('aria-hidden','true');
+  };
 }
 
 /* ---------------------------
-  Start game (no pre-check here)
-----------------------------*/
+  Start game
+---------------------------- */
 function startRound(){
-  gameBlockedDueToExisting = false;
-  remaining = 15; guesses = []; guessedNames.clear();
-  document.getElementById('remaining').textContent = remaining;
-  document.getElementById('score').textContent = score;
-  document.getElementById('levelLabel').textContent = currentLevel.charAt(0).toUpperCase() + currentLevel.slice(1);
-  document.getElementById('tourLabel').textContent = currentTour;
-  clearGuessesTable();
+  if(!isConnected()){
+    applyAuthGate();
+    return;
+  }
 
-  // pick target
+  gameBlockedDueToExisting = false;
+  remaining = 15;
+  guesses = [];
+  guessedNames.clear();
+
+  remainingEl.textContent = remaining;
+  scoreEl.textContent = score;
+  levelLabelEl.textContent = currentLevel.charAt(0).toUpperCase() + currentLevel.slice(1);
+  tourLabelEl.textContent = currentTour;
+  clearGuessesTable();
+  setGuessEnabled(true);
+
   let picked = null;
+
   if(selectedPlayers){
     const poolKey1 = currentTour.toLowerCase();
     const arr = selectedPlayers[poolKey1] || selectedPlayers[currentTour] || selectedPlayers[poolKey1.toUpperCase()] || [];
     if(Array.isArray(arr)){
-      picked = arr.find(x => x.level === currentLevel) || arr[Math.floor(Math.random()*arr.length)];
+      picked = arr.find(x => x.level === currentLevel) || arr[Math.floor(Math.random() * arr.length)];
       if(picked && picked.player) picked = picked.player;
     }
   }
+
   if(!picked){
-    const pool = playersCatalog.filter(p => (String(p.source||'').toUpperCase() === currentTour));
-    picked = pool.length ? pool[Math.floor(Math.random()*pool.length)] : (playersCatalog[0] || null);
+    const pool = playersCatalog.filter(p => (String(p.source || '').toUpperCase() === currentTour));
+    picked = pool.length ? pool[Math.floor(Math.random() * pool.length)] : (playersCatalog[0] || null);
   }
-  if(!picked){ showToast('No target available'); return; }
+
+  if(!picked){
+    showToast('No target available');
+    return;
+  }
+
   target = picked;
   gameStarted = true;
-  guessInput.disabled = false;
-  document.getElementById('guessBtn').disabled = false;
 
-  // preload target h2h and some other files
-  const tid = target && (target.player_id || target.playerId || (target.player && target.player.player_id)) ? String(target.player_id || target.playerId || (target.player && target.player.player_id)) : null;
-  (async ()=>{
-    if(tid){ document.getElementById('preloadStatus').textContent = `Loading H2H for target...`; await loadPerPlayerH2H(tid).catch(()=>null); }
+  const tid = target && (
+    target.player_id ||
+    target.playerId ||
+    (target.player && target.player.player_id)
+  )
+    ? String(target.player_id || target.playerId || (target.player && target.player.player_id))
+    : null;
+
+  (async () => {
+    if(tid){
+      preloadStatusEl.textContent = 'Loading H2H for target...';
+      await loadPerPlayerH2H(tid).catch(() => null);
+    }
+
     await loadSelectedPlayerFiles(6);
     ensureOutputSkeleton();
-    document.getElementById('preloadStatus').textContent = `Round started — make up to 15 guesses. Good luck!`;
+    preloadStatusEl.textContent = 'Round started — make up to 15 guesses. Good luck!';
   })();
 }
 
 /* ---------------------------
   Preload selected players helper
-----------------------------*/
+---------------------------- */
 async function loadSelectedPlayerFiles(limit = 6){
   if(!selectedPlayers) return;
+
   const ids = new Set();
-  const keys = Object.keys(selectedPlayers||{});
+  const keys = Object.keys(selectedPlayers || {});
+
   for(const k of keys){
     const arr = selectedPlayers[k];
     if(Array.isArray(arr)){
@@ -650,16 +1266,23 @@ async function loadSelectedPlayerFiles(limit = 6){
     }
     if(ids.size >= limit) break;
   }
-  const toLoad = Array.from(ids).slice(0,limit);
+
+  const toLoad = Array.from(ids).slice(0, limit);
   if(toLoad.length === 0) return;
-  document.getElementById('preloadStatus').textContent = `H2H preload: loading ${toLoad.length} selected-player files...`;
+
+  preloadStatusEl.textContent = `H2H preload: loading ${toLoad.length} selected-player files...`;
+
   let i = 0;
   for(const id of toLoad){
-    await loadPerPlayerH2H(String(id)).catch(()=>null);
-    i++; document.getElementById('preloadStatus').textContent = `H2H preload: ${i}/${toLoad.length} files loaded`;
+    await loadPerPlayerH2H(String(id)).catch(() => null);
+    i++;
+    preloadStatusEl.textContent = `H2H preload: ${i}/${toLoad.length} files loaded`;
   }
-  preloadedCount = toLoad.length; document.getElementById('preloadStatus').textContent = `H2H preload: loaded ${preloadedCount} selected-player files`;
+
+  preloadedCount = toLoad.length;
+  preloadStatusEl.textContent = `H2H preload: loaded ${preloadedCount} selected-player files`;
 }
+
 function extractPossiblePlayerId(item){
   if(!item) return null;
   if(typeof item === 'string' || typeof item === 'number') return String(item);
@@ -672,19 +1295,52 @@ function extractPossiblePlayerId(item){
 
 /* ---------------------------
   Leaderboard helpers (submit/queue/flush)
-  Same robust logic as before (treat duplicates as success)
-----------------------------*/
-function readScoreQueue(){ try { return JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]'); } catch(e){ return []; } }
-function pushScoreQueue(entry){ try { const q = readScoreQueue(); q.push(Object.assign({ts: (new Date()).toISOString()}, entry)); localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q)); console.info('[LB-QUEUE] queued', entry); } catch(e){ console.warn('[LB-QUEUE] push error', e); } }
-function popScoreQueue(){ try { const q = readScoreQueue(); if(!q||q.length===0) return null; q.shift(); localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q)); return true; } catch(e){ console.warn('[LB-QUEUE] pop error', e); return null; } }
+---------------------------- */
+function readScoreQueue(){
+  try{
+    return JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]');
+  } catch(e){
+    return [];
+  }
+}
+
+function pushScoreQueue(entry){
+  try{
+    const q = readScoreQueue();
+    q.push(Object.assign({ ts: (new Date()).toISOString() }, entry));
+    localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q));
+    console.info('[LB-QUEUE] queued', entry);
+  } catch(e){
+    console.warn('[LB-QUEUE] push error', e);
+  }
+}
+
+function popScoreQueue(){
+  try{
+    const q = readScoreQueue();
+    if(!q || q.length === 0) return null;
+    q.shift();
+    localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q));
+    return true;
+  } catch(e){
+    console.warn('[LB-QUEUE] pop error', e);
+    return null;
+  }
+}
 
 function waitForLeaderboard(timeout = 5000, interval = 200){
   return new Promise((resolve) => {
     if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function') return resolve(true);
+
     const start = Date.now();
     const t = setInterval(() => {
-      if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){ clearInterval(t); resolve(true); }
-      else if(Date.now() - start > timeout){ clearInterval(t); resolve(false); }
+      if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+        clearInterval(t);
+        resolve(true);
+      } else if(Date.now() - start > timeout){
+        clearInterval(t);
+        resolve(false);
+      }
     }, interval);
   });
 }
@@ -702,8 +1358,18 @@ async function trySubmitEntryToLB(entry){
       console.info('[LB] calling window.LEADERBOARD.submitScore', { gameId, points, options });
       const res = await window.LEADERBOARD.submitScore(gameId, points, options);
       console.info('[LB] submitScore response', res);
-      if(res && (res.ok === true || res.success === true || res.status === 'ok')){ console.info('[LB] library confirmed success — done.'); return true; }
-      if(res && res.ok === false && res.error && String(res.error).toLowerCase().includes('already_submitted')){ console.warn('[LB] library reports already submitted locally.'); showToast('Score already submitted (duplicate)'); setTimeout(()=> ensureModeCheckedAndStart(), 400); return true; }
+
+      if(res && (res.ok === true || res.success === true || res.status === 'ok')){
+        console.info('[LB] library confirmed success — done.');
+        return true;
+      }
+
+      if(res && res.ok === false && res.error && String(res.error).toLowerCase().includes('already_submitted')){
+        console.warn('[LB] library reports already submitted locally.');
+        showToast('Score already submitted (duplicate)');
+        return true;
+      }
+
       console.warn('[LB] library returned non-success — will try server fallback', res);
     } catch(err){
       console.error('[LB] submitScore threw', err);
@@ -731,20 +1397,30 @@ async function trySubmitEntryToLB(entry){
       body: JSON.stringify(payload)
     });
 
-    const text = await resp.text().catch(()=>null);
-    let parsed = null; try { parsed = text ? JSON.parse(text) : null; } catch(e){ parsed = text; }
+    const text = await resp.text().catch(() => null);
+    let parsed = null;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch(e){
+      parsed = text;
+    }
+
     console.info('[LB-FALLBACK] response status', resp.status, parsed || text);
 
-    if (resp.ok){
+    if(resp.ok){
       console.info('[LB-FALLBACK] success', parsed);
       return true;
     } else {
-      if(resp.status === 409 || (parsed && parsed.detail && (parsed.detail.code === 23505 || String(parsed.detail.code) === '23505')) || (parsed && parsed.error && String(parsed.error).toLowerCase().includes('duplicate'))){
+      if(
+        resp.status === 409 ||
+        (parsed && parsed.detail && (parsed.detail.code === 23505 || String(parsed.detail.code) === '23505')) ||
+        (parsed && parsed.error && String(parsed.error).toLowerCase().includes('duplicate'))
+      ){
         console.warn('[LB-FALLBACK] server indicates duplicate entry for today — dropping queued item and syncing UI.');
         showToast('Score already present (duplicate)');
-        setTimeout(()=> ensureModeCheckedAndStart(), 400);
         return true;
       }
+
       console.warn('[LB-FALLBACK] server returned non-OK', resp.status, parsed || text);
       return false;
     }
@@ -757,29 +1433,56 @@ async function trySubmitEntryToLB(entry){
 async function flushScoreQueue(){
   const queue = readScoreQueue();
   if(!queue || queue.length === 0) return;
+
   const ready = await waitForLeaderboard(5000);
-  if(!ready) { console.info('Leaderboard not ready; will keep queue for later flush'); return; }
-  for(let i=0;i<50;i++){
+  if(!ready){
+    console.info('Leaderboard not ready; will keep queue for later flush');
+    return;
+  }
+
+  for(let i = 0; i < 50; i++){
     const q = readScoreQueue();
     if(!q || q.length === 0) break;
+
     const entry = q[0];
     const ok = await trySubmitEntryToLB(entry);
-    if(ok){ popScoreQueue(); showToast('Score submitted / duplicate handled', 1400); }
-    else { console.warn('Submit failed for queued entry — stop flush now'); break; }
+    if(ok){
+      popScoreQueue();
+      showToast('Score submitted / duplicate handled', 1400);
+    } else {
+      console.warn('Submit failed for queued entry — stop flush now');
+      break;
+    }
   }
 }
 
 async function submitScoreToLeaderboard(points, meta = {}, extra = {}){
-  const localUser = getLocalUserFromLibOrStorage();
-  const displayName = extra.displayName || extra.pseudo || (localUser && localUser.pseudo) || null;
+  const session = getSession();
+  const displayName = extra.displayName || extra.pseudo || getDisplayName(session) || null;
   const modeString = `${currentTour}_h2h_${currentLevel}`;
-  const options = { mode: modeString, meta: JSON.stringify(meta || {}), displayName };
+  const options = {
+    mode: modeString,
+    meta: JSON.stringify(meta || {}),
+    displayName
+  };
+
   const ready = await waitForLeaderboard(3000);
   if(ready){
     const ok = await trySubmitEntryToLB({ gameId: GAME_ID, points, options });
-    if(ok){ console.info('Score submitted (fast path).'); setTimeout(flushScoreQueue, 250); return; } else { console.warn('Fast path submit failed; queueing the score for retry.'); pushScoreQueue({ gameId: GAME_ID, points, options }); showToast('Score queued for retry', 2000); return; }
+    if(ok){
+      console.info('Score submitted (fast path).');
+      setTimeout(flushScoreQueue, 250);
+      return;
+    } else {
+      console.warn('Fast path submit failed; queueing the score for retry.');
+      pushScoreQueue({ gameId: GAME_ID, points, options });
+      showToast('Score queued for retry', 2000);
+      return;
+    }
   } else {
-    pushScoreQueue({ gameId: GAME_ID, points, options }); showToast('Leaderboard unavailable — score queued', 2000); setTimeout(flushScoreQueue, 1000);
+    pushScoreQueue({ gameId: GAME_ID, points, options });
+    showToast('Leaderboard unavailable — score queued', 2000);
+    setTimeout(flushScoreQueue, 1000);
   }
 }
 
@@ -787,341 +1490,356 @@ async function submitScoreToLeaderboard(points, meta = {}, extra = {}){
 (function watchForLeaderboardInit(){
   if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
     setTimeout(flushScoreQueue, 300);
-    setTimeout(()=> ensureModeCheckedAndStart(), 400);
     return;
   }
+
   const poll = setInterval(() => {
     if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
       clearInterval(poll);
       setTimeout(flushScoreQueue, 200);
-      setTimeout(()=> ensureModeCheckedAndStart(), 300);
     }
   }, 250);
 })();
 
 /* ---------------------------
   ensureModeCheckedAndStart
-  - disables input immediately and performs the check
-  - if already played -> show modal and keep blocked
-  - else -> startRound
-  - supports queued re-check requests when toggling modes rapidly
-----------------------------*/
+---------------------------- */
 async function ensureModeCheckedAndStart(){
-  // Always immediately disable input (so user cannot type while check is pending)
-  const mode = `${currentTour}_h2h_${currentLevel}`;
-  document.getElementById('levelLabel').textContent = currentLevel.charAt(0).toUpperCase() + currentLevel.slice(1);
-  document.getElementById('tourLabel').textContent = currentTour;
-  document.getElementById('preloadStatus').textContent = 'Checking if you already played this variant today...';
-
-  gameBlockedDueToExisting = false;
-  gameStarted = false;
-  guessInput.disabled = true;
-  document.getElementById('guessBtn').disabled = true;
-  suggestionsList.style.display = 'none';
-
-  // If a check is already running, schedule a re-check and return (input remains disabled)
-  if(_ensureCheckRunning){
-    _ensureRecheckRequested = true;
-    _ensureRequestedMode = mode;
-    console.info('[ensureModeCheckedAndStart] check already running — recheck scheduled for', mode);
+  if(!assetsReady) return;
+  if(!isConnected()){
+    applyAuthGate();
     return;
   }
 
-  _ensureCheckRunning = true;
+  const mode = `${currentTour}_h2h_${currentLevel}`;
+  levelLabelEl.textContent = currentLevel.charAt(0).toUpperCase() + currentLevel.slice(1);
+  tourLabelEl.textContent = currentTour;
+  preloadStatusEl.textContent = 'Checking if you already played this variant today...';
+
+  gameBlockedDueToExisting = false;
+  gameStarted = false;
+  setGuessEnabled(false);
+  suggestionsList.style.display = 'none';
+
   try {
     const check = await checkUserPlayedToday(mode);
     if(check && check.exists){
       showAlreadyPlayedModal(check, mode);
-      _ensureCheckRunning = false;
-      // If a recheck has been requested during this check, clear flag and run it
-      if(_ensureRecheckRequested){
-        const req = _ensureRequestedMode;
-        _ensureRecheckRequested = false;
-        _ensureRequestedMode = null;
-        console.info('[ensureModeCheckedAndStart] running queued recheck for', req);
-        // tiny delay to avoid tight recursion
-        setTimeout(()=> ensureModeCheckedAndStart(), 50);
-        return;
-      }
       return;
-    } else {
-      startRound();
     }
+
+    startRound();
   } catch(e){
     console.warn('ensureModeCheckedAndStart initial check error', e);
     startRound();
   }
-
-  // short poll to react to late login/leaderboard presence — if found, recheck once
-  const start = Date.now();
-  const maxWait = 8000;
-  let lastSeen = null;
-  const interval = setInterval(async ()=>{
-    try {
-      const localUser = getLocalUserFromLibOrStorage();
-      const lbReady = window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function';
-      const seen = JSON.stringify({ u: localUser ? (localUser.user_id || localUser.pseudo || '') : '', lb:!!lbReady });
-      if(seen !== lastSeen){
-        lastSeen = seen;
-        const check2 = await checkUserPlayedToday(mode);
-        if(check2 && check2.exists){
-          clearInterval(interval);
-          showAlreadyPlayedModal(check2, mode);
-          _ensureCheckRunning = false;
-          // re-run queued request if any
-          if(_ensureRecheckRequested){
-            const req = _ensureRequestedMode;
-            _ensureRecheckRequested = false;
-            _ensureRequestedMode = null;
-            setTimeout(()=> ensureModeCheckedAndStart(), 50);
-          }
-          return;
-        }
-      }
-      if(Date.now() - start > maxWait){ clearInterval(interval); _ensureCheckRunning = false; 
-        // run queued request if any
-        if(_ensureRecheckRequested){
-          const req = _ensureRequestedMode;
-          _ensureRecheckRequested = false;
-          _ensureRequestedMode = null;
-          setTimeout(()=> ensureModeCheckedAndStart(), 50);
-        }
-        return; }
-    } catch(err){ console.warn('Polling check error', err); if(Date.now() - start > maxWait){ clearInterval(interval); _ensureCheckRunning = false; 
-      if(_ensureRecheckRequested){
-        const req = _ensureRequestedMode;
-        _ensureRecheckRequested = false;
-        _ensureRequestedMode = null;
-        setTimeout(()=> ensureModeCheckedAndStart(), 50);
-      }
-      return; } }
-  }, 600);
 }
 
 /* ---------------------------
   revealRound (submit result)
-----------------------------*/
+---------------------------- */
 async function revealRound(won, points){
-  const modal = document.getElementById('modal'); const title=document.getElementById('modalTitle'); const text=document.getElementById('modalText'); const details=document.getElementById('modalDetails');
-  if(won){ title.textContent='You won!'; text.textContent=`You earned ${points} points.`; } else { title.textContent='Round over'; text.textContent='No points this time.'; }
+  const modal = document.getElementById('modal');
+  const title = document.getElementById('modalTitle');
+  const text = document.getElementById('modalText');
+  const details = document.getElementById('modalDetails');
+
+  if(won){
+    title.textContent = 'You won!';
+    text.textContent = `You earned ${points} points.`;
+  } else {
+    title.textContent = 'Round over';
+    text.textContent = 'No points this time.';
+  }
+
   const tname = escapeHtml(target && (target.full_name || (target.player && target.player.full_name)) || '—');
   details.innerHTML = `<div style="font-weight:700">Target: ${tname}</div>`;
-  modal.classList.add('show'); modal.setAttribute('aria-hidden','false'); setTimeout(()=>{ try{ document.getElementById('closeModalBtn').focus(); }catch(e){} }, 40);
-  document.getElementById('closeModalBtn').onclick = ()=>{ try { if(document.activeElement) document.activeElement.blur(); } catch(e){} modal.classList.remove('show'); setTimeout(()=> modal.setAttribute('aria-hidden','true'), 120); };
+
+  modal.classList.add('show');
+  modal.setAttribute('aria-hidden','false');
+
+  setTimeout(() => {
+    try{
+      document.getElementById('closeModalBtn').focus();
+    } catch(e){}
+  }, 40);
+
+  document.getElementById('closeModalBtn').onclick = () => {
+    try {
+      if(document.activeElement) document.activeElement.blur();
+    } catch(e){}
+    modal.classList.remove('show');
+    setTimeout(() => modal.setAttribute('aria-hidden','true'), 120);
+  };
 
   const meta = {
     won: !!won,
     guesses_count: guesses.length,
-    target_id: target && (target.player_id || target.playerId || (target.player && target.player.player_id)) ? String(target.player_id || target.playerId || (target.player && target.player.player_id)) : null,
+    target_id: target && (
+      target.player_id ||
+      target.playerId ||
+      (target.player && target.player.player_id)
+    )
+      ? String(target.player_id || target.playerId || (target.player && target.player.player_id))
+      : null,
     level: currentLevel,
     tour: currentTour
   };
 
-  try { await submitScoreToLeaderboard(points || 0, meta, {}); console.info('[LB] submitScoreToLeaderboard called from revealRound'); } catch(e){ console.error('[LB] submit failed', e); }
+  try{
+    await submitScoreToLeaderboard(points || 0, meta, {});
+    console.info('[LB] submitScoreToLeaderboard called from revealRound');
+  } catch(e){
+    console.error('[LB] submit failed', e);
+  }
 }
 
 /* ---------------------------
   main guess handler
-----------------------------*/
+---------------------------- */
 async function handleGuessSubmission(name){
-  if(!gameStarted){ showToast('Round not started'); return; }
-  if(gameBlockedDueToExisting){ showToast('You have already completed this variant today'); return; }
-  if(remaining <= 0){ showToast('No tries left'); return; }
+  if(!isConnected()){
+    showToast('Connectez-vous via Tennis Arena');
+    return;
+  }
+
+  if(!gameStarted){
+    showToast('Round not started');
+    return;
+  }
+
+  if(gameBlockedDueToExisting){
+    showToast('You have already completed this variant today');
+    return;
+  }
+
+  if(remaining <= 0){
+    showToast('No tries left');
+    return;
+  }
+
   const guess = findPlayerByName(name);
-  if(!guess){ showToast('Name not found in catalog'); return; }
-  guesses.push(guess); guessedNames.add((guess.full_name||'').trim()); appendGuessRowSimple(guess);
-  remaining--; document.getElementById('remaining').textContent = remaining;
+  if(!guess){
+    showToast('Name not found in catalog');
+    return;
+  }
+
+  guesses.push(guess);
+  guessedNames.add((guess.full_name || '').trim());
+  appendGuessRowSimple(guess);
+
+  remaining--;
+  remainingEl.textContent = remaining;
 
   const guessPid = guess.player_id || guess.playerId || null;
-  const targetPid = target && (target.player_id || target.playerId || (target.player && target.player.player_id)) ? String(target.player_id || target.playerId || (target.player && target.player.player_id)) : null;
-  if(guessPid) await loadPerPlayerH2H(String(guessPid)).catch(()=>null);
-  if(targetPid) await loadPerPlayerH2H(String(targetPid)).catch(()=>null);
+  const targetPid = target && (
+    target.player_id ||
+    target.playerId ||
+    (target.player && target.player.player_id)
+  )
+    ? String(target.player_id || target.playerId || (target.player && target.player.player_id))
+    : null;
+
+  if(guessPid) await loadPerPlayerH2H(String(guessPid)).catch(() => null);
+  if(targetPid) await loadPerPlayerH2H(String(targetPid)).catch(() => null);
 
   const h2h = (targetPid && guessPid) ? composeH2H(targetPid, guessPid) : null;
   updateTablesWithGuess(guess, h2h);
 
   const sameId = (guessPid && targetPid && String(guessPid) === String(targetPid));
-  const sameName = (!guessPid && !targetPid && norm(guess.full_name||'') === norm(target.full_name||''));
+  const sameName = (!guessPid && !targetPid && norm(guess.full_name || '') === norm(target.full_name || ''));
+
   if(sameId || sameName){
-    const points = Math.max(10, 100 - (guesses.length-1)*10);
-    score += points; document.getElementById('score').textContent = score;
-    await revealRound(true, points); setTimeout(()=> ensureModeCheckedAndStart(), 900); return;
+    const points = Math.max(10, 100 - (guesses.length - 1) * 10);
+    score += points;
+    scoreEl.textContent = score;
+    await revealRound(true, points);
+    setTimeout(() => ensureModeCheckedAndStart(), 900);
+    return;
   }
 
-  if(remaining <= 0 || guesses.length >= 15){ await revealRound(false, 0); setTimeout(()=> ensureModeCheckedAndStart(), 900); }
+  if(remaining <= 0 || guesses.length >= 15){
+    await revealRound(false, 0);
+    setTimeout(() => ensureModeCheckedAndStart(), 900);
+  }
 }
 
 /* ---------------------------
   Pick / load selected players JSON
-----------------------------*/
-async function loadSelectedPlayers(){ const j = await fetchJson(SELECTED_PLAYERS_JSON); if(!j) return false; selectedPlayers = j; selectedPlayers.atp = selectedPlayers.atp || selectedPlayers.ATP || selectedPlayers.atp || []; selectedPlayers.wta = selectedPlayers.wta || selectedPlayers.WTA || selectedPlayers.wta || []; return true; }
-
-/* ---------------------------
-  LB Modal login/signup server wrappers
-----------------------------*/
-/* ---------------------------
-  Server-side signup (no storing password_hash locally)
-----------------------------*/
-async function signupServer(pseudo, password){
-  if(!pseudo || !password) return { ok:false, error:'missing' };
-  const password_hash = await hashStringSHA256Hex(String(password));
-  try {
-    const resp = await fetch('/.netlify/functions/create-user', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pseudo, password_hash })
-    });
-    const text = await resp.text().catch(()=>null);
-    let parsed = null;
-    try { parsed = text ? JSON.parse(text) : null; } catch(e){ parsed = text; }
-
-    if (resp.ok) {
-      // create-user returns { ok:true, inserted: [...] } (PostgREST style)
-      const insertedRow = parsed && parsed.inserted && Array.isArray(parsed.inserted) && parsed.inserted[0] ? parsed.inserted[0] : null;
-      const userId = insertedRow ? (insertedRow.id ?? insertedRow.ID ?? insertedRow.Id) : null;
-
-      // Save *only* minimal session in key used by leaderboard-client ('lb_user_v1')
-      const session = { id: userId ? String(userId) : '', pseudo: pseudo.trim() };
-      try { localStorage.setItem('lb_user_v1', JSON.stringify(session)); } catch(e){ console.warn('Cannot persist session', e); }
-
-      // notify other modules
-      try { window.dispatchEvent(new Event('lb:auth-changed')); } catch(e){}
-
-      // keep legacy key for compatibility (optional)
-      try { localStorage.removeItem(LB_LOCAL_USER_KEY); } catch(e){}
-
-      renderLbBox(); if (typeof updateLBStatusUI === 'function') updateLBStatusUI();
-      return { ok:true, user: session };
-    } else {
-      return { ok:false, status: resp.status, detail: parsed };
-    }
-  } catch (err) {
-    return { ok:false, error: String(err) };
-  }
+---------------------------- */
+async function loadSelectedPlayers(){
+  const j = await fetchJson(SELECTED_PLAYERS_JSON);
+  if(!j) return false;
+  selectedPlayers = j;
+  selectedPlayers.atp = selectedPlayers.atp || selectedPlayers.ATP || [];
+  selectedPlayers.wta = selectedPlayers.wta || selectedPlayers.WTA || [];
+  return true;
 }
 
-
-
 /* ---------------------------
-  Server-side login (no storing password_hash locally)
-----------------------------*/
-async function loginServer(pseudo, password){
-  if(!pseudo || !password) return { ok:false, error:'missing' };
-  const password_hash = await hashStringSHA256Hex(String(password));
-  try {
-    const resp = await fetch('/.netlify/functions/check_user', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pseudo, password_hash })
-    });
-    const text = await resp.text().catch(()=>null);
-    let parsed = null;
-    try { parsed = text ? JSON.parse(text) : null; } catch(e){ parsed = text; }
+  events / init
+---------------------------- */
+function bindSuggestions(){
+  guessInput.addEventListener('input', updateSuggestions);
+  guessInput.addEventListener('focus', updateSuggestions);
 
-    if (resp.ok) {
-      // check_user returns { ok:true, user: { id, pseudo } }
-      const user = parsed && parsed.user ? parsed.user : null;
-      const session = { id: user ? String(user.id) : '', pseudo: user ? (user.pseudo || pseudo.trim()) : pseudo.trim() };
-
-      // store minimal session only
-      try { localStorage.setItem('lb_user_v1', JSON.stringify(session)); } catch(e){ console.warn('Cannot persist session', e); }
-
-      // notify other modules
-      try { window.dispatchEvent(new Event('lb:auth-changed')); } catch(e){}
-
-      try { localStorage.removeItem(LB_LOCAL_USER_KEY); } catch(e){}
-      renderLbBox(); if (typeof updateLBStatusUI === 'function') updateLBStatusUI();
-      return { ok:true, user: session };
-    } else {
-      return { ok:false, status: resp.status, detail: parsed };
+  document.addEventListener('click', (e) => {
+    if(!document.querySelector('.suggestions')?.contains(e.target)){
+      suggestionsList.style.display = 'none';
     }
-  } catch (err) {
-    return { ok:false, error: String(err) };
-  }
+  });
+
+  guessInput.addEventListener('keydown', (e) => {
+    if(suggestionsList.style.display === 'block'){
+      const items = suggestionsList.children;
+
+      if(e.key === 'ArrowDown'){
+        e.preventDefault();
+        suggestionIndex = Math.min(suggestionIndex + 1, items.length - 1);
+        highlightSuggestion();
+      } else if(e.key === 'ArrowUp'){
+        e.preventDefault();
+        suggestionIndex = Math.max(suggestionIndex - 1, 0);
+        highlightSuggestion();
+      } else if(e.key === 'Enter'){
+        if(suggestionIndex >= 0 && suggestionPool[suggestionIndex]){
+          e.preventDefault();
+          const sel = suggestionPool[suggestionIndex];
+          guessInput.value = sel.full_name;
+          suggestionsList.style.display = 'none';
+          handleGuessSubmission(sel.full_name);
+        }
+      }
+    }
+  });
 }
-/* open/close modal */
-function openLBModal(){ openLBModalAndTab('login'); }
-function closeLBModal(){ const m = document.getElementById('lbModal'); try { if(document.activeElement) document.activeElement.blur(); } catch(e){} m.classList.remove('show'); setTimeout(()=> m.setAttribute('aria-hidden','true'), 120); }
 
-/* wire modal UI buttons */
-document.getElementById('tabLogin').addEventListener('click', (e)=>{ document.getElementById('tabLogin').classList.add('active'); document.getElementById('tabSignup').classList.remove('active'); document.getElementById('lbModalMsg').textContent='Log in with your account (password required).'; });
-document.getElementById('tabSignup').addEventListener('click', (e)=>{ document.getElementById('tabSignup').classList.add('active'); document.getElementById('tabLogin').classList.remove('active'); document.getElementById('lbModalMsg').textContent='Sign up creates an account on the server (password required).'; });
+function bindControls(){
+  document.getElementById('btnATP').addEventListener('click', async () => {
+    if(currentTour !== 'ATP'){
+      currentTour = 'ATP';
+      guessInput.disabled = true;
+      guessBtn.disabled = true;
+      suggestionsList.style.display = 'none';
+      tourLabelEl.textContent = currentTour;
+      document.getElementById('btnATP').classList.add('active','atp');
+      document.getElementById('btnWTA').classList.remove('active','wta');
+      await ensureModeCheckedAndStart();
+    }
+  });
 
-document.getElementById('lbModalCancel').addEventListener('click', closeLBModal);
+  document.getElementById('btnWTA').addEventListener('click', async () => {
+    if(currentTour !== 'WTA'){
+      currentTour = 'WTA';
+      guessInput.disabled = true;
+      guessBtn.disabled = true;
+      suggestionsList.style.display = 'none';
+      tourLabelEl.textContent = currentTour;
+      document.getElementById('btnWTA').classList.add('active','wta');
+      document.getElementById('btnATP').classList.remove('active','atp');
+      await ensureModeCheckedAndStart();
+    }
+  });
 
-document.getElementById('lbModalSubmit').addEventListener('click', async () => {
-  const pseudoRaw = (document.getElementById('lbModalPseudo').value || '');
-  const pseudo = pseudoRaw.trim();
-  const password = (document.getElementById('lbModalPassword').value || '');
-  const isSignup = document.getElementById('tabSignup').classList.contains('active');
-  const msgEl = document.getElementById('lbModalMsg');
-  msgEl.textContent = '';
-  if (!pseudo) { msgEl.textContent = 'Display name is required.'; return; }
-  if (!password) { msgEl.textContent = 'Password is required.'; return; }
-  if (isSignup) {
-    msgEl.textContent = 'Creating account…';
-    const res = await signupServer(pseudo, password);
-    if (res && res.ok) { msgEl.textContent = 'Account created. You are now logged in.'; renderLbBox(); updateLBStatusUI(); setTimeout(closeLBModal, 350); showToast('Signed up and logged in'); setTimeout(()=> ensureModeCheckedAndStart(), 400); return; }
-    else { console.warn('signupServer failed', res); if (res && res.status === 409) msgEl.textContent = 'This display name already exists. Please log in.'; else msgEl.textContent = 'Signup failed. Try again later.'; return; }
-  } else {
-    msgEl.textContent = 'Logging in…';
-    const res = await loginServer(pseudo, password);
-    if (res && res.ok) { msgEl.textContent = 'Login successful.'; renderLbBox(); updateLBStatusUI(); setTimeout(closeLBModal, 250); showToast('Logged in'); setTimeout(()=> ensureModeCheckedAndStart(), 400); return; }
-    else { console.warn('loginServer failed', res); msgEl.textContent = (res && res.status === 401) ? 'Incorrect credentials.' : 'Login failed. Try again.'; return; }
-  }
-});
+  document.querySelectorAll('.seg-btn').forEach(btn => btn.addEventListener('click', async (e) => {
+    const newLvl = e.currentTarget.dataset.level;
+    if(newLvl === currentLevel) return;
 
-/* ---------------------------
-  bootstrap & init
-----------------------------*/
+    document.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
+    e.currentTarget.classList.add('active');
+
+    currentLevel = newLvl;
+    levelLabelEl.textContent = currentLevel.charAt(0).toUpperCase() + currentLevel.slice(1);
+
+    ensureOutputSkeleton();
+
+    guessInput.disabled = true;
+    guessBtn.disabled = true;
+    suggestionsList.style.display = 'none';
+
+    await ensureModeCheckedAndStart();
+  }));
+
+  guessBtn.addEventListener('click', () => {
+    const v = guessInput.value.trim();
+    if(!v) return showToast('Type a name');
+    handleGuessSubmission(v);
+    guessInput.value = '';
+    suggestionsList.style.display = 'none';
+  });
+
+  document.getElementById('closeModalBtn').addEventListener('click', () => {
+    const mm = document.getElementById('modal');
+    try{
+      if(document.activeElement) document.activeElement.blur();
+    } catch(e){}
+    mm.classList.remove('show');
+    setTimeout(() => mm.setAttribute('aria-hidden','true'), 120);
+  });
+}
+
 async function init(){
-  // wire buttons so they disable input immediately and call check
-  document.getElementById('btnATP').addEventListener('click', async ()=>{ if(currentTour!=='ATP'){ currentTour='ATP'; // immediate disable UI
-    guessInput.disabled = true; document.getElementById('guessBtn').disabled = true; suggestionsList.style.display='none';
-    document.getElementById('tourLabel').textContent = currentTour; document.getElementById('btnATP').classList.add('active','atp'); document.getElementById('btnWTA').classList.remove('active','wta'); await ensureModeCheckedAndStart(); }});
-  document.getElementById('btnWTA').addEventListener('click', async ()=>{ if(currentTour!=='WTA'){ currentTour='WTA'; guessInput.disabled = true; document.getElementById('guessBtn').disabled = true; suggestionsList.style.display='none'; document.getElementById('tourLabel').textContent = currentTour; document.getElementById('btnWTA').classList.add('active','wta'); document.getElementById('btnATP').classList.remove('active','atp'); await ensureModeCheckedAndStart(); }});
-  document.querySelectorAll('.seg-btn').forEach(btn=>btn.addEventListener('click', async (e)=>{ const newLvl = e.currentTarget.dataset.level; if(newLvl === currentLevel) return; document.querySelectorAll('.seg-btn').forEach(b=>b.classList.remove('active')); e.currentTarget.classList.add('active'); currentLevel = newLvl; document.getElementById('levelLabel').textContent = currentLevel.charAt(0).toUpperCase()+currentLevel.slice(1); ensureOutputSkeleton(); // immediate disable while check
-    guessInput.disabled = true; document.getElementById('guessBtn').disabled = true; suggestionsList.style.display='none';
-    await ensureModeCheckedAndStart(); }));
-  document.getElementById('guessBtn').addEventListener('click', ()=>{ const v = guessInput.value.trim(); if(!v) return showToast('Type a name'); handleGuessSubmission(v); guessInput.value=''; suggestionsList.style.display='none'; });
-  document.getElementById('closeModalBtn').addEventListener('click', ()=>{ const mm = document.getElementById('modal'); try{ if(document.activeElement) document.activeElement.blur(); }catch(e){} mm.classList.remove('show'); setTimeout(()=> mm.setAttribute('aria-hidden','true'), 120); });
+  guessInput = document.getElementById('guessInput');
+  suggestionsList = document.getElementById('suggestionsList');
+  guessBtn = document.getElementById('guessBtn');
+  preloadStatusEl = document.getElementById('preloadStatus');
+  levelLabelEl = document.getElementById('levelLabel');
+  tourLabelEl = document.getElementById('tourLabel');
+  remainingEl = document.getElementById('remaining');
+  scoreEl = document.getElementById('score');
+  lbStatusEl = document.getElementById('lb-status');
+  lbBoxPlaceholderEl = document.getElementById('lbBoxPlaceholder');
 
-  // load assets
+  bindSuggestions();
+  bindControls();
+
   const okCatalog = await loadPlayersCatalog();
-  if(!okCatalog){ alert('players_catalog.json missing or malformed'); return; }
+  if(!okCatalog){
+    alert('players_catalog.json missing or malformed');
+    return;
+  }
+
   await loadGeocodes();
   await loadSelectedPlayers();
 
-  // render LB box & UI
-  renderLbBox();
-  updateLBStatusUI && updateLBStatusUI();
+  assetsReady = true;
+
+  renderAuthBox();
   ensureOutputSkeleton();
-  await ensureModeCheckedAndStart();
 
-  // watch login state
-// listen to global auth changes: update UI automatically
-window.addEventListener('lb:auth-changed', async () => {
-  try {
-    renderLbBox();
-    if (typeof updateLBStatusUI === 'function') updateLBStatusUI();
-    // re-check current mode because login status may change whether user already played
+  setGuessEnabled(false);
+  updateTopStatus();
+
+  const session = getSession();
+  if(session && session.pseudo){
     await ensureModeCheckedAndStart();
-  } catch(e){ console.warn('auth-changed handler error', e); }
-});
-}
-init();
+  } else {
+    applyAuthGate();
+  }
 
-(function(){
-  try{
-    // if session present under new key, mark UI connected
-    const raw = localStorage.getItem('lb_user_v1') || localStorage.getItem(LB_LOCAL_USER_KEY);
-    if(raw){
-      document.getElementById('lb-status').textContent = 'Connected';
-    }
-  }catch(e){}
-  renderLbBox();
-  if (typeof updateLBStatusUI === 'function') updateLBStatusUI();
-})();
+  const authApi = getAuthApi();
+  if(authApi && typeof authApi.onAuthChange === 'function'){
+    authApi.onAuthChange(async () => {
+      renderAuthBox();
+      if(isConnected()){
+        await ensureModeCheckedAndStart();
+      } else {
+        applyAuthGate();
+      }
+    });
+  } else {
+    window.addEventListener('storage', () => {
+      renderAuthBox();
+      if(isConnected()){
+        ensureModeCheckedAndStart();
+      } else {
+        applyAuthGate();
+      }
+    });
+  }
+}
+
+document.addEventListener('DOMContentLoaded', init);
 </script>
 </body>
 </html>
