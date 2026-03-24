@@ -1,7 +1,6 @@
 // netlify/functions/inscriptions.js
 const fs = require("fs");
 const path = require("path");
-const { createClient } = require("@supabase/supabase-js");
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -11,10 +10,6 @@ const OPEN_JSON_PATH = path.join(process.cwd(), "docs/bracket/open_inscriptions.
 const USERS_TABLE = process.env.USERS_TABLE || "users";
 const BRACKET_USERS_TABLE = process.env.BRACKET_USERS_TABLE || "bracket";
 const INSCRIPTIONS_TABLE = process.env.INSCRIPTIONS_TABLE || "inscriptions";
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
 
 function json(statusCode, body) {
   return {
@@ -61,13 +56,6 @@ function getHeader(headers, name) {
   return key ? headers[key] : null;
 }
 
-/**
- * This function supports two ways to identify the user:
- * 1) x-user-id / x-user-name / x-user-tour / x-user-rank headers
- * 2) Authorization: Bearer <token> if you already have a verified auth flow
- *
- * For step 1, the headers path is enough and matches a "light integration" approach.
- */
 function getCallerContext(event, body = {}) {
   const headers = event.headers || {};
   const user_id = getHeader(headers, "x-user-id") || body.user_id || null;
@@ -85,35 +73,105 @@ function getCallerContext(event, body = {}) {
     user_tour,
     user_country,
     user_world_rank: world_rank,
-    access_token: null, // kept for later if you want JWT auth
+    access_token: null,
   };
+}
+
+async function supabaseGet(table, queryParams) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+  }
+
+  const url = new URL(`${SUPABASE_URL}/rest/v1/${table}`);
+  for (const [key, value] of Object.entries(queryParams || {})) {
+    if (value !== undefined && value !== null) {
+      url.searchParams.set(key, value);
+    }
+  }
+
+  const r = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      Accept: "application/json",
+    },
+  });
+
+  const text = await r.text().catch(() => null);
+  let data;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch (e) {
+    data = text;
+  }
+
+  if (!r.ok) {
+    throw new Error(`Supabase GET ${table} failed: ${r.status} ${text}`);
+  }
+
+  return data;
+}
+
+async function supabaseInsert(table, payload) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+  }
+
+  const url = new URL(`${SUPABASE_URL}/rest/v1/${table}`);
+
+  const r = await fetch(url.toString(), {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      Prefer: "return=representation",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const text = await r.text().catch(() => null);
+  let data;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch (e) {
+    data = text;
+  }
+
+  if (!r.ok) {
+    throw new Error(`Supabase POST ${table} failed: ${r.status} ${text}`);
+  }
+
+  return data;
 }
 
 async function getDbUserProfile(userId) {
   if (!userId) return null;
 
-  // Try bracket users first because that's where world rank lives in your description
-  let { data: bracketRow, error: bracketErr } = await supabase
-    .from(BRACKET_USERS_TABLE)
-    .select("user_id,user_name,user_world_rank,user_tour,user_country")
-    .eq("user_id", userId)
-    .maybeSingle();
+  const bracketRows = await supabaseGet(BRACKET_USERS_TABLE, {
+    select: "user_id,user_name,user_world_rank,user_tour,user_country",
+    user_id: `eq.${userId}`,
+    limit: "1",
+  }).catch(() => []);
 
-  if (!bracketErr && bracketRow) return bracketRow;
+  if (Array.isArray(bracketRows) && bracketRows.length > 0) {
+    return bracketRows[0];
+  }
 
-  // Fallback to users table
-  const { data: userRow, error: userErr } = await supabase
-    .from(USERS_TABLE)
-    .select("id,pseudo,tour,country")
-    .eq("id", userId)
-    .maybeSingle();
+  const userRows = await supabaseGet(USERS_TABLE, {
+    select: "id,pseudo,tour,country",
+    id: `eq.${userId}`,
+    limit: "1",
+  }).catch(() => []);
 
-  if (!userErr && userRow) {
+  if (Array.isArray(userRows) && userRows.length > 0) {
     return {
-      user_id: userRow.id,
-      user_name: userRow.pseudo,
-      user_tour: userRow.tour,
-      user_country: userRow.country,
+      user_id: userRows[0].id,
+      user_name: userRows[0].pseudo,
+      user_tour: userRows[0].tour,
+      user_country: userRows[0].country,
       user_world_rank: null,
     };
   }
@@ -144,25 +202,14 @@ function isAtpRestricted(category, rank) {
 }
 
 async function loadWeekInscriptionRows(weekStart) {
-  const { data, error } = await supabase
-    .from(INSCRIPTIONS_TABLE)
-    .select("tournament_id,user_id,user_name,user_world_rank,registration_week_start,tournament_name,tournament_num_players,tournament_start_date,tour,tournament_level")
-    .eq("registration_week_start", weekStart);
-
-  if (error) throw error;
-  return Array.isArray(data) ? data : [];
+  return await supabaseGet(INSCRIPTIONS_TABLE, {
+    select: "tournament_id,user_id,user_name,user_world_rank,registration_week_start,tournament_name,tournament_num_players,tournament_start_date,tour,tournament_level",
+    registration_week_start: `eq.${weekStart}`,
+  }).catch(() => []);
 }
 
 function toKey(tour, tournamentId) {
   return `${String(tour || "").toUpperCase()}::${String(tournamentId)}`;
-}
-
-function buildCurrentWeekMap(rows) {
-  const map = new Map();
-  for (const row of rows) {
-    map.set(toKey(row.tour || "", row.tournament_id), row);
-  }
-  return map;
 }
 
 function groupCountByTournament(rows) {
@@ -225,7 +272,6 @@ exports.handler = async (event) => {
 
       const tournaments = (openPayload.open_tournaments || [])
         .filter((t) => {
-          // Only show tournaments that match the user's tour
           const userTour = String(user.user_tour || "").toUpperCase();
           return userTour ? String(t.tour || "").toUpperCase() === userTour : true;
         })
@@ -356,22 +402,11 @@ exports.handler = async (event) => {
         tournament_level: tournamentCategory,
       };
 
-      const { data, error } = await supabase
-        .from(INSCRIPTIONS_TABLE)
-        .insert(insertPayload)
-        .select("*")
-        .single();
-
-      if (error) {
-        return json(500, {
-          ok: false,
-          error: error.message || "Database insert failed.",
-        });
-      }
+      const inserted = await supabaseInsert(INSCRIPTIONS_TABLE, insertPayload);
 
       return json(200, {
         ok: true,
-        inserted: data,
+        inserted: Array.isArray(inserted) ? (inserted[0] || null) : inserted,
       });
     }
 

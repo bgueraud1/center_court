@@ -1,7 +1,6 @@
 // netlify/functions/bracket.js
 const fs = require("fs");
 const path = require("path");
-const { createClient } = require("@supabase/supabase-js");
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -11,9 +10,7 @@ const INSCRIPTIONS_TABLE = process.env.INSCRIPTIONS_TABLE || "inscriptions";
 const BRACKET_TABLE = process.env.BRACKET_TABLE || "bracket";
 const BRACKET_TOURNAMENTS_DIR = process.env.BRACKET_TOURNAMENTS_DIR || "docs/bracket/tournaments";
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+const { restGet, restPost, restPatch, restUpsert } = require("../lib/supabaseRest");
 
 function json(statusCode, body) {
   return {
@@ -259,29 +256,26 @@ async function getDbUserProfile(userId) {
 }
 
 async function getLatestInscriptionForUser(userId) {
-  const { data, error } = await supabase
-    .from(INSCRIPTIONS_TABLE)
-    .select("*")
-    .eq("user_id", userId)
-    .order("tournament_start_date", { ascending: false, nullsFirst: false })
-    .order("registration_week_start", { ascending: false, nullsFirst: false })
-    .limit(1);
+  const rows = await restGet(INSCRIPTIONS_TABLE, {
+    select: "*",
+    user_id: `eq.${userId}`,
+    order: "tournament_start_date.desc,registration_week_start.desc",
+    limit: "1",
+  }).catch(() => []);
 
-  if (error) throw error;
-  return Array.isArray(data) && data.length ? data[0] : null;
+  return rows && rows.length ? rows[0] : null;
 }
 
-async function getBracketRecord(userId, tournamentId) {
-  const { data, error } = await supabase
-    .from(BRACKET_TABLE)
-    .select("*")
-    .eq("user_id", userId)
-    .eq("current_tournament_bracket_id", String(tournamentId))
-    .limit(1)
-    .maybeSingle();
 
-  if (error) throw error;
-  return data || null;
+async function getBracketRecord(userId, tournamentId) {
+  const rows = await restGet(BRACKET_TABLE, {
+    select: "*",
+    user_id: `eq.${userId}`,
+    current_tournament_bracket_id: `eq.${tournamentId}`,
+    limit: "1",
+  }).catch(() => []);
+
+  return rows && rows.length ? rows[0] : null;
 }
 
 function tournamentFilePath(tour, tournamentId, year) {
@@ -516,23 +510,16 @@ exports.handler = async (event) => {
         user_current_tournament_bracket_proposition: JSON.stringify(storedPayload, null, 2),
       };
 
-      const { data, error } = await supabase
-        .from(BRACKET_TABLE)
-        .upsert(row, { onConflict: "user_id,current_tournament_bracket_id" })
-        .select("*")
-        .single();
-
-      if (error) {
-        return json(500, {
-          ok: false,
-          error: error.message || "Failed to save bracket.",
-        });
-      }
-
+      const saved = await restUpsert(
+        BRACKET_TABLE,
+        row,
+        "user_id,current_tournament_bracket_id"
+      );
+      
       return json(200, {
         ok: true,
         status: "SAVED",
-        bracket_record: data,
+        bracket_record: saved && saved[0] ? saved[0] : null,
         bracket: storedPayload,
         locked: true,
       });
