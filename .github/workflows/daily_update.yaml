@@ -144,6 +144,13 @@ jobs:
           # NEW ADDITION: run the H2H daily selection script (produit docs/selected_players.json)
           python scripts/generate_daily_guess_h2h.py || true
 
+
+          # NEW: select 3 WTA + 3 ATP winners with random difficulties
+          python scripts/generate_daily_selected_winners.py \
+            --wta docs/tools/wta_players_tournaments_win.json \
+            --atp docs/tools/atp_players_tournaments_win.json \
+            --out "${BUILD_DIR}/tools/daily_selected_winners.json" || true
+
           # NEW: generate aggregates and grids for "fill the grid" game
           python scripts/generate_pre_json_grid.py || true
           python scripts/generate_grid.py || true
@@ -161,6 +168,9 @@ jobs:
           ls -la docs/games || true
           echo "site_static/games:"
           ls -la site_static/games || true
+
+
+          
 
       - name: Copy into site_static/tools (for site serving)
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
@@ -224,6 +234,17 @@ jobs:
             echo "Aucun selected_players.json généré trouvé"
           fi
 
+
+          # NEW: daily_selected_winners.json
+          if [ -f "${BUILD_DIR}/tools/daily_selected_winners.json" ]; then
+            cp -v "${BUILD_DIR}/tools/daily_selected_winners.json" docs/tools/daily_selected_winners.json || true
+            cp -v "${BUILD_DIR}/tools/daily_selected_winners.json" site_static/tools/daily_selected_winners.json || true
+          elif [ -f "docs/tools/daily_selected_winners.json" ]; then
+            cp -v "docs/tools/daily_selected_winners.json" site_static/tools/daily_selected_winners.json || true
+          else
+            echo "Aucun daily_selected_winners.json généré trouvé"
+          fi
+
           # NEW: copy fill the grid outputs and aggregates (docs/games -> site_static/games)
           if [ -f "docs/games/aggregate_ATP_reduced.json" ]; then
             cp -v "docs/games/aggregate_ATP_reduced.json" site_static/games/aggregate_ATP_reduced.json || true
@@ -266,6 +287,11 @@ jobs:
           # Stage canonical generated files from docs/tools and their site_static copies
           git add -f docs/tools/birthday_today.json docs/tools/daily_guess.json docs/tools/players_catalog.json docs/tools/geocodes_combined.json docs/tools/selected_players.json || true
           git add -f site_static/tools/birthday_today.json site_static/tools/daily_guess.json site_static/tools/players_catalog.json site_static/tools/geocodes_combined.json site_static/tools/selected_players.json || true
+
+
+
+          git add -f docs/tools/daily_selected_winners.json || true
+          git add -f site_static/tools/daily_selected_winners.json || true
 
           # NEW: stage generated games aggregates and fill-the-grid outputs (docs/games and site_static/games)
           git add -f docs/games/aggregate_ATP_reduced.json docs/games/aggregate_WTA_reduced.json docs/games/fill_the_grid_ATP.json docs/games/fill_the_grid_WTA.json || true
@@ -312,9 +338,19 @@ jobs:
             exit 0
           fi
 
-          git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}" || true
+          # Fallback sûr pour les runs planifiés ou les dispatch sans input
+          TOUR_TYPE="${TOUR_TYPE:-daily}"
 
-          # --- prepare: ensure we have origin/main ---
+          # Nettoyage minimal pour garantir un nom de branche valide
+          TOUR_TYPE="$(printf '%s' "$TOUR_TYPE" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's#[^a-z0-9._-]+#-#g; s#^-+##; s#-+$##')"
+
+          if [ -z "$TOUR_TYPE" ]; then
+            TOUR_TYPE="daily"
+          fi
+
+          git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}" || true
           git fetch origin main --quiet || true
 
           TMP_BRANCH="update/${TOUR_TYPE}/${GITHUB_RUN_ID}"
@@ -337,6 +373,10 @@ jobs:
           echo "Staging generated artefacts for commit..."
           # Force-add the output json dir so directory is tracked if needed
           git add -f docs/data/tournaments || true
+
+          # Also add the new daily_selected_winners JSON if present
+          git add -f docs/tools/daily_selected_winners.json || true
+          git add -f site_static/tools/daily_selected_winners.json || true
 
           if [ -f created_files.txt ]; then
             while IFS= read -r line || [ -n "$line" ]; do
