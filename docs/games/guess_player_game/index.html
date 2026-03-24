@@ -1,23 +1,23 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Guess The Player — H2H (6 modes + leaderboard)</title>
+<title>Guess The Player</title>
 
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700,800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
 
 <script src="/js/auth.js" defer></script>
-<script src="/js/leaderboard-client.js" defer></script>
 
 <style>
   :root{
-    --bg1: #071226;
-    --bg2: #081428;
-    --muted:#94a3b8;
-    --success:#16a34a;
-    --danger:#ef4444;
+    --bg1: #071226; --bg2: #081428;
+    --accent-a: rgba(31,122,236,0.06);
+    --accent-b: rgba(139,92,246,0.06);
+    --accent-strong: #1f7aec;
+    --accent-strong-wta: #8b5cf6;
+    --muted:#94a3b8; --success:#16a34a; --danger:#ef4444;
     font-family: 'Inter', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
     color-scheme: dark;
   }
@@ -25,9 +25,40 @@
   html,body{
     height:100%;
     margin:0;
-    background:linear-gradient(180deg, var(--bg1) 0%, var(--bg2) 100%);
+    background:
+      radial-gradient(1000px 600px at 10% 10%, var(--accent-a), transparent 10%),
+      radial-gradient(800px 500px at 90% 90%, var(--accent-b), transparent 10%),
+      linear-gradient(180deg, var(--bg1) 0%, var(--bg2) 100%);
     -webkit-font-smoothing:antialiased;
     -moz-osx-font-smoothing:grayscale;
+  }
+
+  #flagBg {
+    position: fixed;
+    left:0;
+    top:0;
+    right:0;
+    bottom:0;
+    background-position:center;
+    background-size:cover;
+    opacity:0;
+    filter:blur(18px) contrast(0.9) saturate(0.95);
+    transition:opacity .35s ease, transform .35s ease;
+    z-index:0;
+    pointer-events:none;
+  }
+
+  #flagOverlay {
+    position: fixed;
+    left:0;
+    top:0;
+    right:0;
+    bottom:0;
+    background:linear-gradient(180deg, rgba(2,6,23,0.66), rgba(2,6,23,0.76));
+    opacity:0;
+    transition:opacity .35s ease;
+    z-index:1;
+    pointer-events:none;
   }
 
   .wrap{
@@ -44,8 +75,9 @@
 
   header{
     display:flex;
-    align-items:center;
+    align-items:flex-start;
     gap:16px;
+    justify-content:space-between;
   }
 
   h1{
@@ -109,24 +141,40 @@
     min-width:72px;
     padding:8px 12px;
     border-radius:999px;
-    border:1px solid rgba(255,255,255,0.04);
+    border:1px solid rgba(255,255,255,0.03);
     cursor:pointer;
     font-weight:700;
     background:transparent;
     color:var(--muted);
-    transition:all .18s ease;
   }
 
   .tour-btn.active.atp{
-    background:linear-gradient(180deg,#0f274a,#132a44);
+    background:linear-gradient(180deg, rgba(31,122,236,0.14), rgba(31,122,236,0.06));
     color:#cfe8ff;
-    border-color: rgba(31,70,120,0.35);
   }
 
   .tour-btn.active.wta{
-    background:linear-gradient(180deg,#2c1b37,#372042);
+    background:linear-gradient(180deg, rgba(139,92,246,0.14), rgba(139,92,246,0.06));
     color:#efe6ff;
-    border-color: rgba(90,50,120,0.28);
+  }
+
+  .cotd-banner{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:12px;
+    border-radius:10px;
+  }
+
+  .cotd-flag{
+    width:72px;
+    height:48px;
+    border-radius:8px;
+    overflow:hidden;
+    box-shadow:0 6px 24px rgba(0,0,0,0.6);
+    display:flex;
+    align-items:center;
+    justify-content:center;
   }
 
   .game-meta{
@@ -156,24 +204,29 @@
     margin-top:12px;
   }
 
-  input[type="text"], input[type="password"]{
+  input[type="text"]{
     padding:10px 12px;
     border-radius:10px;
     border:1px solid rgba(255,255,255,0.06);
     background:transparent;
     color:#fff;
-    min-width:200px;
+    min-width:360px;
   }
 
   button.primary{
     padding:10px 14px;
     border-radius:10px;
     border:none;
-    background:#1f7aec;
+    background:var(--accent-strong);
     color:white;
     font-weight:700;
     cursor:pointer;
     box-shadow:0 8px 24px rgba(31,122,236,0.12);
+  }
+
+  button.primary.wta{
+    background:var(--accent-strong-wta);
+    box-shadow:0 8px 24px rgba(139,92,246,0.12);
   }
 
   button.ghost{
@@ -201,8 +254,6 @@
     border:1px solid rgba(255,255,255,0.04);
     z-index:80;
     box-shadow:0 10px 40px rgba(2,6,23,0.6);
-    padding:0;
-    margin:0;
   }
 
   .suggestions-list li{
@@ -216,7 +267,7 @@
   .suggestions-list li:hover,
   .suggestions-list li.highlight{
     background: rgba(255,255,255,0.02);
-    color: #fff;
+    color:#fff;
   }
 
   table{
@@ -227,7 +278,7 @@
   }
 
   th,td{
-    padding:10px;
+    padding:12px;
     text-align:left;
     border-bottom:1px dashed rgba(255,255,255,0.03);
     font-size:0.95rem;
@@ -238,14 +289,39 @@
     font-weight:700;
   }
 
-  .country-text{
-    margin-top:14px;
-    padding:16px;
-    border-radius:12px;
-    background:rgba(0,0,0,0.5);
-    backdrop-filter:blur(6px);
-    color:#fff;
-    border:1px solid rgba(255,255,255,0.04);
+  tr.good td{
+    background:linear-gradient(90deg, rgba(22,163,74,0.06), transparent);
+  }
+
+  .country-good{
+    background:linear-gradient(90deg, rgba(22,163,74,0.06), transparent);
+    color:var(--success);
+    font-weight:700;
+    padding:6px 8px;
+    border-radius:8px;
+    display:inline-block;
+  }
+
+  .country-bad{
+    background:linear-gradient(90deg, rgba(239,68,68,0.06), transparent);
+    color:var(--danger);
+    font-weight:700;
+    padding:6px 8px;
+    border-radius:8px;
+    display:inline-block;
+  }
+
+  .icon {
+    vertical-align:middle;
+    width:18px;
+    height:18px;
+    display:inline-block;
+  }
+
+  .tick {
+    width:18px;
+    height:18px;
+    vertical-align:middle;
   }
 
   .modal {
@@ -258,7 +334,7 @@
     align-items:center;
     justify-content:center;
     background:linear-gradient(180deg, rgba(2,6,23,0.6), rgba(2,6,23,0.8));
-    z-index:400;
+    z-index:200;
     opacity:0;
     pointer-events:none;
     transition:opacity .18s ease;
@@ -273,11 +349,37 @@
     background:linear-gradient(180deg, rgba(11,17,32,0.98), rgba(8,12,23,0.96));
     padding:26px;
     border-radius:16px;
-    max-width:520px;
+    max-width:680px;
     width:94%;
     box-shadow:0 30px 80px rgba(2,6,23,0.8);
     border:1px solid rgba(255,255,255,0.03);
     text-align:center;
+  }
+
+  .country-text{
+    margin-top:14px;
+    padding:16px;
+    border-radius:12px;
+    background:rgba(0,0,0,0.5);
+    backdrop-filter:blur(6px);
+    color:#fff;
+    border:1px solid rgba(255,255,255,0.04);
+  }
+
+  .country-text h3{
+    margin:0 0 6px 0;
+  }
+
+  .country-text p{
+    margin:6px 0;
+    font-style:italic;
+    color:#f0f6ff;
+  }
+
+  .country-text .para-subtitle{
+    font-weight:700;
+    margin-top:8px;
+    margin-bottom:4px;
   }
 
   .toast{
@@ -293,20 +395,20 @@
     z-index:220;
   }
 
-  .lb-card{
+  .auth-card{
     margin-left:auto;
     display:flex;
+    flex-direction:column;
+    align-items:flex-end;
     gap:8px;
-    align-items:center;
+    min-width:220px;
     position:relative;
   }
 
-  #lb-status{
+  #authStatus{
     color:var(--muted);
     font-size:0.9rem;
-    margin-left:8px;
-    min-width: 220px;
-    text-align: right;
+    text-align:right;
   }
 
   .user-chip{
@@ -319,6 +421,7 @@
     padding:8px 12px;
     border-radius:999px;
     user-select:none;
+    text-decoration:none;
   }
 
   .user-chip .lb-avatar{
@@ -333,7 +436,7 @@
     color:white;
     background: linear-gradient(135deg,#2b8af6,#7b5cf6);
     box-shadow: 0 4px 12px rgba(43,138,246,0.18), inset 0 -2px 6px rgba(0,0,0,0.12);
-    flex: 0 0 auto;
+    flex:0 0 auto;
   }
 
   .user-dropdown {
@@ -367,43 +470,34 @@
   }
 
   .connect-btn{
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-    text-decoration:none;
-    color:#fff;
     background:linear-gradient(135deg, #1f7aec, #7b5cf6);
   }
 
   @media (max-width:880px){
-    input[type="text"]{min-width:140px}
+    input[type="text"]{min-width:200px}
     .chip{font-size:0.85rem}
     th,td{padding:8px;font-size:0.9rem}
-    #lb-status{min-width: 0; text-align: left;}
+    .auth-card{min-width:0; width:100%; align-items:flex-start;}
+    #authStatus{text-align:left;}
     header{flex-direction:column; align-items:flex-start;}
-    .lb-card{margin-left:0; width:100%; justify-content:space-between;}
-  }
-
-  @media (prefers-reduced-motion: reduce){
-    *{
-      transition:none !important;
-      scroll-behavior:auto !important;
-    }
+    .controls{align-items:flex-start;}
   }
 </style>
 </head>
 <body>
+  <div id="flagBg" aria-hidden="true"></div>
+  <div id="flagOverlay" aria-hidden="true"></div>
 
   <div class="wrap">
-    <header style="align-items:flex-start">
+    <header>
       <div>
         <h1>Guess the Player</h1>
-        <div class="sub">H2H game — Answers are updated daily.</div>
+        <div class="sub">Compare age, career best rank, birthplace distance and height.</div>
       </div>
 
-      <div class="lb-card card" id="lbCard" aria-hidden="false" style="margin-left:auto;align-items:center;position:relative">
-        <div id="lbBoxPlaceholder"></div>
-        <div id="lb-status">Not connected</div>
+      <div class="auth-card" id="authCard">
+        <div id="authBoxPlaceholder"></div>
+        <div id="authStatus">Not connected</div>
       </div>
     </header>
 
@@ -415,17 +509,35 @@
 
       <div class="card" style="padding:8px 10px">
         <div id="difficultySegment" class="segment" role="tablist" aria-label="difficulty">
-          <button class="seg-btn active" data-level="easy" id="sEasy">Easy</button>
-          <button class="seg-btn" data-level="medium" id="sMedium">Medium</button>
-          <button class="seg-btn" data-level="hard" id="sHard">Hard</button>
+          <button class="seg-btn active" data-top="20" id="d20">Top 20</button>
+          <button class="seg-btn" data-top="100" id="d100">Top 100</button>
+          <button class="seg-btn" data-top="300" id="d300">Top 300</button>
         </div>
+      </div>
+
+      <div class="card" style="padding:8px 10px;display:flex;gap:10px;align-items:center">
+        <label style="color:var(--muted);font-weight:700;margin:0 6px 0 0">Country of the Day</label>
+        <button id="cotdToggle" class="ghost">OFF</button>
+      </div>
+
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+        <div class="chip">Mode auto-starts on change</div>
+      </div>
+    </div>
+
+    <div id="cotdBanner" class="card cotd-banner" style="margin-top:14px;display:none">
+      <div class="cotd-flag" id="cotdFlag"></div>
+      <div>
+        <div class="cotd-title" id="cotdName">Country of the Day</div>
+        <div style="color:var(--muted);font-size:0.9rem" id="cotdSub">Players for this round are selected from this country when available.</div>
       </div>
     </div>
 
     <div class="game-meta" style="margin-top:18px">
-      <div class="chip">Level: <strong id="levelLabel">Easy</strong></div>
+      <div class="chip">Level: <strong id="levelLabel">Top 20</strong></div>
       <div class="chip">Tour: <strong id="tourLabel">ATP</strong></div>
-      <div class="chip">Remaining: <strong id="remaining">15</strong></div>
+      <div class="chip">Country: <strong id="selectedCountry">—</strong></div>
+      <div class="chip">Remaining: <strong id="remaining">10</strong></div>
       <div class="chip">Score: <strong id="score">0</strong></div>
     </div>
 
@@ -440,27 +552,37 @@
         <button id="guessBtn" class="primary">Guess</button>
       </div>
 
-      <div style="margin-top:10px;color:var(--muted);font-size:0.95rem">
-        <span id="preloadStatus">H2H preload: idle</span>
-      </div>
-
       <table id="guessesTable" aria-live="polite" style="margin-top:14px">
         <thead>
-          <tr><th>#</th><th>Guessed name</th></tr>
+          <tr>
+            <th>#</th>
+            <th>Guessed name</th>
+            <th>Age</th>
+            <th>Career best</th>
+            <th>Country</th>
+            <th>Birthplace (km)</th>
+            <th>Height (cm)</th>
+            <th>Right-handed</th>
+            <th>Two-handed BH</th>
+          </tr>
         </thead>
         <tbody></tbody>
       </table>
 
-      <div id="h2hOutput" class="country-text" style="display:block;margin-top:16px">
-        <div id="placeholder">H2H results will appear here.</div>
-      </div>
+      <div id="countryText" class="country-text" style="display:none"></div>
     </div>
   </div>
 
   <div id="modal" class="modal" role="dialog" aria-modal="true" aria-hidden="true">
     <div class="modal-card">
+      <div class="big-check" id="modalIcon">
+        <svg width="56" height="56" viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="11" stroke="rgba(22,163,74,0.35)" stroke-width="2" fill="transparent"/>
+          <path d="M6 12.2l3.1 3.1L18 6.4" stroke="#16a34a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
       <h2 id="modalTitle">Round result</h2>
-      <p id="modalText" style="color:var(--muted)"></p>
+      <p id="modalText" style="color:var(--muted)">Details below.</p>
       <div id="modalDetails" style="margin-top:12px;color:#e8f4ea"></div>
       <div style="margin-top:18px;display:flex;gap:12px;justify-content:center">
         <button id="closeModalBtn" class="ghost">Close</button>
@@ -472,73 +594,106 @@
 
 <script>
 /* ---------------------------
-  CONFIG / KEYS
+   Paths & state
 ---------------------------- */
-const SELECTED_PLAYERS_JSON = '/selected_players.json';
 const PLAYERS_CATALOG_JSON = '/tools/players_catalog.json';
 const GEOCODES_JSON = '/tools/geocodes_combined.json';
-const H2H_BY_PLAYER_BASE = '/data/h2h_by_player/';
-const LB_QUEUE_KEY = 'lb_score_queue_guess6_v1';
-const GAME_ID = 'guess_player_h2h';
+const DAILY_GUESS_PATH = '/tools/daily_guess.json';
+const COUNTRY_TEXTS_PATH = '/tools/country_texts.json';
 const AUTH_HUB_URL = '/games/tennis_arena/index.html';
 
-/* ---------------------------
-  STATE
----------------------------- */
-let selectedPlayers = null;
-let playersCatalog = [];
-let geocodes = {};
+let players = [], geocodes = {}, dailyGuessData = null;
+let countryTexts = {};
 
 let target = null;
-let currentTour = 'ATP';
-let currentLevel = 'easy';
-let remaining = 15;
-let score = 0;
-let gameStarted = false;
-let gameBlockedDueToExisting = false;
+const MAX_TRIES = 10;
+let remaining = MAX_TRIES;
+let levelTopN = 20;
 let guesses = [];
+let score = 0;
+let currentTour = 'ATP';
+let cotdEnabled = false;
+let fixedCountry = null;
+let currentFlagUrl = null;
+
+let dailyMap = {};
+let dailyList = [];
+
+let gameStarted = false;
 let guessedNames = new Set();
 
-let h2hByPlayerCache = {};
-let composedH2HCache = {};
-let preloadedCount = 0;
-let assetsReady = false;
-
 /* ---------------------------
-  DOM refs
+   Utilities
 ---------------------------- */
-let guessInput;
-let suggestionsList;
-let guessBtn;
-let preloadStatusEl;
-let levelLabelEl;
-let tourLabelEl;
-let remainingEl;
-let scoreEl;
-let lbStatusEl;
-let lbBoxPlaceholderEl;
+function normName(s){
+  if(!s) return '';
+  return s.normalize ? s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase() : s.toLowerCase();
+}
 
-/* ---------------------------
-  UTIL
----------------------------- */
+function parseRank(v){
+  if(v === undefined || v === null || v === '' || v === '-') return Infinity;
+  const n = Number(String(v).replace(/[^\d.-]/g,''));
+  return isNaN(n) ? Infinity : n;
+}
+
+function tryParseDate(s){
+  if(!s) return null;
+  s = s.trim();
+  const d = new Date(s);
+  if(!isNaN(d)) return d;
+  const clean = s.replace(/\s+/g,' ').split(' ')[0];
+  const d2 = new Date(clean);
+  return isNaN(d2) ? null : d2;
+}
+
+function calcAgeFromBirthDate(birthDate){
+  const d = tryParseDate(birthDate);
+  if(!d) return null;
+  const today = new Date();
+  let age = today.getFullYear() - d.getFullYear();
+  const m = today.getMonth() - d.getMonth();
+  if(m < 0 || (m === 0 && today.getDate() < d.getDate())) age--;
+  return age;
+}
+
+function haversineKm(lat1, lon1, lat2, lon2){
+  const toRad = v => v * Math.PI / 180;
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 +
+    Math.cos(toRad(lat1)) *
+    Math.cos(toRad(lat2)) *
+    Math.sin(dLon/2)**2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
 function showToast(msg, t=2000){
   const el = document.getElementById('toast');
   el.textContent = msg;
   el.style.display = 'block';
-  setTimeout(() => el.style.display = 'none', t);
+  setTimeout(() => { el.style.display = 'none'; }, t);
 }
 
-function escapeHtml(s){
-  if(s === undefined || s === null) return '';
-  return String(s).replace(/[&<>"']/g, m => (
-    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]
-  ));
+/* scoring */
+function scoreForGuessNumber(guessNumber){
+  if(guessNumber <= 1) return 100;
+  if(guessNumber >= 10) return 5;
+  const points = [[1,100],[3,85],[6,20],[10,5]];
+  for(let i=0;i<points.length-1;i++){
+    const [x1,y1] = points[i], [x2,y2] = points[i+1];
+    if(guessNumber >= x1 && guessNumber <= x2){
+      const t = (guessNumber - x1) / (x2 - x1);
+      return Math.round(y1 + (y2 - y1) * t);
+    }
+  }
+  return 5;
 }
 
-function norm(s){
-  return s ? s.normalize().replace(/[\u0300-\u036f]/g,'').toLowerCase() : '';
-}
-
+/* ---------------------------
+   Auth helpers (shared state from /js/auth.js)
+---------------------------- */
 function getAuthApi(){
   return window.TA_AUTH || null;
 }
@@ -551,34 +706,9 @@ function getSession(){
   return null;
 }
 
-function isConnected(){
-  return !!getSession();
-}
-
 function getDisplayName(session){
   if(!session) return '';
   return String(session.pseudo || session.username || '').trim();
-}
-
-function setGuessEnabled(enabled){
-  guessInput.disabled = !enabled;
-  guessBtn.disabled = !enabled;
-  if(!enabled){
-    suggestionsList.style.display = 'none';
-  }
-}
-
-function updateTopStatus(){
-  const session = getSession();
-  if(session && session.pseudo){
-    lbStatusEl.textContent = `Connected as ${session.pseudo}`;
-    preloadStatusEl.textContent = assetsReady
-      ? 'Connected — preparing the round…'
-      : 'Connected — loading…';
-  } else {
-    lbStatusEl.textContent = 'Not connected';
-    preloadStatusEl.textContent = 'Connectez-vous via Tennis Arena pour jouer.';
-  }
 }
 
 function closeExistingDropdown(){
@@ -586,14 +716,13 @@ function closeExistingDropdown(){
   if(existing) existing.remove();
 }
 
-function closeAuthHubHint(){
-  closeExistingDropdown();
-}
-
 function renderAuthBox(){
-  const placeholder = lbBoxPlaceholderEl;
+  const placeholder = document.getElementById('authBoxPlaceholder');
+  const statusEl = document.getElementById('authStatus');
+  if(!placeholder || !statusEl) return;
+
   placeholder.innerHTML = '';
-  closeAuthHubHint();
+  closeExistingDropdown();
 
   const session = getSession();
 
@@ -619,6 +748,7 @@ function renderAuthBox(){
     });
 
     placeholder.appendChild(box);
+    statusEl.textContent = `Connected as ${session.pseudo}`;
   } else {
     const link = document.createElement('a');
     link.className = 'chip user-chip connect-btn';
@@ -626,9 +756,8 @@ function renderAuthBox(){
     link.textContent = 'Connect';
     link.title = 'Connectez-vous dans Tennis Arena';
     placeholder.appendChild(link);
+    statusEl.textContent = 'Not connected';
   }
-
-  updateTopStatus();
 }
 
 function toggleUserDropdown(anchor){
@@ -641,11 +770,11 @@ function toggleUserDropdown(anchor){
   const dd = document.createElement('div');
   dd.className = 'user-dropdown';
 
-  const btnProfile = document.createElement('button');
-  btnProfile.type = 'button';
-  btnProfile.textContent = 'Connected';
-  btnProfile.disabled = true;
-  btnProfile.style.opacity = '0.9';
+  const btnConnected = document.createElement('button');
+  btnConnected.type = 'button';
+  btnConnected.textContent = 'Connected';
+  btnConnected.disabled = true;
+  btnConnected.style.opacity = '0.9';
 
   const btnLogout = document.createElement('button');
   btnLogout.type = 'button';
@@ -664,10 +793,9 @@ function toggleUserDropdown(anchor){
     }
     dd.remove();
     renderAuthBox();
-    applyAuthGate();
   });
 
-  dd.appendChild(btnProfile);
+  dd.appendChild(btnConnected);
   dd.appendChild(btnLogout);
   anchor.parentElement.appendChild(dd);
 
@@ -684,11 +812,11 @@ function toggleUserDropdown(anchor){
 }
 
 /* ---------------------------
-  fetch helpers
+   Load JSONs & build daily candidates
 ---------------------------- */
-async function fetchJson(path){
+async function loadJson(path){
   try{
-    const r = await fetch(path, { cache:'no-cache' });
+    const r = await fetch(path, {cache:'no-cache'});
     if(!r.ok) return null;
     return await r.json();
   } catch(e){
@@ -696,90 +824,118 @@ async function fetchJson(path){
   }
 }
 
-/* ---------------------------
-  players + geocodes
----------------------------- */
 async function loadPlayersCatalog(){
-  const j = await fetchJson(PLAYERS_CATALOG_JSON);
+  const j = await loadJson(PLAYERS_CATALOG_JSON);
   if(!j || !Array.isArray(j.players)) return false;
-  playersCatalog = j.players.map(p => Object.assign({}, p));
+
+  players = j.players.map(p => {
+    const pp = Object.assign({}, p);
+    pp.age = (typeof pp.age === 'undefined' || pp.age === null) ? calcAgeFromBirthDate(pp.birth_date) : pp.age;
+    pp.rank = (typeof pp.rank !== 'undefined' && pp.rank !== null) ? parseRank(pp.rank) : Infinity;
+    pp.height_cm = (typeof pp.height_cm === 'undefined' || pp.height_cm === null) ? null : Number(pp.height_cm);
+    pp.right_handed = (typeof pp.right_handed === 'undefined')
+      ? (pp.plays ? String(pp.plays).toLowerCase().includes('right') : null)
+      : pp.right_handed;
+    pp.two_handed = (typeof pp.two_handed === 'undefined')
+      ? (pp.backhand ? String(pp.backhand).toLowerCase().includes('two') : null)
+      : pp.two_handed;
+    return pp;
+  });
+
   return true;
 }
 
 async function loadGeocodes(){
-  const j = await fetchJson(GEOCODES_JSON);
-  if(!j){
-    geocodes = {};
-    return false;
-  }
-  geocodes = j.geocode || j;
+  const j = await loadJson(GEOCODES_JSON);
+  if(!j) return false;
+  geocodes = j.geocode && typeof j.geocode === 'object' ? j.geocode : j;
   return true;
 }
 
-/* ---------------------------
-  suggestions (autocomplete)
----------------------------- */
-let suggestionPool = [];
-let suggestionIndex = -1;
-
-function updateSuggestions(){
-  if(guessInput.disabled) return;
-
-  const q = (guessInput.value || '').trim().toLowerCase();
-  if(q.length < 2){
-    suggestionsList.style.display = 'none';
-    suggestionPool = [];
-    return;
+async function loadDailyGuessIfAvailable(){
+  const j = await loadJson(DAILY_GUESS_PATH);
+  if(!j){
+    dailyGuessData = null;
+    dailyMap = {};
+    dailyList = [];
+    fixedCountry = null;
+    return null;
   }
 
-  let pool = playersCatalog.filter(p =>
-    p.full_name &&
-    p.full_name.toLowerCase().includes(q) &&
-    (String(p.source || '').toUpperCase() === currentTour)
-  );
+  dailyGuessData = j;
+  dailyMap = {};
+  dailyList = [];
 
-  if(pool.length === 0){
-    pool = playersCatalog.filter(p =>
-      p.full_name &&
-      p.full_name.toLowerCase().includes(q)
-    );
-  }
+  const keys = [
+    ['ATP','top20'], ['ATP','top100'], ['ATP','top300'], ['ATP','by_country'],
+    ['WTA','top20'], ['WTA','top100'], ['WTA','top300'], ['WTA','by_country']
+  ];
 
-  pool = pool
-    .filter(p => !guessedNames.has((p.full_name || '').trim()))
-    .slice(0, 60);
+  keys.forEach(([tour, slot]) => {
+    const obj = (j[tour] && j[tour][slot] && j[tour][slot].chosen) ? j[tour][slot].chosen : null;
+    if(obj){
+      const key = `${tour}_${slot}`;
+      dailyMap[key] = obj;
+      const exists = dailyList.find(p =>
+        (p.player_id && obj.player_id && String(p.player_id) === String(obj.player_id)) ||
+        (p.full_name && obj.full_name && p.full_name.trim().toLowerCase() === obj.full_name.trim().toLowerCase())
+      );
+      if(!exists) dailyList.push(obj);
+    }
+  });
 
-  suggestionPool = pool;
-  renderSuggestions(pool);
+  const atpcd = j && j.ATP && j.ATP.by_country && j.ATP.by_country.country;
+  const wtacd = j && j.WTA && j.WTA.by_country && j.WTA.by_country.country;
+  fixedCountry = atpcd || wtacd || null;
+
+  return j;
 }
 
-function renderSuggestions(list){
-  suggestionsList.innerHTML = '';
-  suggestionIndex = -1;
+async function loadCountryTexts(){
+  const j = await loadJson(COUNTRY_TEXTS_PATH);
+  if(!j){
+    countryTexts = {};
+    return;
+  }
+  countryTexts = j;
+}
 
-  if(!list || !list.length){
+/* ---------------------------
+   Typeahead (always from full players catalog), excludes guessedNames
+---------------------------- */
+const guessInput = document.getElementById('guessInput');
+const suggestionsList = document.getElementById('suggestionsList');
+let currentSuggestionIndex = -1;
+let currentSuggestions = [];
+
+function showSuggestions(list){
+  currentSuggestions = list || [];
+  currentSuggestionIndex = -1;
+
+  if(!list || list.length === 0){
     suggestionsList.style.display = 'none';
+    suggestionsList.innerHTML = '';
     return;
   }
 
-  const max = Math.min(12, list.length);
-  for(let i = 0; i < max; i++){
+  suggestionsList.innerHTML = '';
+  const max = 8;
+
+  for(let i = 0; i < Math.min(max, list.length); i++){
     const pl = list[i];
     const li = document.createElement('li');
-    li.textContent = pl.full_name;
-    li.dataset.idx = i;
+    li.textContent = pl.full_name + (pl.represented_country ? ` — ${pl.represented_country}` : '');
+    li.dataset.index = i;
 
-    li.onclick = () => {
+    li.addEventListener('click', () => {
       guessInput.value = pl.full_name;
       suggestionsList.style.display = 'none';
-      handleGuessSubmission(pl.full_name);
-    };
+      guessInput.focus();
+    });
 
-    li.onmouseover = () => {
-      Array.from(suggestionsList.children).forEach(n => n.classList.remove('highlight'));
-      li.classList.add('highlight');
-      suggestionIndex = i;
-    };
+    li.addEventListener('mouseover', () => {
+      setSuggestionHighlight(i);
+    });
 
     suggestionsList.appendChild(li);
   }
@@ -787,391 +943,366 @@ function renderSuggestions(list){
   suggestionsList.style.display = 'block';
 }
 
-function highlightSuggestion(){
-  const items = suggestionsList.children;
-  for(let i = 0; i < items.length; i++){
-    items[i].classList.toggle('highlight', i === suggestionIndex);
+function updateSuggestions(){
+  const v = guessInput.value.trim().toLowerCase();
+  if(v.length < 2){
+    showSuggestions([]);
+    return;
+  }
+
+  const poolFull = players;
+  const byTour = poolFull.filter(p => (String(p.source || (p._raw_row && p._raw_row._source) || '').toUpperCase()) === currentTour);
+
+  let pool = byTour.filter(p => p.full_name && p.full_name.toLowerCase().includes(v));
+  if(pool.length === 0){
+    pool = poolFull.filter(p => p.full_name && p.full_name.toLowerCase().includes(v));
+  }
+
+  pool = pool.filter(p => !guessedNames.has((p.full_name || '').trim()));
+  pool.sort((a,b) => {
+    const va = a.full_name.toLowerCase(), vb = b.full_name.toLowerCase();
+    const sa = va.startsWith(v) ? 0 : 1, sb = vb.startsWith(v) ? 0 : 1;
+    if(sa !== sb) return sa - sb;
+    return va.localeCompare(vb);
+  });
+
+  showSuggestions(pool);
+}
+
+function setSuggestionHighlight(idx){
+  const lis = suggestionsList.querySelectorAll('li');
+  lis.forEach(li => li.classList.remove('highlight'));
+
+  if(idx >= 0 && idx < lis.length){
+    lis[idx].classList.add('highlight');
+    currentSuggestionIndex = idx;
+    const pl = currentSuggestions[idx];
+    if(pl) guessInput.value = pl.full_name;
+    lis[idx].scrollIntoView({block:'nearest'});
+  } else {
+    currentSuggestionIndex = -1;
   }
 }
 
+guessInput.addEventListener('input', () => { updateSuggestions(); });
+guessInput.addEventListener('focus', () => { updateSuggestions(); });
+
+document.addEventListener('click', (e) => {
+  if(!document.querySelector('.suggestions')?.contains(e.target)){
+    suggestionsList.style.display = 'none';
+  }
+});
+
+guessInput.addEventListener('keydown', (e) => {
+  if(suggestionsList.style.display === 'block' && currentSuggestions.length > 0){
+    if(e.key === 'ArrowDown'){
+      e.preventDefault();
+      const next = Math.min(currentSuggestionIndex + 1, Math.min(currentSuggestions.length,8) - 1);
+      setSuggestionHighlight(next);
+      return;
+    } else if(e.key === 'ArrowUp'){
+      e.preventDefault();
+      const prev = Math.max(currentSuggestionIndex - 1, 0);
+      setSuggestionHighlight(prev);
+      return;
+    } else if(e.key === 'Enter'){
+      if(currentSuggestionIndex >= 0 && currentSuggestionIndex < currentSuggestions.length){
+        e.preventDefault();
+        const picked = currentSuggestions[currentSuggestionIndex];
+        guessInput.value = picked.full_name;
+        suggestionsList.style.display = 'none';
+        if(gameStarted){
+          handleGuessSafe(picked.full_name);
+        } else {
+          showToast('Round will start automatically when settings change');
+        }
+        return;
+      }
+    }
+  }
+});
+
 /* ---------------------------
-  find player by name
+   Find player by name (full catalog)
 ---------------------------- */
 function findPlayerByName(name){
   if(!name) return null;
-  const q = norm(name.trim());
+  const cleaned = normName(name.trim());
+  const pool = players;
 
-  let p = playersCatalog.find(x =>
-    x.player_id &&
-    String(x.player_id).toLowerCase() === name.trim().toLowerCase()
-  );
-  if(p) return p;
+  let match = pool.find(p => p.full_name && normName(p.full_name) === cleaned);
+  if(match) return match;
 
-  p = playersCatalog.find(x => x.full_name && norm(x.full_name) === q);
-  if(p) return p;
+  match = pool.find(p => p.player_id && String(p.player_id).toLowerCase() === name.trim().toLowerCase());
+  if(match) return match;
 
-  p = playersCatalog.find(x => x.full_name && norm(x.full_name).startsWith(q));
-  if(p) return p;
+  match = pool.find(p => p.full_name && normName(p.full_name).startsWith(cleaned));
+  if(match) return match;
 
-  p = playersCatalog.find(x => x.full_name && norm(x.full_name).includes(q));
-  return p || null;
+  match = pool.find(p => p.full_name && normName(p.full_name).includes(cleaned));
+  if(match) return match;
+
+  const parts = cleaned.split(/\s+/);
+  if(parts.length > 1){
+    const last = parts[parts.length - 1];
+    match = pool.find(p => p.full_name && normName(p.full_name).split(/\s+/).some(tok => tok === last));
+    if(match) return match;
+  }
+
+  return null;
 }
 
 /* ---------------------------
-  per-player H2H loader & composer
+   Enrich daily candidate from catalog if possible
 ---------------------------- */
-async function loadPerPlayerH2H(playerId){
-  if(!playerId) return null;
-  if(h2hByPlayerCache[playerId]) return h2hByPlayerCache[playerId];
+function enrichPlayerFromCatalog(candidate){
+  if(!candidate) return null;
 
-  const path = `${H2H_BY_PLAYER_BASE}${encodeURIComponent(playerId)}.json`;
-  const j = await fetchJson(path);
-  if(!j) return null;
+  const matchById = players.find(p => p.player_id && candidate.player_id && String(p.player_id) === String(candidate.player_id));
+  if(matchById) return matchById;
 
-  h2hByPlayerCache[playerId] = j;
-  return j;
-}
+  const matchByName = players.find(p => p.full_name && candidate.full_name && p.full_name.trim().toLowerCase() === candidate.full_name.trim().toLowerCase());
+  if(matchByName) return matchByName;
 
-function composeH2H(playerAId, playerBId){
-  if(!playerAId || !playerBId) return null;
-
-  const aId = String(playerAId);
-  const bId = String(playerBId);
-  const cacheKey = `${aId}_${bId}`;
-
-  if(composedH2HCache[cacheKey]) return composedH2HCache[cacheKey];
-
-  const A = h2hByPlayerCache[aId] || null;
-  const B = h2hByPlayerCache[bId] || null;
-
-  if(!A && !B){
-    const empty = {
-      meta:{ total_matches:0 },
-      playerA:{ id:aId },
-      playerB:{ id:bId },
-      matches:[],
-      aggregates:{ A_wins:0, B_wins:0 }
-    };
-    composedH2HCache[cacheKey] = empty;
-    return empty;
-  }
-
-  const collected = [];
-
-  if(A && Array.isArray(A.matches)){
-    for(const m of A.matches){
-      if(String(m.opponent_id) === bId) collected.push(Object.assign({}, m));
-    }
-  }
-
-  if(B && Array.isArray(B.matches)){
-    for(const m of B.matches){
-      if(String(m.opponent_id) === aId) collected.push(Object.assign({}, m));
-    }
-  }
-
-  if(collected.length === 0){
-    const empty = {
-      meta:{ total_matches:0 },
-      playerA:{ id:aId },
-      playerB:{ id:bId },
-      matches:[],
-      aggregates:{ A_wins:0, B_wins:0 }
-    };
-    composedH2HCache[cacheKey] = empty;
-    return empty;
-  }
-
-  const seen = new Set();
-  const normalized = [];
-  let A_wins = 0;
-  let B_wins = 0;
-
-  for(const m of collected){
-    const mid = m.match_id || (
-      m.event_id
-        ? (m.event_id + '|' + (m.match_date || ''))
-        : JSON.stringify([m.match_date, m.score, m.opponent_id])
-    );
-
-    if(seen.has(mid)) continue;
-    seen.add(mid);
-
-    let winnerId = null;
-    if(m.player_id_winner) winnerId = String(m.player_id_winner);
-    else if(typeof m.is_winner !== 'undefined'){
-      winnerId = m.is_winner ? String(aId) : String(bId);
-    }
-
-    if(winnerId === aId) A_wins++;
-    else if(winnerId === bId) B_wins++;
-
-    normalized.push({
-      match_id: m.match_id || mid,
-      event_id: m.event_id || '',
-      event_year: m.event_year || (m.match_date ? (new Date(m.match_date)).getFullYear() : ''),
-      tourney_name: m.tourney_name || '',
-      surface: m.surface || 'Other',
-      round: m.round || '',
-      score_string: m.score || m.score_string || '',
-      match_date: m.match_date || '',
-      player_id_winner: winnerId || null,
-      opponent_id: m.opponent_id || null
-    });
-  }
-
-  const h2h = {
-    meta:{ total_matches:normalized.length },
-    playerA:{ id:aId },
-    playerB:{ id:bId },
-    matches: normalized.sort((x, y) => (
-      String(y.event_year || '').localeCompare(String(x.event_year || '')) ||
-      (x.match_date || '').localeCompare(y.match_date || '')
-    )),
-    aggregates:{ A_wins, B_wins }
+  return {
+    full_name: candidate.full_name || (candidate.player_id || 'Unknown'),
+    player_id: candidate.player_id || null,
+    represented_country: candidate.represented_country || null,
+    rank: (typeof candidate.rank !== 'undefined' && candidate.rank !== null) ? parseRank(candidate.rank) : Infinity,
+    height_cm: candidate.height_cm || null,
+    birth_date: candidate.birth_date || null,
+    birthplace: candidate.birthplace || null,
+    source: candidate.source || 'DAILY',
+    age: calcAgeFromBirthDate(candidate.birth_date),
+    right_handed: null,
+    two_handed: null
   };
-
-  composedH2HCache[cacheKey] = h2h;
-  return h2h;
 }
 
 /* ---------------------------
-  UI rendering helpers for H2H (easy/medium/hard)
+   Pick target logic
 ---------------------------- */
-function ensureOutputSkeleton(){
-  const out = document.getElementById('h2hOutput');
-  out.innerHTML = '';
+function pickTargetFromDailyMap(tour, levelTopN, cotdOn){
+  if(!dailyMap || Object.keys(dailyMap).length === 0) return null;
 
-  if(currentLevel === 'hard'){
-    const tbl = document.createElement('table');
-    tbl.id = 'h2hTableHard';
-    tbl.innerHTML = '<thead><tr><th>Guessed Name</th><th style="text-align:center">H2H (guess - target)</th></tr></thead><tbody></tbody>';
-    out.appendChild(tbl);
-  } else if(currentLevel === 'medium'){
-    const tbl = document.createElement('table');
-    tbl.id = 'h2hTableMedium';
-    tbl.innerHTML = '<thead><tr><th>Guessed Name</th><th>Clay</th><th>Grass</th><th>Hard</th><th>Carpet</th><th>Other</th></tr></thead><tbody></tbody>';
-    out.appendChild(tbl);
+  if(cotdOn){
+    const key = `${tour}_by_country`;
+    const candidate = dailyMap[key] || null;
+    if(candidate) return candidate;
+  }
+
+  const slot = (levelTopN <= 20) ? 'top20' : (levelTopN <= 100 ? 'top100' : 'top300');
+  const candidate = dailyMap[`${tour}_${slot}`] || null;
+  return candidate;
+}
+
+/* ---------------------------
+   Comparison & rendering
+---------------------------- */
+function makeArrowSvg(direction){
+  if(direction === 'equal'){
+    return `<svg class="icon" viewBox="0 0 24 24" fill="none"><path d="M5 12h14" stroke="#94a3b8" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+  }
+  if(direction === 'up'){
+    return `<svg class="icon" viewBox="0 0 24 24" fill="none"><path d="M6 18L18 6" stroke="#16a34a" stroke-width="1.8" stroke-linecap="round"/><path d="M12 6h6v6" stroke="#16a34a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+  return `<svg class="icon" viewBox="0 0 24 24" fill="none"><path d="M6 6L18 18" stroke="#ef4444" stroke-width="1.8" stroke-linecap="round"/><path d="M12 18h6v-6" stroke="#ef4444" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+function tickSvg(ok){
+  if(ok) return `<svg class="tick" viewBox="0 0 24 24" fill="none"><path d="M6 12.2l3.1 3.1L18 6.4" stroke="#16a34a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  return `<svg class="tick" viewBox="0 0 24 24" fill="none"><path d="M6 12.2l3.1 3.1L18 6.4" stroke="#94a3b8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+function comparePlayers(guess, target){
+  const res = {};
+  res.nameMatch = guess.full_name.trim().toLowerCase() === target.full_name.trim().toLowerCase();
+
+  if(guess.age != null && target.age != null){
+    res.ageGuess = guess.age;
+    res.ageTarget = target.age;
+    res.ageDirection = (guess.age === target.age) ? 'equal' : (guess.age > target.age ? 'down' : 'up');
   } else {
-    const tbl = document.createElement('table');
-    tbl.id = 'h2hTableEasy';
-    tbl.innerHTML = '<thead><tr><th>Guessed Name</th><th>Recent matches</th></tr></thead><tbody></tbody>';
-    out.appendChild(tbl);
-  }
-}
-
-function computeSurfaceCounts(h2h){
-  const map = {};
-  if(!h2h || !Array.isArray(h2h.matches)) return map;
-
-  for(const m of h2h.matches){
-    const s = m.surface || 'Other';
-    map[s] = map[s] || { A:0, B:0, total:0 };
-    const winner = String(m.player_id_winner || '');
-
-    if(winner === String(h2h.playerA.id)) map[s].A++;
-    else if(winner === String(h2h.playerB.id)) map[s].B++;
-    map[s].total++;
+    res.ageGuess = guess.age;
+    res.ageTarget = target.age;
+    res.ageDirection = null;
   }
 
-  return map;
-}
-
-function buildMatchLinesEasy(h2h, guessedPlayerId, guessedPlayerName){
-  if(!h2h || !Array.isArray(h2h.matches) || h2h.matches.length === 0) return ['No matches'];
-
-  const lines = [];
-  for(const m of h2h.matches.slice(0, 6)){
-    const year = m.event_year || '';
-    const tournament = m.tourney_name || m.event_id || '';
-    const round = m.round || '';
-    const score = m.score_string || '';
-    const winner = String(m.player_id_winner || '');
-    const label = (winner === String(guessedPlayerId))
-      ? (escapeHtml(guessedPlayerName) || 'Guessed')
-      : 'Target';
-
-    lines.push(`${escapeHtml(year)} — ${escapeHtml(tournament)} — ${escapeHtml(round)} — ${escapeHtml(score)} — Winner: ${label}`);
+  const gRank = guess.rank, tRank = target.rank;
+  if(isFinite(gRank) && isFinite(tRank)){
+    res.rankGuess = gRank;
+    res.rankTarget = tRank;
+    res.rankDirection = (gRank === tRank) ? 'equal' : (gRank > tRank ? 'up' : 'down');
+  } else {
+    res.rankGuess = isFinite(gRank) ? gRank : null;
+    res.rankTarget = isFinite(tRank) ? tRank : null;
+    res.rankDirection = null;
   }
-  return lines;
-}
 
-function updateTablesWithGuess(guess, h2h){
-  const out = document.getElementById('h2hOutput');
-  if(!out.querySelector('table')) ensureOutputSkeleton();
+  res.sameCountry = (guess.represented_country && target.represented_country && guess.represented_country === target.represented_country);
 
-  if(currentLevel === 'hard'){
-    const tbody = document.querySelector('#h2hTableHard tbody');
-    const tr = document.createElement('tr');
-
-    const tdName = document.createElement('td');
-    tdName.textContent = guess.full_name || '';
-
-    const tdH2H = document.createElement('td');
-    const A = (h2h && h2h.aggregates && typeof h2h.aggregates.A_wins !== 'undefined') ? h2h.aggregates.A_wins : 0;
-    const B = (h2h && h2h.aggregates && typeof h2h.aggregates.B_wins !== 'undefined') ? h2h.aggregates.B_wins : 0;
-    tdH2H.innerHTML = `<div style="font-weight:700;text-align:center">${B} - ${A}</div>`;
-
-    tr.appendChild(tdName);
-    tr.appendChild(tdH2H);
-    tbody.prepend(tr);
-
-  } else if(currentLevel === 'medium'){
-    const tbody = document.querySelector('#h2hTableMedium tbody');
-    const tr = document.createElement('tr');
-
-    const tdName = document.createElement('td');
-    tdName.textContent = guess.full_name || '';
-    tr.appendChild(tdName);
-
-    const counts = computeSurfaceCounts(h2h);
-    const order = ['Clay','Grass','Hard','Carpet'];
-
-    for(const s of order){
-      const c = counts[s] || { A:0, B:0, total:0 };
-      const td = document.createElement('td');
-      td.innerHTML = `${c.B} - ${c.A} (${c.total})`;
-      tr.appendChild(td);
+  let dist = null;
+  const cityGuess = guess.birthplace, cityTarget = target.birthplace;
+  if(cityGuess && cityTarget){
+    const gCoord = geocodes[cityGuess] || geocodes[String(cityGuess).trim()] || geocodes[String(cityGuess).replace(/"/g,'').trim()];
+    const tCoord = geocodes[cityTarget] || geocodes[String(cityTarget).trim()] || geocodes[String(cityTarget).replace(/"/g,'').trim()];
+    if(gCoord && tCoord && gCoord.length >= 2 && tCoord.length >= 2){
+      dist = Math.round(haversineKm(gCoord[0], gCoord[1], tCoord[0], tCoord[1]));
     }
-
-    const other = Object.keys(counts)
-      .filter(k => !order.includes(k))
-      .reduce((acc, k) => {
-        acc.A += counts[k].A;
-        acc.B += counts[k].B;
-        acc.total += counts[k].total;
-        return acc;
-      }, { A:0, B:0, total:0 });
-
-    const tdOther = document.createElement('td');
-    tdOther.innerHTML = `${other.B} - ${other.A} (${other.total})`;
-    tr.appendChild(tdOther);
-
-    tbody.prepend(tr);
-
-  } else {
-    const tbody = document.querySelector('#h2hTableEasy tbody');
-    const tr = document.createElement('tr');
-
-    const tdName = document.createElement('td');
-    tdName.textContent = guess.full_name || '';
-
-    const tdMatches = document.createElement('td');
-    const pid = guess.player_id || guess.playerId || '';
-    const lines = buildMatchLinesEasy(h2h, pid, guess.full_name || '');
-    tdMatches.innerHTML = lines.map(l => `<div style="margin-bottom:6px">${escapeHtml(l)}</div>`).join('');
-
-    tr.appendChild(tdName);
-    tr.appendChild(tdMatches);
-    tbody.prepend(tr);
   }
+  res.birthDistanceKm = dist;
+
+  if(guess.height_cm != null && target.height_cm != null){
+    res.heightGuess = guess.height_cm;
+    res.heightTarget = target.height_cm;
+    res.heightDirection = (guess.height_cm === target.height_cm) ? 'equal' : (guess.height_cm > target.height_cm ? 'down' : 'up');
+  } else {
+    res.heightGuess = guess.height_cm;
+    res.heightTarget = target.height_cm;
+    res.heightDirection = null;
+  }
+
+  res.rightMatch = (guess.right_handed === target.right_handed);
+  res.twoHanded = (guess.two_handed === null || target.two_handed === null) ? null : (guess.two_handed === target.two_handed);
+
+  return res;
 }
 
-/* ---------------------------
-  guesses table helpers
----------------------------- */
 function clearGuessesTable(){
   document.querySelector('#guessesTable tbody').innerHTML = '';
 }
 
-function appendGuessRowSimple(guess){
+function appendGuessRow(guessPlayer, comparison){
   const tbody = document.querySelector('#guessesTable tbody');
   const tr = document.createElement('tr');
-
   const idx = guesses.length;
+  if(comparison.nameMatch) tr.classList.add('good');
+
   const tdIndex = document.createElement('td');
   tdIndex.textContent = idx;
 
   const tdName = document.createElement('td');
-  tdName.textContent = guess.full_name || '';
+  tdName.textContent = guessPlayer.full_name;
 
-  tr.appendChild(tdIndex);
-  tr.appendChild(tdName);
+  const tdAge = document.createElement('td');
+  let ageHtml = (comparison.ageGuess != null ? `${comparison.ageGuess}` : '—');
+  if(comparison.ageDirection) ageHtml += ' ' + makeArrowSvg(comparison.ageDirection);
+  tdAge.innerHTML = ageHtml;
+
+  const tdRank = document.createElement('td');
+  let rankHtml = (comparison.rankGuess != null && isFinite(comparison.rankGuess) ? `${comparison.rankGuess}` : '—');
+  if(comparison.rankDirection) rankHtml += ' ' + makeArrowSvg(comparison.rankDirection);
+  tdRank.innerHTML = rankHtml;
+
+  const tdCountry = document.createElement('td');
+  if(comparison.sameCountry) tdCountry.innerHTML = `<span class="country-good">${guessPlayer.represented_country || '—'} ✓</span>`;
+  else tdCountry.innerHTML = `<span class="country-bad">${guessPlayer.represented_country || '—'}</span>`;
+
+  const tdBirth = document.createElement('td');
+  tdBirth.innerHTML = (comparison.birthDistanceKm != null ? `<strong style="font-weight:800">${comparison.birthDistanceKm} km</strong>` : 'unknown');
+
+  const tdHeight = document.createElement('td');
+  let htm = (comparison.heightGuess != null ? `${comparison.heightGuess} cm` : '—');
+  if(comparison.heightDirection) htm += ' ' + makeArrowSvg(comparison.heightDirection);
+  tdHeight.innerHTML = htm;
+
+  const tdRight = document.createElement('td');
+  tdRight.innerHTML = (guessPlayer.right_handed === null ? '—' : (guessPlayer.right_handed ? 'Yes' : 'No')) + (comparison.rightMatch ? ` ${tickSvg(true)}` : '');
+
+  const tdTwo = document.createElement('td');
+  tdTwo.innerHTML = (guessPlayer.two_handed === null ? 'N/A' : (guessPlayer.two_handed ? 'Yes' : 'No')) + (comparison.twoHanded === null ? '' : (comparison.twoHanded ? ` ${tickSvg(true)}` : ` ${tickSvg(false)}`));
+
+  [tdIndex,tdName,tdAge,tdRank,tdCountry,tdBirth,tdHeight,tdRight,tdTwo].forEach(td => tr.appendChild(td));
   tbody.prepend(tr);
 }
 
 /* ---------------------------
-  Auth gating
+   Guess handling
 ---------------------------- */
-function applyAuthGate(){
-  const session = getSession();
-  const connected = !!(session && session.pseudo);
-
-  renderAuthBox();
-
-  if(!connected){
-    gameBlockedDueToExisting = false;
-    gameStarted = false;
-    setGuessEnabled(false);
-    preloadStatusEl.textContent = 'Connectez-vous via Tennis Arena pour jouer.';
-    suggestionsList.style.display = 'none';
-    return false;
-  }
-
-  return true;
-}
-
-function checkAuthThenStart(){
-  if(!applyAuthGate()) return;
-  if(!assetsReady) return;
-  ensureModeCheckedAndStart();
-}
-
-/* ---------------------------
-  Check whether user played today (mode-based)
----------------------------- */
-async function checkUserPlayedToday(mode){
-  const session = getSession();
-  if(!session) return { exists:false, requiresAuth:true };
-
-  const userId = session.id || session.user_id || null;
-  const pseudo = session.pseudo || null;
-  const dateStr = new Date().toISOString().slice(0,10);
-
-  let qs = `?game_id=${encodeURIComponent(GAME_ID)}&date=${encodeURIComponent(dateStr)}&check_existing=1&mode=${encodeURIComponent(mode)}`;
-  if(userId) qs += `&user_id=${encodeURIComponent(userId)}`;
-  if(pseudo) qs += `&pseudo=${encodeURIComponent(pseudo)}`;
-
-  try {
-    const res = await fetch(`/.netlify/functions/leaderboard${qs}`, { credentials: 'same-origin' });
-    if(!res.ok) return { exists:false };
-    const j = await res.json();
-    if(j && j.ok && j.exists) return { exists:true, rows: j.rows || [] };
-    return { exists:false, rows: j.rows || [] };
-  } catch(e){
-    console.warn('checkUserPlayedToday error', e);
-    return { exists:false };
+function handleGuessSafe(name){
+  try{
+    handleGuess(name);
+  } catch(err){
+    showToast('An error occurred.');
+    console && console.error && console.error(err);
   }
 }
 
-/* ---------------------------
-  showAlreadyPlayedModal
----------------------------- */
-function showAlreadyPlayedModal(check, mode){
-  gameBlockedDueToExisting = true;
-  gameStarted = false;
-  setGuessEnabled(false);
+function handleGuess(name){
+  if(!gameStarted){
+    showToast('Round not active yet');
+    return;
+  }
+
+  if(remaining <= 0){
+    showToast('No tries left — new round will start');
+    return;
+  }
+
+  const guessPlayer = findPlayerByName(name);
+  if(!guessPlayer){
+    const suggestions = players.filter(p => p.full_name && p.full_name.toLowerCase().includes((name || '').toLowerCase())).slice(0,8);
+    showSuggestions(suggestions);
+    showToast('Name not found — suggestions opened');
+    return;
+  }
+
+  guessedNames.add((guessPlayer.full_name || '').trim());
+
+  remaining--;
+  document.getElementById('remaining').textContent = remaining;
+
+  const comparison = comparePlayers(guessPlayer, target);
+  guesses.push({player: guessPlayer, comparison});
+  appendGuessRow(guessPlayer, comparison);
+
+  guessInput.value = '';
   suggestionsList.style.display = 'none';
 
+  if(comparison.nameMatch){
+    const points = scoreForGuessNumber(guesses.length);
+    score += points;
+    document.getElementById('score').textContent = score;
+    revealAnswer(true, points);
+    setTimeout(() => startGame(), 1200);
+    return;
+  }
+
+  if(remaining <= 0){
+    revealAnswer(false, 0);
+    setTimeout(() => startGame(), 1200);
+  }
+}
+
+/* reveal */
+function revealAnswer(won, gainedPoints){
   const modal = document.getElementById('modal');
   const title = document.getElementById('modalTitle');
   const text = document.getElementById('modalText');
   const details = document.getElementById('modalDetails');
 
-  title.textContent = 'Already completed';
-  text.textContent = `You have already completed this variant today (${mode}). You cannot replay the same variant today.`;
-
-  let infoHtml = `<div style="text-align:left;margin-top:12px;color:var(--muted)">`;
-  if(check && check.rows && check.rows.length){
-    for(const r of check.rows.slice(0,5)){
-      infoHtml += `<div style="margin-bottom:6px"><strong>Points:</strong> ${r.points || 0} — <strong>Mode:</strong> ${r.mode || '—'} — <strong>At:</strong> ${r.created_at || '—'}</div>`;
-    }
+  if(won){
+    title.textContent = 'You won!';
+    text.textContent = `You earned ${gainedPoints} points this round.`;
   } else {
-    infoHtml += `<div>No details available.</div>`;
+    title.textContent = 'Round over';
+    text.textContent = 'No points this time — new round will start.';
   }
-  infoHtml += `</div>`;
 
-  details.innerHTML = infoHtml;
+  const targetHtml = `
+    <div style="text-align:left;margin-top:12px">
+      <h3 style="margin:0 0 6px 0;color:#fff">${target.full_name} <span style="color:var(--muted);font-size:0.9rem">(${target.source || ''})</span></h3>
+      <ul style="color:var(--muted);padding-left:18px">
+        <li>Country: ${(target.represented_country) ? `<strong style="color:#fff">${target.represented_country}</strong>` : '—'}</li>
+        <li>Birth: ${(target.birthplace || '—')} (${target.birth_date || '—'})</li>
+        <li>Age: ${(target.age != null ? target.age : '—')}</li>
+        <li>Career best: ${(isFinite(target.rank) ? target.rank : '—')}</li>
+        <li>Height: ${(target.height_cm != null ? target.height_cm + ' cm' : '—')}</li>
+      </ul>
+    </div>
+  `;
+  details.innerHTML = targetHtml;
+
   modal.classList.add('show');
   modal.setAttribute('aria-hidden','false');
 
@@ -1182,664 +1313,335 @@ function showAlreadyPlayedModal(check, mode){
 }
 
 /* ---------------------------
-  Start game
+   Country text rendering
 ---------------------------- */
-function startRound(){
-  if(!isConnected()){
-    applyAuthGate();
+function renderCountryText(){
+  const panel = document.getElementById('countryText');
+
+  if(!cotdEnabled || !fixedCountry || !countryTexts || !countryTexts[fixedCountry]){
+    panel.style.display = 'none';
+    panel.innerHTML = '';
     return;
   }
 
-  gameBlockedDueToExisting = false;
-  remaining = 15;
+  const info = countryTexts[fixedCountry];
+  let html = '';
+  if(info.title) html += `<h3>${info.title}</h3>`;
+  if(info.subtitle) html += `<div style="color:var(--muted);margin-bottom:8px">${info.subtitle}</div>`;
+
+  if(Array.isArray(info.paragraphs)){
+    info.paragraphs.forEach(p => {
+      if(typeof p === 'string'){
+        html += `<div style="font-style:italic">${p}</div>`;
+      } else if(typeof p === 'object'){
+        if(p.subtitle) html += `<div class="para-subtitle">${p.subtitle}</div>`;
+        if(p.text) html += `<div style="font-style:italic">${p.text}</div>`;
+      }
+    });
+  } else if(info.paragraph){
+    html += `<div style="font-style:italic">${info.paragraph}</div>`;
+  }
+
+  panel.innerHTML = html;
+  panel.style.display = 'block';
+}
+
+/* ---------------------------
+   COTD banner + background
+---------------------------- */
+const flagBgEl = document.getElementById('flagBg');
+const flagOverlayEl = document.getElementById('flagOverlay');
+const cotdBanner = document.getElementById('cotdBanner');
+const cotdFlag = document.getElementById('cotdFlag');
+const cotdName = document.getElementById('cotdName');
+
+function setFlagBackground(url){
+  if(!url){
+    flagBgEl.style.opacity = 0;
+    flagBgEl.style.backgroundImage = '';
+    flagOverlayEl.style.opacity = 0;
+    currentFlagUrl = null;
+    return;
+  }
+  currentFlagUrl = url;
+  flagBgEl.style.backgroundImage = `url('${url}')`;
+  flagBgEl.style.opacity = 1;
+  flagOverlayEl.style.opacity = 1;
+}
+
+function renderCotdBanner(){
+  if(!cotdEnabled){
+    cotdBanner.style.display = 'none';
+    setFlagBackground(null);
+    updateDifficultyVisibility();
+    return;
+  }
+
+  cotdBanner.style.display = 'flex';
+
+  const key = `${currentTour}_by_country`;
+  const dailyCandidate = (dailyMap && dailyMap[key]) ? dailyMap[key] : null;
+  const cc = dailyCandidate && dailyCandidate.represented_country ? dailyCandidate.represented_country : (fixedCountry || '—');
+
+  cotdName.textContent = cc;
+  cotdFlag.innerHTML = '';
+
+  if(cc && cc !== '—'){
+    fetch(`https://restcountries.com/v3.1/alpha/${cc}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if(data && data[0] && data[0].flags && (data[0].flags.svg || data[0].flags.png)){
+          const img = document.createElement('img');
+          img.src = data[0].flags.svg || data[0].flags.png;
+          img.alt = data[0].name && data[0].name.common ? data[0].name.common : cc;
+          img.style.width = '100%';
+          img.style.height = '100%';
+          img.style.objectFit = 'cover';
+          cotdFlag.appendChild(img);
+          cotdName.textContent = data[0].name.common || cc;
+          setFlagBackground(data[0].flags.svg || data[0].flags.png);
+        } else {
+          cotdFlag.textContent = cc;
+          setFlagBackground(null);
+        }
+      })
+      .catch(() => {
+        cotdFlag.textContent = cc;
+        setFlagBackground(null);
+      });
+  } else {
+    cotdFlag.textContent = '—';
+    setFlagBackground(null);
+  }
+
+  updateDifficultyVisibility();
+}
+
+function updateDifficultyVisibility(){
+  const seg = document.getElementById('difficultySegment');
+  if(!seg) return;
+  if(cotdEnabled){
+    seg.style.display = 'none';
+  } else {
+    seg.style.display = '';
+  }
+}
+
+/* ---------------------------
+   Theme (ATP/WTA)
+---------------------------- */
+function applyTourTheme(){
+  const root = document.documentElement;
+  if(currentTour === 'WTA'){
+    root.style.setProperty('--accent-a', 'rgba(0,0,0,0)');
+    root.style.setProperty('--accent-b', 'rgba(139,92,246,0.12)');
+    root.style.setProperty('--accent-strong', getComputedStyle(root).getPropertyValue('--accent-strong-wta') || '#8b5cf6');
+    document.getElementById('btnWTA').classList.add('active','wta');
+    document.getElementById('btnATP').classList.remove('active','atp');
+  } else {
+    root.style.setProperty('--accent-b', 'rgba(0,0,0,0)');
+    root.style.setProperty('--accent-a', 'rgba(31,122,236,0.12)');
+    root.style.setProperty('--accent-strong', '#1f7aec');
+    document.getElementById('btnATP').classList.add('active','atp');
+    document.getElementById('btnWTA').classList.remove('active','wta');
+  }
+}
+
+/* ---------------------------
+   Update selectedCountry display
+---------------------------- */
+function updateSelectedCountryDisplay(){
+  const el = document.getElementById('selectedCountry');
+  if(cotdEnabled){
+    el.textContent = (fixedCountry || (target && target.represented_country) || '—');
+  } else {
+    el.textContent = '—';
+  }
+}
+
+/* ---------------------------
+   Start Game
+---------------------------- */
+function pickRandomTargetFromPool(tour, topN, fixedByCountry = null){
+  let pool = players.filter(p =>
+    p.represented_country &&
+    p.player_id &&
+    p.rank <= topN &&
+    (String(p.source || (p._raw_row && p._raw_row._source) || '').toUpperCase() === tour || !p.source)
+  );
+
+  if(pool.length === 0){
+    pool = players.filter(p =>
+      p.represented_country &&
+      (String(p.source || (p._raw_row && p._raw_row._source) || '').toUpperCase() === tour || !p.source)
+    );
+  }
+
+  if(pool.length === 0){
+    pool = players.filter(p => p.represented_country);
+  }
+
+  if(pool.length === 0) return {chosen:null, country:null};
+
+  if(fixedByCountry){
+    const candidates = pool.filter(p => p.represented_country === fixedByCountry);
+    if(candidates.length) return {chosen: candidates[Math.floor(Math.random() * candidates.length)], country: fixedByCountry};
+  }
+
+  const countries = [...new Set(pool.map(p => p.represented_country))];
+  const country = countries[Math.floor(Math.random() * countries.length)];
+  const countryPlayers = pool.filter(p => p.represented_country === country);
+  const chosen = countryPlayers.length ? countryPlayers[Math.floor(Math.random() * countryPlayers.length)] : pool[Math.floor(Math.random() * pool.length)];
+  return {chosen, country};
+}
+
+function startGame(){
+  remaining = MAX_TRIES;
   guesses = [];
   guessedNames.clear();
 
-  remainingEl.textContent = remaining;
-  scoreEl.textContent = score;
-  levelLabelEl.textContent = currentLevel.charAt(0).toUpperCase() + currentLevel.slice(1);
-  tourLabelEl.textContent = currentTour;
-  clearGuessesTable();
-  setGuessEnabled(true);
+  document.getElementById('remaining').textContent = remaining;
+  document.getElementById('score').textContent = score;
+  document.getElementById('levelLabel').textContent = `Top ${levelTopN}`;
+  document.getElementById('tourLabel').textContent = currentTour;
 
-  let picked = null;
+  let usedDailyCandidate = false;
 
-  if(selectedPlayers){
-    const poolKey1 = currentTour.toLowerCase();
-    const arr = selectedPlayers[poolKey1] || selectedPlayers[currentTour] || selectedPlayers[poolKey1.toUpperCase()] || [];
-    if(Array.isArray(arr)){
-      picked = arr.find(x => x.level === currentLevel) || arr[Math.floor(Math.random() * arr.length)];
-      if(picked && picked.player) picked = picked.player;
+  if(dailyList && dailyList.length){
+    const candidate = pickTargetFromDailyMap(currentTour, levelTopN, cotdEnabled);
+    if(candidate){
+      target = enrichPlayerFromCatalog(candidate);
+      usedDailyCandidate = true;
+      if(candidate.represented_country) fixedCountry = candidate.represented_country;
+    } else {
+      const pool = dailyList.filter(p => (String(p.source || '').toUpperCase()) === currentTour);
+      if(pool.length){
+        const pick = pool[Math.floor(Math.random() * pool.length)];
+        target = enrichPlayerFromCatalog(pick);
+        usedDailyCandidate = true;
+        if(pick.represented_country) fixedCountry = pick.represented_country;
+      }
     }
   }
 
-  if(!picked){
-    const pool = playersCatalog.filter(p => (String(p.source || '').toUpperCase() === currentTour));
-    picked = pool.length ? pool[Math.floor(Math.random() * pool.length)] : (playersCatalog[0] || null);
+  if(!usedDailyCandidate){
+    const preferredCountry = (cotdEnabled && fixedCountry) ? fixedCountry : null;
+    const pick = pickRandomTargetFromPool(currentTour, levelTopN, preferredCountry);
+    target = pick.chosen;
+    if(pick.country) fixedCountry = pick.country;
   }
 
-  if(!picked){
-    showToast('No target available');
-    return;
-  }
-
-  target = picked;
   gameStarted = true;
-
-  const tid = target && (
-    target.player_id ||
-    target.playerId ||
-    (target.player && target.player.player_id)
-  )
-    ? String(target.player_id || target.playerId || (target.player && target.player.player_id))
-    : null;
-
-  (async () => {
-    if(tid){
-      preloadStatusEl.textContent = 'Loading H2H for target...';
-      await loadPerPlayerH2H(tid).catch(() => null);
-    }
-
-    await loadSelectedPlayerFiles(6);
-    ensureOutputSkeleton();
-    preloadStatusEl.textContent = 'Round started — make up to 15 guesses. Good luck!';
-  })();
+  updateSelectedCountryDisplay();
+  renderCotdBanner();
+  renderCountryText();
+  clearGuessesTable();
 }
 
 /* ---------------------------
-  Preload selected players helper
+   Wiring & Init
 ---------------------------- */
-async function loadSelectedPlayerFiles(limit = 6){
-  if(!selectedPlayers) return;
-
-  const ids = new Set();
-  const keys = Object.keys(selectedPlayers || {});
-
-  for(const k of keys){
-    const arr = selectedPlayers[k];
-    if(Array.isArray(arr)){
-      for(const it of arr){
-        const id = extractPossiblePlayerId(it) || extractPossiblePlayerId(it.player);
-        if(id) ids.add(id);
-        if(ids.size >= limit) break;
-      }
-    }
-    if(ids.size >= limit) break;
-  }
-
-  const toLoad = Array.from(ids).slice(0, limit);
-  if(toLoad.length === 0) return;
-
-  preloadStatusEl.textContent = `H2H preload: loading ${toLoad.length} selected-player files...`;
-
-  let i = 0;
-  for(const id of toLoad){
-    await loadPerPlayerH2H(String(id)).catch(() => null);
-    i++;
-    preloadStatusEl.textContent = `H2H preload: ${i}/${toLoad.length} files loaded`;
-  }
-
-  preloadedCount = toLoad.length;
-  preloadStatusEl.textContent = `H2H preload: loaded ${preloadedCount} selected-player files`;
-}
-
-function extractPossiblePlayerId(item){
-  if(!item) return null;
-  if(typeof item === 'string' || typeof item === 'number') return String(item);
-  if(item.player_id) return String(item.player_id);
-  if(item.player && item.player.player_id) return String(item.player.player_id);
-  if(item.player && item.player.id) return String(item.player.id);
-  if(item.player && item.player.raw && item.player.raw.player_id) return String(item.player.raw.player_id);
-  return null;
-}
-
-/* ---------------------------
-  Leaderboard helpers (submit/queue/flush)
----------------------------- */
-function readScoreQueue(){
-  try{
-    return JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]');
-  } catch(e){
-    return [];
-  }
-}
-
-function pushScoreQueue(entry){
-  try{
-    const q = readScoreQueue();
-    q.push(Object.assign({ ts: (new Date()).toISOString() }, entry));
-    localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q));
-    console.info('[LB-QUEUE] queued', entry);
-  } catch(e){
-    console.warn('[LB-QUEUE] push error', e);
-  }
-}
-
-function popScoreQueue(){
-  try{
-    const q = readScoreQueue();
-    if(!q || q.length === 0) return null;
-    q.shift();
-    localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q));
-    return true;
-  } catch(e){
-    console.warn('[LB-QUEUE] pop error', e);
-    return null;
-  }
-}
-
-function waitForLeaderboard(timeout = 5000, interval = 200){
-  return new Promise((resolve) => {
-    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function') return resolve(true);
-
-    const start = Date.now();
-    const t = setInterval(() => {
-      if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
-        clearInterval(t);
-        resolve(true);
-      } else if(Date.now() - start > timeout){
-        clearInterval(t);
-        resolve(false);
-      }
-    }, interval);
-  });
-}
-
-async function trySubmitEntryToLB(entry){
-  const gameId = entry.gameId || GAME_ID;
-  const points = Number(entry.points) || 0;
-  const options = entry.options || {};
-  const pseudo = options.displayName || options.pseudo || null;
-  const mode = options.mode || null;
-  const meta = options.meta || null;
-
-  if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
-    try {
-      console.info('[LB] calling window.LEADERBOARD.submitScore', { gameId, points, options });
-      const res = await window.LEADERBOARD.submitScore(gameId, points, options);
-      console.info('[LB] submitScore response', res);
-
-      if(res && (res.ok === true || res.success === true || res.status === 'ok')){
-        console.info('[LB] library confirmed success — done.');
-        return true;
-      }
-
-      if(res && res.ok === false && res.error && String(res.error).toLowerCase().includes('already_submitted')){
-        console.warn('[LB] library reports already submitted locally.');
-        showToast('Score already submitted (duplicate)');
-        return true;
-      }
-
-      console.warn('[LB] library returned non-success — will try server fallback', res);
-    } catch(err){
-      console.error('[LB] submitScore threw', err);
-    }
-  } else {
-    console.warn('[LB] window.LEADERBOARD.submitScore not available; using server fallback');
-  }
-
-  const fallbackEndpoint = '/.netlify/functions/submit-score';
-  const payload = {
-    game_id: gameId,
-    points: points,
-    pseudo: pseudo,
-    mode: mode,
-    meta: (typeof meta === 'string' ? meta : (meta ? JSON.stringify(meta) : null)),
-    ts: (new Date()).toISOString()
-  };
-
-  try {
-    console.info('[LB-FALLBACK] POST', fallbackEndpoint, payload);
-    const resp = await fetch(fallbackEndpoint, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    const text = await resp.text().catch(() => null);
-    let parsed = null;
-    try {
-      parsed = text ? JSON.parse(text) : null;
-    } catch(e){
-      parsed = text;
-    }
-
-    console.info('[LB-FALLBACK] response status', resp.status, parsed || text);
-
-    if(resp.ok){
-      console.info('[LB-FALLBACK] success', parsed);
-      return true;
-    } else {
-      if(
-        resp.status === 409 ||
-        (parsed && parsed.detail && (parsed.detail.code === 23505 || String(parsed.detail.code) === '23505')) ||
-        (parsed && parsed.error && String(parsed.error).toLowerCase().includes('duplicate'))
-      ){
-        console.warn('[LB-FALLBACK] server indicates duplicate entry for today — dropping queued item and syncing UI.');
-        showToast('Score already present (duplicate)');
-        return true;
-      }
-
-      console.warn('[LB-FALLBACK] server returned non-OK', resp.status, parsed || text);
-      return false;
-    }
-  } catch(fetchErr){
-    console.error('[LB-FALLBACK] fetch error', fetchErr);
-    return false;
-  }
-}
-
-async function flushScoreQueue(){
-  const queue = readScoreQueue();
-  if(!queue || queue.length === 0) return;
-
-  const ready = await waitForLeaderboard(5000);
-  if(!ready){
-    console.info('Leaderboard not ready; will keep queue for later flush');
-    return;
-  }
-
-  for(let i = 0; i < 50; i++){
-    const q = readScoreQueue();
-    if(!q || q.length === 0) break;
-
-    const entry = q[0];
-    const ok = await trySubmitEntryToLB(entry);
-    if(ok){
-      popScoreQueue();
-      showToast('Score submitted / duplicate handled', 1400);
-    } else {
-      console.warn('Submit failed for queued entry — stop flush now');
-      break;
-    }
-  }
-}
-
-async function submitScoreToLeaderboard(points, meta = {}, extra = {}){
-  const session = getSession();
-  const displayName = extra.displayName || extra.pseudo || getDisplayName(session) || null;
-  const modeString = `${currentTour}_h2h_${currentLevel}`;
-  const options = {
-    mode: modeString,
-    meta: JSON.stringify(meta || {}),
-    displayName
-  };
-
-  const ready = await waitForLeaderboard(3000);
-  if(ready){
-    const ok = await trySubmitEntryToLB({ gameId: GAME_ID, points, options });
-    if(ok){
-      console.info('Score submitted (fast path).');
-      setTimeout(flushScoreQueue, 250);
-      return;
-    } else {
-      console.warn('Fast path submit failed; queueing the score for retry.');
-      pushScoreQueue({ gameId: GAME_ID, points, options });
-      showToast('Score queued for retry', 2000);
-      return;
-    }
-  } else {
-    pushScoreQueue({ gameId: GAME_ID, points, options });
-    showToast('Leaderboard unavailable — score queued', 2000);
-    setTimeout(flushScoreQueue, 1000);
-  }
-}
-
-/* watch LB init */
-(function watchForLeaderboardInit(){
-  if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
-    setTimeout(flushScoreQueue, 300);
-    return;
-  }
-
-  const poll = setInterval(() => {
-    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
-      clearInterval(poll);
-      setTimeout(flushScoreQueue, 200);
-    }
-  }, 250);
-})();
-
-/* ---------------------------
-  ensureModeCheckedAndStart
----------------------------- */
-async function ensureModeCheckedAndStart(){
-  if(!assetsReady) return;
-  if(!isConnected()){
-    applyAuthGate();
-    return;
-  }
-
-  const mode = `${currentTour}_h2h_${currentLevel}`;
-  levelLabelEl.textContent = currentLevel.charAt(0).toUpperCase() + currentLevel.slice(1);
-  tourLabelEl.textContent = currentTour;
-  preloadStatusEl.textContent = 'Checking if you already played this variant today...';
-
-  gameBlockedDueToExisting = false;
-  gameStarted = false;
-  setGuessEnabled(false);
-  suggestionsList.style.display = 'none';
-
-  try {
-    const check = await checkUserPlayedToday(mode);
-    if(check && check.exists){
-      showAlreadyPlayedModal(check, mode);
-      return;
-    }
-
-    startRound();
-  } catch(e){
-    console.warn('ensureModeCheckedAndStart initial check error', e);
-    startRound();
-  }
-}
-
-/* ---------------------------
-  revealRound (submit result)
----------------------------- */
-async function revealRound(won, points){
-  const modal = document.getElementById('modal');
-  const title = document.getElementById('modalTitle');
-  const text = document.getElementById('modalText');
-  const details = document.getElementById('modalDetails');
-
-  if(won){
-    title.textContent = 'You won!';
-    text.textContent = `You earned ${points} points.`;
-  } else {
-    title.textContent = 'Round over';
-    text.textContent = 'No points this time.';
-  }
-
-  const tname = escapeHtml(target && (target.full_name || (target.player && target.player.full_name)) || '—');
-  details.innerHTML = `<div style="font-weight:700">Target: ${tname}</div>`;
-
-  modal.classList.add('show');
-  modal.setAttribute('aria-hidden','false');
-
-  setTimeout(() => {
-    try{
-      document.getElementById('closeModalBtn').focus();
-    } catch(e){}
-  }, 40);
-
-  document.getElementById('closeModalBtn').onclick = () => {
-    try {
-      if(document.activeElement) document.activeElement.blur();
-    } catch(e){}
-    modal.classList.remove('show');
-    setTimeout(() => modal.setAttribute('aria-hidden','true'), 120);
-  };
-
-  const meta = {
-    won: !!won,
-    guesses_count: guesses.length,
-    target_id: target && (
-      target.player_id ||
-      target.playerId ||
-      (target.player && target.player.player_id)
-    )
-      ? String(target.player_id || target.playerId || (target.player && target.player.player_id))
-      : null,
-    level: currentLevel,
-    tour: currentTour
-  };
-
-  try{
-    await submitScoreToLeaderboard(points || 0, meta, {});
-    console.info('[LB] submitScoreToLeaderboard called from revealRound');
-  } catch(e){
-    console.error('[LB] submit failed', e);
-  }
-}
-
-/* ---------------------------
-  main guess handler
----------------------------- */
-async function handleGuessSubmission(name){
-  if(!isConnected()){
-    showToast('Connectez-vous via Tennis Arena');
-    return;
-  }
-
-  if(!gameStarted){
-    showToast('Round not started');
-    return;
-  }
-
-  if(gameBlockedDueToExisting){
-    showToast('You have already completed this variant today');
-    return;
-  }
-
-  if(remaining <= 0){
-    showToast('No tries left');
-    return;
-  }
-
-  const guess = findPlayerByName(name);
-  if(!guess){
-    showToast('Name not found in catalog');
-    return;
-  }
-
-  guesses.push(guess);
-  guessedNames.add((guess.full_name || '').trim());
-  appendGuessRowSimple(guess);
-
-  remaining--;
-  remainingEl.textContent = remaining;
-
-  const guessPid = guess.player_id || guess.playerId || null;
-  const targetPid = target && (
-    target.player_id ||
-    target.playerId ||
-    (target.player && target.player.player_id)
-  )
-    ? String(target.player_id || target.playerId || (target.player && target.player.player_id))
-    : null;
-
-  if(guessPid) await loadPerPlayerH2H(String(guessPid)).catch(() => null);
-  if(targetPid) await loadPerPlayerH2H(String(targetPid)).catch(() => null);
-
-  const h2h = (targetPid && guessPid) ? composeH2H(targetPid, guessPid) : null;
-  updateTablesWithGuess(guess, h2h);
-
-  const sameId = (guessPid && targetPid && String(guessPid) === String(targetPid));
-  const sameName = (!guessPid && !targetPid && norm(guess.full_name || '') === norm(target.full_name || ''));
-
-  if(sameId || sameName){
-    const points = Math.max(10, 100 - (guesses.length - 1) * 10);
-    score += points;
-    scoreEl.textContent = score;
-    await revealRound(true, points);
-    setTimeout(() => ensureModeCheckedAndStart(), 900);
-    return;
-  }
-
-  if(remaining <= 0 || guesses.length >= 15){
-    await revealRound(false, 0);
-    setTimeout(() => ensureModeCheckedAndStart(), 900);
-  }
-}
-
-/* ---------------------------
-  Pick / load selected players JSON
----------------------------- */
-async function loadSelectedPlayers(){
-  const j = await fetchJson(SELECTED_PLAYERS_JSON);
-  if(!j) return false;
-  selectedPlayers = j;
-  selectedPlayers.atp = selectedPlayers.atp || selectedPlayers.ATP || [];
-  selectedPlayers.wta = selectedPlayers.wta || selectedPlayers.WTA || [];
-  return true;
-}
-
-/* ---------------------------
-  events / init
----------------------------- */
-function bindSuggestions(){
-  guessInput.addEventListener('input', updateSuggestions);
-  guessInput.addEventListener('focus', updateSuggestions);
-
-  document.addEventListener('click', (e) => {
-    if(!document.querySelector('.suggestions')?.contains(e.target)){
-      suggestionsList.style.display = 'none';
-    }
-  });
-
-  guessInput.addEventListener('keydown', (e) => {
-    if(suggestionsList.style.display === 'block'){
-      const items = suggestionsList.children;
-
-      if(e.key === 'ArrowDown'){
-        e.preventDefault();
-        suggestionIndex = Math.min(suggestionIndex + 1, items.length - 1);
-        highlightSuggestion();
-      } else if(e.key === 'ArrowUp'){
-        e.preventDefault();
-        suggestionIndex = Math.max(suggestionIndex - 1, 0);
-        highlightSuggestion();
-      } else if(e.key === 'Enter'){
-        if(suggestionIndex >= 0 && suggestionPool[suggestionIndex]){
-          e.preventDefault();
-          const sel = suggestionPool[suggestionIndex];
-          guessInput.value = sel.full_name;
-          suggestionsList.style.display = 'none';
-          handleGuessSubmission(sel.full_name);
-        }
-      }
-    }
-  });
-}
-
-function bindControls(){
-  document.getElementById('btnATP').addEventListener('click', async () => {
-    if(currentTour !== 'ATP'){
-      currentTour = 'ATP';
-      guessInput.disabled = true;
-      guessBtn.disabled = true;
-      suggestionsList.style.display = 'none';
-      tourLabelEl.textContent = currentTour;
-      document.getElementById('btnATP').classList.add('active','atp');
-      document.getElementById('btnWTA').classList.remove('active','wta');
-      await ensureModeCheckedAndStart();
-    }
-  });
-
-  document.getElementById('btnWTA').addEventListener('click', async () => {
-    if(currentTour !== 'WTA'){
-      currentTour = 'WTA';
-      guessInput.disabled = true;
-      guessBtn.disabled = true;
-      suggestionsList.style.display = 'none';
-      tourLabelEl.textContent = currentTour;
-      document.getElementById('btnWTA').classList.add('active','wta');
-      document.getElementById('btnATP').classList.remove('active','atp');
-      await ensureModeCheckedAndStart();
-    }
-  });
-
-  document.querySelectorAll('.seg-btn').forEach(btn => btn.addEventListener('click', async (e) => {
-    const newLvl = e.currentTarget.dataset.level;
-    if(newLvl === currentLevel) return;
-
-    document.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
-    e.currentTarget.classList.add('active');
-
-    currentLevel = newLvl;
-    levelLabelEl.textContent = currentLevel.charAt(0).toUpperCase() + currentLevel.slice(1);
-
-    ensureOutputSkeleton();
-
-    guessInput.disabled = true;
-    guessBtn.disabled = true;
-    suggestionsList.style.display = 'none';
-
-    await ensureModeCheckedAndStart();
-  }));
-
-  guessBtn.addEventListener('click', () => {
-    const v = guessInput.value.trim();
-    if(!v) return showToast('Type a name');
-    handleGuessSubmission(v);
-    guessInput.value = '';
-    suggestionsList.style.display = 'none';
-  });
-
-  document.getElementById('closeModalBtn').addEventListener('click', () => {
-    const mm = document.getElementById('modal');
-    try{
-      if(document.activeElement) document.activeElement.blur();
-    } catch(e){}
-    mm.classList.remove('show');
-    setTimeout(() => mm.setAttribute('aria-hidden','true'), 120);
-  });
-}
-
-async function init(){
-  guessInput = document.getElementById('guessInput');
-  suggestionsList = document.getElementById('suggestionsList');
-  guessBtn = document.getElementById('guessBtn');
-  preloadStatusEl = document.getElementById('preloadStatus');
-  levelLabelEl = document.getElementById('levelLabel');
-  tourLabelEl = document.getElementById('tourLabel');
-  remainingEl = document.getElementById('remaining');
-  scoreEl = document.getElementById('score');
-  lbStatusEl = document.getElementById('lb-status');
-  lbBoxPlaceholderEl = document.getElementById('lbBoxPlaceholder');
-
-  bindSuggestions();
-  bindControls();
-
-  const okCatalog = await loadPlayersCatalog();
-  if(!okCatalog){
-    alert('players_catalog.json missing or malformed');
-    return;
-  }
-
-  await loadGeocodes();
-  await loadSelectedPlayers();
-
-  assetsReady = true;
-
+function updateAuthUIAndMaybeRestart(){
   renderAuthBox();
-  ensureOutputSkeleton();
-
-  setGuessEnabled(false);
-  updateTopStatus();
-
-  const session = getSession();
-  if(session && session.pseudo){
-    await ensureModeCheckedAndStart();
-  } else {
-    applyAuthGate();
-  }
-
-  const authApi = getAuthApi();
-  if(authApi && typeof authApi.onAuthChange === 'function'){
-    authApi.onAuthChange(async () => {
-      renderAuthBox();
-      if(isConnected()){
-        await ensureModeCheckedAndStart();
-      } else {
-        applyAuthGate();
-      }
-    });
-  } else {
-    window.addEventListener('storage', () => {
-      renderAuthBox();
-      if(isConnected()){
-        ensureModeCheckedAndStart();
-      } else {
-        applyAuthGate();
-      }
-    });
+  if(gameStarted){
+    updateSelectedCountryDisplay();
   }
 }
 
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', async () => {
+  try{
+    const okPlayers = await loadPlayersCatalog();
+    if(!okPlayers){
+      alert('Players catalog missing or malformed.');
+      return;
+    }
+
+    await loadGeocodes();
+    await loadDailyGuessIfAvailable();
+    await loadCountryTexts();
+
+    updateDifficultyVisibility();
+    renderCotdBanner();
+    applyTourTheme();
+    renderCountryText();
+    renderAuthBox();
+
+    document.getElementById('btnATP').addEventListener('click', () => {
+      if(currentTour !== 'ATP'){
+        currentTour = 'ATP';
+        document.getElementById('tourLabel').textContent = currentTour;
+        applyTourTheme();
+        startGame();
+      }
+    });
+
+    document.getElementById('btnWTA').addEventListener('click', () => {
+      if(currentTour !== 'WTA'){
+        currentTour = 'WTA';
+        document.getElementById('tourLabel').textContent = currentTour;
+        applyTourTheme();
+        startGame();
+      }
+    });
+
+    document.querySelectorAll('.seg-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const newTop = Number(e.currentTarget.dataset.top);
+        if(newTop !== levelTopN){
+          document.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
+          e.currentTarget.classList.add('active');
+          levelTopN = newTop;
+          document.getElementById('levelLabel').textContent = `Top ${levelTopN}`;
+          startGame();
+        }
+      });
+    });
+
+    document.getElementById('cotdToggle').addEventListener('click', () => {
+      cotdEnabled = !cotdEnabled;
+      document.getElementById('cotdToggle').textContent = cotdEnabled ? 'ON' : 'OFF';
+      renderCotdBanner();
+      renderCountryText();
+      startGame();
+    });
+
+    document.getElementById('guessBtn').addEventListener('click', () => {
+      const name = guessInput.value;
+      if(!name){
+        showToast('Type a name before guessing');
+        return;
+      }
+      handleGuessSafe(name);
+      guessInput.value = '';
+      suggestionsList.style.display = 'none';
+    });
+
+    document.getElementById('closeModalBtn').addEventListener('click', () => {
+      const modal = document.getElementById('modal');
+      modal.classList.remove('show');
+      modal.setAttribute('aria-hidden','true');
+    });
+
+    startGame();
+
+    const authApi = getAuthApi();
+    if(authApi && typeof authApi.onAuthChange === 'function'){
+      authApi.onAuthChange(() => {
+        updateAuthUIAndMaybeRestart();
+      });
+    } else {
+      window.addEventListener('storage', () => {
+        updateAuthUIAndMaybeRestart();
+      });
+      window.addEventListener('ta:auth-changed', () => {
+        updateAuthUIAndMaybeRestart();
+      });
+    }
+  } catch(err){
+    console && console.error && console.error(err);
+    showToast('Initialization error');
+  }
+});
 </script>
 </body>
 </html>
