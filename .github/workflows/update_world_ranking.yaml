@@ -1,0 +1,50 @@
+name: Update world rankings
+
+on:
+  schedule:
+    - cron: "20 1 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: update-world-rankings
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  ATP_TOURNAMENTS_JSON: docs/atp_tournaments_2026.json
+  WTA_TOURNAMENTS_JSON: docs/wta_tournaments_2026.json
+  TOURNAMENT_POINTS_JSON: docs/Tools/tournament_points.json
+  BRACKET_TOURNAMENTS_DIR: docs/bracket/tournaments
+  BRACKET_TABLE: bracket
+  INSCRIPTIONS_TABLE: inscriptions
+  USERS_TABLE: users
+
+jobs:
+  recalc:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Recompute performances and rankings
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          python3 scripts/recompute_world_ranking.py
