@@ -1,0 +1,2056 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Daily Winners Map Game</title>
+
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+
+<script src="/js/auth.js" defer></script>
+<script src="/js/leaderboard-client.js" defer></script>
+
+<style>
+  :root{
+    --bg1:#06101f;
+    --bg2:#08162a;
+    --panel:rgba(255,255,255,0.03);
+    --panel-border:rgba(255,255,255,0.05);
+    --muted:#94a3b8;
+    --text:#ecf4ff;
+    --accent-atp:#2b6cb0;
+    --accent-wta:#9b59b6;
+    --success:#16a34a;
+    --danger:#ef4444;
+    --warning:#f59e0b;
+    font-family:'Inter',system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+    color-scheme:dark;
+  }
+
+  html,body{
+    margin:0;
+    height:100%;
+    background:linear-gradient(180deg,var(--bg1),var(--bg2));
+    color:var(--text);
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+  }
+
+  *{ box-sizing:border-box; }
+
+  .wrap{
+    max-width:1280px;
+    margin:24px auto;
+    padding:0 16px 24px;
+  }
+
+  .shell{
+    border:1px solid var(--panel-border);
+    border-radius:20px;
+    background:linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.012));
+    box-shadow:0 24px 80px rgba(2,6,23,0.55);
+    overflow:hidden;
+  }
+
+  .hero{
+    display:flex;
+    gap:16px;
+    align-items:flex-start;
+    justify-content:space-between;
+    padding:20px;
+    border-bottom:1px solid var(--panel-border);
+    background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+  }
+
+  .title{
+    font-size:1.35rem;
+    font-weight:800;
+    margin:0;
+    color:#fff;
+    letter-spacing:.2px;
+  }
+
+  .subtitle{
+    margin-top:6px;
+    color:var(--muted);
+    font-size:.95rem;
+    line-height:1.4;
+  }
+
+  .hero-right{
+    display:flex;
+    flex-direction:column;
+    align-items:flex-end;
+    gap:10px;
+    min-width:320px;
+  }
+
+  .user-box{
+    display:flex;
+    align-items:center;
+    justify-content:flex-end;
+    gap:10px;
+    width:100%;
+  }
+
+  .user-chip{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    padding:8px 12px;
+    border-radius:999px;
+    border:1px solid var(--panel-border);
+    background:rgba(255,255,255,0.02);
+    color:#fff;
+    cursor:pointer;
+    user-select:none;
+    text-decoration:none;
+    font-weight:700;
+  }
+
+  .user-chip .avatar{
+    width:28px;
+    height:28px;
+    border-radius:999px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    font-size:.8rem;
+    font-weight:800;
+    background:linear-gradient(135deg, #1f7aec, #7b5cf6);
+    color:white;
+    flex:0 0 auto;
+  }
+
+  .user-dropdown{
+    position:absolute;
+    right:0;
+    top:54px;
+    min-width:170px;
+    border:1px solid var(--panel-border);
+    border-radius:12px;
+    overflow:hidden;
+    background:linear-gradient(180deg, #071222, #08101d);
+    box-shadow:0 20px 60px rgba(2,6,23,0.65);
+    z-index:50;
+  }
+
+  .user-dropdown button{
+    display:block;
+    width:100%;
+    padding:10px 12px;
+    text-align:left;
+    border:0;
+    background:transparent;
+    color:var(--muted);
+    font-weight:700;
+    cursor:pointer;
+  }
+
+  .user-dropdown button:hover{
+    color:#fff;
+    background:rgba(255,255,255,0.03);
+  }
+
+  .connect-link{
+    background:linear-gradient(135deg, #1f7aec, #7b5cf6);
+    color:white;
+    border:none;
+  }
+
+  .meta-strip{
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px;
+    padding:16px 20px 0;
+  }
+
+  .chip{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    padding:8px 12px;
+    border-radius:999px;
+    background:rgba(255,255,255,0.03);
+    border:1px solid var(--panel-border);
+    color:var(--muted);
+    font-weight:700;
+    font-size:.92rem;
+  }
+
+  .chip strong{ color:#fff; }
+
+  .chip.atp{
+    background:rgba(43,108,176,0.14);
+    border-color:rgba(43,108,176,0.22);
+    color:#cfe8ff;
+  }
+
+  .chip.wta{
+    background:rgba(155,89,182,0.14);
+    border-color:rgba(155,89,182,0.22);
+    color:#f0d9ff;
+  }
+
+  .layout{
+    display:grid;
+    grid-template-columns: 430px 1fr;
+    gap:16px;
+    padding:20px;
+  }
+
+  @media (max-width: 1080px){
+    .layout{ grid-template-columns:1fr; }
+    .hero{ flex-direction:column; }
+    .hero-right{ min-width:0; width:100%; align-items:flex-start; }
+    .user-box{ justify-content:space-between; }
+  }
+
+  .panel{
+    border:1px solid var(--panel-border);
+    border-radius:18px;
+    background:var(--panel);
+    overflow:hidden;
+  }
+
+  .panel-head{
+    padding:14px 16px;
+    border-bottom:1px solid var(--panel-border);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+  }
+
+  .panel-head h2{
+    margin:0;
+    font-size:1rem;
+    font-weight:800;
+    color:#fff;
+  }
+
+  .panel-head .small{
+    color:var(--muted);
+    font-size:.86rem;
+  }
+
+  .controls{
+    padding:16px;
+    display:flex;
+    flex-direction:column;
+    gap:14px;
+  }
+
+  .mode-grid{
+    display:grid;
+    grid-template-columns:1fr;
+    gap:10px;
+  }
+
+  .toggle-row{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+  }
+
+  .toggle-row button{
+    border:1px solid var(--panel-border);
+    background:transparent;
+    color:var(--muted);
+    padding:10px 14px;
+    border-radius:999px;
+    font-weight:800;
+    cursor:pointer;
+    transition:transform .18s ease, background .18s ease, color .18s ease, border-color .18s ease;
+  }
+
+  .toggle-row button:hover{
+    transform:translateY(-1px);
+    color:#fff;
+  }
+
+  .toggle-row button.active.atp{
+    background:rgba(43,108,176,0.18);
+    border-color:rgba(43,108,176,0.35);
+    color:#eaf4ff;
+  }
+
+  .toggle-row button.active.wta{
+    background:rgba(155,89,182,0.18);
+    border-color:rgba(155,89,182,0.35);
+    color:#fff0ff;
+  }
+
+  .toggle-row button.active.easy{
+    background:rgba(22,163,74,0.13);
+    border-color:rgba(22,163,74,0.34);
+    color:#d7ffe4;
+  }
+
+  .toggle-row button.active.medium{
+    background:rgba(245,158,11,0.14);
+    border-color:rgba(245,158,11,0.35);
+    color:#fff1d0;
+  }
+
+  .toggle-row button.active.hard{
+    background:rgba(239,68,68,0.14);
+    border-color:rgba(239,68,68,0.35);
+    color:#ffd8d8;
+  }
+
+  .stats{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px;
+  }
+
+  .stat{
+    border:1px solid var(--panel-border);
+    border-radius:14px;
+    padding:12px;
+    background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+  }
+
+  .stat .label{
+    color:var(--muted);
+    font-size:.85rem;
+    margin-bottom:6px;
+  }
+
+  .stat .value{
+    font-size:1.15rem;
+    font-weight:800;
+    color:#fff;
+  }
+
+  .progress-bar{
+    height:12px;
+    border-radius:999px;
+    overflow:hidden;
+    background:rgba(255,255,255,0.06);
+    border:1px solid rgba(255,255,255,0.04);
+  }
+
+  .progress-fill{
+    height:100%;
+    width:0%;
+    background:linear-gradient(90deg, #1f7aec, #7b5cf6);
+    transition:width .22s ease;
+  }
+
+  .help{
+    color:var(--muted);
+    font-size:.92rem;
+    line-height:1.5;
+  }
+
+  .input-row{
+    display:flex;
+    gap:8px;
+  }
+
+  .guess-wrap{
+    position:relative;
+    flex:1;
+  }
+
+  input[type="text"]{
+    width:100%;
+    padding:12px 14px;
+    border-radius:12px;
+    border:1px solid rgba(255,255,255,0.06);
+    background:rgba(0,0,0,0.18);
+    color:#fff;
+    outline:none;
+    font-size:.98rem;
+  }
+
+  input[type="text"]:focus{
+    border-color:rgba(59,130,246,0.55);
+    box-shadow:0 0 0 3px rgba(59,130,246,0.15);
+  }
+
+  button.primary{
+    padding:12px 16px;
+    border-radius:12px;
+    border:none;
+    font-weight:800;
+    color:#fff;
+    cursor:pointer;
+    background:linear-gradient(135deg, #1f7aec, #7b5cf6);
+    box-shadow:0 10px 28px rgba(31,122,236,0.15);
+  }
+
+  button.primary:disabled,
+  button.ghost:disabled{
+    opacity:.5;
+    cursor:not-allowed;
+  }
+
+  button.ghost{
+    padding:11px 14px;
+    border-radius:12px;
+    border:1px solid var(--panel-border);
+    background:transparent;
+    color:var(--muted);
+    cursor:pointer;
+    font-weight:700;
+  }
+
+  .suggestions{
+    position:absolute;
+    left:0;
+    top:48px;
+    width:100%;
+    max-height:240px;
+    overflow:auto;
+    background:#08111f;
+    border:1px solid rgba(255,255,255,0.06);
+    border-radius:12px;
+    z-index:20;
+    box-shadow:0 16px 50px rgba(2,6,23,0.7);
+  }
+
+  .suggestions div{
+    padding:10px 12px;
+    cursor:pointer;
+    border-bottom:1px solid rgba(255,255,255,0.03);
+  }
+
+  .suggestions div:hover,
+  .suggestions div.active{
+    background:rgba(255,255,255,0.03);
+    color:#fff;
+  }
+
+  .list-card{
+    margin-top:10px;
+    border:1px solid var(--panel-border);
+    border-radius:14px;
+    overflow:hidden;
+    background:rgba(0,0,0,0.12);
+  }
+
+  table{
+    width:100%;
+    border-collapse:collapse;
+  }
+
+  th,td{
+    padding:10px 12px;
+    text-align:left;
+    border-bottom:1px solid rgba(255,255,255,0.04);
+    font-size:.92rem;
+  }
+
+  thead th{
+    color:var(--muted);
+    font-weight:800;
+    background:rgba(255,255,255,0.02);
+  }
+
+  tbody tr:hover{
+    background:rgba(255,255,255,0.015);
+  }
+
+  .mode-status{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+  }
+
+  .mode-pill{
+    padding:7px 11px;
+    border-radius:999px;
+    font-size:.85rem;
+    font-weight:800;
+    border:1px solid var(--panel-border);
+    background:rgba(255,255,255,0.02);
+    color:var(--muted);
+  }
+
+  .mode-pill.done{
+    color:#fff;
+    background:rgba(22,163,74,0.12);
+    border-color:rgba(22,163,74,0.22);
+  }
+
+  .mode-pill.locked{
+    color:#fff;
+    background:rgba(239,68,68,0.12);
+    border-color:rgba(239,68,68,0.22);
+  }
+
+  #map{
+    width:100%;
+    height:760px;
+    background:#07101d;
+  }
+
+  @media (max-width: 1080px){
+    #map{ height:560px; }
+  }
+
+  .map-toolbar{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:10px;
+    padding:12px 16px;
+    border-bottom:1px solid var(--panel-border);
+    flex-wrap:wrap;
+  }
+
+  .map-toolbar .current{
+    font-weight:800;
+    color:#fff;
+  }
+
+  .map-toolbar .note{
+    color:var(--muted);
+    font-size:.9rem;
+  }
+
+  .toast{
+    position:fixed;
+    right:18px;
+    bottom:18px;
+    z-index:200;
+    display:none;
+    padding:11px 14px;
+    border-radius:12px;
+    color:#fff;
+    background:rgba(0,0,0,0.72);
+    box-shadow:0 18px 60px rgba(0,0,0,0.5);
+    border:1px solid rgba(255,255,255,0.08);
+  }
+
+  .modal{
+    position:fixed;
+    inset:0;
+    background:rgba(2,6,23,0.78);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:400;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .18s ease;
+  }
+
+  .modal.show{
+    opacity:1;
+    pointer-events:auto;
+  }
+
+  .modal-card{
+    width:min(620px, calc(100vw - 28px));
+    border-radius:18px;
+    padding:22px;
+    border:1px solid var(--panel-border);
+    background:linear-gradient(180deg, rgba(11,17,32,0.98), rgba(8,12,23,0.96));
+    box-shadow:0 28px 80px rgba(2,6,23,0.85);
+  }
+
+  .modal-card h2{
+    margin:0 0 8px;
+    font-size:1.2rem;
+    color:#fff;
+  }
+
+  .modal-card p{
+    margin:0;
+    color:var(--muted);
+    line-height:1.5;
+  }
+
+  .modal-actions{
+    margin-top:18px;
+    display:flex;
+    justify-content:flex-end;
+    gap:10px;
+    flex-wrap:wrap;
+  }
+
+  .badge-atp{
+    color:#d8ebff;
+    background:rgba(43,108,176,0.15);
+  }
+
+  .badge-wta{
+    color:#f1ddff;
+    background:rgba(155,89,182,0.15);
+  }
+
+  .small-muted{
+    color:var(--muted);
+    font-size:.9rem;
+  }
+
+  .hidden{
+    display:none !important;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *{
+      transition:none !important;
+      scroll-behavior:auto !important;
+    }
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="shell">
+      <div class="hero">
+        <div>
+          <h1 class="title">Daily Winners Map Game</h1>
+          <div class="subtitle">
+            Devine le joueur ou la joueuse du jour à partir de sa carte de tournois gagnés.
+            Six manches sont jouables chaque jour : ATP/WTA × Easy/Medium/Hard.
+          </div>
+        </div>
+
+        <div class="hero-right">
+          <div class="user-box" id="userBox">
+            <div id="userPlaceholder"></div>
+          </div>
+          <div class="small-muted" id="authStatus">Not connected</div>
+        </div>
+      </div>
+
+      <div class="meta-strip">
+        <div class="chip">Mode: <strong id="chipTour">ATP</strong></div>
+        <div class="chip">Difficulty: <strong id="chipLevel">Easy</strong></div>
+        <div class="chip">Round score: <strong id="chipRoundScore">0</strong></div>
+        <div class="chip">Daily total: <strong id="chipTotalScore">0</strong>/600</div>
+      </div>
+
+      <div class="layout">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Game controls</h2>
+            <div class="small" id="modeHint">Pick a tour and a difficulty.</div>
+          </div>
+
+          <div class="controls">
+            <div class="mode-grid">
+              <div>
+                <div class="small-muted" style="margin-bottom:8px;font-weight:800">Tour</div>
+                <div class="toggle-row" id="tourToggle">
+                  <button id="btnATP" class="active atp" data-tour="ATP">ATP</button>
+                  <button id="btnWTA" class="wta" data-tour="WTA">WTA</button>
+                </div>
+              </div>
+
+              <div>
+                <div class="small-muted" style="margin-bottom:8px;font-weight:800">Difficulty</div>
+                <div class="toggle-row" id="levelToggle">
+                  <button id="btnEasy" class="active easy" data-level="easy">Easy</button>
+                  <button id="btnMedium" class="medium" data-level="medium">Medium</button>
+                  <button id="btnHard" class="hard" data-level="hard">Hard</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="stats">
+              <div class="stat">
+                <div class="label">Attempts left</div>
+                <div class="value" id="remainingCount">10</div>
+              </div>
+              <div class="stat">
+                <div class="label">Current round</div>
+                <div class="value" id="roundLabel">ATP · Easy</div>
+              </div>
+            </div>
+
+            <div>
+              <div class="small-muted" style="margin-bottom:8px;font-weight:800">Daily progress</div>
+              <div class="progress-bar">
+                <div class="progress-fill" id="dailyProgress"></div>
+              </div>
+              <div class="small-muted" id="progressLabel" style="margin-top:8px">0 / 6 rounds completed</div>
+            </div>
+
+            <div class="mode-status" id="modeStatus"></div>
+
+            <div class="help" id="helpText">
+              Connecte-toi, puis tente de deviner le joueur du jour.
+              Les réponses valides rapportent jusqu’à 100 points sur une manche, avec 10 tentatives maximum.
+            </div>
+
+            <div class="input-row">
+              <div class="guess-wrap">
+                <input id="guessInput" type="text" placeholder="Tape un nom de joueur..." autocomplete="off" disabled />
+                <div id="suggestions" class="suggestions hidden"></div>
+              </div>
+              <button id="guessBtn" class="primary" disabled>Guess</button>
+            </div>
+
+            <div class="list-card">
+              <table aria-live="polite">
+                <thead>
+                  <tr>
+                    <th style="width:42px">#</th>
+                    <th>Guessed name</th>
+                    <th style="width:90px">Result</th>
+                  </tr>
+                </thead>
+                <tbody id="guessesBody"></tbody>
+              </table>
+            </div>
+
+            <div class="small-muted" id="preloadStatus">Idle.</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Map</h2>
+            <div class="small" id="mapModeLabel">ATP · Easy</div>
+          </div>
+          <div class="map-toolbar">
+            <div class="current" id="targetLine">Target is hidden until the round ends.</div>
+            <div class="note" id="mapNote">Easy = detailed map. Medium/Hard = borders only.</div>
+          </div>
+          <div id="map"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <div id="modal" class="modal" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="modal-card">
+      <h2 id="modalTitle">Round result</h2>
+      <p id="modalText"></p>
+      <div id="modalDetails" style="margin-top:14px"></div>
+      <div class="modal-actions">
+        <button id="closeModalBtn" class="ghost">Close</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* =========================================================
+   CONFIG
+========================================================= */
+const GAME_ID = 'daily_winners_map';
+const MAX_ATTEMPTS = 10;
+const MAX_DAILY_SCORE = 600;
+
+const DAILY_WINNERS_URLS = [
+  '/tools/daily_selected_winners.json',
+  '/docs/tools/daily_selected_winners.json'
+];
+
+const PLAYERS_CATALOG_URLS = [
+  '/tools/players_catalog.json',
+  '/docs/tools/players_catalog.json'
+];
+
+const WORLD_BORDERS_URLS = [
+  '/tools/geojsons_borders/world_borders.json',
+  '/docs/tools/geojsons_borders/world_borders.json',
+  '/docs/Tools/geojsons_borders/world_borders.json'
+];
+
+const AUTH_HUB_URL = '/games/tennis_arena/index.html';
+const LB_QUEUE_KEY = 'lb_score_queue_daily_winners_map_v1';
+const STATE_PREFIX = 'daily_winners_map_state_v1';
+const TURNS = ['ATP', 'WTA'];
+const LEVELS = ['easy', 'medium', 'hard'];
+
+/* =========================================================
+   STATE
+========================================================= */
+let dailyWinners = null;
+let playersCatalog = [];
+let worldBorders = null;
+
+let currentTour = 'ATP';
+let currentLevel = 'easy';
+let currentTarget = null;
+
+let currentMap = null;
+let currentBorderLayer = null;
+let currentTileLayer = null;
+let currentMarkerLayer = null;
+
+let guesses = [];
+let remaining = MAX_ATTEMPTS;
+let currentRoundScore = 0;
+let currentDailyScore = 0;
+let roundCompleted = false;
+let roundSubmitted = false;
+let restoringState = false;
+let assetsReady = false;
+let hasLoadedCurrentMode = false;
+
+let guessInput, guessBtn, suggestionsEl, guessesBody, preloadStatusEl, authStatusEl;
+let chipTourEl, chipLevelEl, chipRoundScoreEl, chipTotalScoreEl;
+let remainingCountEl, roundLabelEl, mapModeLabelEl, targetLineEl, modeStatusEl, progressLabelEl, dailyProgressEl;
+let btnATP, btnWTA, btnEasy, btnMedium, btnHard;
+
+/* =========================================================
+   HELPERS
+========================================================= */
+function toast(msg, ms = 2000){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.display = 'block';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.display = 'none'; }, ms);
+}
+
+function escapeHtml(s){
+  return String(s ?? '').replace(/[&<>"']/g, m => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[m]));
+}
+
+function norm(s){
+  return String(s ?? '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase()
+    .trim();
+}
+
+function todayStr(){
+  return new Date().toISOString().slice(0,10);
+}
+
+function currentModeKey(){
+  return `${currentTour}_${currentLevel}`;
+}
+
+function stateKey(modeKey = currentModeKey()){
+  return `${STATE_PREFIX}:${todayStr()}:${modeKey}`;
+}
+
+function getAuthApi(){
+  return window.TA_AUTH || null;
+}
+
+function getSession(){
+  const api = getAuthApi();
+  if(api && typeof api.getSession === 'function'){
+    return api.getSession();
+  }
+  return null;
+}
+
+function displayNameFromSession(session){
+  if(!session) return '';
+  return String(session.pseudo || session.username || session.name || '').trim();
+}
+
+function isConnected(){
+  const s = getSession();
+  return !!(s && displayNameFromSession(s));
+}
+
+function setGuessEnabled(on){
+  guessInput.disabled = !on;
+  guessBtn.disabled = !on;
+  if(!on) suggestionsEl.classList.add('hidden');
+}
+
+function pointsForAttempt(attemptIndex){
+  const table = [100, 78, 61, 49, 41, 35, 31, 28, 26, 24];
+  return table[Math.max(0, Math.min(table.length - 1, attemptIndex - 1))];
+}
+
+function radiusForCount(count, mode){
+  const c = Math.max(1, Number(count || 1));
+  if(mode === 'hard'){
+    return 5;
+  }
+  const scale = Math.min(4, 1 + Math.log2(c));
+  return Math.max(5, 5 * scale);
+}
+
+function scoreColorForTour(tour){
+  return String(tour || '').toUpperCase() === 'WTA' ? '#9b59b6' : '#2b6cb0';
+}
+
+function scoreFillForTour(tour){
+  return String(tour || '').toUpperCase() === 'WTA' ? 'rgba(155,89,182,0.95)' : 'rgba(43,108,176,0.95)';
+}
+
+function roundLabel(){
+  return `${currentTour} · ${currentLevel.charAt(0).toUpperCase() + currentLevel.slice(1)}`;
+}
+
+function modeLabel(modeKey){
+  const [tour, level] = modeKey.split('_');
+  return `${tour} · ${level.charAt(0).toUpperCase() + level.slice(1)}`;
+}
+
+function showModal(title, text, detailsHtml = ''){
+  const modal = document.getElementById('modal');
+  document.getElementById('modalTitle').textContent = title;
+  document.getElementById('modalText').textContent = text;
+  document.getElementById('modalDetails').innerHTML = detailsHtml;
+  modal.classList.add('show');
+  modal.setAttribute('aria-hidden', 'false');
+}
+
+function hideModal(){
+  const modal = document.getElementById('modal');
+  modal.classList.remove('show');
+  modal.setAttribute('aria-hidden', 'true');
+}
+
+function readStoredState(modeKey = currentModeKey()){
+  try{
+    const raw = localStorage.getItem(stateKey(modeKey));
+    if(!raw) return null;
+    const j = JSON.parse(raw);
+    if(!j || typeof j !== 'object') return null;
+    return j;
+  } catch(e){
+    return null;
+  }
+}
+
+function writeStoredState(modeKey, state){
+  try{
+    localStorage.setItem(stateKey(modeKey), JSON.stringify(state));
+  } catch(e){}
+}
+
+function clearStoredState(modeKey = currentModeKey()){
+  try{
+    localStorage.removeItem(stateKey(modeKey));
+  } catch(e){}
+}
+
+function completedModesToday(){
+  const out = {};
+  for(const tour of TURNS){
+    for(const level of LEVELS){
+      const key = `${tour}_${level}`;
+      const st = readStoredState(key);
+      out[key] = !!(st && st.completed && st.submitted);
+    }
+  }
+  return out;
+}
+
+function currentDailyScoreFromStorage(){
+  let total = 0;
+  for(const tour of TURNS){
+    for(const level of LEVELS){
+      const st = readStoredState(`${tour}_${level}`);
+      if(st && st.completed && Number.isFinite(Number(st.score))){
+        total += Number(st.score);
+      }
+    }
+  }
+  return total;
+}
+
+function updateTopScores(){
+  currentDailyScore = currentDailyScoreFromStorage();
+  chipRoundScoreEl.textContent = String(currentRoundScore);
+  chipTotalScoreEl.textContent = String(currentDailyScore);
+  const pct = Math.min(100, (currentDailyScore / MAX_DAILY_SCORE) * 100);
+  dailyProgressEl.style.width = `${pct}%`;
+  const done = Object.values(completedModesToday()).filter(Boolean).length;
+  progressLabelEl.textContent = `${done} / 6 rounds completed`;
+  remainingCountEl.textContent = String(remaining);
+  roundLabelEl.textContent = roundLabel();
+  mapModeLabelEl.textContent = roundLabel();
+  chipTourEl.textContent = currentTour;
+  chipLevelEl.textContent = currentLevel.charAt(0).toUpperCase() + currentLevel.slice(1);
+}
+
+function renderModePills(){
+  const box = modeStatusEl;
+  box.innerHTML = '';
+  for(const tour of TURNS){
+    for(const level of LEVELS){
+      const key = `${tour}_${level}`;
+      const st = readStoredState(key);
+      const pill = document.createElement('div');
+      pill.className = 'mode-pill';
+      if(key === currentModeKey()) pill.style.outline = '2px solid rgba(255,255,255,0.08)';
+      if(st && st.completed && st.submitted){
+        pill.classList.add('done');
+        pill.textContent = `${modeLabel(key)} ✓ ${st.score || 0}`;
+      } else if(st && st.guesses && st.guesses.length && !st.completed){
+        pill.classList.add('locked');
+        pill.textContent = `${modeLabel(key)} · in progress`;
+      } else {
+        pill.textContent = `${modeLabel(key)}`;
+      }
+      pill.addEventListener('click', () => {
+        switchMode(tour, level);
+      });
+      box.appendChild(pill);
+    }
+  }
+}
+
+function initAuthBox(){
+  const ph = document.getElementById('userPlaceholder');
+  ph.innerHTML = '';
+  const session = getSession();
+
+  if(session && displayNameFromSession(session)){
+    const box = document.createElement('div');
+    box.className = 'user-chip';
+    box.style.position = 'relative';
+
+    const av = document.createElement('div');
+    av.className = 'avatar';
+    const name = displayNameFromSession(session);
+    av.textContent = name.split(/\s+/).map(x => x[0]).slice(0,2).join('').toUpperCase() || '??';
+
+    const nm = document.createElement('div');
+    nm.textContent = name;
+
+    box.appendChild(av);
+    box.appendChild(nm);
+
+    box.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleUserDropdown(box);
+    });
+
+    ph.appendChild(box);
+    authStatusEl.textContent = `Connected as ${name}`;
+  } else {
+    const link = document.createElement('a');
+    link.className = 'user-chip connect-link';
+    link.href = AUTH_HUB_URL;
+    link.textContent = 'Connect';
+    ph.appendChild(link);
+    authStatusEl.textContent = 'Not connected';
+  }
+}
+
+function toggleUserDropdown(anchor){
+  const existing = document.querySelector('.user-dropdown');
+  if(existing){
+    existing.remove();
+    return;
+  }
+
+  const dd = document.createElement('div');
+  dd.className = 'user-dropdown';
+
+  const btnConnected = document.createElement('button');
+  btnConnected.textContent = 'Connected';
+  btnConnected.disabled = true;
+
+  const btnLogout = document.createElement('button');
+  btnLogout.textContent = 'Log out';
+  btnLogout.addEventListener('click', async () => {
+    try{
+      const api = getAuthApi();
+      if(api && typeof api.logout === 'function'){
+        await api.logout();
+      } else {
+        localStorage.removeItem('ta_session_v1');
+        window.dispatchEvent(new Event('ta:auth-changed'));
+      }
+    } catch(err){
+      console.warn(err);
+    }
+    dd.remove();
+    initAuthBox();
+    gateAndMaybeLoadCurrentMode();
+  });
+
+  dd.appendChild(btnConnected);
+  dd.appendChild(btnLogout);
+  anchor.appendChild(dd);
+
+  const close = (ev) => {
+    if(!anchor.contains(ev.target)){
+      dd.remove();
+      document.removeEventListener('click', close);
+    }
+  };
+  setTimeout(() => document.addEventListener('click', close), 10);
+}
+
+function normalizeModeString(s){
+  return String(s || '').toLowerCase().trim();
+}
+
+function targetDisplayName(target){
+  if(!target) return '';
+  return String(target.player_name || target.full_name || target.name || '').trim();
+}
+
+function targetPlayerId(target){
+  if(!target) return '';
+  return String(target.player_id || target.playerId || target.id || '').trim();
+}
+
+function extractTourArray(raw, key){
+  if(!raw || typeof raw !== 'object') return [];
+  const arr = raw[key] || raw[key.toUpperCase()] || raw[key.toLowerCase()] || raw.players || [];
+  return Array.isArray(arr) ? arr : [];
+}
+
+function extractDifficulty(entry){
+  return normalizeModeString(entry && (entry.difficulty || entry.level || ''));
+}
+
+function getModeTarget(tour, level){
+  if(!dailyWinners) return null;
+  const bucket = extractTourArray(dailyWinners, tour.toLowerCase());
+  const wanted = normalizeModeString(level);
+
+  let picked = bucket.find(x => extractDifficulty(x) === wanted) || null;
+  if(!picked && bucket.length) picked = bucket[0];
+  return picked;
+}
+
+function isInProgressState(st){
+  return !!(st && Array.isArray(st.guesses) && st.guesses.length > 0 && !st.completed);
+}
+
+function stateToRoundSummary(st){
+  if(!st) return '';
+  const guessesCount = Number(st.guesses?.length || 0);
+  const score = Number(st.score || 0);
+  return `${guessesCount} guesses · ${score} points`;
+}
+
+function updateModeButtons(){
+  btnATP.classList.toggle('active', currentTour === 'ATP');
+  btnWTA.classList.toggle('active', currentTour === 'WTA');
+  btnEasy.classList.toggle('active', currentLevel === 'easy');
+  btnMedium.classList.toggle('active', currentLevel === 'medium');
+  btnHard.classList.toggle('active', currentLevel === 'hard');
+  updateTopScores();
+  renderModePills();
+}
+
+/* =========================================================
+   FETCH
+========================================================= */
+async function fetchFirstJson(urls){
+  for(const url of urls){
+    try{
+      const r = await fetch(url, { cache:'no-cache' });
+      if(!r.ok) continue;
+      return await r.json();
+    } catch(e){}
+  }
+  return null;
+}
+
+/* =========================================================
+   DATA LOADING
+========================================================= */
+async function loadPlayersCatalog(){
+  const j = await fetchFirstJson(PLAYERS_CATALOG_URLS);
+  if(!j) return false;
+  if(Array.isArray(j.players)){
+    playersCatalog = j.players.slice();
+  } else if(Array.isArray(j)){
+    playersCatalog = j.slice();
+  } else {
+    playersCatalog = [];
+  }
+  return playersCatalog.length > 0;
+}
+
+async function loadDailyWinners(){
+  const j = await fetchFirstJson(DAILY_WINNERS_URLS);
+  if(!j) return false;
+  dailyWinners = j;
+  return true;
+}
+
+async function loadWorldBorders(){
+  const j = await fetchFirstJson(WORLD_BORDERS_URLS);
+  if(!j) return false;
+  worldBorders = j;
+  return true;
+}
+
+/* =========================================================
+   SUGGESTIONS
+========================================================= */
+let suggestions = [];
+let suggestionIndex = -1;
+
+function renderSuggestions(list){
+  suggestionsEl.innerHTML = '';
+  suggestionIndex = -1;
+
+  if(!list.length){
+    suggestionsEl.classList.add('hidden');
+    return;
+  }
+
+  const max = Math.min(12, list.length);
+  for(let i = 0; i < max; i++){
+    const item = list[i];
+    const div = document.createElement('div');
+    div.textContent = item.full_name || item.player_name || item.name || '';
+    div.addEventListener('click', () => {
+      guessInput.value = div.textContent;
+      suggestionsEl.classList.add('hidden');
+      submitGuess();
+    });
+    div.addEventListener('mouseenter', () => {
+      suggestionIndex = i;
+      updateSuggestionHighlight();
+    });
+    suggestionsEl.appendChild(div);
+  }
+
+  suggestionsEl.classList.remove('hidden');
+}
+
+function updateSuggestionHighlight(){
+  Array.from(suggestionsEl.children).forEach((node, idx) => {
+    node.classList.toggle('active', idx === suggestionIndex);
+  });
+}
+
+function updateSuggestions(){
+  if(guessInput.disabled) return;
+
+  const q = norm(guessInput.value);
+  if(q.length < 2){
+    suggestionsEl.classList.add('hidden');
+    return;
+  }
+
+  let pool = playersCatalog.filter(p => {
+    const name = p.full_name || p.player_name || p.name || '';
+    const source = String(p.source || p.tour || '').toUpperCase();
+    return norm(name).includes(q) && (!source || source === currentTour);
+  });
+
+  if(!pool.length){
+    pool = playersCatalog.filter(p => {
+      const name = p.full_name || p.player_name || p.name || '';
+      return norm(name).includes(q);
+    });
+  }
+
+  const guessedSet = new Set(guesses.map(g => norm(g.full_name || g.player_name || g.name || '')));
+  pool = pool.filter(p => {
+    const name = p.full_name || p.player_name || p.name || '';
+    return !guessedSet.has(norm(name));
+  });
+
+  suggestions = pool.slice(0, 50);
+  renderSuggestions(suggestions);
+}
+
+/* =========================================================
+   GUESS TABLE
+========================================================= */
+function renderGuesses(){
+  guessesBody.innerHTML = '';
+  guesses.forEach((g, idx) => {
+    const tr = document.createElement('tr');
+
+    const td1 = document.createElement('td');
+    td1.textContent = String(idx + 1);
+
+    const td2 = document.createElement('td');
+    td2.textContent = g.full_name || g.player_name || g.name || '';
+
+    const td3 = document.createElement('td');
+    td3.textContent = g.correct ? 'OK' : '—';
+    td3.style.color = g.correct ? 'var(--success)' : 'var(--muted)';
+
+    tr.appendChild(td1);
+    tr.appendChild(td2);
+    tr.appendChild(td3);
+    guessesBody.appendChild(tr);
+  });
+}
+
+/* =========================================================
+   MAP
+========================================================= */
+function removeMap(){
+  try{
+    if(currentMap){
+      currentMap.off();
+      currentMap.remove();
+    }
+  } catch(e){}
+  currentMap = null;
+  currentBorderLayer = null;
+  currentTileLayer = null;
+  currentMarkerLayer = null;
+}
+
+function markerPopupHtml(group){
+  const title = escapeHtml(group.name || 'Tournament');
+  const count = Number(group.count || 1);
+  const years = group.years && group.years.length ? group.years.join(', ') : '';
+  const level = escapeHtml(group.level || '');
+  const tourneyId = escapeHtml(group.tourney_id || '');
+  let body = `<div style="min-width:180px">
+    <div style="font-weight:800;margin-bottom:4px">${title}</div>
+    <div style="color:#8fa1b8">Wins: <strong>${count}</strong></div>`;
+  if(level) body += `<div style="color:#8fa1b8">Level: ${level}</div>`;
+  if(tourneyId) body += `<div style="color:#8fa1b8">ID: ${tourneyId}</div>`;
+  if(years) body += `<div style="color:#8fa1b8">Years: ${escapeHtml(years)}</div>`;
+  body += `</div>`;
+  return body;
+}
+
+function aggregateTournaments(tournaments = []){
+  const map = new Map();
+
+  for(const t of tournaments){
+    const latlon = Array.isArray(t.geocode) && t.geocode.length >= 2
+      ? [Number(t.geocode[0]), Number(t.geocode[1])]
+      : null;
+
+    if(!latlon || !Number.isFinite(latlon[0]) || !Number.isFinite(latlon[1])) continue;
+
+    const tourneyId = String(t.tourney_id || t.id || '').trim();
+    const name = String(t.tourney_name || t.name || t.tourney_title || 'Tournament').trim();
+    const level = String(t.level || '').trim();
+    const year = t.year ?? t.season ?? null;
+    const key = `${tourneyId || name}::${latlon[0].toFixed(5)},${latlon[1].toFixed(5)}`;
+
+    if(!map.has(key)){
+      map.set(key, {
+        key,
+        tourney_id: tourneyId,
+        name,
+        level,
+        lat: latlon[0],
+        lon: latlon[1],
+        count: 0,
+        years: []
+      });
+    }
+
+    const obj = map.get(key);
+    obj.count += 1;
+    if(year !== null && year !== undefined && String(year).trim() !== ''){
+      obj.years.push(String(year));
+    }
+  }
+
+  return Array.from(map.values()).map(o => {
+    o.years = Array.from(new Set(o.years)).sort();
+    return o;
+  });
+}
+
+async function buildMap(player, mode = currentLevel){
+  const mapEl = document.getElementById('map');
+  mapEl.innerHTML = '';
+  removeMap();
+
+  currentMap = L.map('map', {
+    zoomControl: true,
+    scrollWheelZoom: true,
+    attributionControl: mode === 'easy'
+  });
+
+  if(mode === 'easy'){
+    currentTileLayer = L.tileLayer(
+      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }
+    ).addTo(currentMap);
+  }
+
+  const worldStyle = {
+    color: 'rgba(255,255,255,0.18)',
+    weight: 1,
+    fillColor: 'rgba(255,255,255,0.02)',
+    fillOpacity: 0.05
+  };
+
+  const markers = aggregateTournaments(player?.tournaments || []);
+
+  if(worldBorders && worldBorders.features){
+    currentBorderLayer = L.geoJSON(worldBorders, { style: worldStyle }).addTo(currentMap);
+  }
+
+  currentMarkerLayer = L.layerGroup().addTo(currentMap);
+
+  const markerBounds = [];
+  for(const g of markers){
+    const radius = radiusForCount(g.count, mode);
+    const color = scoreColorForTour(currentTour);
+    const fill = scoreFillForTour(currentTour);
+
+    const marker = L.circleMarker([g.lat, g.lon], {
+      radius,
+      color,
+      fillColor: fill,
+      fillOpacity: mode === 'hard' ? 0.9 : 0.8,
+      weight: 1.5
+    });
+
+    if(mode !== 'hard'){
+      marker.bindPopup(markerPopupHtml(g), { maxWidth: 260 });
+    } else {
+      marker.bindPopup(markerPopupHtml(g), { maxWidth: 260 });
+    }
+
+    marker.addTo(currentMarkerLayer);
+    markerBounds.push([g.lat, g.lon]);
+  }
+
+  if(markerBounds.length){
+    const bounds = L.latLngBounds(markerBounds);
+    currentMap.fitBounds(bounds.pad(0.35));
+  } else if(currentBorderLayer){
+    try{
+      currentMap.fitBounds(currentBorderLayer.getBounds().pad(0.15));
+    } catch(e){
+      currentMap.setView([20,0], 2);
+    }
+  } else {
+    currentMap.setView([20,0], 2);
+  }
+
+  setTimeout(() => {
+    try{ currentMap.invalidateSize(); } catch(e){}
+  }, 120);
+}
+
+/* =========================================================
+   LEADERBOARD / DB
+========================================================= */
+async function checkAlreadyPlayedToday(mode){
+  const session = getSession();
+  if(!session) return { exists:false, rows:[] };
+
+  const dateStr = todayStr();
+  const userId = session.id || session.user_id || '';
+  const pseudo = displayNameFromSession(session);
+
+  let qs = `?game_id=${encodeURIComponent(GAME_ID)}&date=${encodeURIComponent(dateStr)}&check_existing=1&mode=${encodeURIComponent(mode)}`;
+  if(userId) qs += `&user_id=${encodeURIComponent(userId)}`;
+  if(pseudo) qs += `&pseudo=${encodeURIComponent(pseudo)}`;
+
+  try{
+    const resp = await fetch(`/.netlify/functions/leaderboard${qs}`, { credentials:'same-origin' });
+    if(!resp.ok) return { exists:false, rows:[] };
+    const j = await resp.json();
+    if(j && j.ok && j.exists) return { exists:true, rows:j.rows || [] };
+    return { exists:false, rows:j.rows || [] };
+  } catch(e){
+    console.warn('checkAlreadyPlayedToday', e);
+    return { exists:false, rows:[] };
+  }
+}
+
+function queueScore(entry){
+  try{
+    const q = JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]');
+    q.push(Object.assign({ ts:new Date().toISOString() }, entry));
+    localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q));
+  } catch(e){}
+}
+
+function popQueue(){
+  try{
+    const q = JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]');
+    q.shift();
+    localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q));
+  } catch(e){}
+}
+
+function readQueue(){
+  try{
+    return JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]');
+  } catch(e){
+    return [];
+  }
+}
+
+function waitForLeaderboard(timeout = 5000, interval = 200){
+  return new Promise(resolve => {
+    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+      resolve(true);
+      return;
+    }
+    const start = Date.now();
+    const timer = setInterval(() => {
+      if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+        clearInterval(timer);
+        resolve(true);
+      } else if(Date.now() - start > timeout){
+        clearInterval(timer);
+        resolve(false);
+      }
+    }, interval);
+  });
+}
+
+async function trySubmitScore(entry){
+  const gameId = entry.gameId || GAME_ID;
+  const points = Number(entry.points) || 0;
+  const options = entry.options || {};
+
+  if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+    try{
+      const res = await window.LEADERBOARD.submitScore(gameId, points, options);
+      if(res && (res.ok === true || res.success === true || res.status === 'ok')) return true;
+      if(res && res.ok === false && res.error && String(res.error).toLowerCase().includes('already_submitted')){
+        return true;
+      }
+    } catch(e){}
+  }
+
+  try{
+    const payload = {
+      game_id: gameId,
+      points,
+      pseudo: options.displayName || null,
+      mode: options.mode || null,
+      meta: typeof options.meta === 'string' ? options.meta : JSON.stringify(options.meta || {}),
+      ts: new Date().toISOString()
+    };
+    const resp = await fetch('/.netlify/functions/submit-score', {
+      method:'POST',
+      credentials:'same-origin',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const text = await resp.text().catch(() => '');
+    if(resp.ok) return true;
+    if(resp.status === 409) return true;
+    try{
+      const parsed = text ? JSON.parse(text) : null;
+      if(parsed && parsed.detail && String(parsed.detail.code) === '23505') return true;
+    } catch(e){}
+    return false;
+  } catch(e){
+    return false;
+  }
+}
+
+async function flushQueue(){
+  const ready = await waitForLeaderboard(4000);
+  if(!ready) return;
+  for(let i = 0; i < 30; i++){
+    const q = readQueue();
+    if(!q.length) break;
+    const ok = await trySubmitScore(q[0]);
+    if(ok){
+      popQueue();
+    } else {
+      break;
+    }
+  }
+}
+
+async function submitRoundScore(points, meta = {}){
+  const session = getSession();
+  const displayName = displayNameFromSession(session);
+
+  const options = {
+    mode: currentModeKey(),
+    displayName,
+    meta: JSON.stringify(meta || {})
+  };
+
+  const ready = await waitForLeaderboard(2500);
+  const entry = { gameId: GAME_ID, points, options };
+
+  if(ready){
+    const ok = await trySubmitScore(entry);
+    if(ok){
+      setTimeout(flushQueue, 250);
+      return true;
+    }
+  }
+
+  queueScore(entry);
+  setTimeout(flushQueue, 1000);
+  return false;
+}
+
+/* =========================================================
+   GAME STATE
+========================================================= */
+function buildInitialState(target){
+  return {
+    date: todayStr(),
+    mode: currentModeKey(),
+    target_id: targetPlayerId(target),
+    target_name: targetDisplayName(target),
+    guesses: [],
+    remaining: MAX_ATTEMPTS,
+    score: 0,
+    completed: false,
+    submitted: false,
+    last_updated: new Date().toISOString()
+  };
+}
+
+function syncUIFromState(st){
+  guesses = Array.isArray(st.guesses) ? st.guesses : [];
+  remaining = Number.isFinite(Number(st.remaining)) ? Number(st.remaining) : MAX_ATTEMPTS;
+  currentRoundScore = Number(st.score || 0);
+  roundCompleted = !!st.completed;
+  roundSubmitted = !!st.submitted;
+
+  remainingCountEl.textContent = String(remaining);
+  chipRoundScoreEl.textContent = String(currentRoundScore);
+  renderGuesses();
+  updateTopScores();
+}
+
+function saveCurrentState(extra = {}){
+  const st = Object.assign(buildInitialState(currentTarget), {
+    mode: currentModeKey(),
+    target_id: targetPlayerId(currentTarget),
+    target_name: targetDisplayName(currentTarget),
+    guesses,
+    remaining,
+    score: currentRoundScore,
+    completed: roundCompleted,
+    submitted: roundSubmitted,
+    last_updated: new Date().toISOString()
+  }, extra);
+
+  writeStoredState(currentModeKey(), st);
+  updateTopScores();
+  renderModePills();
+  return st;
+}
+
+function clearGuessUI(){
+  guesses = [];
+  remaining = MAX_ATTEMPTS;
+  currentRoundScore = 0;
+  roundCompleted = false;
+  roundSubmitted = false;
+  renderGuesses();
+  remainingCountEl.textContent = String(remaining);
+  chipRoundScoreEl.textContent = '0';
+}
+
+function setCurrentTargetFromMode(){
+  currentTarget = getModeTarget(currentTour, currentLevel);
+}
+
+async function restoreOrStartMode(){
+  setCurrentTargetFromMode();
+
+  const saved = readStoredState(currentModeKey());
+  const isInProgress = isInProgressState(saved);
+
+  if(saved && saved.date === todayStr()){
+    if(saved.target_id && targetPlayerId(currentTarget) && String(saved.target_id) !== String(targetPlayerId(currentTarget))){
+      clearStoredState(currentModeKey());
+    } else {
+      syncUIFromState(saved);
+      targetLineEl.textContent = saved.completed
+        ? `Completed today. Target: ${saved.target_name || '—'}`
+        : `Round in progress. Saved: ${stateToRoundSummary(saved)}.`;
+      if(saved.completed){
+        setGuessEnabled(false);
+        showCompletedRoundHint(saved);
+        if(!saved.submitted){
+          await finalizeRound(true, Number(saved.score || 0), true);
+        }
+        return;
+      }
+      if(isInProgress){
+        hasLoadedCurrentMode = true;
+        setGuessEnabled(true);
+        await buildMap(currentTarget, currentLevel);
+        preloadStatusEl.textContent = `Restored in-progress round: ${stateToRoundSummary(saved)}`;
+        return;
+      }
+    }
+  }
+
+  if(!isConnected()){
+    applyAuthGate();
+    return;
+  }
+
+  const checkMode = currentModeKey();
+  const already = await checkAlreadyPlayedToday(checkMode);
+  if(already && already.exists){
+    const row = already.rows && already.rows[0] ? already.rows[0] : null;
+    roundCompleted = true;
+    roundSubmitted = true;
+    currentRoundScore = Number(row?.points || 0);
+    remaining = 0;
+    guesses = [];
+    renderGuesses();
+    updateTopScores();
+    setGuessEnabled(false);
+    targetLineEl.textContent = `Already played today: ${checkMode}`;
+    showAlreadyPlayedModal(already, checkMode);
+    return;
+  }
+
+  clearGuessUI();
+  saveCurrentState();
+  setGuessEnabled(true);
+  await buildMap(currentTarget, currentLevel);
+  hasLoadedCurrentMode = true;
+  targetLineEl.textContent = `Hidden target selected for ${roundLabel()}.`;
+  preloadStatusEl.textContent = `Ready: ${roundLabel()}`;
+}
+
+function showCompletedRoundHint(st){
+  const txt = `This round is already completed today. Score: ${st.score || 0}.`;
+  preloadStatusEl.textContent = txt;
+}
+
+function showAlreadyPlayedModal(check, mode){
+  const title = 'Already completed';
+  const text = `You have already completed this variant today (${mode}). You cannot replay the same variant today.`;
+  let details = `<div style="text-align:left;color:var(--muted);margin-top:12px">`;
+  if(check && check.rows && check.rows.length){
+    for(const row of check.rows.slice(0,5)){
+      details += `<div style="margin-bottom:6px"><strong>Points:</strong> ${escapeHtml(row.points ?? 0)} · <strong>Mode:</strong> ${escapeHtml(row.mode || '—')} · <strong>At:</strong> ${escapeHtml(row.created_at || '—')}</div>`;
+    }
+  }
+  details += `</div>`;
+  showModal(title, text, details);
+}
+
+async function finalizeRound(won, points, restoring = false){
+  roundCompleted = true;
+  currentRoundScore = Number(points || 0);
+  remaining = 0;
+  setGuessEnabled(false);
+  targetLineEl.textContent = `Target: ${targetDisplayName(currentTarget)}.`;
+  chipRoundScoreEl.textContent = String(currentRoundScore);
+  updateTopScores();
+  renderModePills();
+  saveCurrentState({ completed:true, score:currentRoundScore, remaining:0 });
+
+  const detailLines = [];
+  detailLines.push(`<div style="font-weight:800;color:#fff">${escapeHtml(targetDisplayName(currentTarget) || 'Unknown player')}</div>`);
+  detailLines.push(`<div style="margin-top:6px;color:var(--muted)">Tour: <strong style="color:#fff">${currentTour}</strong> · Difficulty: <strong style="color:#fff">${currentLevel}</strong></div>`);
+  detailLines.push(`<div style="margin-top:6px;color:var(--muted)">Round score: <strong style="color:#fff">${currentRoundScore}</strong></div>`);
+  detailLines.push(`<div style="margin-top:6px;color:var(--muted)">Daily total: <strong style="color:#fff">${currentDailyScoreFromStorage() + currentRoundScore}</strong>/600</div>`);
+
+  showModal(
+    won ? 'You won!' : 'Round over',
+    won ? `You earned ${currentRoundScore} points.` : 'No points this time.',
+    detailLines.join('')
+  );
+
+  if(!roundSubmitted && !restoring){
+    const meta = {
+      won: !!won,
+      tour: currentTour,
+      level: currentLevel,
+      mode: currentModeKey(),
+      guesses_count: guesses.length,
+      target_id: targetPlayerId(currentTarget),
+      target_name: targetDisplayName(currentTarget),
+      score: currentRoundScore
+    };
+
+    const ok = await submitRoundScore(currentRoundScore, meta);
+    roundSubmitted = !!ok || true;
+    saveCurrentState({ completed:true, submitted:true, score:currentRoundScore, remaining:0 });
+    updateTopScores();
+    renderModePills();
+  } else {
+    roundSubmitted = true;
+    saveCurrentState({ completed:true, submitted:true, score:currentRoundScore, remaining:0 });
+  }
+}
+
+function endRoundIfNeeded(){
+  if(remaining <= 0 && !roundCompleted){
+    finalizeRound(false, 0, false);
+  }
+}
+
+/* =========================================================
+   GUESS FLOW
+========================================================= */
+function findPlayerByName(name){
+  const q = norm(name);
+  if(!q) return null;
+
+  let p = playersCatalog.find(x => String(x.player_id || '').toLowerCase() === q);
+  if(p) return p;
+
+  p = playersCatalog.find(x => norm(x.full_name || x.player_name || x.name || '') === q);
+  if(p) return p;
+
+  p = playersCatalog.find(x => norm(x.full_name || x.player_name || x.name || '').includes(q));
+  return p || null;
+}
+
+async function submitGuess(){
+  if(!isConnected()){
+    toast('Connecte-toi d’abord.');
+    return;
+  }
+  if(roundCompleted){
+    toast('Cette manche est déjà terminée.');
+    return;
+  }
+  if(remaining <= 0){
+    toast('Plus aucune tentative.');
+    return;
+  }
+
+  const raw = guessInput.value.trim();
+  if(!raw){
+    toast('Entre un nom.');
+    return;
+  }
+
+  const guess = findPlayerByName(raw);
+  if(!guess){
+    toast('Nom introuvable.');
+    return;
+  }
+
+  const guessedName = String(guess.full_name || guess.player_name || guess.name || raw).trim();
+  const guessedId = targetPlayerId(guess) || '';
+
+  const row = {
+    full_name: guessedName,
+    player_id: guessedId,
+    correct: false
+  };
+
+  guesses.push(row);
+  remaining -= 1;
+  renderGuesses();
+  remainingCountEl.textContent = String(remaining);
+  saveCurrentState();
+
+  const targetId = targetPlayerId(currentTarget);
+  const targetName = norm(targetDisplayName(currentTarget));
+  const sameId = guessedId && targetId && String(guessedId) === String(targetId);
+  const sameName = norm(guessedName) === targetName;
+
+  if(sameId || sameName){
+    row.correct = true;
+    const attempt = guesses.length;
+    const pts = pointsForAttempt(attempt);
+    currentRoundScore = pts;
+    row.result = 'OK';
+    currentDailyScore = currentDailyScoreFromStorage();
+    renderGuesses();
+    chipRoundScoreEl.textContent = String(currentRoundScore);
+    await finalizeRound(true, pts, false);
+    return;
+  }
+
+  saveCurrentState();
+  if(remaining <= 0){
+    await finalizeRound(false, 0, false);
+    return;
+  }
+
+  toast('Wrong guess');
+}
+
+/* =========================================================
+   MODE SWITCH
+========================================================= */
+async function switchMode(tour, level){
+  if(currentTour === tour && currentLevel === level && hasLoadedCurrentMode) return;
+  saveCurrentState(); // store current mode before switching
+
+  currentTour = tour;
+  currentLevel = level;
+  updateModeButtons();
+  setCurrentTargetFromMode();
+
+  if(!isConnected()){
+    initAuthBox();
+    setGuessEnabled(false);
+    renderModePills();
+    return;
+  }
+
+  setGuessEnabled(false);
+  guessesBody.innerHTML = '';
+  suggestionsEl.classList.add('hidden');
+  guessInput.value = '';
+
+  await restoreOrStartMode();
+  updateModeButtons();
+  setGuessEnabled(!roundCompleted);
+}
+
+/* =========================================================
+   BINDINGS
+========================================================= */
+function bindSuggestions(){
+  guessInput.addEventListener('input', updateSuggestions);
+  guessInput.addEventListener('focus', updateSuggestions);
+
+  document.addEventListener('click', (e) => {
+    if(!document.querySelector('.guess-wrap').contains(e.target)){
+      suggestionsEl.classList.add('hidden');
+    }
+  });
+
+  guessInput.addEventListener('keydown', (e) => {
+    if(suggestionsEl.classList.contains('hidden')) return;
+
+    const items = suggestionsEl.children;
+    if(e.key === 'ArrowDown'){
+      e.preventDefault();
+      suggestionIndex = Math.min(suggestionIndex + 1, items.length - 1);
+      updateSuggestionHighlight();
+    } else if(e.key === 'ArrowUp'){
+      e.preventDefault();
+      suggestionIndex = Math.max(suggestionIndex - 1, 0);
+      updateSuggestionHighlight();
+    } else if(e.key === 'Enter'){
+      if(suggestionIndex >= 0 && suggestions[suggestionIndex]){
+        e.preventDefault();
+        const sel = suggestions[suggestionIndex];
+        guessInput.value = sel.full_name || sel.player_name || sel.name || '';
+        suggestionsEl.classList.add('hidden');
+        submitGuess();
+      }
+    } else if(e.key === 'Escape'){
+      suggestionsEl.classList.add('hidden');
+    }
+  });
+}
+
+function bindControls(){
+  btnATP.addEventListener('click', () => switchMode('ATP', currentLevel));
+  btnWTA.addEventListener('click', () => switchMode('WTA', currentLevel));
+  btnEasy.addEventListener('click', () => switchMode(currentTour, 'easy'));
+  btnMedium.addEventListener('click', () => switchMode(currentTour, 'medium'));
+  btnHard.addEventListener('click', () => switchMode(currentTour, 'hard'));
+
+  guessBtn.addEventListener('click', submitGuess);
+
+  document.getElementById('closeModalBtn').addEventListener('click', () => {
+    hideModal();
+  });
+}
+
+/* =========================================================
+   INITIALIZATION
+========================================================= */
+async function init(){
+  guessInput = document.getElementById('guessInput');
+  guessBtn = document.getElementById('guessBtn');
+  suggestionsEl = document.getElementById('suggestions');
+  guessesBody = document.getElementById('guessesBody');
+  preloadStatusEl = document.getElementById('preloadStatus');
+  authStatusEl = document.getElementById('authStatus');
+
+  chipTourEl = document.getElementById('chipTour');
+  chipLevelEl = document.getElementById('chipLevel');
+  chipRoundScoreEl = document.getElementById('chipRoundScore');
+  chipTotalScoreEl = document.getElementById('chipTotalScore');
+  remainingCountEl = document.getElementById('remainingCount');
+  roundLabelEl = document.getElementById('roundLabel');
+  mapModeLabelEl = document.getElementById('mapModeLabel');
+  targetLineEl = document.getElementById('targetLine');
+  modeStatusEl = document.getElementById('modeStatus');
+  progressLabelEl = document.getElementById('progressLabel');
+  dailyProgressEl = document.getElementById('dailyProgress');
+
+  btnATP = document.getElementById('btnATP');
+  btnWTA = document.getElementById('btnWTA');
+  btnEasy = document.getElementById('btnEasy');
+  btnMedium = document.getElementById('btnMedium');
+  btnHard = document.getElementById('btnHard');
+
+  bindSuggestions();
+  bindControls();
+  initAuthBox();
+
+  const okDaily = await loadDailyWinners();
+  const okCatalog = await loadPlayersCatalog();
+  const okBorders = await loadWorldBorders();
+
+  assetsReady = okDaily && okCatalog;
+
+  if(!okDaily){
+    preloadStatusEl.textContent = 'daily_selected_winners.json not found or malformed.';
+    document.getElementById('helpText').textContent = 'Le fichier des vainqueurs du jour est introuvable.';
+    return;
+  }
+  if(!okCatalog){
+    preloadStatusEl.textContent = 'players_catalog.json not found or malformed.';
+  }
+  if(!okBorders){
+    preloadStatusEl.textContent = 'World borders file not found, map will still work without borders.';
+  }
+
+  updateModeButtons();
+  renderModePills();
+
+  if(isConnected()){
+    await restoreOrStartMode();
+  } else {
+    targetLineEl.textContent = 'Connecte-toi pour jouer.';
+    setGuessEnabled(false);
+    await buildMap(null, currentLevel);
+  }
+
+  window.addEventListener('ta:auth-changed', async () => {
+    initAuthBox();
+    if(isConnected()){
+      await restoreOrStartMode();
+    } else {
+      setGuessEnabled(false);
+      targetLineEl.textContent = 'Connecte-toi pour jouer.';
+    }
+  });
+
+  setInterval(() => {
+    if(!roundCompleted){
+      saveCurrentState();
+    }
+  }, 4000);
+
+  if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+    setTimeout(flushQueue, 500);
+  } else {
+    const poll = setInterval(() => {
+      if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+        clearInterval(poll);
+        flushQueue();
+      }
+    }, 300);
+  }
+
+  if(!currentTarget){
+    setCurrentTargetFromMode();
+  }
+  await buildMap(currentTarget, currentLevel);
+  updateTopScores();
+  renderModePills();
+  preloadStatusEl.textContent = 'Ready.';
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
