@@ -87,7 +87,7 @@ def extract_year_from_string(s):
     return None
 
 
-def filter_top20_and_born_after(rows, rank_cols_candidates, birth_cols_candidates):
+def filter_top20_and_born_after(rows, rank_cols_candidates, birth_cols_candidates, born_after_year):
     out = []
     stats = {"no_rank": 0, "rank_gt_20": 0, "no_birth": 0, "birth_too_old": 0, "ok": 0}
 
@@ -148,7 +148,7 @@ def filter_top20_and_born_after(rows, rank_cols_candidates, birth_cols_candidate
         if found_birth is None:
             stats["no_birth"] += 1
             continue
-        if found_birth <= BORN_AFTER_YEAR:
+        if found_birth <= born_after_year:
             stats["birth_too_old"] += 1
             continue
 
@@ -221,8 +221,7 @@ def main():
     parser.add_argument("--born-after-year", type=int, default=BORN_AFTER_YEAR)
     args = parser.parse_args()
 
-    global BORN_AFTER_YEAR
-    BORN_AFTER_YEAR = args.born_after_year
+    born_after_year = args.born_after_year
 
     seed_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     seed_int = int(datetime.now(timezone.utc).strftime("%Y%m%d"))
@@ -247,11 +246,11 @@ def main():
     print(f"[DEBUG] ATP candidate rank cols: {atp_rank_cols}; birth cols: {atp_birth_cols}")
     print(f"[DEBUG] WTA candidate rank cols: {wta_rank_cols}; birth cols: {wta_birth_cols}")
 
-    atp_filtered = filter_top20_and_born_after(atp_rows, atp_rank_cols, atp_birth_cols)
-    wta_filtered = filter_top20_and_born_after(wta_rows, wta_rank_cols, wta_birth_cols)
+    atp_filtered = filter_top20_and_born_after(atp_rows, atp_rank_cols, atp_birth_cols, born_after_year)
+    wta_filtered = filter_top20_and_born_after(wta_rows, wta_rank_cols, wta_birth_cols, born_after_year)
 
-    print(f"[INFO] ATP after filter (rank<=20 & born>{BORN_AFTER_YEAR}): {len(atp_filtered)}")
-    print(f"[INFO] WTA after filter (rank<=20 & born>{BORN_AFTER_YEAR}): {len(wta_filtered)}")
+    print(f"[INFO] ATP after filter (rank<=20 & born>{born_after_year}): {len(atp_filtered)}")
+    print(f"[INFO] WTA after filter (rank<=20 & born>{born_after_year}): {len(wta_filtered)}")
 
     if len(atp_filtered) > 0:
         print("[TRACE] ATP candidates (sample up to 10):")
@@ -273,7 +272,7 @@ def main():
     out = {
         "generated_at": datetime.now(timezone.utc).isoformat() + "Z",
         "seed_date": seed_date,
-        "notes": f"Players born after {BORN_AFTER_YEAR}, best rank <= 20. Selection deterministic by seed {seed_int}.",
+        "notes": f"Players born after {born_after_year}, best rank <= 20. Selection deterministic by seed {seed_int}.",
         "atp": [],
         "wta": []
     }
