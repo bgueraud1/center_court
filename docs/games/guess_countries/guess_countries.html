@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -79,12 +79,6 @@
   .progress-fill{height:100%;width:0%;background:linear-gradient(90deg, #1f7aec, #7b5cf6);transition:width .22s ease;}
   .help{color:var(--muted);font-size:.92rem;line-height:1.5;}
 
-  .list-card{margin-top:10px;border:1px solid var(--panel-border);border-radius:14px;overflow:hidden;background:rgba(0,0,0,0.12);}
-  .list-card table{width:100%;border-collapse:collapse;}
-  .list-card th,.list-card td{padding:10px 12px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.04);font-size:.92rem;vertical-align:top;}
-  .list-card thead th{color:var(--muted);font-weight:800;background:rgba(255,255,255,0.02);}
-  .list-card tbody tr:hover{background:rgba(255,255,255,0.015);}
-
   .mode-status{display:flex;flex-wrap:wrap;gap:8px;}
   .mode-pill{padding:7px 11px;border-radius:999px;font-size:.85rem;font-weight:800;border:1px solid var(--panel-border);background:rgba(255,255,255,0.02);color:var(--muted);cursor:pointer;}
   .mode-pill.done{color:#fff;background:rgba(22,163,74,0.12);border-color:rgba(22,163,74,0.22);}
@@ -123,9 +117,9 @@
         <div>
           <h1 class="title">Daily Country Guess</h1>
           <div class="subtitle">
-            Clique sur tous les pays où le joueur du jour a gagné un tournoi.
-            Tu as un nombre de clics égal au nombre de pays différents à trouver.
-            Chaque bonne réponse rapporte <strong>50 / n</strong> points sur le mode ATP ou WTA.
+            Click all the countries where today’s player has won a tournament.
+            You have a number of clicks equal to the number of different countries to find.
+            Each correct answer earns <strong>50 / n</strong> points in ATP or WTA mode.
           </div>
         </div>
 
@@ -183,21 +177,8 @@
             <div class="mode-status" id="modeStatus"></div>
 
             <div class="help" id="helpText">
-              Le joueur ou la joueuse du jour apparaît ici. Clique sur les pays correspondants directement sur la carte.
-              Les pays trouvés deviennent verts, les erreurs restent rouges.
-            </div>
-
-            <div class="list-card">
-              <table aria-live="polite">
-                <thead>
-                  <tr>
-                    <th style="width:42px">#</th>
-                    <th>Country</th>
-                    <th style="width:88px">Result</th>
-                  </tr>
-                </thead>
-                <tbody id="attemptsBody"></tbody>
-              </table>
+              The day’s player appears here. Click the countries where they won a tournament directly on the map.
+              Found countries turn green, mistakes stay red.
             </div>
 
             <div class="small-muted" id="preloadStatus">Idle.</div>
@@ -211,7 +192,7 @@
           </div>
           <div class="map-toolbar">
             <div class="current" id="targetLine">Target is hidden until the round starts.</div>
-            <div class="note" id="mapNote">Countries are clickable. The map is locked to world view.</div>
+            <div class="note" id="mapNote">Countries are clickable. Use the zoom controls or scroll to zoom the map.</div>
           </div>
           <div id="map"></div>
         </div>
@@ -528,7 +509,7 @@ function applyAuthGate(){
   renderAuthBox();
   if(!isConnected()){
     setGuessEnabled(false);
-    preloadStatusEl.textContent = 'Connectez-vous via Tennis Arena pour jouer.';
+    preloadStatusEl.textContent = 'Please connect via Tennis Arena to play.';
     targetLineEl.textContent = 'Connect to start playing.';
     return false;
   }
@@ -714,18 +695,18 @@ function createMap(){
   }
 
   currentMap = L.map('map', {
-    zoomControl: false,
-    dragging: false,
-    scrollWheelZoom: false,
-    doubleClickZoom: false,
-    boxZoom: false,
-    keyboard: false,
-    touchZoom: false,
-    tap: false,
+    zoomControl: true,
+    dragging: true,
+    scrollWheelZoom: true,
+    doubleClickZoom: true,
+    boxZoom: true,
+    keyboard: true,
+    touchZoom: true,
+    tap: true,
     attributionControl: false,
     worldCopyJump: false,
-    minZoom: 2,
-    maxZoom: 2
+    minZoom: 1,
+    maxZoom: 8
   });
 
   currentMap.setView([20, 0], 2);
@@ -962,23 +943,7 @@ function renderModePills(){
 }
 
 function renderAttempts(){
-  attemptsBodyEl.innerHTML = '';
-  const items = [];
-  for(const c of allTargetCountryList){
-    items.push({ code: c, status: foundCountries.has(c) ? 'good' : (wrongCountries.has(c) ? 'bad' : '') });
-  }
-  for(let i = 0; i < items.length; i++){
-    const it = items[i];
-    const tr = document.createElement('tr');
-    const td1 = document.createElement('td'); td1.textContent = String(i + 1);
-    const td2 = document.createElement('td'); td2.textContent = it.code;
-    const td3 = document.createElement('td');
-    if(it.status === 'good') td3.innerHTML = '<span style="color:var(--good);font-weight:800">OK</span>';
-    else if(it.status === 'bad') td3.innerHTML = '<span style="color:var(--bad);font-weight:800">MISS</span>';
-    else td3.innerHTML = '<span style="color:var(--muted)">—</span>';
-    tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3);
-    attemptsBodyEl.appendChild(tr);
-  }
+  return;
 }
 
 function showAlreadyPlayedModal(check, mode){
@@ -1016,7 +981,7 @@ function revealRound(won, points){
   const details = document.getElementById('modalDetails');
 
   title.textContent = won ? 'You won!' : 'Round over';
-  text.textContent = won ? `You earned ${formatPoints(points)} points.` : `You earned ${formatPoints(points)} points.`;
+  text.textContent = `You earned ${formatPoints(points)} points.`;
 
   details.innerHTML = `
     <div style="text-align:left;color:var(--muted)">
@@ -1125,7 +1090,7 @@ function restoreStateFromStorage(){
 ========================================================= */
 function handleCountryClick(code, layer, props){
   if(!isConnected()){
-    showToast('Connectez-vous via Tennis Arena');
+    showToast('Please connect via Tennis Arena');
     return;
   }
   if(completedThisMode){
@@ -1188,7 +1153,7 @@ async function startMode(mode, checkLeaderboard=true){
   chipCountriesEl.textContent = String(targetCountries.size);
   mapModeLabelEl.textContent = currentTour;
   targetLineEl.textContent = `${targetPlayerName(currentTarget)} — ${targetCountries.size} countries to find.`;
-  helpTextEl.innerHTML = `Le joueur du jour pour <strong>${currentTour}</strong> est <strong>${escapeHtml(targetPlayerName(currentTarget))}</strong>. Clique sur tous les pays où il/elle a gagné un tournoi.`;
+  helpTextEl.innerHTML = `The player for <strong>${currentTour}</strong> is <strong>${escapeHtml(targetPlayerName(currentTarget))}</strong>. Click all the countries where they won a tournament.`;
 
   const existing = readStoredState(currentModeKey());
   if(existing && existing.date === todayStr() && existing.completed && existing.submitted){
@@ -1246,7 +1211,7 @@ function gateAndMaybeStart(){
   renderAuthBox();
   if(!isConnected()){
     setGuessEnabled(false);
-    preloadStatusEl.textContent = 'Connectez-vous via Tennis Arena pour jouer.';
+    preloadStatusEl.textContent = 'Please connect via Tennis Arena to play.';
     targetLineEl.textContent = 'Connect to start playing.';
     return;
   }
@@ -1330,7 +1295,7 @@ async function init(){
   mapModeLabelEl = document.getElementById('mapModeLabel');
   modeHintEl = document.getElementById('modeHint');
   helpTextEl = document.getElementById('helpText');
-  attemptsBodyEl = document.getElementById('attemptsBody');
+  attemptsBodyEl = null;
   btnATP = document.getElementById('btnATP');
   btnWTA = document.getElementById('btnWTA');
   guessInput = null;
@@ -1347,7 +1312,7 @@ async function init(){
 
   if(!okData){
     preloadStatusEl.textContent = 'daily_country_guess.json missing or malformed.';
-    helpTextEl.textContent = 'Le fichier quotidien n’a pas pu être chargé.';
+    helpTextEl.textContent = 'The daily file could not be loaded.';
     return;
   }
   if(!okCountries){
