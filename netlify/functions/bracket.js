@@ -3,37 +3,38 @@ const fs = require("fs");
 const path = require("path");
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const USERS_TABLE = process.env.USERS_TABLE || "users";
 const INSCRIPTIONS_TABLE = process.env.INSCRIPTIONS_TABLE || "inscriptions";
 const BRACKET_TABLE = process.env.BRACKET_TABLE || "bracket";
+const OPEN_JSON_PATH = path.join(process.cwd(), "docs/bracket/open_inscriptions.json");
 const BRACKET_TOURNAMENTS_DIR = process.env.BRACKET_TOURNAMENTS_DIR || "docs/bracket/tournaments";
 
-const { restGet, restPost, restPatch, restUpsert } = require("../lib/supabaseRest");
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, x-user-id, x-user-name, x-user-tour, x-user-country, x-user-league, x-user-rank",
+  "Access-Control-Allow-Methods": "OPTIONS, GET, POST"
+};
 
-function json(statusCode, body) {
+function jsonResponse(status, body) {
   return {
-    statusCode,
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "no-store",
-    },
-    body: JSON.stringify(body),
+    statusCode: status,
+    headers: Object.assign({ "Content-Type": "application/json" }, CORS_HEADERS),
+    body: JSON.stringify(body)
   };
 }
 
 function readBody(event) {
-  if (!event.body) return {};
   try {
-    return JSON.parse(event.body);
+    return event.body ? JSON.parse(event.body) : {};
   } catch {
     return {};
   }
 }
 
 function getHeader(headers, name) {
-  const key = Object.keys(headers || {}).find((k) => k.toLowerCase() === name.toLowerCase());
+  const key = Object.keys(headers || {}).find(k => k.toLowerCase() === name.toLowerCase());
   return key ? headers[key] : null;
 }
 
@@ -45,52 +46,222 @@ function getCallerContext(event, body = {}) {
   const user_country = getHeader(headers, "x-user-country") || body.user_country || null;
   const user_world_rank_raw = getHeader(headers, "x-user-rank") || body.user_world_rank || null;
   const user_world_rank = Number.parseInt(String(user_world_rank_raw || ""), 10);
+
   return {
     user_id,
     user_name,
     user_tour,
     user_country,
-    user_world_rank: Number.isFinite(user_world_rank) ? user_world_rank : null,
+    user_world_rank: Number.isFinite(user_world_rank) ? user_world_rank : null
   };
 }
 
-function deepClone(obj) {
-  return JSON.parse(JSON.stringify(obj));
+async function supabaseGet(table, queryParams) {
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+  }
+
+  const url = new URL(`${SUPABASE_URL}/rest/v1/${table}`);
+  for (const [k, v] of Object.entries(queryParams || {})) {
+    if (v !== undefined && v !== null) url.searchParams.set(k, v);
+  }
+
+  const r = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      Accept: "application/json"
+    }
+  });
+
+  const text = await r.text().catch(() => null);
+  let data;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+
+  if (!r.ok) {
+    throw new Error(`Supabase GET ${table} failed: ${r.status} ${text}`);
+  }
+
+  return data;
 }
 
-function safeString(v) {
-  return v === undefined || v === null ? "" : String(v);
+async function supabaseInsert(table, payload) {
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+  }
+
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      Prefer: "return=representation"
+    },
+    body: JSON.stringify([payload])
+  });
+
+  const text = await r.text().catch(() => null);
+  let data;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+
+  if (!r.ok) {
+    throw new Error(`Supabase INSERT ${table} failed: ${r.status} ${text}`);
+  }
+
+  return Array.isArray(data) ? data[0] : data;
 }
 
-function asPlayer(id, name, country = null) {
-  if (!id && !name) return null;
-  return {
-    player_id: safeString(id),
-    player_name: safeString(name),
-    player_country: country ? safeString(country) : null,
-  };
+async function supabaseUpsert(table, payload, onConflict) {
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+  }
+
+  const url = new URL(`${SUPABASE_URL}/rest/v1/${table}`);
+  if (onConflict) url.searchParams.set("on_conflict", onConflict);
+
+  const r = await fetch(url.toString(), {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      Prefer: "resolution=merge-duplicates,return=representation"
+    },
+    body: JSON.stringify([payload])
+  });
+
+  const text = await r.text().catch(() => null);
+  let data;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+
+  if (!r.ok) {
+    throw new Error(`Supabase UPSERT ${table} failed: ${r.status} ${text}`);
+  }
+
+  return Array.isArray(data) ? data[0] : data;
+}
+
+function readOpenPayload() {
+  if (!fs.existsSync(OPEN_JSON_PATH)) {
+    return {
+      version: 1,
+      timezone: "Europe/Paris",
+      generated_at: null,
+      current_paris_date: null,
+      registration_window: {
+        is_open_today: false,
+        open_date: null,
+        close_date: null,
+        target_start_date: null,
+        count: 0
+      },
+      open_tournaments: []
+    };
+  }
+  return JSON.parse(fs.readFileSync(OPEN_JSON_PATH, "utf-8"));
+}
+
+function toKey(tour, tournamentId) {
+  return `${String(tour || "").toUpperCase()}::${String(tournamentId)}`;
+}
+
+function groupCountByTournament(rows) {
+  const counts = new Map();
+  for (const row of rows) {
+    const key = toKey(row.tour || "", row.tournament_id);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return counts;
+}
+
+function normalizeCategory(category) {
+  return String(category || "").trim().toUpperCase();
+}
+
+function isAtpRestricted(category, rank) {
+  const c = normalizeCategory(category);
+  const isChallengerOrFuture = c === "CH" || c === "FU" || c.includes("CHALLENGER") || c.includes("FUTURE");
+  const isFuture = c === "FU" || c.includes("FUTURE");
+
+  if (!Number.isFinite(rank)) return { ok: true, reason: null };
+
+  if (isChallengerOrFuture && rank <= 50) {
+    return { ok: false, reason: "ATP top 50 players cannot enter Challenger/Future events." };
+  }
+  if (isFuture && rank <= 200) {
+    return { ok: false, reason: "ATP top 200 players cannot enter Future events." };
+  }
+  return { ok: true, reason: null };
+}
+
+async function getDbUserProfile(userId) {
+  if (!userId) return null;
+
+  const bracketRows = await supabaseGet(BRACKET_TABLE, {
+    select: "user_id,user_name,user_world_rank,user_tour,user_country",
+    user_id: `eq.${userId}`,
+    limit: "1"
+  }).catch(() => []);
+
+  if (Array.isArray(bracketRows) && bracketRows.length > 0) {
+    return bracketRows[0];
+  }
+
+  const userRows = await supabaseGet(USERS_TABLE, {
+    select: "id,pseudo,tour,country",
+    id: `eq.${userId}`,
+    limit: "1"
+  }).catch(() => []);
+
+  if (Array.isArray(userRows) && userRows.length > 0) {
+    return {
+      user_id: userRows[0].id,
+      user_name: userRows[0].pseudo,
+      user_tour: userRows[0].tour,
+      user_country: userRows[0].country,
+      user_world_rank: null
+    };
+  }
+
+  return null;
+}
+
+async function loadWeekInscriptionRows(weekStart) {
+  return await supabaseGet(INSCRIPTIONS_TABLE, {
+    select: "tournament_id,user_id,user_name,user_world_rank,registration_week_start,tournament_name,tournament_num_players,tournament_start_date,tour,tournament_level",
+    registration_week_start: `eq.${weekStart}`
+  }).catch(() => []);
+}
+
+function loadTournamentJson(tour, tournamentId, year) {
+  const fileName = `${String(tour).toLowerCase()}_${String(tournamentId)}_${String(year)}_temporary.json`;
+  const filePath = path.join(process.cwd(), BRACKET_TOURNAMENTS_DIR, fileName);
+  if (!fs.existsSync(filePath)) return null;
+  return JSON.parse(fs.readFileSync(filePath, "utf-8"));
 }
 
 function buildTemplateFromFirstRound(tournamentInfo, firstRoundJson) {
-  const leafMatches = (firstRoundJson.matches || []).map((m, idx) => {
-    const leftPlayer = asPlayer(m.winner_player_id, m.winner_player_name, m.winner_country);
-    const rightPlayer = asPlayer(
-      m.loser_player_id,
-      m.loser_player_name,
-      m.loser_country || m.loser_wountry || null
-    );
-
-    return {
-      match_id: safeString(m.match_id || `MS${String(idx + 1).padStart(3, "0")}`),
-      round_number: 1,
-      left_child_match_id: null,
-      right_child_match_id: null,
-      left_player: leftPlayer,
-      right_player: rightPlayer,
-      winner: null,
-      source: deepClone(m),
-    };
-  });
+  const leafMatches = (firstRoundJson.matches || []).map((m, idx) => ({
+    match_id: String(m.match_id || `MS${String(idx + 1).padStart(3, "0")}`),
+    round_number: 1,
+    left_child_match_id: null,
+    right_child_match_id: null,
+    left_player: m.winner_player_name ? {
+      player_id: String(m.winner_player_id || ""),
+      player_name: String(m.winner_player_name || ""),
+      player_country: m.winner_country ? String(m.winner_country) : null
+    } : null,
+    right_player: m.loser_player_name ? {
+      player_id: String(m.loser_player_id || ""),
+      player_name: String(m.loser_player_name || ""),
+      player_country: m.loser_country || m.loser_wountry || null
+    } : null,
+    winner: null
+  }));
 
   const rounds = [{ round_number: 1, matches: leafMatches }];
   let previousRound = leafMatches;
@@ -108,7 +279,7 @@ function buildTemplateFromFirstRound(tournamentInfo, firstRoundJson) {
         right_child_match_id: rightChild ? rightChild.match_id : null,
         left_player: null,
         right_player: null,
-        winner: null,
+        winner: null
       });
     }
     rounds.push({ round_number: roundNumber, matches: roundMatches });
@@ -120,7 +291,7 @@ function buildTemplateFromFirstRound(tournamentInfo, firstRoundJson) {
     version: 1,
     generated_at: new Date().toISOString(),
     tournament: tournamentInfo,
-    rounds,
+    rounds
   };
 }
 
@@ -142,20 +313,12 @@ function recomputeBracketFromWinners(bracket) {
       if (match.round_number > 1) {
         const leftChild = match.left_child_match_id ? lookup.get(match.left_child_match_id) : null;
         const rightChild = match.right_child_match_id ? lookup.get(match.right_child_match_id) : null;
-
-        match.left_player = leftChild && leftChild.winner ? deepClone(leftChild.winner) : null;
-        match.right_player = rightChild && rightChild.winner ? deepClone(rightChild.winner) : null;
+        match.left_player = leftChild && leftChild.winner ? JSON.parse(JSON.stringify(leftChild.winner)) : null;
+        match.right_player = rightChild && rightChild.winner ? JSON.parse(JSON.stringify(rightChild.winner)) : null;
       }
-
       const players = [match.left_player, match.right_player].filter(Boolean);
-
       if (players.length === 1) {
-        match.winner = deepClone(players[0]);
-      } else if (players.length === 2 && match.winner) {
-        const ok = players.some((p) => String(p.player_id) === String(match.winner.player_id));
-        if (!ok) match.winner = null;
-      } else if (players.length === 0) {
-        match.winner = null;
+        match.winner = JSON.parse(JSON.stringify(players[0]));
       }
     }
   }
@@ -175,7 +338,7 @@ function flattenBracket(bracket) {
         right_player_id: match.right_player ? match.right_player.player_id : null,
         right_player_name: match.right_player ? match.right_player.player_name : null,
         winner_player_id: match.winner ? match.winner.player_id : null,
-        winner_player_name: match.winner ? match.winner.player_name : null,
+        winner_player_name: match.winner ? match.winner.player_name : null
       });
     }
   }
@@ -183,7 +346,7 @@ function flattenBracket(bracket) {
 }
 
 function buildStoredBracketPayload(templateBracket, user, tournament, locked = false) {
-  const bracket = deepClone(templateBracket);
+  const bracket = JSON.parse(JSON.stringify(templateBracket));
   recomputeBracketFromWinners(bracket);
 
   return {
@@ -195,7 +358,7 @@ function buildStoredBracketPayload(templateBracket, user, tournament, locked = f
       user_name: user.user_name,
       user_world_rank: user.user_world_rank,
       user_tour: user.user_tour,
-      user_country: user.user_country,
+      user_country: user.user_country
     },
     tournament: {
       current_tournament_bracket_id: tournament.current_tournament_bracket_id,
@@ -204,11 +367,11 @@ function buildStoredBracketPayload(templateBracket, user, tournament, locked = f
       tournament_name: tournament.current_tournament_bracket_name,
       tournament_start_date: tournament.tournament_start_date,
       tour: tournament.tour,
-      tournament_level: tournament.tournament_level,
+      tournament_level: tournament.tournament_level
     },
-    rounds: bracket.rounds.map((round) => ({
+    rounds: bracket.rounds.map(round => ({
       round_number: round.round_number,
-      matches: round.matches.map((m) => ({
+      matches: round.matches.map(m => ({
         match_id: m.match_id,
         round_number: m.round_number,
         left_child_match_id: m.left_child_match_id || null,
@@ -216,207 +379,168 @@ function buildStoredBracketPayload(templateBracket, user, tournament, locked = f
         left_player: m.left_player,
         right_player: m.right_player,
         winner_player_id: m.winner ? m.winner.player_id : null,
-        winner_player_name: m.winner ? m.winner.player_name : null,
-      })),
+        winner_player_name: m.winner ? m.winner.player_name : null
+      }))
     })),
-    matches_flat: flattenBracket(bracket),
+    matches_flat: flattenBracket(bracket)
   };
 }
 
-async function getDbUserProfile(userId) {
-  if (!userId) return null;
-
-  let { data: bracketRow, error: bracketErr } = await supabase
-    .from(BRACKET_TABLE)
-    .select("user_id,user_name,user_world_rank,user_tour,user_country")
-    .eq("user_id", userId)
-    .limit(1)
-    .maybeSingle();
-
-  if (!bracketErr && bracketRow) return bracketRow;
-
-  const { data: userRow, error: userErr } = await supabase
-    .from(USERS_TABLE)
-    .select("id,pseudo,tour,country")
-    .eq("id", userId)
-    .limit(1)
-    .maybeSingle();
-
-  if (!userErr && userRow) {
-    return {
-      user_id: userRow.id,
-      user_name: userRow.pseudo,
-      user_world_rank: null,
-      user_tour: userRow.tour,
-      user_country: userRow.country,
-    };
-  }
-
-  return null;
-}
-
-async function getLatestInscriptionForUser(userId) {
-  const rows = await restGet(INSCRIPTIONS_TABLE, {
-    select: "*",
-    user_id: `eq.${userId}`,
-    order: "tournament_start_date.desc,registration_week_start.desc",
-    limit: "1",
-  }).catch(() => []);
-
-  return rows && rows.length ? rows[0] : null;
-}
-
-
 async function getBracketRecord(userId, tournamentId) {
-  const rows = await restGet(BRACKET_TABLE, {
+  const rows = await supabaseGet(BRACKET_TABLE, {
     select: "*",
     user_id: `eq.${userId}`,
     current_tournament_bracket_id: `eq.${tournamentId}`,
-    limit: "1",
+    limit: "1"
   }).catch(() => []);
-
-  return rows && rows.length ? rows[0] : null;
+  return Array.isArray(rows) && rows.length ? rows[0] : null;
 }
 
-function tournamentFilePath(tour, tournamentId, year) {
-  const fileName = `${String(tour).toLowerCase()}_${String(tournamentId)}_${String(year)}_temporary.json`;
-  return path.join(process.cwd(), BRACKET_TOURNAMENTS_DIR, fileName);
-}
+async function loadCurrentBracketContext(ctx) {
+  const openPayload = readOpenPayload();
+  const weekStart = openPayload?.registration_window?.open_date || null;
+  const targetStartDate = openPayload?.registration_window?.target_start_date || null;
+  const isOpenToday = Boolean(openPayload?.registration_window?.is_open_today);
 
-function loadTournamentJson(tour, tournamentId, year) {
-  const filePath = tournamentFilePath(tour, tournamentId, year);
-  if (!fs.existsSync(filePath)) return null;
-  return JSON.parse(fs.readFileSync(filePath, "utf-8"));
-}
+  const profile = await getDbUserProfile(ctx.user_id);
+  const user = profile || {
+    user_id: ctx.user_id,
+    user_name: ctx.user_name,
+    user_tour: ctx.user_tour,
+    user_country: ctx.user_country,
+    user_world_rank: ctx.user_world_rank
+  };
 
-function validateAndApplySubmission(templateBracket, submittedBracket) {
-  const bracket = deepClone(templateBracket);
-  const submittedMap = new Map();
-
-  const submittedRounds = submittedBracket && Array.isArray(submittedBracket.rounds) ? submittedBracket.rounds : [];
-  for (const round of submittedRounds) {
-    for (const match of round.matches || []) {
-      submittedMap.set(String(match.match_id), match);
-    }
-  }
-
-  const lookup = buildMatchLookup(bracket);
-
-  for (const round of bracket.rounds) {
-    for (const match of round.matches) {
-      if (match.round_number > 1) {
-        const leftChild = match.left_child_match_id ? lookup.get(match.left_child_match_id) : null;
-        const rightChild = match.right_child_match_id ? lookup.get(match.right_child_match_id) : null;
-        match.left_player = leftChild && leftChild.winner ? deepClone(leftChild.winner) : null;
-        match.right_player = rightChild && rightChild.winner ? deepClone(rightChild.winner) : null;
-      }
-
-      const posted = submittedMap.get(String(match.match_id));
-      const players = [match.left_player, match.right_player].filter(Boolean);
-
-      if (players.length === 2) {
-        if (!posted || !posted.winner_player_id) {
-          throw new Error(`Bracket incomplet: ${match.match_id} n'a pas de gagnant.`);
-        }
-        const wanted = String(posted.winner_player_id);
-        const chosen = players.find((p) => String(p.player_id) === wanted);
-        if (!chosen) {
-          throw new Error(`Choix invalide sur ${match.match_id}.`);
-        }
-        match.winner = deepClone(chosen);
-      } else if (players.length === 1) {
-        match.winner = deepClone(players[0]);
-      } else {
-        match.winner = null;
-      }
-    }
-  }
-
-  const flat = flattenBracket(bracket);
-  const incomplete = flat.filter((m) => {
-    const hasTwoPlayers = Boolean(m.left_player_id && m.right_player_id);
-    const hasWinner = Boolean(m.winner_player_id);
-    return hasTwoPlayers && !hasWinner;
-  });
-
-  if (incomplete.length) {
-    throw new Error("Le bracket n'est pas entièrement rempli.");
-  }
-
-  const finalMatch = flat[flat.length - 1];
-  if (!finalMatch || !finalMatch.winner_player_id) {
-    throw new Error("Le bracket final n'est pas complété.");
-  }
-
-  return bracket;
+  return { openPayload, weekStart, targetStartDate, isOpenToday, user };
 }
 
 exports.handler = async (event) => {
   try {
+    if (event.httpMethod === "OPTIONS") {
+      return { statusCode: 204, headers: CORS_HEADERS, body: "" };
+    }
+
     const method = (event.httpMethod || "GET").toUpperCase();
     const body = method === "POST" ? readBody(event) : {};
     const ctx = getCallerContext(event, body);
 
     if (!ctx.user_id) {
-      return json(200, {
+      return jsonResponse(200, {
         ok: true,
-        status: "NOT_AUTHENTICATED",
         authenticated: false,
+        status: "NOT_AUTHENTICATED",
         user: null,
         tournament: null,
         bracket: null,
         locked: false,
-        message: "You must log in to play.",
+        message: "You must log in to play."
       });
     }
 
-    const profile = await getDbUserProfile(ctx.user_id);
-    const user = profile || {
-      user_id: ctx.user_id,
-      user_name: ctx.user_name,
-      user_world_rank: ctx.user_world_rank,
-      user_tour: ctx.user_tour,
-      user_country: ctx.user_country,
-    };
+    const { openPayload, weekStart, targetStartDate, isOpenToday, user } = await loadCurrentBracketContext(ctx);
 
-    const inscription = await getLatestInscriptionForUser(ctx.user_id);
-    if (!inscription) {
-      return json(200, {
+    // 1) Register
+    if (method === "POST" && String(body.action || "").toLowerCase() === "register") {
+      if (!isOpenToday) {
+        return jsonResponse(400, { ok: false, error: "Registrations are closed today." });
+      }
+
+      const tournamentId = String(body.tournament_id || "").trim();
+      const tournamentName = String(body.tournament_name || "").trim();
+
+      const tournament = (openPayload.open_tournaments || []).find(t => String(t.tournament_id) === tournamentId);
+      if (!tournament) {
+        return jsonResponse(400, { ok: false, error: "This tournament is not open for registration." });
+      }
+
+      const allWeekRows = weekStart ? await loadWeekInscriptionRows(weekStart) : [];
+      const existingForUser = allWeekRows.find(r => String(r.user_id) === String(user.user_id));
+      if (existingForUser) {
+        return jsonResponse(400, {
+          ok: false,
+          error: "You are already registered for one tournament this week.",
+          already_registered: existingForUser
+        });
+      }
+
+      const countForTournament = allWeekRows.filter(r => String(r.tournament_id) === tournamentId).length;
+      if (countForTournament >= (Number(tournament.draw_size) || 0)) {
+        return jsonResponse(400, { ok: false, error: "Tournament is full." });
+      }
+
+      const rank = Number.isFinite(user.user_world_rank) ? user.user_world_rank : null;
+      if (String(tournament.tour || "").toUpperCase() === "ATP") {
+        const rule = isAtpRestricted(tournament.category, rank);
+        if (!rule.ok) return jsonResponse(403, { ok: false, error: rule.reason });
+      }
+
+      const insertPayload = {
+        tournament_name: tournamentName || tournament.tournament_name,
+        tournament_id: tournamentId,
+        tournament_num_players: Number(tournament.draw_size) || null,
+        user_id: user.user_id,
+        user_name: user.user_name || null,
+        user_world_rank: rank,
+        registration_week_start: weekStart,
+        tournament_start_date: targetStartDate,
+        tour: tournament.tour,
+        tournament_level: tournament.category
+      };
+
+      const inserted = await supabaseInsert(INSCRIPTIONS_TABLE, insertPayload);
+
+      return jsonResponse(200, {
         ok: true,
-        status: "NOT_REGISTERED",
+        status: "REGISTERED",
+        inserted,
+        user,
+        message: "Registration saved."
+      });
+    }
+
+    // 2) GET / bracket page state
+    const inscriptionRows = weekStart ? await loadWeekInscriptionRows(weekStart) : [];
+    const userInscription = inscriptionRows.find(r => String(r.user_id) === String(user.user_id)) || null;
+
+    if (!userInscription) {
+      return jsonResponse(200, {
+        ok: true,
         authenticated: true,
+        status: "NOT_REGISTERED",
         user,
         tournament: null,
         bracket: null,
         locked: false,
-        message: "You are not registered for any tournament this week.",
+        message: "You are not registered for this week."
       });
     }
 
-    const tournamentId = String(inscription.tournament_id || "");
-    const tournamentName = String(inscription.tournament_name || "");
-    const tournamentStartDate = String(inscription.tournament_start_date || "");
-    const tour = String(inscription.tour || user.user_tour || "").toUpperCase();
-    const tournamentLevel = String(inscription.tournament_level || "").toUpperCase();
+    const tournamentId = String(userInscription.tournament_id || "");
+    const tournamentName = String(userInscription.tournament_name || "");
+    const tournamentStartDate = String(userInscription.tournament_start_date || "");
+    const tour = String(userInscription.tour || user.user_tour || "").toUpperCase();
+    const tournamentLevel = String(userInscription.tournament_level || "").toUpperCase();
     const year = tournamentStartDate ? Number(tournamentStartDate.slice(0, 4)) : new Date().getFullYear();
 
     const bracketJson = loadTournamentJson(tour, tournamentId, year);
+    const tournamentInfo = {
+      current_tournament_bracket_id: tournamentId,
+      current_tournament_bracket_name: tournamentName,
+      tournament_start_date: tournamentStartDate,
+      tour,
+      tournament_level: tournamentLevel
+    };
+
     if (!bracketJson) {
-      return json(200, {
+      return jsonResponse(200, {
         ok: true,
-        status: "BRACKET_NOT_READY",
         authenticated: true,
+        status: "BRACKET_NOT_READY",
         user,
-        tournament: {
-          current_tournament_bracket_id: tournamentId,
-          current_tournament_bracket_name: tournamentName,
-          tournament_start_date: tournamentStartDate,
-          tour,
-          tournament_level: tournamentLevel,
-        },
+        tournament: tournamentInfo,
         bracket: null,
         locked: false,
-        message: "The first-round JSON is not available yet.",
+        message: "The first-round JSON is not available yet."
       });
     }
 
@@ -428,75 +552,46 @@ exports.handler = async (event) => {
         tour,
         tournament_level: tournamentLevel,
         event_id: bracketJson.event_id || null,
-        event_year: bracketJson.event_year || year,
+        event_year: bracketJson.event_year || year
       },
       bracketJson
     );
 
-    const record = await getBracketRecord(ctx.user_id, tournamentId);
+    const record = await getBracketRecord(user.user_id, tournamentId);
 
     if (record && record.user_current_tournament_bracket_proposition) {
       let storedBracket = null;
       try {
-        storedBracket =
-          typeof record.current_tournament_bracket === "string"
-            ? JSON.parse(record.current_tournament_bracket)
-            : record.current_tournament_bracket || null;
+        storedBracket = typeof record.current_tournament_bracket === "string"
+          ? JSON.parse(record.current_tournament_bracket)
+          : record.current_tournament_bracket || null;
       } catch {
         storedBracket = null;
       }
 
       if (!storedBracket) {
-        storedBracket = buildStoredBracketPayload(templateBracket, user, {
-          current_tournament_bracket_id: tournamentId,
-          current_tournament_bracket_name: tournamentName,
-          tournament_start_date: tournamentStartDate,
-          tour,
-          tournament_level: tournamentLevel,
-        }, true);
+        storedBracket = buildStoredBracketPayload(templateBracket, user, tournamentInfo, true);
       }
 
-      return json(200, {
+      return jsonResponse(200, {
         ok: true,
-        status: "LOCKED",
         authenticated: true,
+        status: "LOCKED",
         user,
-        tournament: {
-          current_tournament_bracket_id: tournamentId,
-          current_tournament_bracket_name: tournamentName,
-          tournament_start_date: tournamentStartDate,
-          tour,
-          tournament_level: tournamentLevel,
-        },
+        tournament: tournamentInfo,
         bracket: storedBracket,
         locked: true,
-        message: "Your bracket is locked.",
-        bracket_record: record,
+        message: "Your bracket is locked."
       });
     }
 
-    if (method === "POST") {
-      const submittedBracket = body.bracket || body.current_tournament_bracket || null;
+    if (method === "POST" && String(body.action || "").toLowerCase() === "submit") {
+      const submittedBracket = body.bracket || null;
       if (!submittedBracket) {
-        return json(400, { ok: false, error: "Missing bracket payload." });
+        return jsonResponse(400, { ok: false, error: "Missing bracket payload." });
       }
 
-      if (record && record.user_current_tournament_bracket_proposition) {
-        return json(409, {
-          ok: false,
-          error: "This bracket is already locked and cannot be changed.",
-        });
-      }
-
-      const appliedBracket = validateAndApplySubmission(templateBracket, submittedBracket);
-
-      const storedPayload = buildStoredBracketPayload(appliedBracket, user, {
-        current_tournament_bracket_id: tournamentId,
-        current_tournament_bracket_name: tournamentName,
-        tournament_start_date: tournamentStartDate,
-        tour,
-        tournament_level: tournamentLevel,
-      }, true);
+      const appliedBracket = buildStoredBracketPayload(templateBracket, user, tournamentInfo, true);
 
       const row = {
         user_id: user.user_id,
@@ -506,58 +601,39 @@ exports.handler = async (event) => {
         user_country: user.user_country || null,
         current_tournament_bracket_id: tournamentId,
         current_tournament_bracket_name: tournamentName,
-        current_tournament_bracket: storedPayload,
-        user_current_tournament_bracket_proposition: JSON.stringify(storedPayload, null, 2),
+        current_tournament_bracket: appliedBracket,
+        user_current_tournament_bracket_proposition: JSON.stringify(submittedBracket, null, 2)
       };
 
-      const saved = await restUpsert(
-        BRACKET_TABLE,
-        row,
-        "user_id,current_tournament_bracket_id"
-      );
-      
-      return json(200, {
+      const saved = await supabaseUpsert(BRACKET_TABLE, row, "user_id,current_tournament_bracket_id");
+
+      return jsonResponse(200, {
         ok: true,
-        status: "SAVED",
-        bracket_record: saved && saved[0] ? saved[0] : null,
-        bracket: storedPayload,
+        status: "LOCKED",
+        user,
+        tournament: tournamentInfo,
+        bracket: appliedBracket,
+        bracket_record: saved,
         locked: true,
+        message: "Bracket submitted successfully."
       });
     }
 
-    const existingBracket = record && record.current_tournament_bracket
-      ? (typeof record.current_tournament_bracket === "string"
-          ? JSON.parse(record.current_tournament_bracket)
-          : record.current_tournament_bracket)
-      : buildStoredBracketPayload(templateBracket, user, {
-          current_tournament_bracket_id: tournamentId,
-          current_tournament_bracket_name: tournamentName,
-          tournament_start_date: tournamentStartDate,
-          tour,
-          tournament_level: tournamentLevel,
-        }, false);
-
-    return json(200, {
+    return jsonResponse(200, {
       ok: true,
-      status: "READY",
       authenticated: true,
+      status: "READY",
       user,
-      tournament: {
-        current_tournament_bracket_id: tournamentId,
-        current_tournament_bracket_name: tournamentName,
-        tournament_start_date: tournamentStartDate,
-        tour,
-        tournament_level: tournamentLevel,
-      },
-      bracket: existingBracket,
+      tournament: tournamentInfo,
+      bracket: buildStoredBracketPayload(templateBracket, user, tournamentInfo, false),
       locked: false,
-      message: "Bracket ready.",
-      bracket_record: record || null,
+      message: "Bracket ready."
     });
+
   } catch (err) {
-    return json(500, {
+    return jsonResponse(500, {
       ok: false,
-      error: err && err.message ? err.message : "Unexpected error.",
+      error: err && err.message ? err.message : "Unexpected error."
     });
   }
 };
