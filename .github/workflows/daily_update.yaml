@@ -154,6 +154,12 @@ jobs:
             test -f "${BUILD_DIR}/tools/daily_city_guess.json" && echo "daily_city_guess.json created" || echo "daily_city_guess.json missing"
 
 
+
+
+          python scripts/generate_daily_country_guess.py \
+            --json-base docs/data/tournaments/json_by_tournaments \
+            --out "${BUILD_DIR}/tools/daily_country_guess.json"
+
           # NEW: select 3 WTA + 3 ATP winners with random difficulties
           python scripts/generate_daily_selected_winners.py \
             --wta docs/tools/wta_players_tournaments_win.json \
@@ -218,6 +224,17 @@ jobs:
             cp -v "docs/tools/daily_guess.json" site_static/tools/daily_guess.json || true
           else
             echo "Aucun daily_guess.json généré trouvé"
+          fi
+
+
+          # daily_country_guess.json
+          if [ -f "${BUILD_DIR}/tools/daily_country_guess.json" ]; then
+            cp -v "${BUILD_DIR}/tools/daily_country_guess.json" docs/tools/daily_country_guess.json || true
+            cp -v "${BUILD_DIR}/tools/daily_country_guess.json" site_static/tools/daily_country_guess.json || true
+          elif [ -f "docs/tools/daily_country_guess.json" ]; then
+            cp -v "docs/tools/daily_country_guess.json" site_static/tools/daily_country_guess.json || true
+          else
+            echo "Aucun daily_country_guess.json généré trouvé"
           fi
 
           # players_catalog.json
@@ -313,6 +330,9 @@ jobs:
           git add -f docs/tools/daily_selected_winners.json || true
           git add -f site_static/tools/daily_selected_winners.json || true
 
+          git add -f docs/tools/daily_country_guess.json || true
+          git add -f site_static/tools/daily_country_guess.json || true
+
           # NEW: stage generated games aggregates and fill-the-grid outputs (docs/games and site_static/games)
           git add -f docs/games/aggregate_ATP_reduced.json docs/games/aggregate_WTA_reduced.json docs/games/fill_the_grid_ATP.json docs/games/fill_the_grid_WTA.json || true
           git add -f site_static/games/aggregate_ATP_reduced.json site_static/games/aggregate_WTA_reduced.json site_static/games/fill_the_grid_ATP.json site_static/games/fill_the_grid_WTA.json || true
@@ -400,6 +420,9 @@ jobs:
 
           git add -f docs/tools/daily_city_guess.json || true
           git add -f site_static/tools/daily_city_guess.json || true
+
+          git add -f docs/tools/daily_country_guess.json || true
+          git add -f site_static/tools/daily_country_guess.json || true
 
           if [ -f created_files.txt ]; then
             while IFS= read -r line || [ -n "$line" ]; do

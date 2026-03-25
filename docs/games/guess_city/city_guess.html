@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -439,6 +439,7 @@
     height:100%;
     min-height:770px;
     background:#07101d;
+    cursor: crosshair;
   }
 
   .map-footer{
@@ -607,8 +608,8 @@
         <div>
           <h1 class="title">Daily City Guess</h1>
           <div class="subtitle">
-            Devine la position de 5 tournois du jour à partir de leur <strong>tourney_name</strong>.
-            Clique sur la carte pour placer ton estimation : la distance au tournoi détermine le score de la manche.
+            Guess the location of 5 tournaments of the day from their <strong>tourney_name</strong>.
+            Click on the map to place your guess: the distance to the tournament determines the round score.
           </div>
         </div>
 
@@ -644,7 +645,7 @@
                 <div id="sourcePillHolder"></div>
               </div>
               <div class="hint-box" id="roundHint">
-                Clique sur la carte à l’endroit où se situe le tournoi.
+                Click on the map where you think the tournament is located.
               </div>
             </div>
 
@@ -685,8 +686,8 @@
             </div>
 
             <div class="help">
-              Règle de score : 20 km ou moins = 20 points, 5000 km ou plus = 0 point, interpolation linéaire entre les deux.
-              Total maximum : 100 points.
+              Scoring rule: 20 km or less = 20 points, 5000 km or more = 0 points, linear interpolation between the two.
+              Maximum total: 100 points.
             </div>
           </div>
         </div>
@@ -694,11 +695,11 @@
         <div class="panel map-shell">
           <div class="map-toolbar">
             <div class="current" id="mapTitle">Map</div>
-            <div class="note" id="mapNote">Carte non zoomable, affichage des frontières uniquement.</div>
+            <div class="note" id="mapNote">Map is zoomable, boundaries only display.</div>
           </div>
           <div id="map"></div>
           <div class="map-footer" id="mapFooter">
-            Clique une seule fois par manche. Après ton clic, la bonne position sera révélée et la manche sera verrouillée.
+            Click once per round. After your click, the correct position will be revealed and the round will be locked.
           </div>
         </div>
       </div>
@@ -931,7 +932,6 @@ function loadState(){
     return j;
   }catch(e){
     return null;
-  }
 }
 
 function showModal(show=true){
@@ -1337,15 +1337,15 @@ function initMap(){
   destroyMap();
 
   map = L.map('map', {
-    zoomControl:false,
+    zoomControl:true,
     attributionControl:false,
-    scrollWheelZoom:false,
-    doubleClickZoom:false,
-    boxZoom:false,
-    keyboard:false,
-    dragging:false,
-    touchZoom:false,
-    tap:false,
+    scrollWheelZoom:true,
+    doubleClickZoom:true,
+    boxZoom:true,
+    keyboard:true,
+    dragging:true,
+    touchZoom:true,
+    tap:true,
     worldCopyJump:false
   });
 
@@ -1515,10 +1515,10 @@ function renderRoundHeader(){
   clueValue.textContent = r ? r.tourney_name : '—';
   renderSourcePill(r ? r.source : 'ATP');
   roundHint.innerHTML = `
-    Clique sur la carte pour placer ton guess.
-    Le tourney_name affiché est le seul indice.
+    Click on the map to place your guess.
+    The displayed tourney_name is the only clue.
   `;
-  mapNote.textContent = 'Carte non zoomable. Clique où tu penses que le tournoi se situe.';
+  mapNote.textContent = 'Map is zoomable. Click where you think the tournament is located.';
 }
 
 function renderRoundList(){
@@ -1575,7 +1575,7 @@ function updateRoundUI(){
 function updateMapTitle(){
   const r = rounds[currentIndex];
   mapTitle.textContent = r ? `Round ${currentIndex + 1} / ${rounds.length}` : 'Map';
-  mapNote.textContent = 'Carte non zoomable. Clique pour choisir la ville du tournoi.';
+  mapNote.textContent = 'Map is zoomable. Click to choose the tournament city.';
 }
 
 /* =========================================
@@ -1596,7 +1596,7 @@ function setCurrentRound(i){
   saveState();
 
   if(map && currentTarget){
-    mapFooter.textContent = `Round ${currentIndex + 1} : clique sur la carte où se situe ${currentTarget.tourney_name}.`;
+    mapFooter.textContent = `Round ${currentIndex + 1}: click on the map where ${currentTarget.tourney_name} is located.`;
   }
   distanceValue.textContent = '—';
   pointsValue.textContent = '0';
@@ -1636,7 +1636,7 @@ async function advanceRound(){
   saveState();
 
   if(map && currentTarget){
-    mapFooter.textContent = `Round ${currentIndex + 1} : clique sur la carte où se situe ${currentTarget.tourney_name}.`;
+    mapFooter.textContent = `Round ${currentIndex + 1}: click on the map where ${currentTarget.tourney_name} is located.`;
   }
   closeModal();
 }
@@ -1646,7 +1646,7 @@ function restoreFromState(st){
   if(st.date !== todayParisStr()) return false;
 
   if(Array.isArray(st.rounds) && st.rounds.length){
-    // restore round data
+    // Restore round data
     rounds = st.rounds.map((r, idx) => ({
       round_index: idx + 1,
       source: String(r.source || '').toUpperCase(),
@@ -1722,7 +1722,7 @@ async function startFreshIfAllowed(){
   if(!isConnected()){
     gameStateLabel.textContent = 'Connect to play';
     clueValue.textContent = '—';
-    mapFooter.textContent = 'Connecte-toi pour jouer.';
+    mapFooter.textContent = 'Connect to play.';
     return;
   }
 
@@ -1757,7 +1757,7 @@ async function startFreshIfAllowed(){
     }
     restoreFromState(saved);
     if(saved.awaitingAdvance && saved.currentTarget){
-      // keep modal open and next button available
+      // Keep modal open and next button available
       showModal(true);
       setButtonsEnabled(true);
       nextRoundBtn.style.display = 'inline-flex';
@@ -1772,7 +1772,7 @@ async function startFreshIfAllowed(){
     }
   }
 
-  // fresh game
+  // Fresh game
   gameBlocked = false;
   totalScore = 0;
   currentIndex = 0;
@@ -1794,7 +1794,7 @@ async function startFreshIfAllowed(){
   updateHeaderNumbers();
   saveState();
   setButtonsEnabled(true);
-  mapFooter.textContent = `Round 1 : clique sur la carte où se situe ${currentTarget.tourney_name}.`;
+  mapFooter.textContent = `Round 1: click on the map where ${currentTarget.tourney_name} is located.`;
 }
 
 /* =========================================
@@ -1866,7 +1866,7 @@ async function init(){
   if(!ok){
     gameStateLabel.textContent = 'Daily JSON missing';
     clueValue.textContent = '—';
-    mapFooter.textContent = 'Le fichier daily_city_guess.json est introuvable ou invalide.';
+    mapFooter.textContent = 'The daily_city_guess.json file is missing or invalid.';
     toast('daily_city_guess.json missing or invalid', 4000);
     return;
   }
@@ -1883,7 +1883,7 @@ async function init(){
   } else {
     gameStateLabel.textContent = 'Connect to play';
     clueValue.textContent = '—';
-    mapFooter.textContent = 'Connecte-toi pour jouer.';
+    mapFooter.textContent = 'Connect to play.';
     setButtonsEnabled(false);
   }
 
@@ -1898,7 +1898,7 @@ async function init(){
         setButtonsEnabled(false);
         gameStateLabel.textContent = 'Connect to play';
         clueValue.textContent = '—';
-        mapFooter.textContent = 'Connecte-toi pour jouer.';
+        mapFooter.textContent = 'Connect to play.';
       }
     });
   } else {
