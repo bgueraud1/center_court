@@ -37,7 +37,6 @@
     const current = normalizeSession(safeParse(localStorage.getItem(SESSION_KEY)));
     if (current) return current;
 
-    // migration silencieuse des anciennes clés
     const legacy = readLegacySession();
     if (legacy) {
       localStorage.setItem(SESSION_KEY, JSON.stringify(legacy));
@@ -51,10 +50,7 @@
     if (!normalized) throw new Error('Invalid session');
 
     localStorage.setItem(SESSION_KEY, JSON.stringify(normalized));
-
-    // nettoyage des anciennes clés
     LEGACY_KEYS.forEach(k => localStorage.removeItem(k));
-
     dispatchAuthChange();
     return normalized;
   }
@@ -82,11 +78,20 @@
     }
   }
 
+  async function sha256Hex(text) {
+    const bytes = new TextEncoder().encode(text);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', bytes);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
   async function login(pseudo, password) {
+    const password_hash = await sha256Hex(password);
+
     const resp = await fetch('/.netlify/functions/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pseudo, password })
+      body: JSON.stringify({ pseudo, password_hash })
     });
 
     const data = await resp.json().catch(() => null);
@@ -99,10 +104,17 @@
   }
 
   async function register(payload) {
+    const password_hash = await sha256Hex(payload.password);
+
     const resp = await fetch('/.netlify/functions/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify({
+        pseudo: payload.pseudo,
+        password_hash,
+        country: payload.country,
+        tour: payload.tour
+      })
     });
 
     const data = await resp.json().catch(() => null);

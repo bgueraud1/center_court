@@ -417,12 +417,18 @@
   }
 
   function getSession(){
-    const api = getAuthApi();
-    if(api && typeof api.getSession === "function"){
-      return api.getSession();
-    }
+  const api = window.TA_AUTH || null;
+  if(api && typeof api.getSession === "function"){
+    return api.getSession();
+  }
+
+  try{
+    const raw = localStorage.getItem('ta_session_v1');
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){
     return null;
   }
+}
 
   function renderAuthChip(){
     const session = getSession();
@@ -466,7 +472,6 @@
     $("stateBadge").textContent = state.locked ? "Locked" : "Editable";
     $("stateBadge").className = `badge ${state.locked ? "ok" : ""}`.trim();
 
-    $("registerBadge").textContent = state.status === "NOT_REGISTERED" ? "Non inscrit" : "Inscrit";
     $("regBadge").textContent = state.status === "NOT_REGISTERED" ? "À faire" : "OK";
     $("lockBadge").textContent = state.locked ? "Verrouillé" : "Ouvert";
 
@@ -629,8 +634,6 @@
     window.location.href = `${HUB_URL}#signup`;
   }
 
-  $("loginBtn").addEventListener("click", openLogin);
-  $("registerBtn").addEventListener("click", openRegister);
   $("registerBtn").addEventListener("click", submitRegistration);
 
   $("agreeField").addEventListener("change", () => {

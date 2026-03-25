@@ -1,5 +1,4 @@
 // netlify/functions/create-user.js
-// POST-only Netlify Function: create a new user in Supabase "users" table
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -38,14 +37,13 @@ module.exports.handler = async function(event) {
 
   const pseudo = body.pseudo ? String(body.pseudo).trim() : null;
   const password_hash = body.password_hash ? String(body.password_hash) : null;
-  const tour = body.tour ? String(body.tour).trim().toUpperCase() : null; // expected "ATP" or "WTA"
+  const tour = body.tour ? String(body.tour).trim().toUpperCase() : null;
   const country = body.country ? String(body.country).trim() : null;
 
   if (!pseudo || !password_hash) {
     return jsonResponse(400, { error: "Missing pseudo or password_hash" });
   }
 
-  // validate tour & country
   if (!tour || (tour !== 'ATP' && tour !== 'WTA')) {
     return jsonResponse(400, { error: "Invalid tour", detail: "tour must be 'ATP' or 'WTA'" });
   }
@@ -53,7 +51,6 @@ module.exports.handler = async function(event) {
     return jsonResponse(400, { error: "Invalid country", detail: "country must be provided" });
   }
 
-  // 1) check existing pseudo
   try {
     const q = new URL(`${SUPABASE_URL}/rest/v1/users`);
     q.searchParams.set('select', 'id,pseudo');
@@ -70,7 +67,6 @@ module.exports.handler = async function(event) {
 
     if (!r.ok) {
       const txt = await r.text().catch(()=>null);
-      console.warn("User lookup failed", r.status, txt);
       return jsonResponse(500, { error: "User lookup failed", status: r.status, detail: txt });
     }
 
@@ -79,24 +75,22 @@ module.exports.handler = async function(event) {
       return jsonResponse(409, { error: "User already exists", detail: { pseudo } });
     }
   } catch (e) {
-    console.error("user lookup error", String(e));
     return jsonResponse(500, { error: "Server error", detail: String(e) });
   }
 
-  // 2) insert user (include tour & country)
   try {
     const league = "Future F15";
 
     const insertObj = {
-      pseudo: pseudo,
-      password_hash: password_hash,
-      league: league,
-      tour: tour,
-      country: country,
+      pseudo,
+      password_hash,
+      league,
+      tour,
+      country,
       created_at: new Date().toISOString()
     };
 
-    const url = `${SUPABASE_URL}/rest/v1/users`;
+    const url = `${SUPABASE_URL}/rest/v1/users?select=id,pseudo,tour,country,league`;
     const r2 = await fetch(url, {
       method: 'POST',
       headers: {
@@ -105,7 +99,7 @@ module.exports.handler = async function(event) {
         'Content-Type': 'application/json',
         'Prefer': 'return=representation'
       },
-      body: JSON.stringify([insertObj]) // array insert for PostgREST
+      body: JSON.stringify([insertObj])
     });
 
     const text = await r2.text();
@@ -116,10 +110,19 @@ module.exports.handler = async function(event) {
       return jsonResponse(500, { error: "Supabase insert failed", status: r2.status, detail: data });
     }
 
-    // return the inserted user (array)
-    return jsonResponse(200, { ok: true, inserted: data });
+    const inserted = Array.isArray(data) ? data[0] : data;
+
+    return jsonResponse(200, {
+      ok: true,
+      user: inserted ? {
+        id: inserted.id,
+        pseudo: inserted.pseudo,
+        tour: inserted.tour,
+        country: inserted.country,
+        league: inserted.league
+      } : null
+    });
   } catch (err) {
-    console.error("create-user error", String(err));
     return jsonResponse(500, { error: "Server error", detail: String(err) });
   }
 };
