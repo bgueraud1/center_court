@@ -21,13 +21,13 @@ ATP_CSV = ROOT / 'player_data_atp.csv'
 WTA_CSV = ROOT / 'player_data_wta.csv'
 
 ATP_MATCHES_DIR_CANDIDATES = [
-    ROOT / 'matches' / 'atp_matches',
+    ROOT / 'docs'/ 'matches' / 'atp_matches',
     ROOT / 'matches',
     ROOT / 'matches_atp',
     ROOT / 'atp_matches'
 ]
 WTA_MATCHES_DIR_CANDIDATES = [
-    ROOT / 'matches' / 'wta_matches',
+    ROOT / 'docs' / 'matches' / 'wta_matches',
     ROOT / 'matches',
     ROOT / 'matches_wta',
     ROOT / 'wta_matches'

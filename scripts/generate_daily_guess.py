@@ -490,8 +490,8 @@ def main():
             print(f"  - idx={ridx} player_id={p.get('player_id')} country={p.get('represented_country')} birth={p.get('birth_date')}", file=sys.stderr)
 
     # apply birth_year filter (exclude < require_birth_after_year) and completeness check
-    atp_valid = filter_valid_players(atp_players, require_birth_after_year=1980)
-    wta_valid = filter_valid_players(wta_players, require_birth_after_year=1980)
+    atp_valid = filter_valid_players(atp_players, require_birth_after_year=1985)
+    wta_valid = filter_valid_players(wta_players, require_birth_after_year=1985)
 
     os.makedirs(os.path.dirname(args.out_players), exist_ok=True)
     with open(args.out_players, 'w', encoding='utf-8') as fh:
@@ -526,8 +526,8 @@ def main():
             else:
                 # safety check: if chosen has birth_year and it's <1980, log error (shouldn't happen)
                 by = chosen.get('birth_year')
-                if by is not None and by < 1980:
-                    print(f"[ERROR] choix invalide (birth_year<{1980}) pour top{topN}: {chosen.get('player_id')} / {chosen.get('full_name')} / {by}", file=sys.stderr)
+                if by is not None and by < 1985:
+                    print(f"[ERROR] choix invalide (birth_year<{1985}) pour top{topN}: {chosen.get('player_id')} / {chosen.get('full_name')} / {by}", file=sys.stderr)
                     # skip and try again up to a few times
                     attempts = 0
                     ok = False
@@ -536,7 +536,7 @@ def main():
                         attempts += 1
                         if not chosen: break
                         by = chosen.get('birth_year')
-                        if by is None or by >= 1980:
+                        if by is None or by >= 1985:
                             ok = True
                     if not ok:
                         # fallback to None
