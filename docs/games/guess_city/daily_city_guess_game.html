@@ -1,0 +1,1926 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Daily City Guess</title>
+
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+
+<script src="/js/auth.js" defer></script>
+<script src="/js/leaderboard-client.js" defer></script>
+
+<style>
+  :root{
+    --bg1:#06111f;
+    --bg2:#081528;
+    --panel:rgba(255,255,255,0.03);
+    --panel-border:rgba(255,255,255,0.06);
+    --muted:#94a3b8;
+    --text:#eef4ff;
+    --success:#16a34a;
+    --danger:#ef4444;
+    --accent:#2b6cb0;
+    --accent2:#9b59b6;
+    font-family:'Inter',system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+    color-scheme:dark;
+  }
+
+  html,body{
+    margin:0;
+    min-height:100%;
+    background:linear-gradient(180deg,var(--bg1),var(--bg2));
+    color:var(--text);
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+  }
+
+  *{ box-sizing:border-box; }
+
+  body{ overflow-x:hidden; }
+
+  .wrap{
+    max-width:1380px;
+    margin:24px auto;
+    padding:0 16px 24px;
+  }
+
+  .shell{
+    border:1px solid var(--panel-border);
+    border-radius:22px;
+    background:linear-gradient(180deg, rgba(255,255,255,0.026), rgba(255,255,255,0.012));
+    box-shadow:0 28px 90px rgba(2,6,23,0.62);
+    overflow:hidden;
+  }
+
+  .hero{
+    display:flex;
+    gap:16px;
+    align-items:flex-start;
+    justify-content:space-between;
+    padding:20px;
+    border-bottom:1px solid var(--panel-border);
+    background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+  }
+
+  .title{
+    margin:0;
+    font-size:1.35rem;
+    font-weight:800;
+    color:#fff;
+  }
+
+  .subtitle{
+    margin-top:6px;
+    color:var(--muted);
+    font-size:.95rem;
+    line-height:1.45;
+    max-width:760px;
+  }
+
+  .hero-right{
+    min-width:320px;
+    display:flex;
+    flex-direction:column;
+    align-items:flex-end;
+    gap:10px;
+  }
+
+  .auth-box{
+    display:flex;
+    align-items:center;
+    justify-content:flex-end;
+    gap:10px;
+    position:relative;
+  }
+
+  .user-chip{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    padding:9px 12px;
+    border-radius:999px;
+    border:1px solid var(--panel-border);
+    background:rgba(255,255,255,0.02);
+    color:#fff;
+    cursor:pointer;
+    user-select:none;
+    text-decoration:none;
+    font-weight:700;
+  }
+
+  .user-chip.connect{
+    background:linear-gradient(135deg, #1f7aec, #7b5cf6);
+    border:none;
+  }
+
+  .avatar{
+    width:28px;
+    height:28px;
+    border-radius:999px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    font-size:.78rem;
+    font-weight:800;
+    background:linear-gradient(135deg, #1f7aec, #7b5cf6);
+    color:white;
+    flex:0 0 auto;
+  }
+
+  .dropdown{
+    position:absolute;
+    right:0;
+    top:54px;
+    min-width:180px;
+    border:1px solid var(--panel-border);
+    border-radius:12px;
+    overflow:hidden;
+    background:linear-gradient(180deg, #071222, #08101d);
+    box-shadow:0 20px 60px rgba(2,6,23,0.65);
+    z-index:50;
+  }
+
+  .dropdown button{
+    display:block;
+    width:100%;
+    padding:10px 12px;
+    text-align:left;
+    border:0;
+    background:transparent;
+    color:var(--muted);
+    font-weight:700;
+    cursor:pointer;
+  }
+
+  .dropdown button:hover{
+    color:#fff;
+    background:rgba(255,255,255,0.03);
+  }
+
+  .meta-strip{
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px;
+    padding:16px 20px 0;
+  }
+
+  .chip{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    padding:8px 12px;
+    border-radius:999px;
+    background:rgba(255,255,255,0.03);
+    border:1px solid var(--panel-border);
+    color:var(--muted);
+    font-weight:700;
+    font-size:.92rem;
+  }
+
+  .chip strong{ color:#fff; }
+
+  .layout{
+    display:grid;
+    grid-template-columns: 400px 1fr;
+    gap:16px;
+    padding:20px;
+  }
+
+  @media (max-width: 1120px){
+    .layout{ grid-template-columns:1fr; }
+    .hero{ flex-direction:column; }
+    .hero-right{ min-width:0; width:100%; align-items:flex-start; }
+    .auth-box{ justify-content:space-between; width:100%; }
+  }
+
+  .panel{
+    border:1px solid var(--panel-border);
+    border-radius:18px;
+    background:var(--panel);
+    overflow:hidden;
+  }
+
+  .panel-head{
+    padding:14px 16px;
+    border-bottom:1px solid var(--panel-border);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+  }
+
+  .panel-head h2{
+    margin:0;
+    font-size:1rem;
+    font-weight:800;
+    color:#fff;
+  }
+
+  .panel-head .small{
+    color:var(--muted);
+    font-size:.86rem;
+  }
+
+  .panel-body{
+    padding:16px;
+  }
+
+  .controls{
+    display:flex;
+    flex-direction:column;
+    gap:14px;
+  }
+
+  .stat-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px;
+  }
+
+  .stat{
+    border:1px solid var(--panel-border);
+    border-radius:14px;
+    padding:12px;
+    background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+  }
+
+  .stat .label{
+    color:var(--muted);
+    font-size:.85rem;
+    margin-bottom:6px;
+  }
+
+  .stat .value{
+    font-size:1.15rem;
+    font-weight:800;
+    color:#fff;
+  }
+
+  .help{
+    color:var(--muted);
+    font-size:.93rem;
+    line-height:1.5;
+  }
+
+  .progress-bar{
+    height:12px;
+    border-radius:999px;
+    overflow:hidden;
+    background:rgba(255,255,255,0.06);
+    border:1px solid rgba(255,255,255,0.04);
+  }
+
+  .progress-fill{
+    height:100%;
+    width:0%;
+    background:linear-gradient(90deg, #1f7aec, #7b5cf6);
+    transition:width .2s ease;
+  }
+
+  .round-card{
+    border:1px solid var(--panel-border);
+    border-radius:16px;
+    background:rgba(0,0,0,0.10);
+    padding:14px;
+  }
+
+  .round-top{
+    display:flex;
+    justify-content:space-between;
+    gap:12px;
+    align-items:flex-start;
+  }
+
+  .round-top .label{
+    color:var(--muted);
+    font-size:.85rem;
+    font-weight:700;
+  }
+
+  .round-top .value{
+    margin-top:6px;
+    font-weight:800;
+    color:#fff;
+    font-size:1.1rem;
+    line-height:1.35;
+  }
+
+  .source-pill{
+    flex:0 0 auto;
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:7px 10px;
+    border-radius:999px;
+    font-size:.82rem;
+    font-weight:800;
+    letter-spacing:.3px;
+  }
+
+  .source-pill.atp{
+    background:rgba(43,108,176,0.15);
+    color:#d6ecff;
+    border:1px solid rgba(43,108,176,0.25);
+  }
+
+  .source-pill.wta{
+    background:rgba(155,89,182,0.15);
+    color:#f0dcff;
+    border:1px solid rgba(155,89,182,0.25);
+  }
+
+  .score-box{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px;
+  }
+
+  .score-tile{
+    border:1px solid var(--panel-border);
+    border-radius:14px;
+    padding:12px;
+    background:rgba(255,255,255,0.02);
+  }
+
+  .score-tile .label{
+    color:var(--muted);
+    font-size:.84rem;
+  }
+
+  .score-tile .value{
+    font-size:1.15rem;
+    font-weight:800;
+    margin-top:5px;
+  }
+
+  .round-list{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+
+  .round-item{
+    border:1px solid var(--panel-border);
+    border-radius:14px;
+    padding:12px;
+    background:rgba(0,0,0,0.12);
+    display:flex;
+    justify-content:space-between;
+    gap:12px;
+  }
+
+  .round-item.active{
+    border-color:rgba(255,255,255,0.12);
+    box-shadow:0 0 0 1px rgba(255,255,255,0.04) inset;
+  }
+
+  .round-item .left{
+    min-width:0;
+  }
+
+  .round-item .name{
+    font-weight:800;
+    color:#fff;
+    word-break:break-word;
+  }
+
+  .round-item .meta{
+    margin-top:4px;
+    color:var(--muted);
+    font-size:.86rem;
+  }
+
+  .round-item .right{
+    text-align:right;
+    color:#fff;
+    font-weight:800;
+    flex:0 0 auto;
+  }
+
+  .round-item .right .small{
+    margin-top:4px;
+    color:var(--muted);
+    font-weight:700;
+    font-size:.84rem;
+  }
+
+  .map-shell{
+    display:flex;
+    flex-direction:column;
+    min-height:860px;
+  }
+
+  .map-toolbar{
+    padding:12px 16px;
+    border-bottom:1px solid var(--panel-border);
+    display:flex;
+    justify-content:space-between;
+    gap:10px;
+    flex-wrap:wrap;
+  }
+
+  .map-toolbar .current{
+    font-weight:800;
+    color:#fff;
+  }
+
+  .map-toolbar .note{
+    color:var(--muted);
+    font-size:.9rem;
+  }
+
+  #map{
+    width:100%;
+    height:100%;
+    min-height:770px;
+    background:#07101d;
+  }
+
+  .map-footer{
+    padding:12px 16px;
+    border-top:1px solid var(--panel-border);
+    color:var(--muted);
+    font-size:.9rem;
+    line-height:1.45;
+  }
+
+  .actions{
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+  }
+
+  button.primary, button.secondary{
+    padding:11px 14px;
+    border-radius:12px;
+    border:none;
+    font-weight:800;
+    cursor:pointer;
+  }
+
+  button.primary{
+    background:linear-gradient(135deg, #1f7aec, #7b5cf6);
+    color:#fff;
+    box-shadow:0 10px 28px rgba(31,122,236,0.12);
+  }
+
+  button.secondary{
+    background:transparent;
+    color:var(--muted);
+    border:1px solid var(--panel-border);
+  }
+
+  button:disabled{
+    opacity:.5;
+    cursor:not-allowed;
+  }
+
+  .hint-box{
+    margin-top:10px;
+    border:1px dashed rgba(255,255,255,0.10);
+    border-radius:14px;
+    padding:12px;
+    color:var(--muted);
+    line-height:1.45;
+    background:rgba(255,255,255,0.01);
+  }
+
+  .toast{
+    position:fixed;
+    right:18px;
+    bottom:18px;
+    z-index:200;
+    display:none;
+    padding:11px 14px;
+    border-radius:12px;
+    color:#fff;
+    background:rgba(0,0,0,0.75);
+    box-shadow:0 18px 60px rgba(0,0,0,0.5);
+    border:1px solid rgba(255,255,255,0.08);
+    max-width:min(420px, calc(100vw - 36px));
+  }
+
+  .modal{
+    position:fixed;
+    inset:0;
+    background:rgba(2,6,23,0.76);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:400;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .18s ease;
+  }
+
+  .modal.show{
+    opacity:1;
+    pointer-events:auto;
+  }
+
+  .modal-card{
+    width:min(720px, calc(100vw - 28px));
+    border-radius:18px;
+    padding:22px;
+    border:1px solid var(--panel-border);
+    background:linear-gradient(180deg, rgba(11,17,32,0.98), rgba(8,12,23,0.96));
+    box-shadow:0 28px 80px rgba(2,6,23,0.85);
+  }
+
+  .modal-card h2{
+    margin:0 0 8px;
+    font-size:1.2rem;
+    color:#fff;
+  }
+
+  .modal-card p{
+    margin:0;
+    color:var(--muted);
+    line-height:1.5;
+  }
+
+  .modal-details{
+    margin-top:14px;
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px;
+  }
+
+  .detail-box{
+    border:1px solid var(--panel-border);
+    border-radius:14px;
+    padding:12px;
+    background:rgba(255,255,255,0.02);
+  }
+
+  .detail-box .label{
+    color:var(--muted);
+    font-size:.84rem;
+  }
+
+  .detail-box .value{
+    color:#fff;
+    font-weight:800;
+    margin-top:4px;
+  }
+
+  .modal-actions{
+    margin-top:18px;
+    display:flex;
+    justify-content:flex-end;
+    gap:10px;
+    flex-wrap:wrap;
+  }
+
+  .map-popup{
+    min-width:140px;
+    text-align:center;
+  }
+
+  .map-popup .big{
+    font-weight:800;
+    color:#fff;
+  }
+
+  .map-popup .small{
+    color:var(--muted);
+    font-size:.9rem;
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    *{
+      transition:none !important;
+      scroll-behavior:auto !important;
+    }
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="shell">
+      <div class="hero">
+        <div>
+          <h1 class="title">Daily City Guess</h1>
+          <div class="subtitle">
+            Devine la position de 5 tournois du jour à partir de leur <strong>tourney_name</strong>.
+            Clique sur la carte pour placer ton estimation : la distance au tournoi détermine le score de la manche.
+          </div>
+        </div>
+
+        <div class="hero-right">
+          <div class="auth-box" id="authBox">
+            <div id="authPlaceholder"></div>
+          </div>
+          <div class="small" id="authStatus" style="color:var(--muted)">Not connected</div>
+        </div>
+      </div>
+
+      <div class="meta-strip">
+        <div class="chip">Round: <strong id="chipRound">1/5</strong></div>
+        <div class="chip">Round score: <strong id="chipRoundScore">0/20</strong></div>
+        <div class="chip">Total: <strong id="chipTotal">0/100</strong></div>
+        <div class="chip">Remaining rounds: <strong id="chipRemaining">5</strong></div>
+      </div>
+
+      <div class="layout">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Game panel</h2>
+            <div class="small" id="gameStateLabel">Loading…</div>
+          </div>
+
+          <div class="panel-body controls">
+            <div class="round-card">
+              <div class="round-top">
+                <div>
+                  <div class="label">Current clue</div>
+                  <div class="value" id="clueValue">—</div>
+                </div>
+                <div id="sourcePillHolder"></div>
+              </div>
+              <div class="hint-box" id="roundHint">
+                Clique sur la carte à l’endroit où se situe le tournoi.
+              </div>
+            </div>
+
+            <div class="stat-grid">
+              <div class="stat">
+                <div class="label">Current round</div>
+                <div class="value" id="statRound">1 / 5</div>
+              </div>
+              <div class="stat">
+                <div class="label">Current total</div>
+                <div class="value" id="statTotal">0 / 100</div>
+              </div>
+            </div>
+
+            <div>
+              <div class="help" style="margin-bottom:8px;font-weight:800;color:#fff">Progress</div>
+              <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+              </div>
+              <div class="help" id="progressText" style="margin-top:8px">0 / 5 rounds completed</div>
+            </div>
+
+            <div class="round-list" id="roundList"></div>
+
+            <div class="score-box">
+              <div class="score-tile">
+                <div class="label">Distance this round</div>
+                <div class="value" id="distanceValue">—</div>
+              </div>
+              <div class="score-tile">
+                <div class="label">Points this round</div>
+                <div class="value" id="pointsValue">0</div>
+              </div>
+            </div>
+
+            <div class="actions">
+              <button class="secondary" id="resetLocalBtn" type="button">Reset local progress</button>
+            </div>
+
+            <div class="help">
+              Règle de score : 20 km ou moins = 20 points, 5000 km ou plus = 0 point, interpolation linéaire entre les deux.
+              Total maximum : 100 points.
+            </div>
+          </div>
+        </div>
+
+        <div class="panel map-shell">
+          <div class="map-toolbar">
+            <div class="current" id="mapTitle">Map</div>
+            <div class="note" id="mapNote">Carte non zoomable, affichage des frontières uniquement.</div>
+          </div>
+          <div id="map"></div>
+          <div class="map-footer" id="mapFooter">
+            Clique une seule fois par manche. Après ton clic, la bonne position sera révélée et la manche sera verrouillée.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <div id="modal" class="modal" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="modal-card">
+      <h2 id="modalTitle">Round result</h2>
+      <p id="modalText"></p>
+
+      <div class="modal-details">
+        <div class="detail-box">
+          <div class="label">Tournament</div>
+          <div class="value" id="modalTournament">—</div>
+        </div>
+        <div class="detail-box">
+          <div class="label">Distance</div>
+          <div class="value" id="modalDistance">—</div>
+        </div>
+        <div class="detail-box">
+          <div class="label">Points</div>
+          <div class="value" id="modalPoints">—</div>
+        </div>
+        <div class="detail-box">
+          <div class="label">Total</div>
+          <div class="value" id="modalTotal">—</div>
+        </div>
+      </div>
+
+      <div id="modalExtra" style="margin-top:14px;color:var(--muted);line-height:1.5"></div>
+
+      <div class="modal-actions">
+        <button id="closeModalBtn" class="secondary" type="button">Close</button>
+        <button id="nextRoundBtn" class="primary" type="button" style="display:none">Next round</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* =========================================
+   CONFIG
+========================================= */
+const GAME_ID = 'daily_city_guess';
+const DAILY_JSON_URLS = [
+  '/tools/daily_city_guess.json',
+  '/docs/tools/daily_city_guess.json'
+];
+const BORDERS_URLS = [
+  '/tools/geojsons_borders/world_borders.json',
+  '/docs/tools/geojsons_borders/world_borders.json',
+  '/docs/Tools/geojsons_borders/world_borders.json'
+];
+const LB_QUEUE_KEY = 'lb_score_queue_daily_city_guess_v1';
+const LOCAL_PREFIX = 'daily_city_guess_state_v1';
+const MAX_TOTAL = 100;
+const MAX_ROUND = 20;
+const MAX_DISTANCE_FULL = 20;
+const MAX_DISTANCE_ZERO = 5000;
+const MAP_BOUNDS_STYLE = {
+  color:'rgba(255,255,255,0.16)',
+  weight:1,
+  fillColor:'rgba(255,255,255,0.02)',
+  fillOpacity:0.05
+};
+const CLICK_STYLE = {
+  color:'#ef4444',
+  radius:7,
+  weight:2,
+  fillColor:'#ef4444',
+  fillOpacity:0.95
+};
+const TARGET_STYLE_ATP = {
+  color:'#2b6cb0',
+  radius:7,
+  weight:2,
+  fillColor:'#2b6cb0',
+  fillOpacity:0.95
+};
+const TARGET_STYLE_WTA = {
+  color:'#9b59b6',
+  radius:7,
+  weight:2,
+  fillColor:'#9b59b6',
+  fillOpacity:0.95
+};
+
+/* =========================================
+   STATE
+========================================= */
+let dailyData = null;
+let borderGeoJSON = null;
+let map = null;
+let borderLayer = null;
+let clickLayer = null;
+let targetLayer = null;
+let lineLayer = null;
+
+let rounds = [];
+let currentIndex = 0;
+let totalScore = 0;
+let currentRoundScore = 0;
+let currentDistance = null;
+let currentTarget = null;
+let currentClick = null;
+let roundLocked = false;
+let awaitingAdvance = false;
+let gameBlocked = false;
+let assetsReady = false;
+let loading = true;
+let firstRenderDone = false;
+let playingKeyCache = '';
+
+/* =========================================
+   DOM
+========================================= */
+let authPlaceholder, authStatus;
+let chipRound, chipRoundScore, chipTotal, chipRemaining;
+let gameStateLabel, clueValue, sourcePillHolder, roundHint, roundList;
+let statRound, statTotal, progressFill, progressText;
+let distanceValue, pointsValue, mapTitle, mapNote, mapFooter;
+let modal, modalTitle, modalText, modalTournament, modalDistance, modalPoints, modalTotal, modalExtra, closeModalBtn, nextRoundBtn;
+let resetLocalBtn;
+
+/* =========================================
+   UTIL
+========================================= */
+function toast(msg, t=2200){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.display = 'block';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.display = 'none'; }, t);
+}
+
+function esc(s){
+  return String(s ?? '').replace(/[&<>"']/g, m => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[m]));
+}
+
+function norm(s){
+  return String(s ?? '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase()
+    .trim();
+}
+
+function todayParisStr(){
+  try{
+    return new Intl.DateTimeFormat('sv-SE', {
+      timeZone:'Europe/Paris',
+      year:'numeric',
+      month:'2-digit',
+      day:'2-digit'
+    }).format(new Date());
+  }catch(e){
+    return new Date().toISOString().slice(0,10);
+  }
+}
+
+function getAuthApi(){
+  return window.TA_AUTH || null;
+}
+
+function getSession(){
+  const api = getAuthApi();
+  if(api && typeof api.getSession === 'function'){
+    return api.getSession();
+  }
+  return null;
+}
+
+function displayName(session){
+  if(!session) return '';
+  return String(session.pseudo || session.username || session.name || '').trim();
+}
+
+function isConnected(){
+  return !!displayName(getSession());
+}
+
+function playerKey(session){
+  const s = session || getSession();
+  if(!s) return 'anon';
+  return String(s.id || s.user_id || displayName(s) || 'anon');
+}
+
+function localStateKey(){
+  return `${LOCAL_PREFIX}:${todayParisStr()}:${playerKey()}`;
+}
+
+function saveState(){
+  try{
+    const computedTotal = roundScoreTotalFromResults(rounds);
+    const payload = {
+      date: todayParisStr(),
+      currentIndex,
+      totalScore: computedTotal,
+      currentRoundScore,
+      currentDistance,
+      currentTarget,
+      currentClick,
+      roundLocked,
+      awaitingAdvance,
+      gameBlocked,
+      rounds,
+      ts: new Date().toISOString()
+    };
+    localStorage.setItem(localStateKey(), JSON.stringify(payload));
+  }catch(e){}
+  updateHeaderNumbers();
+}
+
+function clearState(){
+  try{
+    localStorage.removeItem(localStateKey());
+  }catch(e){}
+}
+
+function loadState(){
+  try{
+    const raw = localStorage.getItem(localStateKey());
+    if(!raw) return null;
+    const j = JSON.parse(raw);
+    if(!j || typeof j !== 'object') return null;
+    return j;
+  }catch(e){
+    return null;
+  }
+}
+
+function showModal(show=true){
+  modal.classList.toggle('show', show);
+  modal.setAttribute('aria-hidden', show ? 'false' : 'true');
+}
+
+function closeModal(){
+  showModal(false);
+}
+
+function setButtonsEnabled(on){
+  nextRoundBtn.disabled = !on;
+  closeModalBtn.disabled = false;
+}
+
+function canPlay(){
+  return isConnected() && assetsReady && !gameBlocked;
+}
+
+function roundLabel(){
+  return `${Math.min(currentIndex + 1, rounds.length)}/${rounds.length || 5}`;
+}
+
+function clamp(v, min, max){
+  return Math.max(min, Math.min(max, v));
+}
+
+function haversineKm(aLat, aLon, bLat, bLon){
+  const R = 6371;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(bLat - aLat);
+  const dLon = toRad(bLon - aLon);
+  const lat1 = toRad(aLat);
+  const lat2 = toRad(bLat);
+
+  const h = Math.sin(dLat/2) ** 2 +
+            Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon/2) ** 2;
+
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+function scoreForDistance(distanceKm){
+  if(distanceKm <= MAX_DISTANCE_FULL) return MAX_ROUND;
+  if(distanceKm >= MAX_DISTANCE_ZERO) return 0;
+  const ratio = (MAX_DISTANCE_ZERO - distanceKm) / (MAX_DISTANCE_ZERO - MAX_DISTANCE_FULL);
+  return clamp(Math.round(MAX_ROUND * ratio), 0, MAX_ROUND);
+}
+
+function fmtKm(d){
+  if(d === null || d === undefined || Number.isNaN(Number(d))) return '—';
+  const n = Number(d);
+  if(n < 1) return `${Math.round(n * 1000)} m`;
+  return `${n.toFixed(n < 10 ? 2 : 1)} km`;
+}
+
+function roundScoreTotalFromResults(results){
+  return results.reduce((sum, r) => sum + Number(r.points || 0), 0);
+}
+
+function sourceClass(source){
+  return String(source || '').toUpperCase() === 'WTA' ? 'wta' : 'atp';
+}
+
+function sourceColor(source){
+  return String(source || '').toUpperCase() === 'WTA' ? '#9b59b6' : '#2b6cb0';
+}
+
+function currentModeName(){
+  return 'daily_city_guess';
+}
+
+/* =========================================
+   DATA LOAD
+========================================= */
+async function fetchFirstJson(urls){
+  for(const url of urls){
+    try{
+      const r = await fetch(url, { cache:'no-cache' });
+      if(!r.ok) continue;
+      return await r.json();
+    }catch(e){}
+  }
+  return null;
+}
+
+async function loadAssets(){
+  dailyData = await fetchFirstJson(DAILY_JSON_URLS);
+  borderGeoJSON = await fetchFirstJson(BORDERS_URLS);
+
+  if(!dailyData || !Array.isArray(dailyData.rounds)){
+    return false;
+  }
+
+  rounds = dailyData.rounds.slice(0, 5).map((r, idx) => ({
+    round_index: idx + 1,
+    source: String(r.source || '').toUpperCase(),
+    tourney_id: String(r.tourney_id || ''),
+    year: r.year ?? null,
+    tourney_name: String(r.tourney_name || '').trim(),
+    city: String(r.city || '').trim(),
+    geocode: Array.isArray(r.geocode) ? r.geocode.slice(0,2).map(Number) : null,
+    level: r.level || '',
+    surface: r.surface || ''
+  })).filter(r => Array.isArray(r.geocode) && r.geocode.length >= 2 && Number.isFinite(r.geocode[0]) && Number.isFinite(r.geocode[1]) && r.tourney_name);
+
+  if(!rounds.length){
+    return false;
+  }
+
+  assetsReady = true;
+  return true;
+}
+
+/* =========================================
+   AUTH UI
+========================================= */
+function renderAuthBox(){
+  authPlaceholder.innerHTML = '';
+  const session = getSession();
+
+  if(session && displayName(session)){
+    const box = document.createElement('div');
+    box.className = 'user-chip';
+    box.style.position = 'relative';
+
+    const av = document.createElement('div');
+    av.className = 'avatar';
+    const nm = displayName(session);
+    av.textContent = nm.split(/\s+/).map(x => x[0]).slice(0,2).join('').toUpperCase() || '??';
+
+    const name = document.createElement('div');
+    name.textContent = nm;
+
+    box.appendChild(av);
+    box.appendChild(name);
+
+    box.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleDropdown(box);
+    });
+
+    authPlaceholder.appendChild(box);
+    authStatus.textContent = `Connected as ${nm}`;
+  } else {
+    const link = document.createElement('a');
+    link.className = 'user-chip connect';
+    link.href = '/games/tennis_arena/index.html';
+    link.textContent = 'Connect';
+    authPlaceholder.appendChild(link);
+    authStatus.textContent = 'Not connected';
+  }
+}
+
+function toggleDropdown(anchor){
+  const existing = document.querySelector('.dropdown');
+  if(existing){
+    existing.remove();
+    return;
+  }
+
+  const dd = document.createElement('div');
+  dd.className = 'dropdown';
+
+  const b1 = document.createElement('button');
+  b1.textContent = 'Connected';
+  b1.disabled = true;
+
+  const b2 = document.createElement('button');
+  b2.textContent = 'Log out';
+  b2.addEventListener('click', async () => {
+    dd.remove();
+    try{
+      const api = getAuthApi();
+      if(api && typeof api.logout === 'function'){
+        await api.logout();
+      } else {
+        localStorage.removeItem('ta_session_v1');
+        window.dispatchEvent(new Event('ta:auth-changed'));
+      }
+    }catch(e){
+      console.warn(e);
+    }
+  });
+
+  dd.appendChild(b1);
+  dd.appendChild(b2);
+  anchor.appendChild(dd);
+
+  const close = (ev) => {
+    if(!anchor.contains(ev.target)){
+      dd.remove();
+      document.removeEventListener('click', close);
+    }
+  };
+  setTimeout(() => document.addEventListener('click', close), 20);
+}
+
+/* =========================================
+   LEADERBOARD HELPERS
+========================================= */
+function readQueue(){
+  try{ return JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]'); }catch(e){ return []; }
+}
+function writeQueue(q){
+  try{ localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q)); }catch(e){}
+}
+function pushQueue(entry){
+  const q = readQueue();
+  q.push(Object.assign({ ts:new Date().toISOString() }, entry));
+  writeQueue(q);
+}
+function popQueue(){
+  const q = readQueue();
+  q.shift();
+  writeQueue(q);
+}
+function waitForLeaderboard(timeout=4000, interval=200){
+  return new Promise(resolve => {
+    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+      resolve(true);
+      return;
+    }
+    const start = Date.now();
+    const t = setInterval(() => {
+      if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+        clearInterval(t);
+        resolve(true);
+      } else if(Date.now() - start > timeout){
+        clearInterval(t);
+        resolve(false);
+      }
+    }, interval);
+  });
+}
+async function trySubmitEntry(entry){
+  const gameId = entry.gameId || GAME_ID;
+  const points = Number(entry.points) || 0;
+  const options = entry.options || {};
+  const pseudo = options.displayName || options.pseudo || displayName(getSession()) || null;
+  const mode = options.mode || currentModeName();
+  const meta = options.meta || null;
+
+  if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+    try{
+      const res = await window.LEADERBOARD.submitScore(gameId, points, options);
+      if(res && (res.ok === true || res.success === true || res.status === 'ok')){
+        return true;
+      }
+      if(res && res.ok === false && res.error && String(res.error).toLowerCase().includes('already_submitted')){
+        return true;
+      }
+    }catch(e){}
+  }
+
+  const payload = {
+    game_id: gameId,
+    points,
+    pseudo,
+    mode,
+    meta: typeof meta === 'string' ? meta : (meta ? JSON.stringify(meta) : null),
+    ts: new Date().toISOString()
+  };
+
+  try{
+    const resp = await fetch('/.netlify/functions/submit-score', {
+      method:'POST',
+      credentials:'same-origin',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const txt = await resp.text().catch(() => '');
+    let parsed = null;
+    try{ parsed = txt ? JSON.parse(txt) : null; }catch(e){ parsed = txt; }
+
+    if(resp.ok) return true;
+
+    if(
+      resp.status === 409 ||
+      (parsed && parsed.detail && (parsed.detail.code === 23505 || String(parsed.detail.code) === '23505')) ||
+      (parsed && parsed.error && String(parsed.error).toLowerCase().includes('duplicate'))
+    ){
+      return true;
+    }
+    return false;
+  }catch(e){
+    return false;
+  }
+}
+async function flushQueue(){
+  const ready = await waitForLeaderboard(4000);
+  if(!ready) return;
+  for(let i=0;i<20;i++){
+    const q = readQueue();
+    if(!q.length) break;
+    const ok = await trySubmitEntry(q[0]);
+    if(ok) popQueue();
+    else break;
+  }
+}
+async function submitFinalScore(){
+  if(rounds.length === 0) return false;
+  const session = getSession();
+  const display = displayName(session) || null;
+  const meta = {
+    date_paris: todayParisStr(),
+    rounds: rounds.length,
+    results: rounds.map((r, idx) => {
+      const res = r.result || null;
+      return {
+        round_index: idx + 1,
+        source: r.source,
+        tourney_id: r.tourney_id,
+        tourney_name: r.tourney_name,
+        click: r.click || null,
+        target: r.geocode || null,
+        distance_km: r.distance_km ?? null,
+        points: r.points ?? 0
+      };
+    }),
+    display_name: display
+  };
+
+  const entry = {
+    gameId: GAME_ID,
+    points: totalScore,
+    options: {
+      mode: currentModeName(),
+      displayName: display,
+      meta: JSON.stringify(meta)
+    }
+  };
+
+  const ready = await waitForLeaderboard(3000);
+  if(ready){
+    const ok = await trySubmitEntry(entry);
+    if(ok){
+      setTimeout(flushQueue, 250);
+      return true;
+    }
+  }
+
+  pushQueue(entry);
+  setTimeout(flushQueue, 1000);
+  return false;
+}
+
+/* =========================================
+   SERVER DUPLICATE CHECK
+========================================= */
+async function checkAlreadyPlayedToday(){
+  const session = getSession();
+  if(!session) return { exists:false, rows:[] };
+
+  const userId = session.id || session.user_id || null;
+  const pseudo = displayName(session) || null;
+  const dateStr = todayParisStr();
+  let qs = `?game_id=${encodeURIComponent(GAME_ID)}&date=${encodeURIComponent(dateStr)}&check_existing=1&mode=${encodeURIComponent(currentModeName())}`;
+  if(userId) qs += `&user_id=${encodeURIComponent(userId)}`;
+  if(pseudo) qs += `&pseudo=${encodeURIComponent(pseudo)}`;
+
+  try{
+    const resp = await fetch(`/.netlify/functions/leaderboard${qs}`, { credentials:'same-origin' });
+    if(!resp.ok) return { exists:false, rows:[] };
+    const j = await resp.json();
+    if(j && j.ok && j.exists) return { exists:true, rows:j.rows || [] };
+    return { exists:false, rows:j.rows || [] };
+  }catch(e){
+    console.warn('checkAlreadyPlayedToday error', e);
+    return { exists:false, rows:[] };
+  }
+}
+
+/* =========================================
+   MAP
+========================================= */
+function destroyMap(){
+  try{
+    if(map){
+      map.off();
+      map.remove();
+    }
+  }catch(e){}
+  map = null;
+  borderLayer = null;
+  clickLayer = null;
+  targetLayer = null;
+  lineLayer = null;
+}
+
+function popupHtml(kind, km, pts){
+  return `
+    <div class="map-popup">
+      <div class="big">${kind}</div>
+      ${km !== null ? `<div class="small">${fmtKm(km)}</div>` : ''}
+      ${pts !== null ? `<div class="small">${pts} / 20</div>` : ''}
+    </div>
+  `;
+}
+
+function initMap(){
+  destroyMap();
+
+  map = L.map('map', {
+    zoomControl:false,
+    attributionControl:false,
+    scrollWheelZoom:false,
+    doubleClickZoom:false,
+    boxZoom:false,
+    keyboard:false,
+    dragging:false,
+    touchZoom:false,
+    tap:false,
+    worldCopyJump:false
+  });
+
+  if(borderGeoJSON && borderGeoJSON.features){
+    borderLayer = L.geoJSON(borderGeoJSON, { style: MAP_BOUNDS_STYLE }).addTo(map);
+    try{
+      map.fitBounds(borderLayer.getBounds().pad(0.08));
+    }catch(e){
+      map.setView([20, 0], 2);
+    }
+  } else {
+    map.setView([20,0], 2);
+  }
+
+  map.on('click', onMapClick);
+  setTimeout(() => { try{ map.invalidateSize(); }catch(e){} }, 100);
+}
+
+function clearRoundOverlays(){
+  if(clickLayer){ try{ map.removeLayer(clickLayer); }catch(e){} clickLayer = null; }
+  if(targetLayer){ try{ map.removeLayer(targetLayer); }catch(e){} targetLayer = null; }
+  if(lineLayer){ try{ map.removeLayer(lineLayer); }catch(e){} lineLayer = null; }
+}
+
+function revealAnswer(){
+  clearRoundOverlays();
+
+  const clickLatLng = currentClick;
+  const targetLatLng = currentTarget && Array.isArray(currentTarget.geocode) ? [Number(currentTarget.geocode[0]), Number(currentTarget.geocode[1])] : null;
+  const source = currentTarget ? currentTarget.source : 'ATP';
+
+  if(clickLatLng){
+    clickLayer = L.layerGroup().addTo(map);
+    L.circleMarker(clickLatLng, CLICK_STYLE).bindPopup(popupHtml('Your guess', currentDistance, currentRoundScore)).addTo(clickLayer);
+  }
+
+  if(targetLatLng){
+    const ts = sourceClass(source) === 'wta' ? TARGET_STYLE_WTA : TARGET_STYLE_ATP;
+    targetLayer = L.layerGroup().addTo(map);
+    L.circleMarker(targetLatLng, ts).bindPopup(popupHtml('Correct answer', 0, MAX_ROUND)).addTo(targetLayer);
+
+    if(clickLatLng){
+      lineLayer = L.polyline([clickLatLng, targetLatLng], {
+        color: sourceColor(source),
+        weight: 2,
+        opacity: 0.75,
+        dashArray: '6 8'
+      }).addTo(map);
+    }
+  }
+}
+
+function onMapClick(e){
+  if(!canPlay()) return;
+  if(roundLocked || awaitingAdvance) return;
+  if(!currentTarget) return;
+
+  currentClick = [e.latlng.lat, e.latlng.lng];
+  const targetLat = Number(currentTarget.geocode[0]);
+  const targetLng = Number(currentTarget.geocode[1]);
+  currentDistance = haversineKm(e.latlng.lat, e.latlng.lng, targetLat, targetLng);
+  currentRoundScore = scoreForDistance(currentDistance);
+  roundLocked = true;
+  awaitingAdvance = true;
+
+  const roundObj = {
+    round_index: currentIndex + 1,
+    source: currentTarget.source,
+    tourney_id: currentTarget.tourney_id,
+    year: currentTarget.year,
+    tourney_name: currentTarget.tourney_name,
+    city: currentTarget.city,
+    geocode: currentTarget.geocode,
+    level: currentTarget.level,
+    surface: currentTarget.surface,
+    click: currentClick,
+    distance_km: currentDistance,
+    points: currentRoundScore
+  };
+
+  rounds[currentIndex].click = currentClick;
+  rounds[currentIndex].distance_km = currentDistance;
+  rounds[currentIndex].points = currentRoundScore;
+  rounds[currentIndex].result = roundObj;
+
+  currentIndexDisplayRefresh();
+  saveState();
+  revealAnswer();
+  renderRoundList();
+  updateHeaderNumbers();
+  openRoundModal(roundObj);
+}
+
+function currentIndexDisplayRefresh(){
+  chipRound.textContent = `${Math.min(currentIndex + 1, rounds.length)}/${rounds.length}`;
+  statRound.textContent = `${Math.min(currentIndex + 1, rounds.length)} / ${rounds.length}`;
+}
+
+function openRoundModal(roundObj){
+  const isLast = currentIndex >= rounds.length - 1;
+  modalTitle.textContent = currentRoundScore > 0 ? 'Nice guess!' : 'Round over';
+  modalText.textContent = currentRoundScore > 0
+    ? `You scored ${currentRoundScore} points on this round.`
+    : 'No points on this round.';
+  modalTournament.textContent = roundObj.tourney_name || '—';
+  modalDistance.textContent = fmtKm(roundObj.distance_km);
+  modalPoints.textContent = `${currentRoundScore} / 20`;
+  modalTotal.textContent = `${totalScore + currentRoundScore} / 100`;
+  modalExtra.innerHTML = `
+    <div style="color:var(--muted)">
+      The tournament clue was <strong style="color:#fff">${esc(roundObj.tourney_name || '—')}</strong>.
+      ${roundObj.source ? `Source: <strong style="color:#fff">${esc(roundObj.source)}</strong>.` : ''}
+      ${roundObj.level ? ` Level: <strong style="color:#fff">${esc(roundObj.level)}</strong>.` : ''}
+    </div>
+  `;
+  nextRoundBtn.style.display = 'inline-flex';
+  nextRoundBtn.textContent = isLast ? 'Finish' : 'Next round';
+  nextRoundBtn.disabled = false;
+  showModal(true);
+}
+
+function openFinalModal(submittedOk = false){
+  modalTitle.textContent = submittedOk ? 'Game completed' : 'Game completed';
+  modalText.textContent = submittedOk
+    ? `Your score has been submitted: ${totalScore} / ${MAX_TOTAL}.`
+    : `Your final score is ${totalScore} / ${MAX_TOTAL}.`;
+  modalTournament.textContent = 'All rounds completed';
+  modalDistance.textContent = '—';
+  modalPoints.textContent = `${totalScore} / 100`;
+  modalTotal.textContent = `${totalScore} / 100`;
+  modalExtra.innerHTML = `
+    <div style="color:var(--muted)">
+      You have completed all ${rounds.length} rounds for today.
+      ${submittedOk ? 'The score was sent to the leaderboard.' : 'The score will be queued if the leaderboard is unavailable.'}
+    </div>
+  `;
+  nextRoundBtn.style.display = 'none';
+  showModal(true);
+}
+
+/* =========================================
+   RENDER
+========================================= */
+function updateHeaderNumbers(){
+  chipRound.textContent = `${Math.min(currentIndex + 1, rounds.length)}/${rounds.length}`;
+  chipRoundScore.textContent = `${currentRoundScore}/${MAX_ROUND}`;
+  chipTotal.textContent = `${totalScore}/${MAX_TOTAL}`;
+  chipRemaining.textContent = `${Math.max(0, rounds.length - rounds.filter(r => r.points !== undefined).length)}`;
+  statRound.textContent = `${Math.min(currentIndex + 1, rounds.length)} / ${rounds.length}`;
+  statTotal.textContent = `${totalScore} / ${MAX_TOTAL}`;
+  progressFill.style.width = `${Math.min(100, (rounds.length ? (totalScore / MAX_TOTAL) * 100 : 0))}%`;
+  progressText.textContent = `${rounds.filter(r => r.points !== undefined).length} / ${rounds.length} rounds completed`;
+  gameStateLabel.textContent = gameBlocked ? 'Already played today' : (awaitingAdvance ? 'Round complete' : 'In progress');
+  mapTitle.textContent = `Round ${Math.min(currentIndex + 1, rounds.length)} / ${rounds.length}`;
+}
+
+function renderSourcePill(source){
+  sourcePillHolder.innerHTML = '';
+  const pill = document.createElement('div');
+  pill.className = `source-pill ${sourceClass(source)}`;
+  pill.textContent = source || 'ATP';
+  sourcePillHolder.appendChild(pill);
+}
+
+function renderRoundHeader(){
+  const r = rounds[currentIndex];
+  clueValue.textContent = r ? r.tourney_name : '—';
+  renderSourcePill(r ? r.source : 'ATP');
+  roundHint.innerHTML = `
+    Clique sur la carte pour placer ton guess.
+    Le tourney_name affiché est le seul indice.
+  `;
+  mapNote.textContent = 'Carte non zoomable. Clique où tu penses que le tournoi se situe.';
+}
+
+function renderRoundList(){
+  roundList.innerHTML = '';
+  rounds.forEach((r, idx) => {
+    const item = document.createElement('div');
+    item.className = 'round-item' + (idx === currentIndex && !gameBlocked ? ' active' : '');
+
+    const left = document.createElement('div');
+    left.className = 'left';
+
+    const name = document.createElement('div');
+    name.className = 'name';
+    name.textContent = `${idx + 1}. ${r.tourney_name || '—'}`;
+
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = `${r.source || 'ATP'} • ${r.level || '—'} • ${r.surface || '—'}${r.year ? ` • ${r.year}` : ''}`;
+
+    left.appendChild(name);
+    left.appendChild(meta);
+
+    const right = document.createElement('div');
+    right.className = 'right';
+    if(r.points !== undefined){
+      right.innerHTML = `${r.points} / 20<div class="small">${fmtKm(r.distance_km)}</div>`;
+    } else {
+      right.innerHTML = `Pending<div class="small">No guess yet</div>`;
+    }
+
+    item.appendChild(left);
+    item.appendChild(right);
+    roundList.appendChild(item);
+  });
+}
+
+function updateRoundUI(){
+  currentIndexDisplayRefresh();
+  updateHeaderNumbers();
+  renderRoundHeader();
+  renderRoundList();
+  if(currentTarget){
+    mapTitle.textContent = `Round ${currentIndex + 1} / ${rounds.length}`;
+  }
+  if(currentTarget){
+    const clue = currentTarget.tourney_name || '—';
+    clueValue.textContent = clue;
+  }
+  distanceValue.textContent = currentDistance === null ? '—' : fmtKm(currentDistance);
+  pointsValue.textContent = `${currentRoundScore}`;
+  progressText.textContent = `${rounds.filter(r => r.points !== undefined).length} / ${rounds.length} rounds completed`;
+}
+
+function updateMapTitle(){
+  const r = rounds[currentIndex];
+  mapTitle.textContent = r ? `Round ${currentIndex + 1} / ${rounds.length}` : 'Map';
+  mapNote.textContent = 'Carte non zoomable. Clique pour choisir la ville du tournoi.';
+}
+
+/* =========================================
+   ROUND FLOW
+========================================= */
+function setCurrentRound(i){
+  currentIndex = i;
+  currentTarget = rounds[currentIndex] || null;
+  currentClick = null;
+  currentDistance = null;
+  currentRoundScore = 0;
+  roundLocked = false;
+  awaitingAdvance = false;
+  clearRoundOverlays();
+  renderRoundHeader();
+  updateMapTitle();
+  updateRoundUI();
+  saveState();
+
+  if(map && currentTarget){
+    mapFooter.textContent = `Round ${currentIndex + 1} : clique sur la carte où se situe ${currentTarget.tourney_name}.`;
+  }
+  distanceValue.textContent = '—';
+  pointsValue.textContent = '0';
+}
+
+async function advanceRound(){
+  closeModal();
+
+  if(!awaitingAdvance) return;
+
+  // Append round result into the stored completed list
+  totalScore = roundScoreTotalFromResults(rounds.filter(r => r.points !== undefined));
+  awaitingAdvance = false;
+  roundLocked = false;
+
+  if(currentIndex >= rounds.length - 1){
+    // final round has been played
+    totalScore = roundScoreTotalFromResults(rounds);
+    statTotal.textContent = `${totalScore} / ${MAX_TOTAL}`;
+    chipTotal.textContent = `${totalScore}/${MAX_TOTAL}`;
+    updateHeaderNumbers();
+    renderRoundList();
+
+    const submitted = await submitFinalScore();
+    gameBlocked = true;
+    saveState();
+    openFinalModal(submitted);
+    nextRoundBtn.style.display = 'none';
+    return;
+  }
+
+  currentIndex += 1;
+  setCurrentRound(currentIndex);
+  totalScore = roundScoreTotalFromResults(rounds.filter(r => r.points !== undefined));
+  updateHeaderNumbers();
+  renderRoundList();
+  saveState();
+
+  if(map && currentTarget){
+    mapFooter.textContent = `Round ${currentIndex + 1} : clique sur la carte où se situe ${currentTarget.tourney_name}.`;
+  }
+  closeModal();
+}
+
+function restoreFromState(st){
+  if(!st) return false;
+  if(st.date !== todayParisStr()) return false;
+
+  if(Array.isArray(st.rounds) && st.rounds.length){
+    // restore round data
+    rounds = st.rounds.map((r, idx) => ({
+      round_index: idx + 1,
+      source: String(r.source || '').toUpperCase(),
+      tourney_id: String(r.tourney_id || ''),
+      year: r.year ?? null,
+      tourney_name: String(r.tourney_name || '').trim(),
+      city: String(r.city || '').trim(),
+      geocode: Array.isArray(r.geocode) ? r.geocode.slice(0,2).map(Number) : null,
+      level: r.level || '',
+      surface: r.surface || '',
+      click: r.click || null,
+      distance_km: r.distance_km ?? null,
+      points: r.points ?? undefined,
+      result: r.result || null
+    }));
+  }
+
+  currentIndex = clamp(Number(st.currentIndex || 0), 0, Math.max(0, rounds.length - 1));
+  totalScore = roundScoreTotalFromResults(rounds);
+  currentRoundScore = Number(st.currentRoundScore || 0);
+  currentDistance = st.currentDistance ?? null;
+  currentTarget = st.currentTarget || rounds[currentIndex] || null;
+  currentClick = st.currentClick || null;
+  roundLocked = !!st.roundLocked;
+  awaitingAdvance = !!st.awaitingAdvance;
+  gameBlocked = !!st.gameBlocked;
+
+  updateHeaderNumbers();
+  renderRoundList();
+  if(currentTarget){
+    renderRoundHeader();
+  }
+
+  if(map && currentTarget){
+    if(currentTarget.geocode && currentTarget.geocode.length >= 2){
+      const tgt = [Number(currentTarget.geocode[0]), Number(currentTarget.geocode[1])];
+      if(borderLayer){
+        try{
+          map.fitBounds(borderLayer.getBounds().pad(0.08));
+        }catch(e){}
+      }
+      if(currentClick && Array.isArray(currentClick)){
+        currentClick = [Number(currentClick[0]), Number(currentClick[1])];
+      }
+      if(st.awaitingAdvance || st.roundLocked){
+        revealAnswer();
+      }
+    }
+  }
+
+  if(st.awaitingAdvance && st.currentTarget){
+    openRoundModal({
+      tourney_name: st.currentTarget.tourney_name || currentTarget?.tourney_name || '—',
+      source: st.currentTarget.source || currentTarget?.source || 'ATP',
+      level: st.currentTarget.level || currentTarget?.level || '',
+      distance_km: st.currentDistance ?? currentDistance,
+      points: st.currentRoundScore ?? currentRoundScore
+    });
+  }
+
+  if(st.gameBlocked){
+    gameStateLabel.textContent = 'Already played today';
+  } else if(st.awaitingAdvance){
+    gameStateLabel.textContent = 'Round complete';
+  } else {
+    gameStateLabel.textContent = 'In progress';
+  }
+
+  return true;
+}
+
+async function startFreshIfAllowed(){
+  if(!isConnected()){
+    gameStateLabel.textContent = 'Connect to play';
+    clueValue.textContent = '—';
+    mapFooter.textContent = 'Connecte-toi pour jouer.';
+    return;
+  }
+
+  const check = await checkAlreadyPlayedToday();
+  if(check && check.exists){
+    gameBlocked = true;
+    saveState();
+    gameStateLabel.textContent = 'Already played today';
+    modalTitle.textContent = 'Already completed';
+    modalText.textContent = 'You have already completed today’s Daily City Guess. You cannot replay it today.';
+    modalTournament.textContent = '—';
+    modalDistance.textContent = '—';
+    modalPoints.textContent = '—';
+    modalTotal.textContent = '—';
+    modalExtra.innerHTML = '';
+    nextRoundBtn.style.display = 'none';
+    showModal(true);
+    setButtonsEnabled(false);
+    clueValue.textContent = 'Locked for today';
+    mapFooter.textContent = 'This daily game has already been played on this account today.';
+    return;
+  }
+
+  const saved = loadState();
+  if(saved && saved.date === todayParisStr() && Array.isArray(saved.rounds) && saved.rounds.length){
+    if(saved.gameBlocked){
+      gameBlocked = true;
+      renderAuthBox();
+      restoreFromState(saved);
+      setButtonsEnabled(false);
+      return;
+    }
+    restoreFromState(saved);
+    if(saved.awaitingAdvance && saved.currentTarget){
+      // keep modal open and next button available
+      showModal(true);
+      setButtonsEnabled(true);
+      nextRoundBtn.style.display = 'inline-flex';
+      nextRoundBtn.textContent = (currentIndex >= rounds.length - 1) ? 'Finish' : 'Next round';
+      return;
+    }
+    if(saved.currentIndex !== undefined && saved.currentIndex < rounds.length){
+      setCurrentRound(Number(saved.currentIndex || 0));
+      if(map) updateMapTitle();
+      setButtonsEnabled(true);
+      return;
+    }
+  }
+
+  // fresh game
+  gameBlocked = false;
+  totalScore = 0;
+  currentIndex = 0;
+  currentRoundScore = 0;
+  currentDistance = null;
+  currentClick = null;
+  roundLocked = false;
+  awaitingAdvance = false;
+
+  rounds = rounds.map(r => Object.assign({}, r, {
+    points: undefined,
+    distance_km: null,
+    click: null,
+    result: null
+  }));
+
+  setCurrentRound(0);
+  renderRoundList();
+  updateHeaderNumbers();
+  saveState();
+  setButtonsEnabled(true);
+  mapFooter.textContent = `Round 1 : clique sur la carte où se situe ${currentTarget.tourney_name}.`;
+}
+
+/* =========================================
+   INIT
+========================================= */
+function bindUI(){
+  closeModalBtn.addEventListener('click', () => {
+    closeModal();
+  });
+  nextRoundBtn.addEventListener('click', async () => {
+    nextRoundBtn.disabled = true;
+    await advanceRound();
+    nextRoundBtn.disabled = false;
+  });
+  resetLocalBtn.addEventListener('click', () => {
+    clearState();
+    toast('Local progress cleared.');
+    window.location.reload();
+  });
+
+  document.addEventListener('click', (e) => {
+    const dd = document.querySelector('.dropdown');
+    const box = document.getElementById('authBox');
+    if(dd && box && !box.contains(e.target)){
+      dd.remove();
+    }
+  });
+}
+
+async function init(){
+  authPlaceholder = document.getElementById('authPlaceholder');
+  authStatus = document.getElementById('authStatus');
+  chipRound = document.getElementById('chipRound');
+  chipRoundScore = document.getElementById('chipRoundScore');
+  chipTotal = document.getElementById('chipTotal');
+  chipRemaining = document.getElementById('chipRemaining');
+  gameStateLabel = document.getElementById('gameStateLabel');
+  clueValue = document.getElementById('clueValue');
+  sourcePillHolder = document.getElementById('sourcePillHolder');
+  roundHint = document.getElementById('roundHint');
+  roundList = document.getElementById('roundList');
+  statRound = document.getElementById('statRound');
+  statTotal = document.getElementById('statTotal');
+  progressFill = document.getElementById('progressFill');
+  progressText = document.getElementById('progressText');
+  distanceValue = document.getElementById('distanceValue');
+  pointsValue = document.getElementById('pointsValue');
+  mapTitle = document.getElementById('mapTitle');
+  mapNote = document.getElementById('mapNote');
+  mapFooter = document.getElementById('mapFooter');
+
+  modal = document.getElementById('modal');
+  modalTitle = document.getElementById('modalTitle');
+  modalText = document.getElementById('modalText');
+  modalTournament = document.getElementById('modalTournament');
+  modalDistance = document.getElementById('modalDistance');
+  modalPoints = document.getElementById('modalPoints');
+  modalTotal = document.getElementById('modalTotal');
+  modalExtra = document.getElementById('modalExtra');
+  closeModalBtn = document.getElementById('closeModalBtn');
+  nextRoundBtn = document.getElementById('nextRoundBtn');
+  resetLocalBtn = document.getElementById('resetLocalBtn');
+
+  bindUI();
+  renderAuthBox();
+  updateHeaderNumbers();
+
+  const ok = await loadAssets();
+  if(!ok){
+    gameStateLabel.textContent = 'Daily JSON missing';
+    clueValue.textContent = '—';
+    mapFooter.textContent = 'Le fichier daily_city_guess.json est introuvable ou invalide.';
+    toast('daily_city_guess.json missing or invalid', 4000);
+    return;
+  }
+
+  initMap();
+  renderRoundList();
+
+  assetsReady = true;
+  loading = false;
+
+  const session = getSession();
+  if(session && displayName(session)){
+    await startFreshIfAllowed();
+  } else {
+    gameStateLabel.textContent = 'Connect to play';
+    clueValue.textContent = '—';
+    mapFooter.textContent = 'Connecte-toi pour jouer.';
+    setButtonsEnabled(false);
+  }
+
+  const authApi = getAuthApi();
+  if(authApi && typeof authApi.onAuthChange === 'function'){
+    authApi.onAuthChange(async () => {
+      renderAuthBox();
+      if(isConnected()){
+        await startFreshIfAllowed();
+      } else {
+        gameBlocked = false;
+        setButtonsEnabled(false);
+        gameStateLabel.textContent = 'Connect to play';
+        clueValue.textContent = '—';
+        mapFooter.textContent = 'Connecte-toi pour jouer.';
+      }
+    });
+  } else {
+    window.addEventListener('storage', async () => {
+      renderAuthBox();
+      if(isConnected()){
+        await startFreshIfAllowed();
+      } else {
+        setButtonsEnabled(false);
+      }
+    });
+  }
+
+  setTimeout(() => flushQueue(), 700);
+  setInterval(() => {
+    if(!gameBlocked && assetsReady){
+      saveState();
+    }
+  }, 4000);
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

@@ -144,6 +144,11 @@ jobs:
           # NEW ADDITION: run the H2H daily selection script (produit docs/selected_players.json)
           python scripts/generate_daily_guess_h2h.py || true
 
+          python scripts/generate_daily_city_guess.py \
+            --json-base docs/data/tournaments/json_by_tournaments \
+            --out "${BUILD_DIR}/tools/daily_city_guess.json" \
+            --count 5 || true
+
 
           # NEW: select 3 WTA + 3 ATP winners with random difficulties
           python scripts/generate_daily_selected_winners.py \
@@ -190,6 +195,16 @@ jobs:
           else
             echo "Aucun birthday_today.json généré trouvé"
           fi
+
+          # daily_city_guess.json
+            if [ -f "${BUILD_DIR}/tools/daily_city_guess.json" ]; then
+              cp -v "${BUILD_DIR}/tools/daily_city_guess.json" docs/tools/daily_city_guess.json || true
+              cp -v "${BUILD_DIR}/tools/daily_city_guess.json" site_static/tools/daily_city_guess.json || true
+            elif [ -f "docs/tools/daily_city_guess.json" ]; then
+              cp -v "docs/tools/daily_city_guess.json" site_static/tools/daily_city_guess.json || true
+            else
+              echo "Aucun daily_city_guess.json généré trouvé"
+            fi
 
           # daily_guess.json
           if [ -f "${BUILD_DIR}/tools/daily_guess.json" ]; then
@@ -288,7 +303,8 @@ jobs:
           git add -f docs/tools/birthday_today.json docs/tools/daily_guess.json docs/tools/players_catalog.json docs/tools/geocodes_combined.json docs/tools/selected_players.json || true
           git add -f site_static/tools/birthday_today.json site_static/tools/daily_guess.json site_static/tools/players_catalog.json site_static/tools/geocodes_combined.json site_static/tools/selected_players.json || true
 
-
+          git add -f docs/tools/daily_city_guess.json || true
+          git add -f site_static/tools/daily_city_guess.json || true
 
           git add -f docs/tools/daily_selected_winners.json || true
           git add -f site_static/tools/daily_selected_winners.json || true
@@ -377,6 +393,9 @@ jobs:
           # Also add the new daily_selected_winners JSON if present
           git add -f docs/tools/daily_selected_winners.json || true
           git add -f site_static/tools/daily_selected_winners.json || true
+
+          git add -f docs/tools/daily_city_guess.json || true
+          git add -f site_static/tools/daily_city_guess.json || true
 
           if [ -f created_files.txt ]; then
             while IFS= read -r line || [ -n "$line" ]; do
