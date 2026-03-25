@@ -417,12 +417,18 @@
   }
 
   function getSession(){
-    const api = getAuthApi();
-    if(api && typeof api.getSession === "function"){
-      return api.getSession();
-    }
+  const api = window.TA_AUTH || null;
+  if(api && typeof api.getSession === "function"){
+    return api.getSession();
+  }
+
+  try{
+    const raw = localStorage.getItem('ta_session_v1');
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){
     return null;
   }
+}
 
   function renderAuthChip(){
     const session = getSession();
@@ -630,7 +636,6 @@
   }
 
   $("loginBtn").addEventListener("click", openLogin);
-  $("registerBtn").addEventListener("click", openRegister);
   $("registerBtn").addEventListener("click", submitRegistration);
 
   $("agreeField").addEventListener("change", () => {
