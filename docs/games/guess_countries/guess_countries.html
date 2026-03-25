@@ -1,0 +1,1385 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Daily Country Guess</title>
+
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+
+<script src="/js/auth.js" defer></script>
+<script src="/js/leaderboard-client.js" defer></script>
+
+<style>
+  :root{
+    --bg1:#06101f;
+    --bg2:#08162a;
+    --panel:rgba(255,255,255,0.03);
+    --panel-border:rgba(255,255,255,0.06);
+    --muted:#94a3b8;
+    --text:#ecf4ff;
+    --atp:#2b6cb0;
+    --wta:#9b59b6;
+    --good:#16a34a;
+    --bad:#ef4444;
+    font-family:'Inter',system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+    color-scheme:dark;
+  }
+
+  html,body{height:100%;margin:0;background:linear-gradient(180deg,var(--bg1),var(--bg2));color:var(--text);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;}
+  *{box-sizing:border-box;}
+  a{color:inherit;text-decoration:none;}
+
+  .wrap{max-width:1300px;margin:24px auto;padding:0 16px 24px;}
+  .shell{border:1px solid var(--panel-border);border-radius:20px;overflow:hidden;background:linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.012));box-shadow:0 24px 80px rgba(2,6,23,0.55);}
+
+  .hero{display:flex;gap:16px;align-items:flex-start;justify-content:space-between;padding:20px;border-bottom:1px solid var(--panel-border);background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));}
+  .title{font-size:1.35rem;font-weight:800;margin:0;color:#fff;letter-spacing:.2px;}
+  .subtitle{margin-top:6px;color:var(--muted);font-size:.95rem;line-height:1.45;max-width:760px;}
+
+  .hero-right{display:flex;flex-direction:column;align-items:flex-end;gap:10px;min-width:320px;position:relative;}
+  .user-box{display:flex;align-items:center;justify-content:flex-end;gap:10px;width:100%;position:relative;}
+  .user-chip{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;border:1px solid var(--panel-border);background:rgba(255,255,255,0.02);color:#fff;cursor:pointer;user-select:none;text-decoration:none;font-weight:700;}
+  .user-chip .avatar{width:28px;height:28px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:.8rem;font-weight:800;background:linear-gradient(135deg, #1f7aec, #7b5cf6);color:white;flex:0 0 auto;}
+  .user-dropdown{position:absolute;right:0;top:54px;min-width:170px;border:1px solid var(--panel-border);border-radius:12px;overflow:hidden;background:linear-gradient(180deg, #071222, #08101d);box-shadow:0 20px 60px rgba(2,6,23,0.65);z-index:50;}
+  .user-dropdown button{display:block;width:100%;padding:10px 12px;text-align:left;border:0;background:transparent;color:var(--muted);font-weight:700;cursor:pointer;}
+  .user-dropdown button:hover{color:#fff;background:rgba(255,255,255,0.03);}
+  .connect-link{background:linear-gradient(135deg, #1f7aec, #7b5cf6);color:white;border:none;}
+
+  .meta-strip{display:flex;flex-wrap:wrap;gap:10px;padding:16px 20px 0;}
+  .chip{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:rgba(255,255,255,0.03);border:1px solid var(--panel-border);color:var(--muted);font-weight:700;font-size:.92rem;}
+  .chip strong{color:#fff;}
+  .chip.atp{background:rgba(43,108,176,0.14);border-color:rgba(43,108,176,0.22);color:#cfe8ff;}
+  .chip.wta{background:rgba(155,89,182,0.14);border-color:rgba(155,89,182,0.22);color:#f0d9ff;}
+
+  .layout{display:grid;grid-template-columns: 390px 1fr;gap:16px;padding:20px;}
+  @media (max-width: 1080px){.layout{grid-template-columns:1fr;}.hero{flex-direction:column;}.hero-right{min-width:0;width:100%;align-items:flex-start;}.user-box{justify-content:space-between;}}
+
+  .panel{border:1px solid var(--panel-border);border-radius:18px;background:var(--panel);overflow:hidden;}
+  .panel-head{padding:14px 16px;border-bottom:1px solid var(--panel-border);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+  .panel-head h2{margin:0;font-size:1rem;font-weight:800;color:#fff;}
+  .panel-head .small{color:var(--muted);font-size:.86rem;}
+
+  .controls{padding:16px;display:flex;flex-direction:column;gap:14px;}
+  .toggle-row{display:flex;gap:8px;flex-wrap:wrap;}
+  .toggle-row button{border:1px solid var(--panel-border);background:transparent;color:var(--muted);padding:10px 14px;border-radius:999px;font-weight:800;cursor:pointer;transition:transform .18s ease, background .18s ease, color .18s ease, border-color .18s ease;}
+  .toggle-row button:hover{transform:translateY(-1px);color:#fff;}
+  .toggle-row button.active.atp{background:rgba(43,108,176,0.18);border-color:rgba(43,108,176,0.35);color:#eaf4ff;}
+  .toggle-row button.active.wta{background:rgba(155,89,182,0.18);border-color:rgba(155,89,182,0.35);color:#fff0ff;}
+
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .stat{border:1px solid var(--panel-border);border-radius:14px;padding:12px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));}
+  .stat .label{color:var(--muted);font-size:.85rem;margin-bottom:6px;}
+  .stat .value{font-size:1.15rem;font-weight:800;color:#fff;}
+
+  .progress-bar{height:12px;border-radius:999px;overflow:hidden;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.04);}
+  .progress-fill{height:100%;width:0%;background:linear-gradient(90deg, #1f7aec, #7b5cf6);transition:width .22s ease;}
+  .help{color:var(--muted);font-size:.92rem;line-height:1.5;}
+
+  .list-card{margin-top:10px;border:1px solid var(--panel-border);border-radius:14px;overflow:hidden;background:rgba(0,0,0,0.12);}
+  .list-card table{width:100%;border-collapse:collapse;}
+  .list-card th,.list-card td{padding:10px 12px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.04);font-size:.92rem;vertical-align:top;}
+  .list-card thead th{color:var(--muted);font-weight:800;background:rgba(255,255,255,0.02);}
+  .list-card tbody tr:hover{background:rgba(255,255,255,0.015);}
+
+  .mode-status{display:flex;flex-wrap:wrap;gap:8px;}
+  .mode-pill{padding:7px 11px;border-radius:999px;font-size:.85rem;font-weight:800;border:1px solid var(--panel-border);background:rgba(255,255,255,0.02);color:var(--muted);cursor:pointer;}
+  .mode-pill.done{color:#fff;background:rgba(22,163,74,0.12);border-color:rgba(22,163,74,0.22);}
+  .mode-pill.locked{color:#fff;background:rgba(239,68,68,0.12);border-color:rgba(239,68,68,0.22);}
+  .mode-pill.active{outline:2px solid rgba(255,255,255,0.08);}
+
+  #map{width:100%;height:760px;background:#07101d;}
+  @media (max-width: 1080px){#map{height:560px;}}
+  .map-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--panel-border);flex-wrap:wrap;}
+  .map-toolbar .current{font-weight:800;color:#fff;}
+  .map-toolbar .note{color:var(--muted);font-size:.9rem;}
+
+  .toast{position:fixed;right:18px;bottom:18px;z-index:200;display:none;padding:11px 14px;border-radius:12px;color:#fff;background:rgba(0,0,0,0.72);box-shadow:0 18px 60px rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.08);max-width:min(92vw,380px);}
+  .modal{position:fixed;inset:0;background:rgba(2,6,23,0.78);display:flex;align-items:center;justify-content:center;z-index:400;opacity:0;pointer-events:none;transition:opacity .18s ease;}
+  .modal.show{opacity:1;pointer-events:auto;}
+  .modal-card{width:min(620px, calc(100vw - 28px));border-radius:18px;padding:22px;border:1px solid var(--panel-border);background:linear-gradient(180deg, rgba(11,17,32,0.98), rgba(8,12,23,0.96));box-shadow:0 28px 80px rgba(2,6,23,0.85);}
+  .modal-card h2{margin:0 0 8px;font-size:1.2rem;color:#fff;}
+  .modal-card p{margin:0;color:var(--muted);line-height:1.5;}
+  .modal-actions{margin-top:18px;display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;}
+  .good{color:#d9ffe4;background:rgba(22,163,74,0.15);border-color:rgba(22,163,74,0.35)!important;}
+  .bad{color:#ffdcdc;background:rgba(239,68,68,0.15);border-color:rgba(239,68,68,0.35)!important;}
+  .good-fill{fillColor:rgba(22,163,74,0.75)!important;}
+  .bad-fill{fillColor:rgba(239,68,68,0.75)!important;}
+  .small-muted{color:var(--muted);font-size:.9rem;}
+  .hidden{display:none !important;}
+  .inline-badge{display:inline-flex;align-items:center;justify-content:center;padding:3px 8px;border-radius:999px;font-weight:800;font-size:.75rem;vertical-align:middle;margin-left:6px;}
+  .inline-badge.atp{background:rgba(43,108,176,0.14);color:#cfe8ff;}
+  .inline-badge.wta{background:rgba(155,89,182,0.14);color:#f0d9ff;}
+  @media (prefers-reduced-motion: reduce){*{transition:none !important;scroll-behavior:auto !important;}}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="shell">
+      <div class="hero">
+        <div>
+          <h1 class="title">Daily Country Guess</h1>
+          <div class="subtitle">
+            Clique sur tous les pays où le joueur du jour a gagné un tournoi.
+            Tu as un nombre de clics égal au nombre de pays différents à trouver.
+            Chaque bonne réponse rapporte <strong>50 / n</strong> points sur le mode ATP ou WTA.
+          </div>
+        </div>
+
+        <div class="hero-right">
+          <div class="user-box" id="userBox">
+            <div id="userPlaceholder"></div>
+          </div>
+          <div class="small-muted" id="authStatus">Not connected</div>
+        </div>
+      </div>
+
+      <div class="meta-strip">
+        <div class="chip">Mode: <strong id="chipTour">ATP</strong></div>
+        <div class="chip">Player: <strong id="chipPlayer">—</strong></div>
+        <div class="chip">Countries: <strong id="chipCountries">0</strong></div>
+        <div class="chip">Round score: <strong id="chipRoundScore">0</strong></div>
+        <div class="chip">Daily total: <strong id="chipTotalScore">0</strong>/100</div>
+      </div>
+
+      <div class="layout">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Game controls</h2>
+            <div class="small" id="modeHint">Pick ATP or WTA.</div>
+          </div>
+
+          <div class="controls">
+            <div>
+              <div class="small-muted" style="margin-bottom:8px;font-weight:800">Tour</div>
+              <div class="toggle-row" id="tourToggle">
+                <button id="btnATP" class="active atp" data-tour="ATP">ATP</button>
+                <button id="btnWTA" class="wta" data-tour="WTA">WTA</button>
+              </div>
+            </div>
+
+            <div class="stats">
+              <div class="stat">
+                <div class="label">Remaining clicks</div>
+                <div class="value" id="remainingCount">0</div>
+              </div>
+              <div class="stat">
+                <div class="label">Countries found</div>
+                <div class="value" id="foundCount">0 / 0</div>
+              </div>
+            </div>
+
+            <div>
+              <div class="small-muted" style="margin-bottom:8px;font-weight:800">Daily progress</div>
+              <div class="progress-bar">
+                <div class="progress-fill" id="dailyProgress"></div>
+              </div>
+              <div class="small-muted" id="progressLabel" style="margin-top:8px">0 / 2 modes completed</div>
+            </div>
+
+            <div class="mode-status" id="modeStatus"></div>
+
+            <div class="help" id="helpText">
+              Le joueur ou la joueuse du jour apparaît ici. Clique sur les pays correspondants directement sur la carte.
+              Les pays trouvés deviennent verts, les erreurs restent rouges.
+            </div>
+
+            <div class="list-card">
+              <table aria-live="polite">
+                <thead>
+                  <tr>
+                    <th style="width:42px">#</th>
+                    <th>Country</th>
+                    <th style="width:88px">Result</th>
+                  </tr>
+                </thead>
+                <tbody id="attemptsBody"></tbody>
+              </table>
+            </div>
+
+            <div class="small-muted" id="preloadStatus">Idle.</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Map</h2>
+            <div class="small" id="mapModeLabel">ATP</div>
+          </div>
+          <div class="map-toolbar">
+            <div class="current" id="targetLine">Target is hidden until the round starts.</div>
+            <div class="note" id="mapNote">Countries are clickable. The map is locked to world view.</div>
+          </div>
+          <div id="map"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <div id="modal" class="modal" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="modal-card">
+      <h2 id="modalTitle">Round result</h2>
+      <p id="modalText"></p>
+      <div id="modalDetails" style="margin-top:14px"></div>
+      <div class="modal-actions">
+        <button id="closeModalBtn" class="ghost" style="padding:11px 14px;border-radius:12px;border:1px solid var(--panel-border);background:transparent;color:var(--muted);cursor:pointer;font-weight:700;">Close</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* =========================================================
+   CONFIG
+========================================================= */
+const GAME_ID = 'daily_country_guess';
+const MAX_DAILY_POINTS = 100;
+const PLAYERS_JSON_URLS = ['/tools/daily_country_guess.json', '/docs/tools/daily_country_guess.json'];
+const COUNTRY_MAP_URLS = ['/tools/country_to_ioc.json', '/docs/tools/country_to_ioc.json'];
+const WORLD_BORDERS_URLS = ['/tools/geojsons_borders/world_borders.json', '/docs/tools/geojsons_borders/world_borders.json', '/docs/Tools/geojsons_borders/world_borders.json'];
+const AUTH_HUB_URL = '/games/tennis_arena/index.html';
+const LB_QUEUE_KEY = 'lb_score_queue_daily_country_guess_v1';
+const STATE_PREFIX = 'daily_country_guess_state_v1';
+const MODES = ['ATP', 'WTA'];
+
+/* =========================================================
+   STATE
+========================================================= */
+let dailyData = null;
+let countryToIoc = {};
+let worldBorders = null;
+
+let currentTour = 'ATP';
+let currentTarget = null;
+let targetCountries = new Set();
+let allTargetCountryList = [];
+let foundCountries = new Set();
+let wrongCountries = new Set();
+let clickedCountries = new Set();
+let attemptsLeft = 0;
+let pointsPerCorrect = 0;
+let currentRoundScore = 0;
+let currentDailyScore = 0;
+let completedThisMode = false;
+let submittedThisMode = false;
+let roundStarted = false;
+let restoringState = false;
+let assetsReady = false;
+let currentMap = null;
+let geoLayer = null;
+let countryLayersByCode = new Map();
+let polygonByCode = new Map();
+
+/* =========================================================
+   DOM
+========================================================= */
+let chipTourEl, chipPlayerEl, chipCountriesEl, chipRoundScoreEl, chipTotalScoreEl;
+let remainingCountEl, foundCountEl, dailyProgressEl, progressLabelEl;
+let modeStatusEl, preloadStatusEl, authStatusEl, targetLineEl, mapModeLabelEl, modeHintEl, helpTextEl;
+let attemptsBodyEl, btnATP, btnWTA, guessInput, guessBtn, userPlaceholder;
+
+/* =========================================================
+   UTILS
+========================================================= */
+function showToast(msg, t=2000){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.style.display = 'block';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.style.display = 'none', t);
+}
+
+function escapeHtml(s){
+  if(s === undefined || s === null) return '';
+  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[m]));
+}
+
+function norm(s){
+  return String(s ?? '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+}
+
+function todayStr(){
+  return new Date().toISOString().slice(0,10);
+}
+
+function currentModeKey(){
+  return `${currentTour}_country_guess`;
+}
+
+function stateKey(modeKey = currentModeKey()){
+  return `${STATE_PREFIX}:${todayStr()}:${modeKey}`;
+}
+
+function getAuthApi(){
+  return window.TA_AUTH || null;
+}
+
+function getSession(){
+  const api = getAuthApi();
+  if(api && typeof api.getSession === 'function') return api.getSession();
+  return null;
+}
+
+function displayNameFromSession(session){
+  if(!session) return '';
+  return String(session.pseudo || session.username || session.name || '').trim();
+}
+
+function isConnected(){
+  const s = getSession();
+  return !!(s && displayNameFromSession(s));
+}
+
+function setGuessEnabled(on){
+  if(guessInput) guessInput.disabled = !on;
+  if(guessBtn) guessBtn.disabled = !on;
+}
+
+function formatPoints(n){
+  const num = Number(n) || 0;
+  const rounded = Math.round(num * 100) / 100;
+  return (Math.abs(rounded - Math.round(rounded)) < 1e-9) ? String(Math.round(rounded)) : rounded.toFixed(2);
+}
+
+function modeLabel(modeKey){
+  const [tour] = modeKey.split('_');
+  return tour;
+}
+
+function normalizeIoc(code){
+  return String(code || '').trim().toUpperCase();
+}
+
+function safeArray(v){
+  return Array.isArray(v) ? v : [];
+}
+
+function targetPlayerName(target){
+  if(!target) return '—';
+  return String(target.player_name || target.name || target.full_name || '—').trim();
+}
+
+function targetPlayerId(target){
+  if(!target) return '';
+  return String(target.player_id || target.playerId || target.id || '').trim();
+}
+
+function modeCompletedSummary(){
+  const st = readStoredState(currentModeKey());
+  if(!st) return '';
+  return `${st.foundCountries?.length || 0}/${st.totalCountries || 0} countries · ${formatPoints(st.score || 0)} pts`;
+}
+
+/* =========================================================
+   STORAGE
+========================================================= */
+function readStoredState(modeKey = currentModeKey()){
+  try{
+    const raw = localStorage.getItem(stateKey(modeKey));
+    return raw ? JSON.parse(raw) : null;
+  } catch(e){
+    return null;
+  }
+}
+
+function writeStoredState(modeKey, state){
+  try{ localStorage.setItem(stateKey(modeKey), JSON.stringify(state)); } catch(e){}
+}
+
+function clearStoredState(modeKey = currentModeKey()){
+  try{ localStorage.removeItem(stateKey(modeKey)); } catch(e){}
+}
+
+function readQueue(){
+  try{ return JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]'); } catch(e){ return []; }
+}
+function pushQueue(entry){
+  try{
+    const q = readQueue();
+    q.push(Object.assign({ ts: new Date().toISOString() }, entry));
+    localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q));
+  } catch(e){}
+}
+function popQueue(){
+  try{
+    const q = readQueue();
+    if(!q.length) return;
+    q.shift();
+    localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q));
+  } catch(e){}
+}
+
+/* =========================================================
+   FETCH
+========================================================= */
+async function fetchFirstJson(urls){
+  for(const url of urls){
+    try{
+      const r = await fetch(url, { cache:'no-cache' });
+      if(!r.ok) continue;
+      return await r.json();
+    } catch(e){}
+  }
+  return null;
+}
+
+/* =========================================================
+   AUTH BOX
+========================================================= */
+function closeExistingDropdown(){
+  const existing = document.querySelector('.user-dropdown');
+  if(existing) existing.remove();
+}
+
+function renderAuthBox(){
+  const placeholder = userPlaceholder;
+  placeholder.innerHTML = '';
+  closeExistingDropdown();
+
+  const session = getSession();
+  if(session && displayNameFromSession(session)){
+    const box = document.createElement('div');
+    box.className = 'user-chip';
+    box.style.position = 'relative';
+
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar';
+    const name = displayNameFromSession(session);
+    avatar.textContent = name.split(/\s+/).map(x => x[0]).slice(0,2).join('').toUpperCase() || '??';
+
+    const nm = document.createElement('div');
+    nm.textContent = name;
+
+    box.appendChild(avatar);
+    box.appendChild(nm);
+    box.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleUserDropdown(box);
+    });
+    placeholder.appendChild(box);
+    authStatusEl.textContent = `Connected as ${name}`;
+  } else {
+    const link = document.createElement('a');
+    link.className = 'user-chip connect-link';
+    link.href = AUTH_HUB_URL;
+    link.textContent = 'Connect';
+    placeholder.appendChild(link);
+    authStatusEl.textContent = 'Not connected';
+  }
+}
+
+function toggleUserDropdown(anchor){
+  const existing = document.querySelector('.user-dropdown');
+  if(existing){ existing.remove(); return; }
+
+  const dd = document.createElement('div');
+  dd.className = 'user-dropdown';
+
+  const infoBtn = document.createElement('button');
+  infoBtn.textContent = 'Connected';
+  infoBtn.disabled = true;
+
+  const logoutBtn = document.createElement('button');
+  logoutBtn.textContent = 'Log out';
+  logoutBtn.addEventListener('click', async () => {
+    try{
+      const api = getAuthApi();
+      if(api && typeof api.logout === 'function'){
+        await api.logout();
+      } else {
+        localStorage.removeItem('ta_session_v1');
+        window.dispatchEvent(new Event('ta:auth-changed'));
+      }
+    } catch(e){}
+    dd.remove();
+    renderAuthBox();
+    gateAndMaybeStart();
+  });
+
+  dd.appendChild(infoBtn);
+  dd.appendChild(logoutBtn);
+  anchor.appendChild(dd);
+
+  const close = (ev) => {
+    if(!anchor.contains(ev.target)){
+      dd.remove();
+      document.removeEventListener('click', close);
+    }
+  };
+  setTimeout(() => document.addEventListener('click', close), 10);
+}
+
+function applyAuthGate(){
+  renderAuthBox();
+  if(!isConnected()){
+    setGuessEnabled(false);
+    preloadStatusEl.textContent = 'Connectez-vous via Tennis Arena pour jouer.';
+    targetLineEl.textContent = 'Connect to start playing.';
+    return false;
+  }
+  return true;
+}
+
+/* =========================================================
+   DATA NORMALIZATION
+========================================================= */
+function extractSourceBucket(raw, key){
+  if(!raw || typeof raw !== 'object') return [];
+  const variants = [key, key.toUpperCase(), key.toLowerCase()];
+  for(const k of variants){
+    if(Array.isArray(raw[k])) return raw[k];
+  }
+  return [];
+}
+
+function distinctCountriesFromTournaments(tournaments){
+  const set = new Set();
+  for(const t of tournaments){
+    const c = normalizeIoc(t.country);
+    if(c) set.add(c);
+  }
+  return Array.from(set).sort();
+}
+
+function sortTournaments(ts){
+  return (ts || []).slice().sort((a,b) => {
+    const ya = Number(a.year || 9999);
+    const yb = Number(b.year || 9999);
+    if(ya !== yb) return ya - yb;
+    const na = String(a.tourney_name || '');
+    const nb = String(b.tourney_name || '');
+    return na.localeCompare(nb);
+  });
+}
+
+function buildRoundPayload(target){
+  const tournaments = sortTournaments(target.tournaments || []);
+  const countries = distinctCountriesFromTournaments(tournaments);
+  return {
+    player_id: target.player_id,
+    player_name: target.player_name,
+    countries,
+    countries_count: countries.length,
+    tournaments
+  };
+}
+
+function setCurrentTarget(){
+  if(!dailyData) return;
+  const raw = dailyData[currentTour.toLowerCase()] || dailyData[currentTour.toUpperCase()] || dailyData[currentTour] || null;
+  if(!raw){
+    currentTarget = null;
+    targetCountries = new Set();
+    allTargetCountryList = [];
+    pointsPerCorrect = 0;
+    return;
+  }
+
+  const tournaments = sortTournaments(raw.tournaments || []);
+  const countries = Array.isArray(raw.countries) && raw.countries.length
+    ? raw.countries.map(normalizeIoc)
+    : distinctCountriesFromTournaments(tournaments);
+
+  currentTarget = {
+    player_id: raw.player_id || '',
+    player_name: raw.player_name || '',
+    countries,
+    countries_count: countries.length,
+    tournaments
+  };
+
+  targetCountries = new Set(countries);
+  allTargetCountryList = countries.slice();
+  pointsPerCorrect = countries.length ? (50 / countries.length) : 0;
+}
+
+/* =========================================================
+   COUNTRY MAP RESOLUTION
+========================================================= */
+function normalizeMapKey(s){
+  return norm(s).replace(/[^a-z0-9]+/g, '');
+}
+
+function lookupIocByName(candidate){
+  if(!candidate) return null;
+  const k = normalizeMapKey(candidate);
+  return countryToIoc[k] ? normalizeIoc(countryToIoc[k]) : null;
+}
+
+function resolveFeatureToIoc(props){
+  if(!props) return null;
+
+  const candidates = [
+    props.iso_a3,
+    props.adm0_a3,
+    props.sov_a3,
+    props.brk_a3,
+    props.postal,
+    props.iso_a2,
+    props.name,
+    props.name_long,
+    props.admin,
+    props.geounit,
+    props.subunit,
+    props.sovereignt,
+    props.brk_name
+  ];
+
+  for(const c of candidates){
+    if(!c) continue;
+    const raw = String(c).trim();
+    const up = raw.toUpperCase();
+
+    if(up.length === 3 && targetCountries.has(up)){
+      return up;
+    }
+
+    const byName = lookupIocByName(raw);
+    if(byName) return byName;
+
+    const byName2 = lookupIocByName(up);
+    if(byName2) return byName2;
+  }
+
+  return null;
+}
+
+/* =========================================================
+   MAP
+========================================================= */
+function countryStyle(){
+  return {
+    color: 'rgba(255,255,255,0.16)',
+    weight: 1,
+    fillColor: 'rgba(255,255,255,0.03)',
+    fillOpacity: 0.12,
+    opacity: 0.85
+  };
+}
+
+function setLayerStyleForCode(code, kind){
+  const layers = countryLayersByCode.get(code) || [];
+  for(const layer of layers){
+    try{
+      layer.setStyle({
+        color: kind === 'good' ? 'rgba(22,163,74,0.95)' : 'rgba(239,68,68,0.95)',
+        weight: 1.5,
+        fillColor: kind === 'good' ? 'rgba(22,163,74,0.70)' : 'rgba(239,68,68,0.70)',
+        fillOpacity: 0.70,
+        opacity: 0.95
+      });
+      if(kind === 'good' && layer.bringToFront) layer.bringToFront();
+    } catch(e){}
+  }
+}
+
+function resetLayerHighlights(){
+  for(const [code, layers] of countryLayersByCode.entries()){
+    const kind = foundCountries.has(code) ? 'good' : (wrongCountries.has(code) ? 'bad' : 'neutral');
+    for(const layer of layers){
+      try{
+        if(kind === 'good'){
+          layer.setStyle({ color:'rgba(22,163,74,0.95)', weight:1.5, fillColor:'rgba(22,163,74,0.70)', fillOpacity:0.70, opacity:0.95 });
+        } else if(kind === 'bad'){
+          layer.setStyle({ color:'rgba(239,68,68,0.95)', weight:1.5, fillColor:'rgba(239,68,68,0.70)', fillOpacity:0.70, opacity:0.95 });
+        } else {
+          layer.setStyle(countryStyle());
+        }
+      } catch(e){}
+    }
+  }
+}
+
+function createMap(){
+  const el = document.getElementById('map');
+  el.innerHTML = '';
+
+  if(currentMap){
+    try{ currentMap.off(); currentMap.remove(); } catch(e){}
+  }
+
+  currentMap = L.map('map', {
+    zoomControl: false,
+    dragging: false,
+    scrollWheelZoom: false,
+    doubleClickZoom: false,
+    boxZoom: false,
+    keyboard: false,
+    touchZoom: false,
+    tap: false,
+    attributionControl: false,
+    worldCopyJump: false,
+    minZoom: 2,
+    maxZoom: 2
+  });
+
+  currentMap.setView([20, 0], 2);
+  currentMap.getContainer().style.cursor = 'crosshair';
+
+  countryLayersByCode = new Map();
+  polygonByCode = new Map();
+
+  if(worldBorders && worldBorders.features){
+    geoLayer = L.geoJSON(worldBorders, {
+      style: countryStyle,
+      onEachFeature: function(feature, layer){
+        const props = feature && feature.properties ? feature.properties : {};
+        const code = resolveFeatureToIoc(props);
+        if(!code) return;
+
+        if(!countryLayersByCode.has(code)) countryLayersByCode.set(code, []);
+        countryLayersByCode.get(code).push(layer);
+
+        layer.on('click', () => handleCountryClick(code, layer, props));
+
+        layer.on('mouseover', () => {
+          if(clickedCountries.has(code)) return;
+          try{ layer.setStyle({ weight: 1.4, fillOpacity: 0.22 }); } catch(e){}
+        });
+        layer.on('mouseout', () => {
+          if(foundCountries.has(code)) return setLayerStyleForCode(code, 'good');
+          if(wrongCountries.has(code)) return setLayerStyleForCode(code, 'bad');
+          try{ layer.setStyle(countryStyle()); } catch(e){}
+        });
+      }
+    }).addTo(currentMap);
+
+    try{
+      const bounds = geoLayer.getBounds();
+      if(bounds && bounds.isValid()) currentMap.fitBounds(bounds.pad(0.02));
+    } catch(e){}
+  } else {
+    const msg = document.createElement('div');
+    msg.style.padding = '18px';
+    msg.style.color = 'var(--muted)';
+    msg.textContent = 'World borders file not found.';
+    el.appendChild(msg);
+  }
+}
+
+/* =========================================================
+   LEADERBOARD
+========================================================= */
+async function checkAlreadyPlayedToday(mode){
+  const session = getSession();
+  if(!session) return { exists:false, rows:[] };
+
+  const userId = session.id || session.user_id || null;
+  const pseudo = displayNameFromSession(session);
+  const dateStr = todayStr();
+
+  let qs = `?game_id=${encodeURIComponent(GAME_ID)}&date=${encodeURIComponent(dateStr)}&check_existing=1&mode=${encodeURIComponent(mode)}`;
+  if(userId) qs += `&user_id=${encodeURIComponent(userId)}`;
+  if(pseudo) qs += `&pseudo=${encodeURIComponent(pseudo)}`;
+
+  try{
+    const res = await fetch(`/.netlify/functions/leaderboard${qs}`, { credentials:'same-origin' });
+    if(!res.ok) return { exists:false, rows:[] };
+    const j = await res.json();
+    if(j && j.ok && j.exists) return { exists:true, rows:j.rows || [] };
+    return { exists:false, rows:j.rows || [] };
+  } catch(e){
+    console.warn('checkAlreadyPlayedToday error', e);
+    return { exists:false, rows:[] };
+  }
+}
+
+function waitForLeaderboard(timeout = 5000, interval = 200){
+  return new Promise(resolve => {
+    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function') return resolve(true);
+    const start = Date.now();
+    const t = setInterval(() => {
+      if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+        clearInterval(t);
+        resolve(true);
+      } else if(Date.now() - start > timeout){
+        clearInterval(t);
+        resolve(false);
+      }
+    }, interval);
+  });
+}
+
+async function trySubmitEntryToLB(entry){
+  const gameId = entry.gameId || GAME_ID;
+  const points = Number(entry.points) || 0;
+  const options = entry.options || {};
+  const pseudo = options.displayName || options.pseudo || null;
+  const mode = options.mode || null;
+  const meta = options.meta || null;
+
+  if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+    try {
+      const res = await window.LEADERBOARD.submitScore(gameId, points, options);
+      if(res && (res.ok === true || res.success === true || res.status === 'ok')) return true;
+      if(res && res.ok === false && res.error && String(res.error).toLowerCase().includes('already_submitted')) return true;
+    } catch(err){}
+  }
+
+  const payload = {
+    game_id: gameId,
+    points,
+    pseudo,
+    mode,
+    meta: (typeof meta === 'string' ? meta : (meta ? JSON.stringify(meta) : null)),
+    ts: new Date().toISOString()
+  };
+
+  try{
+    const resp = await fetch('/.netlify/functions/submit-score', {
+      method:'POST',
+      credentials:'same-origin',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const text = await resp.text().catch(() => null);
+    let parsed = null;
+    try{ parsed = text ? JSON.parse(text) : null; } catch(e){ parsed = text; }
+    if(resp.ok) return true;
+    if(resp.status === 409 || (parsed && parsed.detail && String(parsed.detail.code) === '23505') || (parsed && parsed.error && String(parsed.error).toLowerCase().includes('duplicate'))){
+      return true;
+    }
+    return false;
+  } catch(fetchErr){
+    return false;
+  }
+}
+
+async function submitScoreToLeaderboard(points, meta = {}){
+  const session = getSession();
+  const displayName = displayNameFromSession(session);
+  const options = {
+    mode: currentModeKey(),
+    meta: JSON.stringify(meta || {}),
+    displayName
+  };
+
+  const ready = await waitForLeaderboard(3000);
+  const entry = { gameId: GAME_ID, points, options };
+
+  if(ready){
+    const ok = await trySubmitEntryToLB(entry);
+    if(ok){
+      setTimeout(flushScoreQueue, 250);
+      return true;
+    }
+  }
+
+  pushQueue(entry);
+  setTimeout(flushScoreQueue, 1000);
+  return false;
+}
+
+async function flushScoreQueue(){
+  const queue = readQueue();
+  if(!queue.length) return;
+  const ready = await waitForLeaderboard(5000);
+  if(!ready) return;
+
+  for(let i = 0; i < 50; i++){
+    const q = readQueue();
+    if(!q.length) break;
+    const ok = await trySubmitEntryToLB(q[0]);
+    if(ok) popQueue(); else break;
+  }
+}
+
+(function watchForLeaderboardInit(){
+  if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+    setTimeout(flushScoreQueue, 300);
+    return;
+  }
+  const poll = setInterval(() => {
+    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+      clearInterval(poll);
+      setTimeout(flushScoreQueue, 200);
+    }
+  }, 250);
+})();
+
+/* =========================================================
+   RENDER / UI
+========================================================= */
+function updateStats(){
+  chipTourEl.textContent = currentTour;
+  chipPlayerEl.textContent = currentTarget ? targetPlayerName(currentTarget) : '—';
+  chipCountriesEl.textContent = String(targetCountries.size || 0);
+  chipRoundScoreEl.textContent = formatPoints(currentRoundScore);
+  currentDailyScore = currentDailyScoreFromStorage();
+  chipTotalScoreEl.textContent = formatPoints(currentDailyScore);
+  remainingCountEl.textContent = String(attemptsLeft);
+  foundCountEl.textContent = `${foundCountries.size} / ${targetCountries.size}`;
+  mapModeLabelEl.textContent = currentTour;
+  progressLabelEl.textContent = `${completedModesCount()} / 2 modes completed`;
+  const pct = Math.min(100, (currentDailyScore / MAX_DAILY_POINTS) * 100);
+  dailyProgressEl.style.width = `${pct}%`;
+  modeHintEl.textContent = completedThisMode ? 'This mode is finished.' : 'Click countries on the map.';
+}
+
+function completedModesCount(){
+  let n = 0;
+  for(const m of MODES){
+    const st = readStoredState(`${m}_country_guess`);
+    if(st && st.completed && st.submitted) n += 1;
+  }
+  return n;
+}
+
+function renderModePills(){
+  modeStatusEl.innerHTML = '';
+  for(const m of MODES){
+    const st = readStoredState(`${m}_country_guess`);
+    const pill = document.createElement('div');
+    pill.className = 'mode-pill';
+    if(m === currentTour) pill.classList.add('active');
+    if(st && st.completed && st.submitted){
+      pill.classList.add('done');
+      pill.textContent = `${m} ✓ ${formatPoints(st.score || 0)}`;
+    } else if(st && st.foundCountries && st.foundCountries.length){
+      pill.classList.add('locked');
+      pill.textContent = `${m} · in progress`;
+    } else {
+      pill.textContent = `${m}`;
+    }
+    pill.addEventListener('click', () => switchMode(m));
+    modeStatusEl.appendChild(pill);
+  }
+}
+
+function renderAttempts(){
+  attemptsBodyEl.innerHTML = '';
+  const items = [];
+  for(const c of allTargetCountryList){
+    items.push({ code: c, status: foundCountries.has(c) ? 'good' : (wrongCountries.has(c) ? 'bad' : '') });
+  }
+  for(let i = 0; i < items.length; i++){
+    const it = items[i];
+    const tr = document.createElement('tr');
+    const td1 = document.createElement('td'); td1.textContent = String(i + 1);
+    const td2 = document.createElement('td'); td2.textContent = it.code;
+    const td3 = document.createElement('td');
+    if(it.status === 'good') td3.innerHTML = '<span style="color:var(--good);font-weight:800">OK</span>';
+    else if(it.status === 'bad') td3.innerHTML = '<span style="color:var(--bad);font-weight:800">MISS</span>';
+    else td3.innerHTML = '<span style="color:var(--muted)">—</span>';
+    tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3);
+    attemptsBodyEl.appendChild(tr);
+  }
+}
+
+function showAlreadyPlayedModal(check, mode){
+  completedThisMode = true;
+  submittedThisMode = true;
+  setGuessEnabled(false);
+
+  const modal = document.getElementById('modal');
+  const title = document.getElementById('modalTitle');
+  const text = document.getElementById('modalText');
+  const details = document.getElementById('modalDetails');
+
+  title.textContent = 'Already completed';
+  text.textContent = `You have already completed this variant today (${mode}). You cannot replay the same variant today.`;
+
+  let infoHtml = `<div style="text-align:left;margin-top:12px;color:var(--muted)">`;
+  if(check && check.rows && check.rows.length){
+    for(const r of check.rows.slice(0,5)){
+      infoHtml += `<div style="margin-bottom:6px"><strong>Points:</strong> ${escapeHtml(r.points || 0)} — <strong>Mode:</strong> ${escapeHtml(r.mode || '—')} — <strong>At:</strong> ${escapeHtml(r.created_at || '—')}</div>`;
+    }
+  } else {
+    infoHtml += `<div>No details available.</div>`;
+  }
+  infoHtml += `</div>`;
+
+  details.innerHTML = infoHtml;
+  modal.classList.add('show');
+  modal.setAttribute('aria-hidden','false');
+}
+
+function revealRound(won, points){
+  const modal = document.getElementById('modal');
+  const title = document.getElementById('modalTitle');
+  const text = document.getElementById('modalText');
+  const details = document.getElementById('modalDetails');
+
+  title.textContent = won ? 'You won!' : 'Round over';
+  text.textContent = won ? `You earned ${formatPoints(points)} points.` : `You earned ${formatPoints(points)} points.`;
+
+  details.innerHTML = `
+    <div style="text-align:left;color:var(--muted)">
+      <div style="font-weight:800;color:#fff;margin-bottom:6px">${escapeHtml(targetPlayerName(currentTarget))}</div>
+      <div>Tour: <strong>${escapeHtml(currentTour)}</strong></div>
+      <div>Countries found: <strong>${foundCountries.size} / ${targetCountries.size}</strong></div>
+      <div>Points per correct country: <strong>${formatPoints(pointsPerCorrect)}</strong></div>
+    </div>
+  `;
+
+  modal.classList.add('show');
+  modal.setAttribute('aria-hidden','false');
+}
+
+function hideModal(){
+  const modal = document.getElementById('modal');
+  modal.classList.remove('show');
+  modal.setAttribute('aria-hidden','true');
+}
+
+async function finalizeRound(won){
+  if(completedThisMode) return;
+  completedThisMode = true;
+  roundStarted = false;
+  setGuessEnabled(false);
+  saveState({ completed: true, submitted: submittedThisMode, score: currentRoundScore });
+  revealRound(won, currentRoundScore);
+
+  const meta = {
+    won: !!won,
+    tour: currentTour,
+    target_id: targetPlayerId(currentTarget),
+    target_name: targetPlayerName(currentTarget),
+    countries_count: targetCountries.size,
+    found_count: foundCountries.size,
+    attempts_left: attemptsLeft,
+    score: currentRoundScore,
+    mode: currentModeKey()
+  };
+
+  const ok = await submitScoreToLeaderboard(currentRoundScore, meta);
+  submittedThisMode = !!ok || true;
+  saveState({ completed: true, submitted: true, score: currentRoundScore });
+  updateStats();
+  renderModePills();
+}
+
+function saveState(extra = {}){
+  const st = Object.assign({
+    date: todayStr(),
+    mode: currentModeKey(),
+    target_id: targetPlayerId(currentTarget),
+    target_name: targetPlayerName(currentTarget),
+    target_countries: allTargetCountryList.slice(),
+    foundCountries: Array.from(foundCountries),
+    wrongCountries: Array.from(wrongCountries),
+    clickedCountries: Array.from(clickedCountries),
+    attemptsLeft,
+    score: currentRoundScore,
+    totalCountries: targetCountries.size,
+    completed: completedThisMode,
+    submitted: submittedThisMode,
+    pointsPerCorrect,
+    last_updated: new Date().toISOString()
+  }, extra);
+  writeStoredState(currentModeKey(), st);
+  updateStats();
+  renderModePills();
+  return st;
+}
+
+function clearRoundState(){
+  foundCountries = new Set();
+  wrongCountries = new Set();
+  clickedCountries = new Set();
+  attemptsLeft = targetCountries.size;
+  currentRoundScore = 0;
+  completedThisMode = false;
+  submittedThisMode = false;
+  renderAttempts();
+  updateStats();
+}
+
+function restoreStateFromStorage(){
+  const st = readStoredState(currentModeKey());
+  if(!st || st.date !== todayStr()) return false;
+
+  restoringState = true;
+  foundCountries = new Set(safeArray(st.foundCountries).map(normalizeIoc));
+  wrongCountries = new Set(safeArray(st.wrongCountries).map(normalizeIoc));
+  clickedCountries = new Set(safeArray(st.clickedCountries).map(normalizeIoc));
+  attemptsLeft = Number.isFinite(Number(st.attemptsLeft)) ? Number(st.attemptsLeft) : targetCountries.size;
+  currentRoundScore = Number(st.score || 0);
+  completedThisMode = !!st.completed;
+  submittedThisMode = !!st.submitted;
+  pointsPerCorrect = Number(st.pointsPerCorrect || pointsPerCorrect || 0);
+  renderAttempts();
+  resetLayerHighlights();
+  updateStats();
+  restoringState = false;
+  return true;
+}
+
+/* =========================================================
+   GAME LOGIC
+========================================================= */
+function handleCountryClick(code, layer, props){
+  if(!isConnected()){
+    showToast('Connectez-vous via Tennis Arena');
+    return;
+  }
+  if(completedThisMode){
+    showToast('This mode is already completed.');
+    return;
+  }
+  if(attemptsLeft <= 0){
+    showToast('No clicks left.');
+    return;
+  }
+
+  const countryCode = normalizeIoc(code);
+  if(!countryCode) return;
+  if(clickedCountries.has(countryCode)){
+    showToast('Already clicked.');
+    return;
+  }
+
+  clickedCountries.add(countryCode);
+  attemptsLeft = Math.max(0, attemptsLeft - 1);
+
+  const isCorrect = targetCountries.has(countryCode);
+  if(isCorrect){
+    foundCountries.add(countryCode);
+    setLayerStyleForCode(countryCode, 'good');
+    currentRoundScore += pointsPerCorrect;
+    showToast(`Correct: ${countryCode} (+${formatPoints(pointsPerCorrect)})`);
+  } else {
+    wrongCountries.add(countryCode);
+    setLayerStyleForCode(countryCode, 'bad');
+    showToast(`Wrong: ${countryCode}`);
+  }
+
+  renderAttempts();
+  saveState();
+
+  if(foundCountries.size >= targetCountries.size){
+    finalizeRound(true);
+    return;
+  }
+
+  if(attemptsLeft <= 0){
+    finalizeRound(false);
+    return;
+  }
+}
+
+async function startMode(mode, checkLeaderboard=true){
+  currentTour = mode;
+  setCurrentTarget();
+
+  if(!currentTarget){
+    preloadStatusEl.textContent = `No target available for ${mode}.`;
+    targetLineEl.textContent = 'No target available.';
+    return;
+  }
+
+  chipTourEl.textContent = currentTour;
+  chipPlayerEl.textContent = targetPlayerName(currentTarget);
+  chipCountriesEl.textContent = String(targetCountries.size);
+  mapModeLabelEl.textContent = currentTour;
+  targetLineEl.textContent = `${targetPlayerName(currentTarget)} — ${targetCountries.size} countries to find.`;
+  helpTextEl.innerHTML = `Le joueur du jour pour <strong>${currentTour}</strong> est <strong>${escapeHtml(targetPlayerName(currentTarget))}</strong>. Clique sur tous les pays où il/elle a gagné un tournoi.`;
+
+  const existing = readStoredState(currentModeKey());
+  if(existing && existing.date === todayStr() && existing.completed && existing.submitted){
+    foundCountries = new Set(safeArray(existing.foundCountries).map(normalizeIoc));
+    wrongCountries = new Set(safeArray(existing.wrongCountries).map(normalizeIoc));
+    clickedCountries = new Set(safeArray(existing.clickedCountries).map(normalizeIoc));
+    attemptsLeft = Number(existing.attemptsLeft || 0);
+    currentRoundScore = Number(existing.score || 0);
+    completedThisMode = true;
+    submittedThisMode = true;
+    renderAttempts();
+    createMap();
+    resetLayerHighlights();
+    setGuessEnabled(false);
+    updateStats();
+    showAlreadyPlayedModal({ ok:true, exists:true, rows:[] }, currentModeKey());
+    preloadStatusEl.textContent = `Already completed today: ${modeCompletedSummary()}`;
+    return;
+  }
+
+  if(checkLeaderboard && isConnected()){
+    preloadStatusEl.textContent = 'Checking if you already played this mode today...';
+    const check = await checkAlreadyPlayedToday(currentModeKey());
+    if(check && check.exists){
+      showAlreadyPlayedModal(check, currentModeKey());
+      return;
+    }
+  }
+
+  if(!restoreStateFromStorage()){
+    clearRoundState();
+    saveState();
+  }
+
+  createMap();
+  resetLayerHighlights();
+  setGuessEnabled(true);
+  roundStarted = true;
+  preloadStatusEl.textContent = `${currentTour} ready — click countries. ${attemptsLeft} guesses left.`;
+  updateStats();
+  renderModePills();
+}
+
+async function switchMode(mode){
+  if(mode === currentTour && roundStarted) return;
+  saveState();
+  currentTour = mode;
+  btnATP.classList.toggle('active', currentTour === 'ATP');
+  btnWTA.classList.toggle('active', currentTour === 'WTA');
+  updateStats();
+  await startMode(mode, true);
+}
+
+function gateAndMaybeStart(){
+  renderAuthBox();
+  if(!isConnected()){
+    setGuessEnabled(false);
+    preloadStatusEl.textContent = 'Connectez-vous via Tennis Arena pour jouer.';
+    targetLineEl.textContent = 'Connect to start playing.';
+    return;
+  }
+  startApp();
+}
+
+/* =========================================================
+   LOAD DATA
+========================================================= */
+async function loadDailyData(){
+  const j = await fetchFirstJson(PLAYERS_JSON_URLS);
+  if(!j) return false;
+  dailyData = j;
+  dailyData.atp = dailyData.atp || dailyData.ATP || [];
+  dailyData.wta = dailyData.wta || dailyData.WTA || [];
+  return true;
+}
+
+async function loadCountryMap(){
+  const j = await fetchFirstJson(COUNTRY_MAP_URLS);
+  if(!j) return false;
+  countryToIoc = {};
+  for(const [k,v] of Object.entries(j)){
+    countryToIoc[normalizeMapKey(k)] = String(v || '').trim().toUpperCase();
+  }
+  return true;
+}
+
+async function loadWorldBorders(){
+  const j = await fetchFirstJson(WORLD_BORDERS_URLS);
+  if(!j) return false;
+  worldBorders = j;
+  return true;
+}
+
+/* =========================================================
+   INIT
+========================================================= */
+function bindControls(){
+  btnATP.addEventListener('click', () => switchMode('ATP'));
+  btnWTA.addEventListener('click', () => switchMode('WTA'));
+  document.getElementById('closeModalBtn').addEventListener('click', hideModal);
+}
+
+async function startApp(){
+  if(!assetsReady) return;
+  if(!applyAuthGate()) return;
+
+  updateStats();
+  renderModePills();
+
+  const mode = currentTour;
+  const existing = readStoredState(currentModeKey());
+  if(existing && existing.date === todayStr() && existing.completed && existing.submitted){
+    showAlreadyPlayedModal({ ok:true, exists:true, rows:[] }, currentModeKey());
+    return;
+  }
+
+  if(existing && existing.date === todayStr() && !existing.completed){
+    await startMode(mode, true);
+    preloadStatusEl.textContent = `Restored ${mode}: ${modeCompletedSummary() || 'in progress'}`;
+  } else {
+    await startMode(mode, true);
+  }
+}
+
+async function init(){
+  chipTourEl = document.getElementById('chipTour');
+  chipPlayerEl = document.getElementById('chipPlayer');
+  chipCountriesEl = document.getElementById('chipCountries');
+  chipRoundScoreEl = document.getElementById('chipRoundScore');
+  chipTotalScoreEl = document.getElementById('chipTotalScore');
+  remainingCountEl = document.getElementById('remainingCount');
+  foundCountEl = document.getElementById('foundCount');
+  dailyProgressEl = document.getElementById('dailyProgress');
+  progressLabelEl = document.getElementById('progressLabel');
+  modeStatusEl = document.getElementById('modeStatus');
+  preloadStatusEl = document.getElementById('preloadStatus');
+  authStatusEl = document.getElementById('authStatus');
+  targetLineEl = document.getElementById('targetLine');
+  mapModeLabelEl = document.getElementById('mapModeLabel');
+  modeHintEl = document.getElementById('modeHint');
+  helpTextEl = document.getElementById('helpText');
+  attemptsBodyEl = document.getElementById('attemptsBody');
+  btnATP = document.getElementById('btnATP');
+  btnWTA = document.getElementById('btnWTA');
+  guessInput = null;
+  guessBtn = null;
+  userPlaceholder = document.getElementById('userPlaceholder');
+
+  bindControls();
+  renderAuthBox();
+
+  const okData = await loadDailyData();
+  const okMap = await loadWorldBorders();
+  const okCountries = await loadCountryMap();
+  assetsReady = !!(okData && okMap && okCountries);
+
+  if(!okData){
+    preloadStatusEl.textContent = 'daily_country_guess.json missing or malformed.';
+    helpTextEl.textContent = 'Le fichier quotidien n’a pas pu être chargé.';
+    return;
+  }
+  if(!okCountries){
+    preloadStatusEl.textContent = 'country_to_ioc.json missing or malformed.';
+  }
+  if(!okMap){
+    preloadStatusEl.textContent = 'World borders file missing.';
+  }
+
+  btnATP.classList.toggle('active', currentTour === 'ATP');
+  btnWTA.classList.toggle('active', currentTour === 'WTA');
+
+  if(isConnected()){
+    await startApp();
+  } else {
+    applyAuthGate();
+  }
+
+  const authApi = getAuthApi();
+  if(authApi && typeof authApi.onAuthChange === 'function'){
+    authApi.onAuthChange(async () => {
+      renderAuthBox();
+      if(isConnected()){
+        await startApp();
+      } else {
+        setGuessEnabled(false);
+        targetLineEl.textContent = 'Connect to start playing.';
+      }
+    });
+  } else {
+    window.addEventListener('storage', () => {
+      renderAuthBox();
+      if(isConnected()){
+        startApp();
+      } else {
+        setGuessEnabled(false);
+        targetLineEl.textContent = 'Connect to start playing.';
+      }
+    });
+  }
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
