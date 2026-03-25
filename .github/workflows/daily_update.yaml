@@ -6,8 +6,8 @@ permissions:
 on:
   schedule:
     # Deux crons UTC pour couvrir l'alternance CET/CEST.
-    - cron: '30 22 * * *'  # 22:30 UTC => ~00:30 Europe/Paris (hiver/été selon DST)
-    - cron: '30 23 * * *'  # 23:30 UTC => ~00:30 Europe/Paris (hiver/été selon DST)
+    - cron: '30 22 * * *'  # ~00:30 Europe/Paris
+    - cron: '30 23 * * *'  # ~00:30 Europe/Paris
   workflow_dispatch: {}
 
 jobs:
@@ -29,38 +29,37 @@ jobs:
           echo "Workspace: $GITHUB_WORKSPACE"
           ls -la | sed -n '1,200p'
 
-
-      - name: Wait for existing update_tournament runs to finish (safety) 
+      - name: Wait for existing update_tournament runs to finish (safety)
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_UPDATE_TOURNAMENT || secrets.GITHUB_TOKEN }}
           OWNER: ${{ github.repository_owner }}
           REPO: ${{ github.repository }}
-          WORKFLOW_FILE: update_tournament.yml   # <-- ADAPTE le nom exact du fichier workflow
-          WAIT_TIMEOUT_MIN: 10                  # <-- augmente si tu veux attendre plus longtemps
+          WORKFLOW_FILE: update_tournament.yml
+          WAIT_TIMEOUT_MIN: 10
         run: |
           set -euo pipefail
           AUTH_HEADER="Authorization: token ${GITHUB_TOKEN}"
           timeout=$(( WAIT_TIMEOUT_MIN * 60 ))
           interval=5
           elapsed=0
-      
+
           echo "Polling workflow runs for ${WORKFLOW_FILE} in ${OWNER}/${REPO} (status=in_progress)..."
           while :; do
-            # Query runs with status=in_progress for that workflow file
             api="https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/${WORKFLOW_FILE}/runs?status=in_progress"
             out=$(curl -s -H "$AUTH_HEADER" "$api")
-            # Extract "total_count" with a simple sed (avoid jq dependency)
             total=$(echo "$out" | sed -n 's/.*"total_count":[[:space:]]*\([0-9]\+\).*/\1/p' || echo 0)
             total=${total:-0}
+
             if [ "$total" -eq 0 ]; then
               echo "No in-progress runs of ${WORKFLOW_FILE} found. OK to proceed."
               break
             fi
+
             echo "Found ${total} in-progress run(s). Waiting ${interval}s..."
             sleep "$interval"
             elapsed=$(( elapsed + interval ))
             if [ $elapsed -ge $timeout ]; then
-              echo "Timeout waiting for other runs to finish (waited ${elapsed}s). Aborting to avoid race conditions."
+              echo "Timeout waiting for other runs to finish (waited ${elapsed}s). Aborting."
               exit 1
             fi
           done
@@ -75,7 +74,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # debug: report which env vars are present (no secret values printed)
           echo "ENV presence check:"
           if [ -z "${GITHUB_TOKEN:-}" ]; then echo "  GITHUB_TOKEN: MISSING"; else echo "  GITHUB_TOKEN: PRESENT"; fi
           if [ -z "${PAT_FOR_CI:-}" ]; then echo "  PAT_FOR_CI: MISSING"; else echo "  PAT_FOR_CI: PRESENT"; fi
@@ -84,29 +82,28 @@ jobs:
           echo "--- now calling check_and_dispatch_update_tournament.py ---"
           python3 scripts/check_and_dispatch_update_tournament.py
 
-
       - name: Decide whether to proceed (Europe/Paris hour in [00:00..00:59])
         id: check_time
         run: |
           python - <<'PY'
           import os
           from datetime import datetime, timezone
+
           try:
               from zoneinfo import ZoneInfo
               tz = ZoneInfo("Europe/Paris")
               now = datetime.now(tz)
           except Exception:
-              # Fallback to UTC (extremely unlikely on ubuntu-latest)
               now = datetime.now(timezone.utc)
+
           print("Europe/Paris now:", now.isoformat())
           proceed = (now.hour == 0)
-          # expose outputs for subsequent steps
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
               fh.write(f"proceed={str(proceed).lower()}\n")
               fh.write(f"local_time_iso={now.isoformat()}\n")
           PY
 
-      # Les étapes réelles s'exécutent soit si run manuel, soit si check_time.proceed == true
       - name: Setup Python
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         uses: actions/setup-python@v4
@@ -117,201 +114,154 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
           python -m pip install --upgrade pip
-          # ajouter d'autres dépendances si nécessaires
 
-      - name: Generate birthday_today.json and game assets (daily_guess, players_catalog, geocodes_combined, selected_players, fill_the_grid)
+      - name: Prepare tmp branch from origin/main
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_UPDATE_TOURNAMENT || secrets.GITHUB_TOKEN }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          TOUR_TYPE: ${{ github.event.inputs.tour_type }}
+        run: |
+          set -euo pipefail
+
+          AUTH="${GITHUB_TOKEN:-}"
+          if [ -z "$AUTH" ]; then
+            echo "No auth token available — aborting"
+            exit 1
+          fi
+
+          TOUR_TYPE="${TOUR_TYPE:-daily}"
+          TOUR_TYPE="$(printf '%s' "$TOUR_TYPE" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's#[^a-z0-9._-]+#-#g; s#^-+##; s#-+$##')"
+          if [ -z "$TOUR_TYPE" ]; then
+            TOUR_TYPE="daily"
+          fi
+
+          TMP_BRANCH="update/${TOUR_TYPE}/${GITHUB_RUN_ID}"
+          echo "TOUR_TYPE=${TOUR_TYPE}" >> "$GITHUB_ENV"
+          echo "TMP_BRANCH=${TMP_BRANCH}" >> "$GITHUB_ENV"
+          echo "TMP_BRANCH=${TMP_BRANCH}"
+
+          git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}" || true
+          git fetch origin main --quiet || true
+
+          if git rev-parse --verify origin/main >/dev/null 2>&1; then
+            git checkout -B "${TMP_BRANCH}" origin/main
+          else
+            git checkout -B "${TMP_BRANCH}"
+          fi
+
+          echo "On branch: $(git branch --show-current)"
+          git status --porcelain || true
+
+      - name: Generate birthday_today.json and game assets
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
-          set -euxo pipefail
-          mkdir -p "${BUILD_DIR}/tools"
+          set -euo pipefail
 
-          # existing birthday generation (ton script actuel)
+          mkdir -p "${BUILD_DIR}/tools"
+          mkdir -p docs/tools site_static/tools
+          mkdir -p docs/games site_static/games
+
           python scripts/generate_birthday_box.py \
             --players-by-birth docs/tools/players_by_birth.json \
             --latest-atp docs/tools/latest_atp_ranking.json \
             --latest-wta docs/tools/latest_wta_ranking.json \
-            --out "${BUILD_DIR}/tools/birthday_today.json" || true
+            --out "${BUILD_DIR}/tools/birthday_today.json"
+          test -f "${BUILD_DIR}/tools/birthday_today.json"
 
-          # NEW: generate daily guess + players catalog + geocodes combined
           python scripts/generate_daily_guess.py \
             --atp player_data_atp.csv \
             --wta player_data_wta.csv \
             --geocodes-dir maps_html \
             --out-daily "${BUILD_DIR}/tools/daily_guess.json" \
             --out-players "${BUILD_DIR}/tools/players_catalog.json" \
-            --out-geocodes "${BUILD_DIR}/tools/geocodes_combined.json" || true
+            --out-geocodes "${BUILD_DIR}/tools/geocodes_combined.json"
+          test -f "${BUILD_DIR}/tools/daily_guess.json"
+          test -f "${BUILD_DIR}/tools/players_catalog.json"
+          test -f "${BUILD_DIR}/tools/geocodes_combined.json"
 
-          # NEW ADDITION: run the H2H daily selection script (produit docs/selected_players.json)
           python scripts/generate_daily_guess_h2h.py \
             --atp player_data_atp.csv \
             --wta player_data_wta.csv \
             --out-dir "${BUILD_DIR}/tools" \
             --out-json "${BUILD_DIR}/tools/selected_players.json"
+          test -f "${BUILD_DIR}/tools/selected_players.json"
 
           python scripts/generate_daily_city_guess.py \
             --json-base docs/data/tournaments/json_by_tournaments \
             --out "${BUILD_DIR}/tools/daily_city_guess.json" \
-            --count 5 
-
-          echo ">>> daily_city_guess output:"
-            ls -la "${BUILD_DIR}/tools" || true
-            test -f "${BUILD_DIR}/tools/daily_city_guess.json" && echo "daily_city_guess.json created" || echo "daily_city_guess.json missing"
-
-
-
+            --count 5
+          test -f "${BUILD_DIR}/tools/daily_city_guess.json"
 
           python scripts/generate_daily_country_guess.py \
             --json-base docs/data/tournaments/json_by_tournaments \
             --out "${BUILD_DIR}/tools/daily_country_guess.json"
+          test -f "${BUILD_DIR}/tools/daily_country_guess.json"
 
-          # NEW: select 3 WTA + 3 ATP winners with random difficulties
           python scripts/generate_daily_selected_winners.py \
             --wta docs/tools/wta_players_tournaments_win.json \
             --atp docs/tools/atp_players_tournaments_win.json \
-            --out "${BUILD_DIR}/tools/daily_selected_winners.json" || true
+            --out "${BUILD_DIR}/tools/daily_selected_winners.json"
+          test -f "${BUILD_DIR}/tools/daily_selected_winners.json"
 
-          # NEW: generate aggregates and grids for "fill the grid" game
-          python scripts/generate_pre_json_grid.py || true
-          python scripts/generate_grid.py || true
+          python scripts/generate_pre_json_grid.py
+          python scripts/generate_grid.py
 
-          echo ">>> After generation: listing possible locations"
-          echo "BUILD_DIR/tools:"
+          echo ">>> Generated in BUILD_DIR/tools:"
           ls -la "${BUILD_DIR}/tools" || true
-          echo "docs:"
-          ls -la docs || true
-          echo "docs/tools:"
-          ls -la docs/tools || true
-          echo "site_static/tools:"
-          ls -la site_static/tools || true
-          echo "docs/games:"
+          echo ">>> Generated/updated in docs/games:"
           ls -la docs/games || true
-          echo "site_static/games:"
-          ls -la site_static/games || true
 
-
-          
-
-      - name: Copy into site_static/tools (for site serving)
+      - name: Copy generated files to repo locations
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
-          set -euxo pipefail
-          mkdir -p site_static/tools
-          mkdir -p docs/tools
-          mkdir -p docs/games
-          mkdir -p site_static/games
+          set -euo pipefail
 
-          # birthday_today.json (canonical)
-          if [ -f "${BUILD_DIR}/tools/birthday_today.json" ]; then
-            cp -v "${BUILD_DIR}/tools/birthday_today.json" docs/tools/birthday_today.json || true
-            cp -v "${BUILD_DIR}/tools/birthday_today.json" site_static/tools/birthday_today.json || true
-          elif [ -f "docs/tools/birthday_today.json" ]; then
-            cp -v "docs/tools/birthday_today.json" site_static/tools/birthday_today.json || true
-          else
-            echo "Aucun birthday_today.json généré trouvé"
-          fi
+          mkdir -p docs/tools site_static/tools
+          mkdir -p docs/games site_static/games
 
-          # daily_city_guess.json
-            if [ -f "${BUILD_DIR}/tools/daily_city_guess.json" ]; then
-              cp -v "${BUILD_DIR}/tools/daily_city_guess.json" docs/tools/daily_city_guess.json || true
-              cp -v "${BUILD_DIR}/tools/daily_city_guess.json" site_static/tools/daily_city_guess.json || true
-            elif [ -f "docs/tools/daily_city_guess.json" ]; then
-              cp -v "docs/tools/daily_city_guess.json" site_static/tools/daily_city_guess.json || true
+          copy_tool() {
+            local name="$1"
+            local src="${BUILD_DIR}/tools/${name}.json"
+            test -f "$src"
+            cp -v "$src" "docs/tools/${name}.json"
+            cp -v "$src" "site_static/tools/${name}.json"
+          }
+
+          copy_game_if_exists() {
+            local name="$1"
+            local src="docs/games/${name}.json"
+            if [ -f "$src" ]; then
+              cp -v "$src" "site_static/games/${name}.json"
             else
-              echo "Aucun daily_city_guess.json généré trouvé"
+              echo "[WARN] Missing game file: $src"
             fi
+          }
 
-          # daily_guess.json
-          if [ -f "${BUILD_DIR}/tools/daily_guess.json" ]; then
-            cp -v "${BUILD_DIR}/tools/daily_guess.json" docs/tools/daily_guess.json || true
-            cp -v "${BUILD_DIR}/tools/daily_guess.json" site_static/tools/daily_guess.json || true
-          elif [ -f "docs/tools/daily_guess.json" ]; then
-            cp -v "docs/tools/daily_guess.json" site_static/tools/daily_guess.json || true
-          else
-            echo "Aucun daily_guess.json généré trouvé"
-          fi
+          copy_tool birthday_today
+          copy_tool daily_guess
+          copy_tool players_catalog
+          copy_tool geocodes_combined
+          copy_tool selected_players
+          copy_tool daily_city_guess
+          copy_tool daily_country_guess
+          copy_tool daily_selected_winners
 
+          copy_game_if_exists aggregate_ATP_reduced
+          copy_game_if_exists aggregate_WTA_reduced
+          copy_game_if_exists fill_the_grid_ATP
+          copy_game_if_exists fill_the_grid_WTA
+          copy_game_if_exists grid_history
 
-          # daily_country_guess.json
-          if [ -f "${BUILD_DIR}/tools/daily_country_guess.json" ]; then
-            cp -v "${BUILD_DIR}/tools/daily_country_guess.json" docs/tools/daily_country_guess.json || true
-            cp -v "${BUILD_DIR}/tools/daily_country_guess.json" site_static/tools/daily_country_guess.json || true
-          elif [ -f "docs/tools/daily_country_guess.json" ]; then
-            cp -v "docs/tools/daily_country_guess.json" site_static/tools/daily_country_guess.json || true
-          else
-            echo "Aucun daily_country_guess.json généré trouvé"
-          fi
-
-          # players_catalog.json
-          if [ -f "${BUILD_DIR}/tools/players_catalog.json" ]; then
-            cp -v "${BUILD_DIR}/tools/players_catalog.json" docs/tools/players_catalog.json || true
-            cp -v "${BUILD_DIR}/tools/players_catalog.json" site_static/tools/players_catalog.json || true
-          elif [ -f "docs/tools/players_catalog.json" ]; then
-            cp -v "docs/tools/players_catalog.json" site_static/tools/players_catalog.json || true
-          else
-            echo "Aucun players_catalog.json généré trouvé"
-          fi
-
-          # geocodes_combined.json
-          if [ -f "${BUILD_DIR}/tools/geocodes_combined.json" ]; then
-            cp -v "${BUILD_DIR}/tools/geocodes_combined.json" docs/tools/geocodes_combined.json || true
-            cp -v "${BUILD_DIR}/tools/geocodes_combined.json" site_static/tools/geocodes_combined.json || true
-          elif [ -f "docs/tools/geocodes_combined.json" ]; then
-            cp -v "docs/tools/geocodes_combined.json" site_static/tools/geocodes_combined.json || true
-          else
-            echo "Aucun geocodes_combined.json généré trouvé"
-          fi
-
-          # NEW: selected_players.json from generate_daily_guess_h2h.py
-          if [ -f "${BUILD_DIR}/tools/selected_players.json" ]; then
-            cp -v "${BUILD_DIR}/tools/selected_players.json" docs/tools/selected_players.json || true
-            cp -v "${BUILD_DIR}/tools/selected_players.json" site_static/tools/selected_players.json || true
-          elif [ -f "docs/selected_players.json" ]; then
-            cp -v "docs/selected_players.json" docs/tools/selected_players.json || true
-            cp -v "docs/selected_players.json" site_static/tools/selected_players.json || true
-          elif [ -f "docs/tools/selected_players.json" ]; then
-            cp -v "docs/tools/selected_players.json" site_static/tools/selected_players.json || true
-          else
-            echo "Aucun selected_players.json généré trouvé"
-          fi
-
-
-          # NEW: daily_selected_winners.json
-          if [ -f "${BUILD_DIR}/tools/daily_selected_winners.json" ]; then
-            cp -v "${BUILD_DIR}/tools/daily_selected_winners.json" docs/tools/daily_selected_winners.json || true
-            cp -v "${BUILD_DIR}/tools/daily_selected_winners.json" site_static/tools/daily_selected_winners.json || true
-          elif [ -f "docs/tools/daily_selected_winners.json" ]; then
-            cp -v "docs/tools/daily_selected_winners.json" site_static/tools/daily_selected_winners.json || true
-          else
-            echo "Aucun daily_selected_winners.json généré trouvé"
-          fi
-
-          # NEW: copy fill the grid outputs and aggregates (docs/games -> site_static/games)
-          if [ -f "docs/games/aggregate_ATP_reduced.json" ]; then
-            cp -v "docs/games/aggregate_ATP_reduced.json" site_static/games/aggregate_ATP_reduced.json || true
-          else
-            echo "Aucun docs/games/aggregate_ATP_reduced.json trouvé"
-          fi
-          if [ -f "docs/games/aggregate_WTA_reduced.json" ]; then
-            cp -v "docs/games/aggregate_WTA_reduced.json" site_static/games/aggregate_WTA_reduced.json || true
-          else
-            echo "Aucun docs/games/aggregate_WTA_reduced.json trouvé"
-          fi
-
-          # Fill-the-grid outputs (generate_grid.py)
-          if [ -f "docs/games/fill_the_grid_ATP.json" ]; then
-            cp -v "docs/games/fill_the_grid_ATP.json" site_static/games/fill_the_grid_ATP.json || true
-          else
-            echo "Aucun docs/games/fill_the_grid_ATP.json trouvé"
-          fi
-          if [ -f "docs/games/fill_the_grid_WTA.json" ]; then
-            cp -v "docs/games/fill_the_grid_WTA.json" site_static/games/fill_the_grid_WTA.json || true
-          else
-            echo "Aucun docs/games/fill_the_grid_WTA.json trouvé"
-          fi
-
+          echo ">>> docs/tools:"
           ls -la docs/tools || true
+          echo ">>> site_static/tools:"
           ls -la site_static/tools || true
+          echo ">>> docs/games:"
           ls -la docs/games || true
+          echo ">>> site_static/games:"
           ls -la site_static/games || true
 
       - name: Commit new generated JSON (whitelist safe commit)
@@ -321,27 +271,51 @@ jobs:
           GIT_AUTHOR_EMAIL: "github-actions[bot]@users.noreply.github.com"
         run: |
           set -euo pipefail
+
           git config user.name "$GIT_AUTHOR_NAME"
           git config user.email "$GIT_AUTHOR_EMAIL"
 
-          # Stage canonical generated files from docs/tools and their site_static copies
-          git add -f docs/tools/birthday_today.json docs/tools/daily_guess.json docs/tools/players_catalog.json docs/tools/geocodes_combined.json docs/tools/selected_players.json || true
-          git add -f site_static/tools/birthday_today.json site_static/tools/daily_guess.json site_static/tools/players_catalog.json site_static/tools/geocodes_combined.json site_static/tools/selected_players.json || true
+          stage_if_exists() {
+            local path="$1"
+            if [ -f "$path" ]; then
+              git add -f "$path"
+            else
+              echo "[WARN] Missing file (skip): $path"
+            fi
+          }
 
-          git add -f docs/tools/daily_city_guess.json || true
-          git add -f site_static/tools/daily_city_guess.json || true
+          # Tools
+          stage_if_exists docs/tools/birthday_today.json
+          stage_if_exists docs/tools/daily_guess.json
+          stage_if_exists docs/tools/players_catalog.json
+          stage_if_exists docs/tools/geocodes_combined.json
+          stage_if_exists docs/tools/selected_players.json
+          stage_if_exists docs/tools/daily_city_guess.json
+          stage_if_exists docs/tools/daily_country_guess.json
+          stage_if_exists docs/tools/daily_selected_winners.json
 
-          git add -f docs/tools/daily_selected_winners.json || true
-          git add -f site_static/tools/daily_selected_winners.json || true
+          stage_if_exists site_static/tools/birthday_today.json
+          stage_if_exists site_static/tools/daily_guess.json
+          stage_if_exists site_static/tools/players_catalog.json
+          stage_if_exists site_static/tools/geocodes_combined.json
+          stage_if_exists site_static/tools/selected_players.json
+          stage_if_exists site_static/tools/daily_city_guess.json
+          stage_if_exists site_static/tools/daily_country_guess.json
+          stage_if_exists site_static/tools/daily_selected_winners.json
 
-          git add -f docs/tools/daily_country_guess.json || true
-          git add -f site_static/tools/daily_country_guess.json || true
+          # Games
+          stage_if_exists docs/games/aggregate_ATP_reduced.json
+          stage_if_exists docs/games/aggregate_WTA_reduced.json
+          stage_if_exists docs/games/fill_the_grid_ATP.json
+          stage_if_exists docs/games/fill_the_grid_WTA.json
+          stage_if_exists docs/games/grid_history.json
 
-          # NEW: stage generated games aggregates and fill-the-grid outputs (docs/games and site_static/games)
-          git add -f docs/games/aggregate_ATP_reduced.json docs/games/aggregate_WTA_reduced.json docs/games/fill_the_grid_ATP.json docs/games/fill_the_grid_WTA.json || true
-          git add -f site_static/games/aggregate_ATP_reduced.json site_static/games/aggregate_WTA_reduced.json site_static/games/fill_the_grid_ATP.json site_static/games/fill_the_grid_WTA.json || true
+          stage_if_exists site_static/games/aggregate_ATP_reduced.json
+          stage_if_exists site_static/games/aggregate_WTA_reduced.json
+          stage_if_exists site_static/games/fill_the_grid_ATP.json
+          stage_if_exists site_static/games/fill_the_grid_WTA.json
+          stage_if_exists site_static/games/grid_history.json
 
-          # Safety: abort if index.html or other manual files would be staged
           if git diff --cached --name-only | grep -Eiq '(^|/)index\.html$'; then
             echo "ERROR: index.html would be staged — aborting to avoid overwrite."
             git diff --cached --name-only || true
@@ -351,7 +325,7 @@ jobs:
           if [ -n "$(git diff --cached --name-only)" ]; then
             echo "Files staged to commit:"
             git diff --cached --name-only || true
-            git commit -m "ci(daily): update generated tools (birthday_today, daily_guess, players_catalog, geocodes, selected_players, fill_the_grid outputs & aggregates)" || true
+            git commit -m "ci(daily): update generated tools and games"
           else
             echo "No generated changes to commit"
           fi
@@ -359,15 +333,16 @@ jobs:
       - name: Clean build artefacts to avoid rebase conflicts
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
-          set -euxo pipefail
+          set -euo pipefail
           if [ -d "${BUILD_DIR}/tools" ]; then
-            rm -rf "${BUILD_DIR}/tools" || true
+            rm -rf "${BUILD_DIR}/tools"
             echo "Removed ${BUILD_DIR}/tools to avoid rebase conflicts"
           fi
           git clean -fd -n || true
           echo "Workspace cleaned (dry-run shown above)."
 
-      - name: Push changes (branch-from-remote -> push -> merge to main)
+      - name: Push changes (tmp branch -> main)
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         env:
           PAT: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -376,155 +351,57 @@ jobs:
         run: |
           set -euo pipefail
 
-          AUTH="${PAT:-${GITHUB_TOKEN}}"
+          AUTH="${PAT:-${GITHUB_TOKEN:-}}"
           if [ -z "$AUTH" ]; then
             echo "No auth token available — skipping push"
             exit 0
           fi
 
-          # Fallback sûr pour les runs planifiés ou les dispatch sans input
           TOUR_TYPE="${TOUR_TYPE:-daily}"
-
-          # Nettoyage minimal pour garantir un nom de branche valide
           TOUR_TYPE="$(printf '%s' "$TOUR_TYPE" \
             | tr '[:upper:]' '[:lower:]' \
             | sed -E 's#[^a-z0-9._-]+#-#g; s#^-+##; s#-+$##')"
-
           if [ -z "$TOUR_TYPE" ]; then
             TOUR_TYPE="daily"
           fi
 
+          TMP_BRANCH="${TMP_BRANCH:-update/${TOUR_TYPE}/${GITHUB_RUN_ID}}"
+          echo "TMP_BRANCH=${TMP_BRANCH}"
+
           git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}" || true
           git fetch origin main --quiet || true
 
-          TMP_BRANCH="update/${TOUR_TYPE}/${GITHUB_RUN_ID}"
-          echo "TMP_BRANCH=${TMP_BRANCH}"
+          # Push the tmp branch that already contains the commit(s)
+          git push --set-upstream origin "${TMP_BRANCH}" --force-with-lease || git push --set-upstream origin "${TMP_BRANCH}"
 
-          # Create or reset local tmp branch to origin/main (base on most recent remote)
-          if git rev-parse --verify origin/main >/dev/null 2>&1; then
-            git checkout -B "${TMP_BRANCH}" origin/main
-          else
-            # origin/main not available (fresh repo?), create branch from current HEAD
-            git checkout -B "${TMP_BRANCH}" || true
-          fi
-
-          # Debug: show branch / status
-          echo "On branch: $(git branch --show-current)"
-          git status --porcelain || true
-
-          # Stage only the generated files (like earlier logic).
-          # IMPORTANT: do not stage deletions from working tree (we want to preserve remote files).
-          echo "Staging generated artefacts for commit..."
-          # Force-add the output json dir so directory is tracked if needed
-          git add -f docs/data/tournaments || true
-
-          # Also add the new daily_selected_winners JSON if present
-          git add -f docs/tools/daily_selected_winners.json || true
-          git add -f site_static/tools/daily_selected_winners.json || true
-
-          git add -f docs/tools/daily_city_guess.json || true
-          git add -f site_static/tools/daily_city_guess.json || true
-
-          git add -f docs/tools/daily_country_guess.json || true
-          git add -f site_static/tools/daily_country_guess.json || true
-
-          git add -f docs/tools/selected_players.json || true
-          git add -f site_static/tools/selected_players.json || true
-
-          if [ -f created_files.txt ]; then
-            while IFS= read -r line || [ -n "$line" ]; do
-              line="$(echo "$line" | sed -e 's/\r$//')"
-              [ -z "$line" ] && continue
-              if [ -f "$line" ]; then
-                git add -f "$line" || true
-              else
-                echo "[WARN] listed file not found (skip): $line"
-              fi
-            done < created_files.txt
-            git add -f created_files.txt || true
-          else
-            if [ "${TOUR_TYPE}" = "atp" ]; then
-              git add -f matches/atp_matches || true
-            else
-              git add -f matches/wta_matches || true
-            fi
-          fi
-
-          # Also add generated docs JSON (if present)
-          git add -f docs/data/tournaments || true
-
-          # Avoid accidentally committing staged deletions:
-          # unstage any path that is marked as deleted in the index (so we never commit removals)
-          DELETED_PATHS="$(git diff --cached --name-only --diff-filter=D || true)"
-          if [ -n "$DELETED_PATHS" ]; then
-            echo "Unstaging deletions to avoid removing remote files:"
-            echo "$DELETED_PATHS" | sed -n '1,200p'
-            echo "$DELETED_PATHS" | while IFS= read -r p; do
-              [ -z "$p" ] && continue
-              git restore --staged -- "$p" || true
-            done
-          fi
-
-          if [ -n "$(git diff --cached --name-only)" ]; then
-            echo "Committing staged files on ${TMP_BRANCH}:"
-            git diff --cached --name-only || true
-            git commit -m "ci(update_tournament): add scraped ${TOUR_TYPE} tournaments (run ${GITHUB_RUN_ID})" || true
-          else
-            echo "No changes staged for commit on ${TMP_BRANCH}"
-          fi
-
-          # Push the tmp branch (unique per run). Use --force-with-lease for the tmp branch
-          echo "Pushing tmp branch ${TMP_BRANCH}..."
-          git push --set-upstream origin "${TMP_BRANCH}" --force-with-lease || git push --set-upstream origin "${TMP_BRANCH}" || true
-
-          # Now attempt to merge the tmp branch into main safely:
-          # We'll try a few times: fetch origin/main, update local main, merge tmp branch, push main.
           MAX_RETRIES=4
           attempt=0
           merged_success=false
 
           while [ $attempt -lt $MAX_RETRIES ]; do
-            attempt=$((attempt+1))
+            attempt=$((attempt + 1))
             echo "Merge attempt ${attempt}/${MAX_RETRIES}: update local main and merge ${TMP_BRANCH}..."
 
-            # Ensure local main exists; create from origin/main if needed
             if git show-ref --verify --quiet refs/heads/main; then
               git checkout main
             else
-              # create local main from origin/main if present, else from current HEAD
               if git rev-parse --verify origin/main >/dev/null 2>&1; then
                 git checkout -B main origin/main
               else
-                git checkout -B main || true
+                git checkout -B main
               fi
             fi
 
-            # Make sure local main is up-to-date with remote
             git fetch origin main --quiet || true
             if git rev-parse --verify origin/main >/dev/null 2>&1; then
               git merge --ff-only origin/main || git merge --no-edit origin/main || true
             fi
 
-            # Merge the tmp branch into main (non-fast-forward allowed)
             if git merge --no-edit --no-ff "${TMP_BRANCH}"; then
               echo "Merge of ${TMP_BRANCH} into main succeeded locally."
             else
-              echo "Merge reported issues; attempting to auto-resolve by favoring additions."
-              # Try to favor our added files for trivial conflicts; do not remove files present remotely
+              echo "Merge reported issues; attempting ours strategy."
               git merge --strategy-option=ours --no-edit "${TMP_BRANCH}" || true
-            fi
-
-            # Unstage any accidental deletions again (safety)
-            DELETED_PATHS="$(git diff --cached --name-only --diff-filter=D || true)"
-            if [ -n "$DELETED_PATHS" ]; then
-              echo "Unstaging deletions before push:"
-              echo "$DELETED_PATHS"
-              echo "$DELETED_PATHS" | while IFS= read -r p; do
-                [ -z "$p" ] && continue
-                git restore --staged -- "$p" || true
-              done
-              # ensure merge commit contains no deletions: recommit if necessary
-              git commit --allow-empty -m "ci(update_tournament): merge ${TMP_BRANCH} (clean deletions)" || true
             fi
 
             echo "Attempting to push main to origin (attempt ${attempt})..."
@@ -535,7 +412,6 @@ jobs:
             fi
 
             echo "Push failed on attempt ${attempt}. Will retry after refetch."
-            # refresh tmp branch from origin in case it was updated (shouldn't happen but safe)
             git fetch origin "${TMP_BRANCH}" --quiet || true
             sleep 1
           done
@@ -543,9 +419,6 @@ jobs:
           if [ "$merged_success" = "false" ]; then
             echo "Failed to merge & push main after ${MAX_RETRIES} attempts."
             echo "Work has been preserved on branch: ${TMP_BRANCH} (pushed)."
-            echo "Please merge ${TMP_BRANCH} into main manually (or via an automated PR)."
-            # Optionally fail the job to draw attention:
-            # exit 1
           fi
 
           echo "Done. Remote refs:"
@@ -556,6 +429,7 @@ jobs:
         env:
           NETLIFY_BUILD_HOOK_DAILY: ${{ secrets.NETLIFY_BUILD_HOOK_DAILY }}
         run: |
+          set -e
           if [ -z "$NETLIFY_BUILD_HOOK_DAILY" ]; then
             echo "No NETLIFY_BUILD_HOOK_DAILY — skipping deploy trigger"
             exit 0
