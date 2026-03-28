@@ -2,7 +2,8 @@ name: Manage inscriptions
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    # Sunday only, every 5 minutes, so the script can decide open/close based on Paris time.
+    - cron: "*/5 * * * 0"
   workflow_dispatch:
     inputs:
       phase:
@@ -14,6 +15,10 @@ on:
           - auto
           - open
           - close
+      reference_date:
+        description: "YYYY-MM-DD. Optional anchor Sunday for manual runs."
+        required: false
+        default: ""
 
 concurrency:
   group: manage-inscriptions
@@ -50,16 +55,27 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install psycopg[binary]
 
-      - name: Manage inscriptions
+      - name: Run inscriptions manager
+        env:
+          PHASE: ${{ github.event_name == 'workflow_dispatch' && inputs.phase || 'auto' }}
+          REFERENCE_DATE: ${{ github.event_name == 'workflow_dispatch' && inputs.reference_date || '' }}
         run: |
           set -euo pipefail
-          python3 scripts/manage_inscriptions.py --phase "${{ inputs.phase || 'auto' }}"
 
-      - name: Commit open inscriptions JSON if changed
+          ARGS=(python3 scripts/manage_inscriptions.py --phase "$PHASE")
+
+          if [ -n "${REFERENCE_DATE:-}" ]; then
+            ARGS+=(--anchor-date "$REFERENCE_DATE")
+          fi
+
+          echo "Running: ${ARGS[*]}"
+          "${ARGS[@]}"
+
+      - name: Commit and push if changed
         run: |
           set -euo pipefail
           if git diff --quiet -- "$OUTPUT_JSON"; then
-            echo "No JSON change."
+            echo "No change."
             exit 0
           fi
 
