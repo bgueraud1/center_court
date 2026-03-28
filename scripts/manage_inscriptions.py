@@ -492,7 +492,10 @@ def main() -> int:
                 truncate_inscriptions(conn)
                 conn.commit()
 
-    if phase == "close" and db_url:
+    if phase == "close":
+        if not db_url:
+            raise RuntimeError("DATABASE_URL manquant : impossible d'écrire next_inscriptions.")
+    
         with connect(db_url, row_factory=dict_row) as conn:
             assigned = assign_next_inscriptions(conn, anchor_date, open_tournaments)
             conn.commit()
