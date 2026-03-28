@@ -2,8 +2,6 @@ name: Manage inscriptions
 
 on:
   schedule:
-    # GitHub Actions cron est en UTC.
-    # On garde un déclenchement régulier et le script décide s'il faut agir selon l'heure de Paris.
     - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
@@ -32,8 +30,10 @@ env:
   ATP_TOURNAMENTS_JSON: docs/atp_tournaments_2026.json
   WTA_TOURNAMENTS_JSON: docs/wta_tournaments_2026.json
   OUTPUT_JSON: docs/bracket/open_inscriptions.json
-  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+  # GitHub Secrets first, GitHub Variables as fallback
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL || vars.SUPABASE_URL }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || vars.SUPABASE_SERVICE_ROLE_KEY }}
 
 jobs:
   manage:
@@ -50,6 +50,18 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Check Supabase env
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_URL:-}" ]; then
+            echo "SUPABASE_URL is missing in GitHub secrets/variables"
+            exit 1
+          fi
+          if [ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+            echo "SUPABASE_SERVICE_ROLE_KEY is missing in GitHub secrets/variables"
+            exit 1
+          fi
 
       - name: Run inscriptions manager
         env:
