@@ -2,8 +2,9 @@ name: Manage inscriptions
 
 on:
   schedule:
-    # Sunday only, every 5 minutes, so the script can decide open/close based on Paris time.
-    - cron: "*/5 * * * 0"
+    # GitHub Actions cron est en UTC.
+    # On garde un déclenchement régulier et le script décide s'il faut agir selon l'heure de Paris.
+    - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
       phase:
@@ -15,8 +16,8 @@ on:
           - auto
           - open
           - close
-      reference_date:
-        description: "YYYY-MM-DD. Optional anchor Sunday for manual runs."
+      anchor_date:
+        description: "YYYY-MM-DD. Sunday anchor for manual test runs."
         required: false
         default: ""
 
@@ -31,7 +32,8 @@ env:
   ATP_TOURNAMENTS_JSON: docs/atp_tournaments_2026.json
   WTA_TOURNAMENTS_JSON: docs/wta_tournaments_2026.json
   OUTPUT_JSON: docs/bracket/open_inscriptions.json
-  DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
 
 jobs:
   manage:
@@ -49,31 +51,16 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip
-          python -m pip install psycopg[binary]
-
-      - name: Check database URL
-        run: |
-          set -euo pipefail
-          if [ -z "${DATABASE_URL:-}" ]; then
-            echo "DATABASE_URL is missing"
-            exit 1
-          fi
-
       - name: Run inscriptions manager
         env:
           PHASE: ${{ github.event_name == 'workflow_dispatch' && inputs.phase || 'auto' }}
-          REFERENCE_DATE: ${{ github.event_name == 'workflow_dispatch' && inputs.reference_date || '' }}
+          ANCHOR_DATE: ${{ github.event_name == 'workflow_dispatch' && inputs.anchor_date || '' }}
         run: |
           set -euo pipefail
-
           ARGS=(python3 scripts/manage_inscriptions.py --phase "$PHASE")
 
-          if [ -n "${REFERENCE_DATE:-}" ]; then
-            ARGS+=(--anchor-date "$REFERENCE_DATE")
+          if [ -n "${ANCHOR_DATE:-}" ]; then
+            ARGS+=(--anchor-date "$ANCHOR_DATE")
           fi
 
           echo "Running: ${ARGS[*]}"
@@ -82,6 +69,7 @@ jobs:
       - name: Commit and push if changed
         run: |
           set -euo pipefail
+
           if git diff --quiet -- "$OUTPUT_JSON"; then
             echo "No change."
             exit 0

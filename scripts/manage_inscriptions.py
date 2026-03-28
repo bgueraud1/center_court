@@ -8,9 +8,9 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
-
-from psycopg import connect
-from psycopg.rows import dict_row
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 
 try:
     from zoneinfo import ZoneInfo
@@ -52,6 +52,12 @@ def parse_date_iso(v: str) -> date:
 
 
 def parse_atp_formatted_date(text: str) -> tuple[date, date]:
+    """
+    Supports:
+      - 4 - 11 January, 2026
+      - 26 December 2025 - 02 January, 2026
+      - 26 January - 02 February, 2026
+    """
     s = norm_space(text)
 
     patterns = [
@@ -165,6 +171,82 @@ def get_rule(tour: str, category: str) -> Optional[dict[str, Any]]:
     return None
 
 
+def supabase_request(
+    method: str,
+    supabase_url: str,
+    supabase_key: str,
+    table: str,
+    params: Optional[dict[str, Any]] = None,
+    body: Optional[Any] = None,
+) -> Any:
+    base = supabase_url.rstrip("/")
+    url = f"{base}/rest/v1/{table.lstrip('/')}"
+
+    if params:
+        url = f"{url}?{urlencode(params, doseq=True)}"
+
+    headers = {
+        "apikey": supabase_key,
+        "Authorization": f"Bearer {supabase_key}",
+        "Accept": "application/json",
+    }
+
+    data = None
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(body).encode("utf-8")
+
+    req = Request(url, data=data, headers=headers, method=method.upper())
+
+    try:
+        with urlopen(req, timeout=60) as resp:
+            raw = resp.read().decode("utf-8")
+            if not raw:
+                return None
+            try:
+                return json.loads(raw)
+            except Exception:
+                return raw
+    except HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace") if hasattr(e, "read") else str(e)
+        raise RuntimeError(f"Supabase {method} {table} failed: HTTP {e.code} — {detail}") from e
+    except URLError as e:
+        raise RuntimeError(f"Supabase {method} {table} failed: {e}") from e
+
+
+def supabase_get_all(
+    supabase_url: str,
+    supabase_key: str,
+    table: str,
+    params: dict[str, Any],
+    page_size: int = 1000,
+) -> list[dict[str, Any]]:
+    all_rows: list[dict[str, Any]] = []
+    offset = 0
+
+    while True:
+        page_params = dict(params)
+        page_params.setdefault("select", "*")
+        page_params["limit"] = page_size
+        page_params["offset"] = offset
+
+        chunk = supabase_request("GET", supabase_url, supabase_key, table, params=page_params)
+        if not chunk:
+            break
+
+        if not isinstance(chunk, list):
+            raise RuntimeError(f"Unexpected response while reading {table}: {chunk!r}")
+
+        all_rows.extend(chunk)
+
+        if len(chunk) < page_size:
+            break
+
+        offset += page_size
+
+    return all_rows
+
+
 def build_open_tournaments(
     atp_payload: dict[str, Any],
     wta_payload: dict[str, Any],
@@ -181,6 +263,7 @@ def build_open_tournaments(
 
     open_list: list[dict[str, Any]] = []
 
+    # ATP
     for group in atp_payload.get("TournamentDates", []):
         for t in group.get("Tournaments", []):
             formatted = t.get("FormattedDate")
@@ -219,6 +302,7 @@ def build_open_tournaments(
                 "source": "ATP",
             })
 
+    # WTA
     for t in wta_payload.get("content", []):
         start_s = t.get("startDate")
         end_s = t.get("endDate")
@@ -294,9 +378,9 @@ def build_payload(
 def should_run_auto(dt: datetime) -> str:
     """
     Auto mode:
-      - Sunday morning around 00:00 -> open
-      - Sunday late evening around 23:55 -> close
-      - otherwise -> no-op
+      - Sunday around 00:01 Paris -> open
+      - Sunday around 23:59 Paris -> close
+      - otherwise -> noop
     """
     if dt.weekday() != 6:
         return "noop"
@@ -310,36 +394,35 @@ def should_run_auto(dt: datetime) -> str:
     return "noop"
 
 
-def truncate_inscriptions(conn) -> None:
-    with conn.cursor() as cur:
-        cur.execute("TRUNCATE TABLE public.inscriptions RESTART IDENTITY")
+def clear_inscriptions(supabase_url: str, supabase_key: str) -> None:
+    # Reset complet de la table inscriptions pour la nouvelle fenêtre.
+    supabase_request("DELETE", supabase_url, supabase_key, "inscriptions")
 
 
-def fetch_applications(conn, anchor_date: date) -> list[dict[str, Any]]:
-    with conn.cursor(row_factory=dict_row) as cur:
-        cur.execute(
-            """
-            SELECT
-              window_start_date,
-              preference_rank,
-              user_id,
-              user_name,
-              user_world_rank,
-              tournament_id,
-              tournament_name,
-              tournament_category,
-              tournament_num_players
-            FROM public.inscriptions
-            WHERE window_start_date = %s
-            ORDER BY user_id, preference_rank, tournament_id
-            """,
-            (anchor_date,),
-        )
-        return list(cur.fetchall())
+def fetch_applications(
+    supabase_url: str,
+    supabase_key: str,
+    anchor_date: date,
+) -> list[dict[str, Any]]:
+    return supabase_get_all(
+        supabase_url,
+        supabase_key,
+        "inscriptions",
+        params={
+            "window_start_date": f"eq.{anchor_date.isoformat()}",
+            "order": "user_id.asc,preference_rank.asc,tournament_id.asc",
+        },
+    )
+
+
+def chunked(seq: list[dict[str, Any]], size: int = 100):
+    for i in range(0, len(seq), size):
+        yield seq[i:i + size]
 
 
 def assign_next_inscriptions(
-    conn,
+    supabase_url: str,
+    supabase_key: str,
     anchor_date: date,
     open_tournaments: list[dict[str, Any]],
 ) -> int:
@@ -348,7 +431,7 @@ def assign_next_inscriptions(
         for t in open_tournaments
     }
 
-    apps = fetch_applications(conn, anchor_date)
+    apps = fetch_applications(supabase_url, supabase_key, anchor_date)
     by_user: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
     for row in apps:
@@ -356,22 +439,22 @@ def assign_next_inscriptions(
 
     def user_sort_key(rows: list[dict[str, Any]]) -> tuple[int, int, str]:
         first = rows[0]
-        rank = first["user_world_rank"]
+        rank = first.get("user_world_rank")
         rank_key = rank if rank is not None else 10**9
-        return (0 if rank is not None else 1, rank_key, str(first["user_name"] or "").lower())
+        return (0 if rank is not None else 1, int(rank_key), str(first.get("user_name") or "").lower())
 
     ordered_users = sorted(by_user.items(), key=lambda kv: user_sort_key(kv[1]))
     assignments: list[dict[str, Any]] = []
 
     for user_id, rows in ordered_users:
-        rows = sorted(rows, key=lambda r: (int(r["preference_rank"] or 1), str(r["tournament_id"])))
-        user_name = str(rows[0]["user_name"] or "")
-        user_rank = rows[0]["user_world_rank"]
+        rows = sorted(rows, key=lambda r: (int(r.get("preference_rank") or 1), str(r.get("tournament_id") or "")))
+        user_name = str(rows[0].get("user_name") or "")
+        user_rank = rows[0].get("user_world_rank")
 
         chosen = None
 
         for row in rows:
-            tournament_id = str(row["tournament_id"])
+            tournament_id = str(row.get("tournament_id") or "")
             tournament = tournaments.get(tournament_id)
             if not tournament:
                 continue
@@ -396,7 +479,7 @@ def assign_next_inscriptions(
                 "tournament_name": tournament["tournament_name"],
                 "tournament_category": tournament["category"],
                 "tournament_num_players": tournament["draw_size"],
-                "assigned_preference_rank": int(row["preference_rank"] or 1),
+                "assigned_preference_rank": int(row.get("preference_rank") or 1),
             }
             tournament["remaining"] -= 1
             break
@@ -404,31 +487,36 @@ def assign_next_inscriptions(
         if chosen:
             assignments.append(chosen)
 
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            DELETE FROM public.next_inscriptions
-            WHERE window_start_date = %s
-            """,
-            (anchor_date,),
+    # Replace prior rows for the same window.
+    supabase_request(
+        "DELETE",
+        supabase_url,
+        supabase_key,
+        "next_inscriptions",
+        params={"window_start_date": f"eq.{anchor_date.isoformat()}"},
+    )
+
+    if not assignments:
+        return 0
+
+    inserted = 0
+    for batch in chunked(assignments, 100):
+        resp = supabase_request(
+            "POST",
+            supabase_url,
+            supabase_key,
+            "next_inscriptions",
+            params={"Prefer": "return=representation"},
+            body=batch,
         )
+        if isinstance(resp, list):
+            inserted += len(resp)
+        elif resp is None:
+            inserted += len(batch)
+        else:
+            inserted += len(batch)
 
-        if assignments:
-            cur.executemany(
-                """
-                INSERT INTO public.next_inscriptions
-                  (window_start_date, target_start_date, user_id, user_name, user_world_rank,
-                   tour, tournament_id, tournament_name, tournament_category,
-                   tournament_num_players, assigned_preference_rank)
-                VALUES
-                  (%(window_start_date)s, %(target_start_date)s, %(user_id)s, %(user_name)s, %(user_world_rank)s,
-                   %(tour)s, %(tournament_id)s, %(tournament_name)s, %(tournament_category)s,
-                   %(tournament_num_players)s, %(assigned_preference_rank)s)
-                """,
-                assignments,
-            )
-
-    return len(assignments)
+    return inserted
 
 
 def main() -> int:
@@ -445,7 +533,8 @@ def main() -> int:
     atp_path = Path(os.environ.get("ATP_TOURNAMENTS_JSON", "docs/atp_tournaments_2026.json"))
     wta_path = Path(os.environ.get("WTA_TOURNAMENTS_JSON", "docs/wta_tournaments_2026.json"))
     out_path = Path(os.environ.get("OUTPUT_JSON", "docs/bracket/open_inscriptions.json"))
-    db_url = os.environ.get("DATABASE_URL")
+    supabase_url = os.environ.get("SUPABASE_URL", "").strip()
+    supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
 
     if not atp_path.is_absolute():
         atp_path = workspace / atp_path
@@ -453,6 +542,9 @@ def main() -> int:
         wta_path = workspace / wta_path
     if not out_path.is_absolute():
         out_path = workspace / out_path
+
+    if not supabase_url or not supabase_key:
+        raise RuntimeError("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.")
 
     now_dt = now_paris()
 
@@ -481,28 +573,24 @@ def main() -> int:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-    if phase == "open" and db_url:
+    if phase == "open":
         same_open_window = (
             previous_window.get("phase") == "open"
             and previous_window.get("anchor_date") == anchor_date.isoformat()
         )
 
         if not same_open_window:
-            with connect(db_url, row_factory=dict_row) as conn:
-                truncate_inscriptions(conn)
-                conn.commit()
+            clear_inscriptions(supabase_url, supabase_key)
 
-    if phase == "close":
-        if not db_url:
-            raise RuntimeError("DATABASE_URL manquant : impossible d'écrire next_inscriptions.")
-    
-        with connect(db_url, row_factory=dict_row) as conn:
-            assigned = assign_next_inscriptions(conn, anchor_date, open_tournaments)
-            conn.commit()
-        print(f"Wrote {out_path} and assigned {assigned} user(s) to next_inscriptions.")
+        print(f"Wrote {out_path} with phase=open and {len(open_tournaments)} open tournament(s).")
         return 0
 
-    print(f"Wrote {out_path} with phase={phase} and {len(payload['tournaments'])} open tournament(s).")
+    if phase == "close":
+        inserted = assign_next_inscriptions(supabase_url, supabase_key, anchor_date, open_tournaments)
+        print(f"Wrote {out_path} with phase=close and assigned {inserted} user(s) to next_inscriptions.")
+        return 0
+
+    print(f"Wrote {out_path} with phase={phase} and {len(payload['tournaments'])} tournament(s).")
     return 0
 
 
