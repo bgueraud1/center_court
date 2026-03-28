@@ -509,8 +509,8 @@ def assign_next_inscriptions(
             supabase_url,
             supabase_key,
             "next_inscriptions",
-            params={"Prefer": "return=representation"},
             body=batch,
+            extra_headers={"Prefer": "return=representation"},
         )
         if isinstance(resp, list):
             inserted += len(resp)
