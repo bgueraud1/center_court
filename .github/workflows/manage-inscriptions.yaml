@@ -1,0 +1,70 @@
+name: Manage inscriptions
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: "auto | open | close"
+        required: false
+        default: "auto"
+        type: choice
+        options:
+          - auto
+          - open
+          - close
+
+concurrency:
+  group: manage-inscriptions
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  ATP_TOURNAMENTS_JSON: docs/atp_tournaments_2026.json
+  WTA_TOURNAMENTS_JSON: docs/wta_tournaments_2026.json
+  OUTPUT_JSON: docs/bracket/open_inscriptions.json
+  DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+
+jobs:
+  manage:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install psycopg[binary]
+
+      - name: Manage inscriptions
+        run: |
+          set -euo pipefail
+          python3 scripts/manage_inscriptions.py --phase "${{ inputs.phase || 'auto' }}"
+
+      - name: Commit open inscriptions JSON if changed
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- "$OUTPUT_JSON"; then
+            echo "No JSON change."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$OUTPUT_JSON"
+          git commit -m "ci: update open inscriptions JSON"
+          git push
