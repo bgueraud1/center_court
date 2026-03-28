@@ -26,10 +26,6 @@ MONTHS = {
     "september": 9, "october": 10, "november": 11, "december": 12,
 }
 
-# Règles de restriction. C’est centralisé ici pour être facile à ajuster.
-# Interprétation retenue :
-# - CH / WTA125 : joueurs classés 1-50 interdits => min_rank_allowed = 51
-# - FU / ITF     : joueurs classés 1-200 interdits => min_rank_allowed = 201
 CATEGORY_RULES = {
     "CH": {"min_rank_allowed": 51, "rule_code": "ATP_CH_TOP50_BLOCKED"},
     "FU": {"min_rank_allowed": 201, "rule_code": "ATP_FU_TOP200_BLOCKED"},
@@ -56,12 +52,6 @@ def parse_date_iso(v: str) -> date:
 
 
 def parse_atp_formatted_date(text: str) -> tuple[date, date]:
-    """
-    Supports:
-      - 4 - 11 January, 2026
-      - 26 December 2025 - 02 January, 2026
-      - 26 January - 02 February, 2026
-    """
     s = norm_space(text)
 
     patterns = [
@@ -154,50 +144,41 @@ def normalize_wta_category(t: dict[str, Any]) -> str:
     return "WTA"
 
 
-def current_paris_datetime() -> datetime:
+def now_paris() -> datetime:
     return datetime.now(PARIS_TZ)
-
-
-def is_sunday(dt: datetime) -> bool:
-    return dt.weekday() == 6
-
-
-def is_close_trigger(dt: datetime) -> bool:
-    # Fenêtre de fermeture en fin de dimanche. Tu peux resserrer si besoin.
-    return dt.weekday() == 6 and dt.hour == 23 and dt.minute >= 55
-
-
-def get_rule(tour: str, category: str) -> Optional[dict[str, Any]]:
-    if tour == "ATP":
-        if category in {"CH", "FU"}:
-            return CATEGORY_RULES.get(category)
-    if tour == "WTA":
-        if category in {"WTA125", "ITF"}:
-            return CATEGORY_RULES.get(category)
-    return None
-
-
-def user_allowed(user_world_rank: Optional[int], rule: Optional[dict[str, Any]]) -> bool:
-    if rule is None:
-        return True
-    # Si le ranking manque, on ne bloque pas côté backend.
-    # Si tu veux forcer un rank pour s'inscrire, change ici.
-    if user_world_rank is None:
-        return True
-    return user_world_rank >= int(rule["min_rank_allowed"])
 
 
 def load_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def get_rule(tour: str, category: str) -> Optional[dict[str, Any]]:
+    if tour == "ATP" and category in {"CH", "FU"}:
+        return CATEGORY_RULES[category]
+    if tour == "WTA" and category in {"WTA125", "ITF"}:
+        return CATEGORY_RULES[category]
+    return None
 
 
 def build_open_tournaments(
     atp_payload: dict[str, Any],
     wta_payload: dict[str, Any],
-    target_start_date: date,
+    anchor_date: date,
 ) -> list[dict[str, Any]]:
+    """
+    Open window = tournaments starting between anchor_date + 8 and anchor_date + 14 inclusive.
+    Example:
+      anchor_date = Sunday 2026-03-29
+      window = Monday 2026-04-06 -> Sunday 2026-04-12
+    """
+    start_window = anchor_date + timedelta(days=8)
+    end_window = anchor_date + timedelta(days=14)
+
     open_list: list[dict[str, Any]] = []
 
     for group in atp_payload.get("TournamentDates", []):
@@ -210,7 +191,7 @@ def build_open_tournaments(
             except Exception:
                 continue
 
-            if start_dt != target_start_date:
+            if not (start_window <= start_dt <= end_window):
                 continue
 
             tournament_id = str(t.get("Id") or "").strip()
@@ -250,7 +231,7 @@ def build_open_tournaments(
         except Exception:
             continue
 
-        if start_dt != target_start_date:
+        if not (start_window <= start_dt <= end_window):
             continue
 
         group = t.get("tournamentGroup") or {}
@@ -284,27 +265,49 @@ def build_open_tournaments(
 
 
 def build_payload(
-    now_paris: datetime,
-    is_open_today: bool,
-    target_start_date: Optional[date],
+    anchor_date: date,
+    phase: str,
     open_tournaments: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "version": 2,
+    start_window = anchor_date + timedelta(days=8)
+    end_window = anchor_date + timedelta(days=14)
+
+    return {
+        "version": 3,
         "timezone": "Europe/Paris",
-        "generated_at": now_paris.isoformat(),
-        "current_paris_date": now_paris.date().isoformat(),
+        "generated_at": now_paris().isoformat(),
+        "current_paris_date": now_paris().date().isoformat(),
         "window": {
-            "phase": "open" if is_open_today else "closed",
-            "is_open_today": is_open_today,
-            "open_date": now_paris.date().isoformat() if is_open_today else None,
-            "close_date": now_paris.date().isoformat() if is_open_today else None,
-            "target_start_date": target_start_date.isoformat() if target_start_date else None,
-            "count": len(open_tournaments) if is_open_today else 0,
+            "phase": phase,  # open / closed
+            "is_open_today": phase == "open",
+            "anchor_date": anchor_date.isoformat(),
+            "open_date": anchor_date.isoformat(),
+            "close_date": anchor_date.isoformat(),
+            "window_start_date": start_window.isoformat(),
+            "window_end_date": end_window.isoformat(),
+            "count": len(open_tournaments) if phase == "open" else 0,
         },
-        "tournaments": open_tournaments if is_open_today else [],
+        "tournaments": open_tournaments if phase == "open" else [],
     }
-    return payload
+
+
+def should_run_auto(dt: datetime) -> str:
+    """
+    Auto mode:
+      - Sunday morning around 00:00 -> open
+      - Sunday late evening around 23:55 -> close
+      - otherwise -> no-op
+    """
+    if dt.weekday() != 6:
+        return "noop"
+
+    if dt.hour == 0 and dt.minute <= 10:
+        return "open"
+
+    if dt.hour == 23 and dt.minute >= 50:
+        return "close"
+
+    return "noop"
 
 
 def truncate_inscriptions(conn) -> None:
@@ -312,7 +315,7 @@ def truncate_inscriptions(conn) -> None:
         cur.execute("TRUNCATE TABLE public.inscriptions RESTART IDENTITY")
 
 
-def fetch_current_applications(conn, window_start_date: date) -> list[dict[str, Any]]:
+def fetch_applications(conn, anchor_date: date) -> list[dict[str, Any]]:
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
             """
@@ -330,29 +333,24 @@ def fetch_current_applications(conn, window_start_date: date) -> list[dict[str, 
             WHERE window_start_date = %s
             ORDER BY user_id, preference_rank, tournament_id
             """,
-            (window_start_date,),
+            (anchor_date,),
         )
         return list(cur.fetchall())
 
 
 def assign_next_inscriptions(
     conn,
-    window_start_date: date,
-    target_start_date: date,
+    anchor_date: date,
     open_tournaments: list[dict[str, Any]],
 ) -> int:
-    # Capacités par tournoi
-    tournaments: dict[str, dict[str, Any]] = {}
-    for t in open_tournaments:
-        tournaments[t["tournament_id"]] = {
-            **t,
-            "remaining": int(t["draw_size"] or 0),
-        }
+    tournaments: dict[str, dict[str, Any]] = {
+        t["tournament_id"]: {**t, "remaining": int(t["draw_size"] or 0)}
+        for t in open_tournaments
+    }
 
-    apps = fetch_current_applications(conn, window_start_date)
-
-    # Group by user
+    apps = fetch_applications(conn, anchor_date)
     by_user: dict[str, list[dict[str, Any]]] = defaultdict(list)
+
     for row in apps:
         by_user[str(row["user_id"])].append(row)
 
@@ -363,7 +361,6 @@ def assign_next_inscriptions(
         return (0 if rank is not None else 1, rank_key, str(first["user_name"] or "").lower())
 
     ordered_users = sorted(by_user.items(), key=lambda kv: user_sort_key(kv[1]))
-
     assignments: list[dict[str, Any]] = []
 
     for user_id, rows in ordered_users:
@@ -372,6 +369,7 @@ def assign_next_inscriptions(
         user_rank = rows[0]["user_world_rank"]
 
         chosen = None
+
         for row in rows:
             tournament_id = str(row["tournament_id"])
             tournament = tournaments.get(tournament_id)
@@ -388,8 +386,8 @@ def assign_next_inscriptions(
                 continue
 
             chosen = {
-                "window_start_date": window_start_date.isoformat(),
-                "target_start_date": target_start_date.isoformat(),
+                "window_start_date": anchor_date.isoformat(),
+                "target_start_date": tournament["start_date"],
                 "user_id": user_id,
                 "user_name": user_name,
                 "user_world_rank": user_rank,
@@ -406,14 +404,13 @@ def assign_next_inscriptions(
         if chosen:
             assignments.append(chosen)
 
-    # Remplace les affectations de la fenêtre courante si elles existent déjà
     with conn.cursor() as cur:
         cur.execute(
             """
             DELETE FROM public.next_inscriptions
             WHERE window_start_date = %s
             """,
-            (window_start_date,),
+            (anchor_date,),
         )
 
         if assignments:
@@ -436,17 +433,15 @@ def assign_next_inscriptions(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--phase", default="auto", choices=["auto", "open", "close"])
     parser.add_argument(
-        "--phase",
-        default="auto",
-        choices=["auto", "open", "close"],
-        help="auto = décide selon l'heure de Paris, open/close = force un mode",
+        "--anchor-date",
+        default="",
+        help="YYYY-MM-DD. Optional Sunday anchor for manual runs or replay.",
     )
     args = parser.parse_args()
 
-    now_paris = current_paris_datetime()
     workspace = Path(os.environ.get("GITHUB_WORKSPACE", ".")).resolve()
-
     atp_path = Path(os.environ.get("ATP_TOURNAMENTS_JSON", "docs/atp_tournaments_2026.json"))
     wta_path = Path(os.environ.get("WTA_TOURNAMENTS_JSON", "docs/wta_tournaments_2026.json"))
     out_path = Path(os.environ.get("OUTPUT_JSON", "docs/bracket/open_inscriptions.json"))
@@ -459,74 +454,52 @@ def main() -> int:
     if not out_path.is_absolute():
         out_path = workspace / out_path
 
-    if args.phase == "open":
-        phase = "open"
-    elif args.phase == "close":
-        phase = "close"
-    else:
-        if is_close_trigger(now_paris):
-            phase = "close"
-        elif now_paris.weekday() == 6:
-            phase = "open"
-        else:
-            phase = "closed"
+    now_dt = now_paris()
 
-    target_start_date = now_paris.date() + timedelta(days=7)
+    if args.anchor_date:
+        anchor_date = date.fromisoformat(args.anchor_date)
+        phase = args.phase if args.phase in {"open", "close"} else "open"
+    else:
+        anchor_date = now_dt.date()
+        if args.phase == "auto":
+            phase = should_run_auto(now_dt)
+        else:
+            phase = args.phase
+
+    if phase == "noop":
+        print("No action: not Sunday or outside the execution windows.")
+        return 0
+
     atp_payload = load_json(atp_path)
     wta_payload = load_json(wta_path)
+    open_tournaments = build_open_tournaments(atp_payload, wta_payload, anchor_date)
+    previous_payload = load_json(out_path)
+    previous_window = previous_payload.get("window", {}) if isinstance(previous_payload, dict) else {}
 
-    # On garde le fichier JSON toujours à jour.
-    if phase == "open":
-        open_tournaments = build_open_tournaments(atp_payload, wta_payload, target_start_date)
-        payload = build_payload(now_paris, True, target_start_date, open_tournaments)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    payload = build_payload(anchor_date, phase, open_tournaments)
 
-        # Reset une seule fois au début de la fenêtre.
-        previous = load_json(out_path)
-        prev_window = previous.get("window", {}) if isinstance(previous, dict) else {}
-        already_open_for_today = (
-            prev_window.get("is_open_today") is True
-            and previous.get("current_paris_date") == now_paris.date().isoformat()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    if phase == "open" and db_url:
+        same_open_window = (
+            previous_window.get("phase") == "open"
+            and previous_window.get("anchor_date") == anchor_date.isoformat()
         )
 
-        # Si le fichier existait déjà ouvert pour aujourd’hui, on ne reset pas.
-        # Le premier run du dimanche, lui, vient d’un fichier fermé ou absent.
-        if not already_open_for_today and db_url:
+        if not same_open_window:
             with connect(db_url, row_factory=dict_row) as conn:
                 truncate_inscriptions(conn)
                 conn.commit()
 
-        print(f"Wrote {out_path} with {len(open_tournaments)} open tournaments.")
-        return 0
-
-    if phase == "close":
-        open_tournaments = build_open_tournaments(atp_payload, wta_payload, target_start_date)
-        payload = build_payload(now_paris, False, target_start_date, [])
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
-        if not db_url:
-            print(f"Wrote {out_path} (closed). No DATABASE_URL configured, so no assignments were made.")
-            return 0
-
+    if phase == "close" and db_url:
         with connect(db_url, row_factory=dict_row) as conn:
-            assigned = assign_next_inscriptions(
-                conn=conn,
-                window_start_date=now_paris.date(),
-                target_start_date=target_start_date,
-                open_tournaments=open_tournaments,
-            )
+            assigned = assign_next_inscriptions(conn, anchor_date, open_tournaments)
             conn.commit()
-
-        print(f"Wrote {out_path} (closed) and assigned {assigned} users into next_inscriptions.")
+        print(f"Wrote {out_path} and assigned {assigned} user(s) to next_inscriptions.")
         return 0
 
-    # Hors dimanche : on garde un JSON fermé et on ne touche pas à la DB.
-    payload = build_payload(now_paris, False, None, [])
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"Wrote {out_path} (closed).")
+    print(f"Wrote {out_path} with phase={phase} and {len(payload['tournaments'])} open tournament(s).")
     return 0
 
 
