@@ -170,7 +170,6 @@ def get_rule(tour: str, category: str) -> Optional[dict[str, Any]]:
         return CATEGORY_RULES[category]
     return None
 
-
 def supabase_request(
     method: str,
     supabase_url: str,
@@ -178,6 +177,7 @@ def supabase_request(
     table: str,
     params: Optional[dict[str, Any]] = None,
     body: Optional[Any] = None,
+    extra_headers: Optional[dict[str, str]] = None,
 ) -> Any:
     base = supabase_url.rstrip("/")
     url = f"{base}/rest/v1/{table.lstrip('/')}"
@@ -190,6 +190,9 @@ def supabase_request(
         "Authorization": f"Bearer {supabase_key}",
         "Accept": "application/json",
     }
+
+    if extra_headers:
+        headers.update(extra_headers)
 
     data = None
     if body is not None:
