@@ -397,10 +397,14 @@ def should_run_auto(dt: datetime) -> str:
     return "noop"
 
 
-def clear_inscriptions(supabase_url: str, supabase_key: str) -> None:
-    # Reset complet de la table inscriptions pour la nouvelle fenêtre.
-    supabase_request("DELETE", supabase_url, supabase_key, "inscriptions")
-
+def clear_inscriptions(supabase_url: str, supabase_key: str, anchor_date: date) -> None:
+    supabase_request(
+        "DELETE",
+        supabase_url,
+        supabase_key,
+        "inscriptions",
+        params={"window_start_date": f"eq.{anchor_date.isoformat()}"},
+    )
 
 def fetch_applications(
     supabase_url: str,
@@ -583,7 +587,7 @@ def main() -> int:
         )
 
         if not same_open_window:
-            clear_inscriptions(supabase_url, supabase_key)
+            clear_inscriptions(supabase_url, supabase_key, anchor_date)
 
         print(f"Wrote {out_path} with phase=open and {len(open_tournaments)} open tournament(s).")
         return 0
