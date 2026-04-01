@@ -590,18 +590,37 @@ function renderAdvancedStatsFrom(data, sourceUrl, targetDiv){
 
       // Buckets chart (grouped bars) : winners/unforced/forced by bucket
       if(usePlotly){
-        try{
-          const traces = [
-            { x: cats, y: winners.map(v => v===null?0:v), name: 'Winners', type:'bar' },
-            { x: cats, y: unf.map(v => v===null?0:v), name: 'Unforced errors', type:'bar' },
-            { x: cats, y: forced.map(v => v===null?0:v), name: 'Forced errors', type:'bar' }
-          ];
-          const layout = { barmode:'group', margin:{t:20,l:40,r:12,b:40}, legend:{orientation:'h', y:-0.18}, yaxis:{tickformat:'.0%', range:[0, Math.max(0.2, Math.max(...(winners.concat(unf).concat(forced).filter(v=>v!==null))*1.2 || 0.2))} };
-          Plotly.newPlot('adv-buckets-chart', traces, layout, {displayModeBar:false});
-        }catch(e){ console.warn('Plotly buckets error', e); }
-      } else {
-        // If no Plotly, add readable percent labels to table (already present) — nothing else needed
+  try{
+    const traces = [
+      { x: cats, y: winners.map(v => v === null ? 0 : v), name: 'Winners', type: 'bar' },
+      { x: cats, y: unf.map(v => v === null ? 0 : v), name: 'Unforced errors', type: 'bar' },
+      { x: cats, y: forced.map(v => v === null ? 0 : v), name: 'Forced errors', type: 'bar' }
+    ];
+
+    const allVals = winners
+      .concat(unf)
+      .concat(forced)
+      .map(v => (v === null || v === undefined || Number.isNaN(Number(v))) ? 0 : Number(v));
+
+    const maxY = Math.max(0.2, (allVals.length ? Math.max(...allVals) : 0.2) * 1.2);
+
+    const layout = {
+      barmode: 'group',
+      margin: { t: 20, l: 40, r: 12, b: 40 },
+      legend: { orientation: 'h', y: -0.18 },
+      yaxis: {
+        tickformat: '.0%',
+        range: [0, maxY]
       }
+    };
+
+    Plotly.newPlot('adv-buckets-chart', traces, layout, { displayModeBar: false });
+  }catch(e){
+    console.warn('Plotly buckets error', e);
+  }
+} else {
+  // If no Plotly, add readable percent labels to table (already present) — nothing else needed
+}
 
       // Strokes chart: horizontal bar for top 8 means (if Plotly)
       if(usePlotly && big && big.numeric){
