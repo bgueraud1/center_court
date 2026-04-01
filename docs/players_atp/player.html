@@ -638,6 +638,7 @@ function fetchJsonSafe(url){
 
       if(target === 'panel-stats'){ initStatsSubtabs(combined); }
       if(target === 'panel-courtvision' && typeof ensureCourtVisionLoaded === 'function'){
+        console.log('[CourtVision] tab clicked');
         ensureCourtVisionLoaded(combined);
       }
     });
@@ -2703,14 +2704,30 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
     if(__courtVisionSnippetPromise) return __courtVisionSnippetPromise;
 
     __courtVisionSnippetPromise = (async () => {
-      const resp = await fetch('/tools/court_vision_tab_snippet.html', { cache: 'no-store' });
-      if(!resp.ok) throw new Error(`Court Vision snippet not found (${resp.status})`);
-      const html = await resp.text();
-      injectFragmentHtml(html);
-      if(!(window.CV && typeof window.CV.loadCourtVision === 'function')){
-        throw new Error('Court Vision snippet loaded but API is missing');
+      const candidates = [
+        '/tools/court_vision_tab_snippet_fixed.html',
+        '/tools/court_vision_tab_snippet.html'
+      ];
+      let lastErr = null;
+      for (const url of candidates){
+        try{
+          const resp = await fetch(url + '?v=' + Date.now(), { cache: 'no-store' });
+          if(!resp.ok){
+            lastErr = new Error(`Court Vision snippet not found at ${url} (${resp.status})`);
+            continue;
+          }
+          const html = await resp.text();
+          injectFragmentHtml(html);
+          if(window.CV && typeof window.CV.loadCourtVision === 'function'){
+            console.info('Court Vision snippet loaded from', url);
+            return true;
+          }
+          lastErr = new Error(`Court Vision snippet loaded from ${url} but API is missing`);
+        }catch(e){
+          lastErr = e;
+        }
       }
-      return true;
+      throw lastErr || new Error('Court Vision snippet could not be loaded');
     })();
 
     return __courtVisionSnippetPromise;
@@ -2720,18 +2737,49 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
     const panel = document.getElementById('panel-courtvision');
     if(!panel) return;
 
+    const log = (msg) => {
+      console.log('[CourtVision]', msg);
+      const dbg = panel.querySelector('#cv-debug');
+      if(dbg){
+        const line = document.createElement('div');
+        line.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+        dbg.appendChild(line);
+      }
+    };
+
     panel.style.display = 'block';
-    panel.innerHTML = '<div class="cv-empty">Loading Court Vision…</div>';
+    panel.innerHTML = `
+      <div class="cv-card">
+        <div class="cv-section-title">Court Vision</div>
+        <div class="cv-empty" id="cv-loading-msg">Loading Court Vision…</div>
+        <div id="cv-debug" class="cv-mini" style="margin-top:10px;max-height:180px;overflow:auto;border:1px dashed #ddd;background:#fcfcfc;padding:8px"></div>
+      </div>`;
 
     try{
+      log('Panel ready. Player=' + JSON.stringify({
+        player_id: player && (player.player_id || player.id || ''),
+        name: player && (player.name || player.fullname || ''),
+        slug: player && (player.slug || '')
+      }));
       await loadCourtVisionSnippet();
+      log('Snippet loaded. CV API present=' + !!(window.CV && typeof window.CV.loadCourtVision === 'function'));
       if(window.CV && typeof window.CV.loadCourtVision === 'function'){
-        await window.CV.loadCourtVision(player || window.combinedPlayer || window.playerData || window.player || null);
+        const data = player || window.combinedPlayer || window.playerData || window.player || null;
+        log('Starting render...');
+        await window.CV.loadCourtVision(data, { debug: log });
+        log('Render finished.');
       } else {
         panel.innerHTML = '<div class="cv-empty">Court Vision module did not initialize.</div>';
       }
     }catch(err){
       console.error('Court Vision load error', err);
+      const dbg = panel.querySelector('#cv-debug');
+      if(dbg){
+        const line = document.createElement('div');
+        line.style.color = '#b00020';
+        line.textContent = 'ERROR: ' + (err && err.message ? err.message : err);
+        dbg.appendChild(line);
+      }
       panel.innerHTML = `<div class="cv-empty">Court Vision unavailable: ${escapeHtmlSafe(err && err.message ? err.message : err)}</div>`;
     }
   };
