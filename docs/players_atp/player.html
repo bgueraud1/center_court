@@ -180,53 +180,56 @@
       <div id="best-list"></div>
     </div>
 
-    <div id="panel-stats" class="panel" role="tabpanel">
-      <div class="subtabs" id="stats-subtabs"></div>
 
+
+    <div id="panel-stats" class="panel" role="tabpanel">
+      <!-- subtabs for stats -->
+      <div class="subtabs" id="stats-subtabs"></div>
       <div id="stats-subpanels">
+        <!-- DETAILED panel contains the filters and the container; it's empty until loaded -->
         <div id="panel-detailed" style="display:none; padding:8px;">
           <div style="display:flex;gap:12px;align-items:center;margin-bottom:10px;">
             <div>
               <label class="muted">Year:</label>
-              <select id="stats-year-filter" class="select-year">
-                <option value="ALL">All</option>
-              </select>
+              <select id="stats-year-filter" class="select-year"><option value="ALL">All</option></select>
             </div>
             <div>
               <label class="muted">Surface:</label>
-              <select id="stats-surface-filter" class="select-year">
-                <option value="ALL">All</option>
-              </select>
+              <select id="stats-surface-filter" class="select-year"><option value="ALL">All</option></select>
             </div>
             <div style="margin-left:auto;" id="detailed-stats-summary"></div>
           </div>
           <div id="detailed-stats-container"></div>
         </div>
 
+
+
+
+        <!-- Advanced statistics panel (top-level, sibling of panel-matches / panel-trophies / panel-stats) -->
+<div id="panel-advanced" class="panel" role="tabpanel" style="display:none; padding:12px;">
+  <!-- loader -->
+  <div id="advanced-loading" style="display:none;padding:8px;color:#666">Loading advanced statistics…</div>
+
+  <!-- content will be injected here (renderer uses #advanced-content) -->
+  <div id="advanced-content" style="display:none;"></div>
+
+  <!-- small debug log shown inside panel (hidden by default) -->
+  <div id="advanced-log" style="display:none; font-family:monospace;font-size:12px;color:#111;max-height:260px;overflow:auto;background:#f7f7f7;border:1px solid #ddd;padding:8px;margin-top:8px;"></div>
+</div>
+
         <div id="panel-scenarios" style="display:none; padding:8px;"></div>
         <div id="panel-timeseries" style="display:none; padding:8px;"></div>
-
         <div id="panel-maps" style="display:none; padding:8px;">
           <div class="map-wrap">
             <div id="map-opponents" class="map-card"></div>
             <div id="map-hosts" class="map-card"></div>
           </div>
+
+
         </div>
       </div>
     </div>
-
-    <div id="panel-court-vision" class="panel" role="tabpanel" style="display:none; padding:8px;">
-      <div id="court-vision-loading" class="sub">Loading…</div>
-      <div id="court-vision-content" style="display:none;"></div>
-    </div>
-
-    <div id="panel-advanced" class="panel" role="tabpanel" style="display:none; padding:12px;">
-      <div id="advanced-loading" style="display:none;padding:8px;color:#666">Loading advanced statistics…</div>
-      <div id="advanced-content" style="display:none;"></div>
-      <div id="advanced-log" style="display:none; font-family:monospace;font-size:12px;color:#111;max-height:260px;overflow:auto;background:#f7f7f7;border:1px solid #ddd;padding:8px;margin-top:8px;"></div>
-    </div>
   </div>
-</body>
 
 <script>
 /* ---------------- common helpers ---------------- */
@@ -286,7 +289,27 @@ async function loadCourtVisionForPlayer(playerData) {
   const content = panel.querySelector('#court-vision-content');
   const loader = panel.querySelector('#court-vision-loading');
 
-  content.innerHTML = snippetHtml;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = snippetHtml;
+
+  const scripts = Array.from(tmp.querySelectorAll('script'));
+  scripts.forEach(s => s.remove());
+
+  content.innerHTML = tmp.innerHTML;
+
+  for (const oldScript of scripts) {
+    const s = document.createElement('script');
+    for (const attr of oldScript.attributes) {
+      s.setAttribute(attr.name, attr.value);
+    }
+    if (oldScript.src) {
+      s.src = oldScript.src;
+    } else {
+      s.textContent = oldScript.textContent;
+    }
+    content.appendChild(s);
+  }
+
   loader.style.display = 'none';
   content.style.display = 'block';
 
@@ -301,7 +324,6 @@ async function loadCourtVisionForPlayer(playerData) {
 
   panel.dataset.loaded = '1';
 }
-
 
 /* ---------- buildAdvancedCandidatesFor (for general_advanced_stats) ---------- */
 function buildAdvancedCandidatesFor(player){
