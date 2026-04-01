@@ -157,6 +157,7 @@
       <button class="tab-btn" data-target="panel-trophies" role="tab" aria-selected="false">Tournaments & best results</button>
       <button class="tab-btn" data-target="panel-stats" role="tab" aria-selected="false">Statistics</button>
       <button class="tab-btn" data-target="panel-advanced" role="tab" aria-selected="false">Advanced statistics</button>
+      <button class="tab-btn" data-target="panel-court-vision" role="tab" aria-selected="false">Court Vision</button>
     </div>
 
     <div id="panel-matches" class="panel active" role="tabpanel">
@@ -201,6 +202,12 @@
           <div id="detailed-stats-container"></div>
         </div>
 
+
+        <div id="panel-court-vision" class="panel" role="tabpanel" style="display:none; padding:8px;">
+  <div id="court-vision-loading" class="sub">Loading…</div>
+  <div id="court-vision-content" style="display:none;"></div>
+</div>
+
         <!-- Advanced statistics panel (top-level, sibling of panel-matches / panel-trophies / panel-stats) -->
 <div id="panel-advanced" class="panel" role="tabpanel" style="display:none; padding:12px;">
   <!-- loader -->
@@ -230,6 +237,76 @@
 <script>
 /* ---------------- common helpers ---------------- */
 
+function buildCourtVisionJsonUrl(playerData) {
+  const pid = String(playerData.player_id || playerData.id || '').toLowerCase();
+  const nameRaw = String(playerData.name || playerData.fullname || '').trim();
+
+  const normalize = (s) => String(s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '');
+
+  const parts = nameRaw.split(/\s+/).filter(Boolean);
+  const first = parts.length ? normalize(parts[0]) : '';
+  const last = parts.length > 1 ? normalize(parts[parts.length - 1]) : '';
+
+  if (first && last && pid) {
+    return `/tools/court_vision_post_treated/${first}_${last}_${pid}_court_vision.json`;
+  }
+
+  return null;
+}
+
+async function loadCourtVisionForPlayer(playerData) {
+  const panel = document.getElementById('panel-court-vision');
+  if (!panel) return;
+
+  if (panel.dataset.loaded === '1') return;
+
+  panel.innerHTML = `
+    <div id="court-vision-loading" class="sub">Loading…</div>
+    <div id="court-vision-content" style="display:none;"></div>
+  `;
+
+  const jsonUrl = buildCourtVisionJsonUrl(playerData);
+  if (!jsonUrl) {
+    panel.innerHTML = '<div class="no-data">Court Vision data are not available for this player.</div>';
+    return;
+  }
+
+  const [htmlRes, dataRes] = await Promise.all([
+    fetch('/tools/court_vision_tab_snippet.html'),
+    fetch(jsonUrl)
+  ]);
+
+  if (!htmlRes.ok || !dataRes.ok) {
+    panel.innerHTML = '<div class="no-data">Court Vision data are not available for this player.</div>';
+    return;
+  }
+
+  const snippetHtml = await htmlRes.text();
+  const courtVisionData = await dataRes.json();
+
+  const content = panel.querySelector('#court-vision-content');
+  const loader = panel.querySelector('#court-vision-loading');
+
+  content.innerHTML = snippetHtml;
+  loader.style.display = 'none';
+  content.style.display = 'block';
+
+  if (window.initCourtVisionTab) {
+    window.initCourtVisionTab({
+      container: content,
+      player: playerData,
+      data: courtVisionData,
+      sourceUrl: jsonUrl
+    });
+  }
+
+  panel.dataset.loaded = '1';
+}
 
 
 /* ---------- buildAdvancedCandidatesFor (for general_advanced_stats) ---------- */
@@ -1251,6 +1328,11 @@ if(kind === 'detailed'){
 } else {
   // For other kinds it's ok to replace entire panel
   targetDiv.innerHTML = '<div class="sub">Loading…</div>';
+}
+
+if(kind === 'court-vision'){
+  await loadCourtVisionForPlayer(playerData);
+  return;
 }
 
 
