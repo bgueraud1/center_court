@@ -51,26 +51,39 @@
   function getNameParts(player){
     const raw = String(player?.name || player?.fullname || player?.player_name || player?.player || '').trim();
     const parts = raw.split(/\s+/).filter(Boolean);
+    const first = normalizeToken(parts[0] || '');
+    const last = normalizeToken(parts[parts.length - 1] || '');
+    const middle = parts.slice(1, -1).map(normalizeToken).filter(Boolean).join('_');
     return {
       raw,
-      first: normalizeToken(parts[0] || ''),
-      last: normalizeToken(parts[parts.length - 1] || ''),
+      parts,
+      first,
+      middle,
+      last,
       pid: normalizeToken(player?.player_id || player?.id || ''),
       slug: normalizeToken(player?.slug || player?.name_slug || '')
     };
   }
 
   function buildCourtVisionCandidates(player){
-    const { first, last, pid, slug } = getNameParts(player);
+    const { first, middle, last, pid, slug } = getNameParts(player);
     const bases = [];
+
+    // Most likely patterns first
+    if (first && middle && last && pid) bases.push(`${first}_${middle}_${last}_${pid}_court_vision.json`);
+    if (first && middle && last && pid) bases.push(`${first}_${middle}_${last}_${pid}.json`);
+    if (first && middle && last) bases.push(`${first}_${middle}_${last}_court_vision.json`);
+    if (first && middle && last) bases.push(`${first}_${middle}_${last}.json`);
+
     if (first && last && pid) bases.push(`${first}_${last}_${pid}_court_vision.json`);
     if (first && last && pid) bases.push(`${pid}_${first}_${last}_court_vision.json`);
     if (first && last) bases.push(`${first}_${last}_court_vision.json`);
-    if (slug) bases.push(`${slug}_court_vision.json`);
     if (pid) bases.push(`${pid}_court_vision.json`);
-    if (first && last && pid) bases.push(`${first}_${last}_${pid}.json`);
+
+    if (slug) bases.push(`${slug}_court_vision.json`);
     if (slug) bases.push(`${slug}.json`);
     if (pid) bases.push(`${pid}.json`);
+
     return uniq(bases.flatMap(b => [ `/tools/${b}`, `/tools/court_vision_post_treated/${b}` ]));
   }
 
@@ -367,9 +380,24 @@
     return out;
   }
 
-  function renderCourtVision(data, targetDiv){
+  function renderCourtVision(data, targetDiv, opts = {}){
+    const log = (msg) => {
+      console.log('[CourtVision]', msg);
+      try {
+        const dbg = targetDiv.querySelector('#cv-debug');
+        if(dbg){
+          const line = document.createElement('div');
+          line.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+          dbg.appendChild(line);
+        }
+      } catch(e) {}
+      if(typeof opts.debug === 'function') opts.debug(msg);
+    };
+
     const geo = getCourtGeometry(data);
     const events = extractEvents(data);
+    log(`Extracted events: ${events.length}`);
+    log(`Matches loaded: ${extractMatches(data).length}`);
     const subcategories = uniq(events.map(e => e.subcategory));
     const serviceTypes = uniq(events.filter(e => e.category === 'SERVICE').map(e => e.service_type));
     const placements = uniq(events.filter(e => e.category === 'SERVICE').map(e => e.placement));
@@ -421,6 +449,7 @@
           <div class="cv-card">
             <div class="cv-section-title">Selected item</div>
             <div id="cv-details" class="cv-details"><div class="cv-empty">Click a ball or a density cell to inspect its details.</div></div>
+            <div id="cv-debug" class="cv-mini" style="margin-top:10px;max-height:140px;overflow:auto;border:1px dashed #ddd;background:#fcfcfc;padding:8px"></div>
           </div>
         </div>
       </div>`;
@@ -498,6 +527,11 @@
 
     function renderBallPlot(root, events, geo, state){
       const plotDiv = root.querySelector('#cv-balls-plot');
+      if (plotDiv) {
+        log(`Balls plot container size: ${plotDiv.clientWidth}x${plotDiv.clientHeight}`);
+      } else {
+        log('Balls plot container missing');
+      }
       const traces = [];
       CATEGORY_ORDER.forEach(cat => {
         const arr = events.filter(e => e.category === cat);
@@ -512,7 +546,7 @@
         const min = vals.length ? Math.min(...vals) : 0;
         const max = vals.length ? Math.max(...vals) : 1;
         traces.push({
-          type:'scattergl',
+          type:'scatter',
           mode:'markers',
           name:cat,
           x: arr.map(e=>e.x),
@@ -548,17 +582,33 @@
         legend:{orientation:'h', y:-0.08},
         dragmode:'pan'
       };
-      Plotly.newPlot(plotDiv, traces, layout, {displayModeBar:true, responsive:true});
-      plotDiv.on('plotly_click', ev => {
-        const p = ev.points && ev.points[0];
-        if(!p) return;
-        const payload = typeof p.customdata === 'string' ? p.customdata : (Array.isArray(p.customdata) ? p.customdata[0] : String(p.customdata || '{}'));
-        try { setDetails(root, JSON.parse(payload), false); } catch(e) { console.warn('ball parse failed', e); }
-      });
+      Promise.resolve(Plotly.react(plotDiv, traces, layout, {displayModeBar:true, responsive:true}))
+        .then(() => {
+          setTimeout(() => { try { if(window.Plotly && Plotly.Plots && typeof Plotly.Plots.resize === 'function' && plotDiv) Plotly.Plots.resize(plotDiv); } catch(e) { console.warn('resize balls failed', e); } }, 200);
+          setTimeout(() => { try { if(window.Plotly && Plotly.Plots && typeof Plotly.Plots.resize === 'function' && plotDiv) Plotly.Plots.resize(plotDiv); } catch(e) {} }, 700);
+          if (typeof plotDiv.on === 'function') {
+            plotDiv.on('plotly_click', ev => {
+              const p = ev.points && ev.points[0];
+              if(!p) return;
+              const payload = typeof p.customdata === 'string' ? p.customdata : (Array.isArray(p.customdata) ? p.customdata[0] : String(p.customdata || '{}'));
+              try { setDetails(root, JSON.parse(payload), false); } catch(e) { console.warn('ball parse failed', e); }
+            });
+          }
+        })
+        .catch(err => {
+          console.error('Court Vision balls plot failed', err);
+          const d = root.querySelector('#cv-balls-plot');
+          if(d) d.innerHTML = '<div class="cv-empty">Balls plot error: ' + esc(err && err.message ? err.message : err) + '</div>';
+        });
     }
 
     function renderDensityPlot(root, events, geo, state){
       const plotDiv = root.querySelector('#cv-density-plot');
+      if (plotDiv) {
+        log(`Density plot container size: ${plotDiv.clientWidth}x${plotDiv.clientHeight}`);
+      } else {
+        log('Density plot container missing');
+      }
       const density = densityGrid(events, geo);
       const z = density.grid.map(row => row.map(c => c.count / (density.max || 1)));
       const xVals = Array.from({length:density.nx}, (_,i) => density.xMin + (i + 0.5) * density.dx);
@@ -567,15 +617,24 @@
       if(!state.densityMode3D){
         const trace = { type:'heatmap', x:xVals, y:yVals, z:z, colorscale:[[0,'#173bff'],[0.5,'#ffd84d'],[1,'#d7191c']], zsmooth:'best', hoverongaps:false, hovertemplate:'Probability: %{z:.3f}<extra></extra>' };
         const layout = { margin:{l:20,r:20,t:20,b:20}, paper_bgcolor:'#fff', plot_bgcolor:'#1f5fd1', xaxis:{range:[geo.xMin, geo.xMax], zeroline:false, showgrid:false, visible:false, scaleanchor:'y', scaleratio:1}, yaxis:{range:[geo.yMin, geo.yMax], zeroline:false, showgrid:false, visible:false}, shapes:getCourtShapes(geo), dragmode:'pan' };
-        Plotly.newPlot(plotDiv, [trace], layout, {displayModeBar:true, responsive:true});
-        plotDiv.on('plotly_click', ev => {
-          const p = ev.points && ev.points[0];
-          if(!p) return;
-          const xi = p.pointNumber?.[0] ?? Math.floor((p.x - density.xMin) / density.dx);
-          const yi = p.pointNumber?.[1] ?? Math.floor((p.y - density.yMin) / density.dy);
-          const cell = density.grid[Math.max(0, Math.min(density.ny-1, yi))][Math.max(0, Math.min(density.nx-1, xi))];
-          setDetails(root, {prob: cell.count/(density.max||1), events: cell.events, x:p.x, y:p.y}, true);
-        });
+        Promise.resolve(Plotly.react(plotDiv, [trace], layout, {displayModeBar:true, responsive:true}))
+          .then(() => {
+            if (typeof plotDiv.on === 'function') {
+              plotDiv.on('plotly_click', ev => {
+                const p = ev.points && ev.points[0];
+                if(!p) return;
+                const xi = p.pointNumber?.[0] ?? Math.floor((p.x - density.xMin) / density.dx);
+                const yi = p.pointNumber?.[1] ?? Math.floor((p.y - density.yMin) / density.dy);
+                const cell = density.grid[Math.max(0, Math.min(density.ny-1, yi))][Math.max(0, Math.min(density.nx-1, xi))];
+                setDetails(root, {prob: cell.count/(density.max||1), events: cell.events, x:p.x, y:p.y}, true);
+              });
+            }
+          })
+          .catch(err => {
+            console.error('Court Vision density plot failed', err);
+            const d = root.querySelector('#cv-density-plot');
+            if(d) d.innerHTML = '<div class="cv-empty">Density plot error: ' + esc(err && err.message ? err.message : err) + '</div>';
+          });
         return;
       }
 
@@ -595,13 +654,24 @@
 
       const trace = { type:'scatter3d', mode:'markers', x: cells.map(c=>c.x), y: cells.map(c=>c.y), z: cells.map(c=>c.z), marker:{ size:4, color: cells.map(c=>c.prob), colorscale:[[0,'#173bff'],[0.5,'#ffd84d'],[1,'#d7191c']], opacity:0.95, colorbar:{title:'Probability'} }, customdata: cells.map(c=>JSON.stringify(c)), hovertemplate:'Prob: %{marker.color:.3f}<br>x=%{x:.2f} y=%{y:.2f} z=%{z:.2f}<extra></extra>' };
       const layout = { margin:{l:0,r:0,t:0,b:0}, paper_bgcolor:'#fff', scene:{ xaxis:{range:[geo.xMin, geo.xMax], title:'Court X'}, yaxis:{range:[geo.yMin, geo.yMax], title:'Court Y'}, zaxis:{title: state.densityMetric === 'speed' ? 'Speed' : state.densityMetric === 'height' ? 'Height' : state.densityMetric === 'spin' ? 'Spin' : 'Density'} }, showlegend:false };
-      Plotly.newPlot(plotDiv, [trace], layout, {displayModeBar:true, responsive:true});
-      plotDiv.on('plotly_click', ev => {
-        const p = ev.points && ev.points[0];
-        if(!p) return;
-        const payload = typeof p.customdata === 'string' ? p.customdata : (Array.isArray(p.customdata) ? p.customdata[0] : String(p.customdata || '{}'));
-        try { setDetails(root, JSON.parse(payload), true); } catch(e) { console.warn('cell parse failed', e); }
-      });
+      Promise.resolve(Plotly.react(plotDiv, [trace], layout, {displayModeBar:true, responsive:true}))
+        .then(() => {
+          setTimeout(() => { try { if(window.Plotly && Plotly.Plots && typeof Plotly.Plots.resize === 'function' && plotDiv) Plotly.Plots.resize(plotDiv); } catch(e) { console.warn('resize balls failed', e); } }, 200);
+          setTimeout(() => { try { if(window.Plotly && Plotly.Plots && typeof Plotly.Plots.resize === 'function' && plotDiv) Plotly.Plots.resize(plotDiv); } catch(e) {} }, 700);
+          if (typeof plotDiv.on === 'function') {
+            plotDiv.on('plotly_click', ev => {
+              const p = ev.points && ev.points[0];
+              if(!p) return;
+              const payload = typeof p.customdata === 'string' ? p.customdata : (Array.isArray(p.customdata) ? p.customdata[0] : String(p.customdata || '{}'));
+              try { setDetails(root, JSON.parse(payload), true); } catch(e) { console.warn('cell parse failed', e); }
+            });
+          }
+        })
+        .catch(err => {
+          console.error('Court Vision 3D plot failed', err);
+          const d = root.querySelector('#cv-density-plot');
+          if(d) d.innerHTML = '<div class="cv-empty">3D density plot error: ' + esc(err && err.message ? err.message : err) + '</div>';
+        });
     }
 
     function update(){
@@ -624,19 +694,28 @@
     update();
   }
 
-  async function loadCourtVision(playerData){
-    const target = document.getElementById('panel-courtvision');
+  async function loadCourtVision(playerData, opts = {}){
+    const target = opts.container || document.getElementById('panel-courtvision');
     if(!target) return;
+
     target.innerHTML = '<div class="cv-empty">Loading Court Vision…</div>';
 
+    // Allow direct rendering if the caller already has the court vision JSON.
+    if(playerData && (Array.isArray(playerData.e) || Array.isArray(playerData.matches) || Array.isArray(playerData.m))){
+      renderCourtVision(playerData, target, opts);
+      return;
+    }
+
     const candidates = buildCourtVisionCandidates(playerData);
+    if(typeof opts.debug === 'function') opts.debug('Candidate count: ' + candidates.length);
     const res = await tryCandidatesSequential(candidates);
 
     if(!res || !res.data){
-      target.innerHTML = '<div class="cv-empty">Court Vision data is not available for this player.</div>';
+      target.innerHTML = `<div class="cv-empty">Court Vision data is not available for this player.<div class="cv-mini" style="margin-top:8px">Tried:<br>${esc(candidates.join('<br>'))}</div></div>`;
       return;
     }
-    renderCourtVision(res.data, target);
+    if(typeof opts.debug === 'function') opts.debug('Loaded JSON from: ' + res.url);
+    renderCourtVision(res.data, target, opts);
   }
 
   CV.buildCourtVisionCandidates = buildCourtVisionCandidates;

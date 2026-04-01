@@ -2750,12 +2750,19 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
     panel.style.display = 'block';
     panel.innerHTML = `
       <div class="cv-card">
-        <div class="cv-section-title">Court Vision</div>
-        <div class="cv-empty" id="cv-loading-msg">Loading Court Vision…</div>
+        <div class="cv-row" style="justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+          <div>
+            <div class="cv-section-title">Court Vision</div>
+            <div class="cv-empty" id="cv-loading-msg" style="padding:0;margin-top:4px">Loading Court Vision…</div>
+          </div>
+          <div class="cv-mini" id="cv-status">Waiting…</div>
+        </div>
         <div id="cv-debug" class="cv-mini" style="margin-top:10px;max-height:180px;overflow:auto;border:1px dashed #ddd;background:#fcfcfc;padding:8px"></div>
+        <div id="cv-render-root" style="margin-top:12px"></div>
       </div>`;
 
     try{
+      const renderRoot = panel.querySelector('#cv-render-root');
       log('Panel ready. Player=' + JSON.stringify({
         player_id: player && (player.player_id || player.id || ''),
         name: player && (player.name || player.fullname || ''),
@@ -2766,8 +2773,11 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
       if(window.CV && typeof window.CV.loadCourtVision === 'function'){
         const data = player || window.combinedPlayer || window.playerData || window.player || null;
         log('Starting render...');
-        await window.CV.loadCourtVision(data, { debug: log });
+        const status = panel.querySelector('#cv-status');
+        if(status) status.textContent = 'Rendering…';
+        await window.CV.loadCourtVision(data, { debug: log, container: renderRoot });
         log('Render finished.');
+        if(status) status.textContent = 'Ready';
       } else {
         panel.innerHTML = '<div class="cv-empty">Court Vision module did not initialize.</div>';
       }
