@@ -159,6 +159,7 @@
       <button class="tab-btn" data-target="panel-trophies" role="tab" aria-selected="false">Tournaments & best results</button>
       <button class="tab-btn" data-target="panel-stats" role="tab" aria-selected="false">Statistics</button>
       <button class="tab-btn" data-target="panel-advanced" role="tab" aria-selected="false">Advanced statistics</button>
+      <button class="subtab-btn" data-kind="court-vision">Court Vision</button>
     </div>
 
     <div id="panel-matches" class="panel active" role="tabpanel">
@@ -201,9 +202,16 @@
           <div id="detailed-stats-container"></div>
         </div>
 
+        
+
         <div id="panel-advanced" class="panel" role="tabpanel" style="display:none; padding:12px;">
   <div id="advanced-loading" class="sub">Loading…</div>
   <div id="advanced-content" style="display:none;"></div>
+</div>
+
+<div id="panel-court-vision" style="display:none; padding:8px;">
+  <div id="court-vision-loading" class="sub">Loading…</div>
+  <div id="court-vision-content" style="display:none;"></div>
 </div>
 
         <div id="panel-scenarios" style="display:none; padding:8px;"></div>
@@ -229,6 +237,115 @@
  */
 /* Replace existing buildAdvancedCandidatesFor(player) with this improved version */
 /* Replace existing buildAdvancedCandidatesForVerbose(player) with this improved verbose version */
+
+
+
+function buildCourtVisionJsonUrl(playerData) {
+  const pid = String(playerData.player_id || playerData.id || '').toLowerCase();
+  const nameRaw = String(playerData.name || playerData.fullname || '').trim();
+
+  const normalize = (s) => String(s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '');
+
+  const parts = nameRaw.split(/\s+/).filter(Boolean);
+  const first = parts.length ? normalize(parts[0]) : '';
+  const last = parts.length > 1 ? normalize(parts[parts.length - 1]) : '';
+
+  // expected pattern: prenom_nom_id_court_vision.json
+  if (first && last && pid) {
+    return `/tools/court_vision_post_treated/${first}_${last}_${pid}_court_vision.json`;
+  }
+
+  return null;
+}
+
+async function loadCourtVisionForPlayer(playerData) {
+  const panel = document.getElementById('panel-court-vision');
+  if (!panel) return;
+
+  if (panel.dataset.loaded === '1') return;
+
+  panel.innerHTML = `
+    <div id="court-vision-loading" class="sub">Loading…</div>
+    <div id="court-vision-content" style="display:none;"></div>
+  `;
+
+  const jsonUrl = buildCourtVisionJsonUrl(playerData);
+  if (!jsonUrl) {
+    panel.innerHTML = '<div class="no-data">Court Vision data are not available for this player.</div>';
+    return;
+  }
+
+  const [htmlRes, dataRes] = await Promise.all([
+    fetch('/tools/court_vision_tab_snippet.html'),
+    fetch(jsonUrl)
+  ]);
+
+  if (!htmlRes.ok || !dataRes.ok) {
+    panel.innerHTML = '<div class="no-data">Court Vision data are not available for this player.</div>';
+    return;
+  }
+
+  const snippetHtml = await htmlRes.text();
+  const courtVisionData = await dataRes.json();
+
+  const content = panel.querySelector('#court-vision-content');
+  const loader = panel.querySelector('#court-vision-loading');
+
+  content.innerHTML = snippetHtml;
+  loader.style.display = 'none';
+  content.style.display = 'block';
+
+  if (window.initCourtVisionTab) {
+    window.initCourtVisionTab({
+      container: content,
+      player: playerData,
+      data: courtVisionData,
+      sourceUrl: jsonUrl
+    });
+  }
+
+  panel.dataset.loaded = '1';
+}
+
+function buildCourtVisionCandidatesFor(player){
+  const pid = player && (player.player_id || player.id || player.pid) ? String(player.player_id || player.id || player.pid).toLowerCase() : '';
+  const nameRaw = player && (player.name || player.fullname) ? String(player.name || player.fullname).trim() : '';
+  const slugVal = player && (player.slug || player.name_slug) ? String(player.slug || player.name_slug).trim().toLowerCase() : '';
+
+  const normalize = s => String(s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '');
+
+  const parts = nameRaw ? nameRaw.split(/\s+/).filter(Boolean) : [];
+  const first = parts.length ? normalize(parts[0]) : '';
+  const last = parts.length > 1 ? normalize(parts[parts.length - 1]) : '';
+
+  const candidates = [];
+  if(first && last && pid){
+    candidates.push(`/tools/court_vision_post_treated/${first}_${last}_${pid}_court_vision.json`);
+  }
+  if(slugVal){
+    candidates.push(`/tools/court_vision_post_treated/${slugVal}_court_vision.json`);
+  }
+  if(first && last){
+    candidates.push(`/tools/court_vision_post_treated/${first}_${last}_court_vision.json`);
+  }
+  if(pid){
+    candidates.push(`/tools/court_vision_post_treated/${pid}_court_vision.json`);
+  }
+
+  return [...new Set(candidates)];
+}
+
+
 function buildAdvancedCandidatesForVerbose(player){
   console.log('buildAdvancedCandidatesForVerbose: player =', player);
   const pid = player && (player.player_id || player.id || player.pid) ? String(player.player_id || player.id || player.pid) : '';
@@ -1041,6 +1158,8 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
   });
 });
 
+
+
   // try multiple candidate URLs sequentially
   function tryCandidatesSequential(candidates){
   return new Promise((resolve) => {
@@ -1624,6 +1743,11 @@ if(kind === 'detailed'){
       renderScenarios(res.data, res.url, targetDiv);
       return;
     }
+
+    if (kind === 'court-vision') {
+  await loadCourtVisionForPlayer(playerData);
+  return;
+}
 
     // ----------------- Time Series handler (remplacer la branche timeseries) -----------------
 if(kind === 'timeseries'){
