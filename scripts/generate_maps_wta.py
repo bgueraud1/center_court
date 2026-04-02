@@ -116,19 +116,42 @@ def parse_date_only(val: Optional[str]) -> str:
 
 
 # ----------------- IOC -> ISO3 mapping -----------------
-IOC_TO_ISO3 = {
-    "RSA":"ZAF", "GER":"DEU", "NED":"NLD", "INA":"IDN",
-    "PHI":"PHL", "POR":"PRT", "GRE":"GRC", "BUL":"BGR",
-    "LAT":"LVA", "MAD":"MDG", "ALG":"DZA", "CHI":"CHL",
-    "GUA":"GTM", "ESA":"SLV", "SUI":"CHE", "SLO":"SVN",
-    "CRO":"HRV", "URU":"URY", "PAR":"PRY", "NGR":"NGA",
-    "DEN":"DNK", "GBR":"GBR", "USA":"USA", "ARG":"ARG",
-    "ESP":"ESP", "FRA":"FRA", "ITA":"ITA", "BRA":"BRA",
-}
+import pycountry
 
-ISO2_TO_ISO3_COMMON = {
-    "DE":"DEU", "CH":"CHE", "NL":"NLD", "ES":"ESP", "FR":"FRA",
-    "IT":"ITA", "GB":"GBR", "US":"USA", "AR":"ARG", "BR":"BRA",
+# ISO 3166-1 alpha-2 -> alpha-3, complet et à jour via la base ISO de pycountry.
+ISO2_TO_ISO3_COMMON = {c.alpha_2: c.alpha_3 for c in pycountry.countries}
+
+IOC_TO_ISO3 = {
+    "AFG":"AFG", "ALB":"ALB", "ALG":"DZA", "AND":"AND", "ANG":"AGO", "ANT":"ATG", "ARG":"ARG",
+    "ARM":"ARM", "ARU":"ABW", "ASA":"ASM", "AUS":"AUS", "AUT":"AUT", "AZE":"AZE", "BAH":"BHS",
+    "BAN":"BGD", "BAR":"BRB", "BDI":"BDI", "BEL":"BEL", "BEN":"BEN", "BER":"BMU", "BHU":"BTN",
+    "BIH":"BIH", "BIZ":"BLZ", "BLR":"BLR", "BOL":"BOL", "BOT":"BWA", "BRA":"BRA", "BRN":"BHR",
+    "BRU":"BRN", "BUL":"BGR", "BUR":"BFA", "CAF":"CAF", "CAM":"KHM", "CAN":"CAN", "CAY":"CYM",
+    "CGO":"COG", "CHA":"TCD", "CHI":"CHL", "CHN":"CHN", "CIV":"CIV", "CMR":"CMR", "COD":"COD",
+    "COK":"COK", "COL":"COL", "COM":"COM", "CPV":"CPV", "CRC":"CRI", "CRO":"HRV", "CUB":"CUB",
+    "CYP":"CYP", "CZE":"CZE", "DEN":"DNK", "DJI":"DJI", "DMA":"DMA", "DOM":"DOM", "ECU":"ECU",
+    "EGY":"EGY", "ERI":"ERI", "ESA":"SLV", "ESP":"ESP", "EST":"EST", "ETH":"ETH", "FIJ":"FJI",
+    "FIN":"FIN", "FRA":"FRA", "FSM":"FSM", "GAB":"GAB", "GAM":"GMB", "GBR":"GBR", "GBS":"GNB",
+    "GEO":"GEO", "GEQ":"GNQ", "GER":"DEU", "GHA":"GHA", "GRE":"GRC", "GRN":"GRD", "GUA":"GTM",
+    "GUI":"GIN", "GUM":"GUM", "GUY":"GUY", "HAI":"HTI", "HKG":"HKG", "HON":"HND", "HUN":"HUN",
+    "INA":"IDN", "IND":"IND", "IRI":"IRN", "IRL":"IRL", "IRQ":"IRQ", "ISL":"ISL", "ISR":"ISR",
+    "ISV":"VIR", "ITA":"ITA", "IVB":"VGB", "JAM":"JAM", "JOR":"JOR", "JPN":"JPN", "KAZ":"KAZ",
+    "KEN":"KEN", "KGZ":"KGZ", "KIR":"KIR", "KOR":"KOR", "KOS":"XKX", "KSA":"SAU", "KUW":"KWT",
+    "LAO":"LAO", "LAT":"LVA", "LBA":"LBY", "LBN":"LBN", "LBR":"LBR", "LCA":"LCA", "LES":"LSO",
+    "LIE":"LIE", "LTU":"LTU", "LUX":"LUX", "MAD":"MDG", "MAR":"MAR", "MAS":"MYS", "MAW":"MWI",
+    "MDA":"MDA", "MDV":"MDV", "MEX":"MEX", "MGL":"MNG", "MHL":"MHL", "MKD":"MKD", "MLI":"MLI",
+    "MLT":"MLT", "MNE":"MNE", "MON":"MCO", "MOZ":"MOZ", "MRI":"MUS", "MTN":"MRT", "MYA":"MMR",
+    "NAM":"NAM", "NCA":"NIC", "NED":"NLD", "NEP":"NPL", "NGR":"NGA", "NIG":"NER", "NOR":"NOR",
+    "NRU":"NRU", "NZL":"NZL", "OMA":"OMN", "PAK":"PAK", "PAN":"PAN", "PAR":"PRY", "PER":"PER",
+    "PHI":"PHL", "PLE":"PSE", "PLW":"PLW", "PNG":"PNG", "POL":"POL", "POR":"PRT", "PRK":"PRK",
+    "PUR":"PRI", "QAT":"QAT", "ROU":"ROU", "RSA":"ZAF", "RUS":"RUS", "RWA":"RWA", "SAM":"WSM",
+    "SEN":"SEN", "SEY":"SYC", "SGP":"SGP", "SKN":"KNA", "SLE":"SLE", "SLO":"SVN", "SMR":"SMR",
+    "SOL":"SLB", "SOM":"SOM", "SRB":"SRB", "SRI":"LKA", "SSD":"SSD", "STP":"STP", "SUD":"SDN",
+    "SUI":"CHE", "SUR":"SUR", "SVK":"SVK", "SWE":"SWE", "SWZ":"SWZ", "SYR":"SYR", "TAN":"TZA",
+    "TGA":"TON", "THA":"THA", "TJK":"TJK", "TKM":"TKM", "TLS":"TLS", "TOG":"TGO", "TPE":"TWN",
+    "TTO":"TTO", "TUN":"TUN", "TUR":"TUR", "TUV":"TUV", "UAE":"ARE", "UGA":"UGA", "UKR":"UKR",
+    "URU":"URY", "USA":"USA", "UZB":"UZB", "VAN":"VUT", "VEN":"VEN", "VIE":"VNM", "VIN":"VCT",
+    "YEM":"YEM", "ZAM":"ZMB", "ZIM":"ZWE"
 }
 
 
