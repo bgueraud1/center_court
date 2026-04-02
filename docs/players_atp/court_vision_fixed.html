@@ -1,0 +1,1430 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Court Vision</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    :root{
+      --cv-outer:#0a5a2a;
+      --cv-court:#2673d9;
+      --cv-court-dark:#1e5cb0;
+      --cv-line:#ffffff;
+      --cv-bg:#f5f7fb;
+      --cv-card:#ffffff;
+      --cv-border:#e5e7eb;
+      --cv-text:#111827;
+      --cv-muted:#6b7280;
+      --cv-yellow:#ffd84d;
+      --cv-red:#d7191c;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:Arial,Helvetica,sans-serif;
+      color:var(--cv-text);
+      background:var(--cv-bg);
+    }
+    .cv-shell{
+      width:100%;
+      padding:12px;
+    }
+    .cv-topbar{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:flex-start;
+      justify-content:space-between;
+      margin-bottom:12px;
+    }
+    .cv-titleblock h1{
+      margin:0;
+      font-size:22px;
+      line-height:1.1;
+    }
+    .cv-titleblock p{
+      margin:6px 0 0;
+      color:var(--cv-muted);
+      font-size:13px;
+      max-width:1000px;
+      line-height:1.4;
+    }
+    .cv-source{
+      min-width:280px;
+      padding:10px 12px;
+      background:#fff;
+      border:1px solid var(--cv-border);
+      border-radius:12px;
+      box-shadow:0 1px 2px rgba(0,0,0,.04);
+      font-size:13px;
+    }
+    .cv-source strong{display:block;margin-bottom:6px}
+    .cv-source .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .cv-source input[type="text"]{
+      width:min(520px,100%);
+      padding:8px 10px;
+      border:1px solid var(--cv-border);
+      border-radius:8px;
+      font-size:13px;
+    }
+    .cv-source button{
+      padding:8px 12px;
+      border:1px solid var(--cv-border);
+      border-radius:8px;
+      background:#fff;
+      cursor:pointer;
+      font-weight:700;
+    }
+    .cv-card{
+      border:1px solid var(--cv-border);
+      border-radius:14px;
+      background:var(--cv-card);
+      box-shadow:0 1px 2px rgba(0,0,0,.04);
+      padding:12px;
+    }
+    .cv-controls{
+      display:grid;
+      grid-template-columns:repeat(4,minmax(0,1fr));
+      gap:10px;
+      margin-bottom:12px;
+    }
+    .cv-control{
+      border:1px solid #e8e8e8;
+      border-radius:12px;
+      background:#fafafa;
+      padding:10px;
+      min-height:132px;
+    }
+    .cv-control label{
+      display:block;
+      font-size:12px;
+      font-weight:700;
+      color:#374151;
+      margin-bottom:7px;
+    }
+    .cv-control select,
+    .cv-control input[type="number"]{
+      width:100%;
+      padding:8px 9px;
+      border:1px solid #d8dbe2;
+      border-radius:8px;
+      font-size:13px;
+      background:#fff;
+    }
+    .cv-control select[multiple]{
+      min-height:132px;
+    }
+    .cv-control .help{
+      margin-top:6px;
+      font-size:12px;
+      color:var(--cv-muted);
+      line-height:1.3;
+    }
+    .cv-range{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:8px;
+    }
+    .cv-actions{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      align-items:center;
+      margin:10px 0 0;
+    }
+    .cv-actions button{
+      padding:8px 12px;
+      border-radius:10px;
+      border:1px solid var(--cv-border);
+      background:#fff;
+      cursor:pointer;
+      font-weight:700;
+    }
+    .cv-actions button.primary{
+      background:var(--cv-court);
+      border-color:var(--cv-court);
+      color:#fff;
+    }
+    .cv-layout{
+      display:grid;
+      grid-template-columns:minmax(0,1fr) 340px;
+      gap:12px;
+      align-items:start;
+    }
+    .cv-views{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:12px;
+    }
+    .cv-view-card h2{
+      margin:0 0 8px;
+      font-size:16px;
+    }
+    .cv-view-card .meta{
+      color:var(--cv-muted);
+      font-size:12px;
+      margin-bottom:8px;
+      line-height:1.35;
+    }
+    .cv-plot{
+      width:100%;
+      height:620px;
+    }
+    .cv-details{
+      position:sticky;
+      top:12px;
+    }
+    .cv-details .box{
+      padding:12px;
+      border:1px solid var(--cv-border);
+      border-radius:14px;
+      background:#fff;
+      box-shadow:0 1px 2px rgba(0,0,0,.04);
+    }
+    .cv-details h3{
+      margin:0 0 8px;
+      font-size:16px;
+    }
+    .cv-kv{
+      display:grid;
+      grid-template-columns:128px 1fr;
+      gap:6px 10px;
+      font-size:13px;
+      align-items:start;
+    }
+    .cv-kv div:nth-child(odd){
+      color:var(--cv-muted);
+    }
+    .cv-pill{
+      display:inline-block;
+      padding:3px 8px;
+      border-radius:999px;
+      background:#eef4ff;
+      color:#174ea6;
+      font-size:12px;
+      font-weight:700;
+      margin:2px 4px 0 0;
+    }
+    .cv-empty{
+      padding:16px;
+      color:var(--cv-muted);
+      font-size:13px;
+    }
+    .cv-count{
+      margin-top:8px;
+      font-size:12px;
+      color:var(--cv-muted);
+    }
+    .cv-footer-note{
+      font-size:12px;
+      color:var(--cv-muted);
+      margin-top:8px;
+      line-height:1.35;
+    }
+    .cv-multiselect{
+      border:1px solid #d8dbe2;
+      border-radius:8px;
+      background:#fff;
+      padding:6px;
+      max-height:136px;
+      overflow:auto;
+    }
+    .cv-multiselect label{
+      display:flex;
+      gap:8px;
+      align-items:center;
+      font-size:13px;
+      margin:4px 0;
+      font-weight:400;
+      line-height:1.2;
+    }
+    @media (max-width: 1200px){
+      .cv-layout{grid-template-columns:1fr}
+      .cv-details{position:static}
+      .cv-views{grid-template-columns:1fr}
+      .cv-controls{grid-template-columns:repeat(2,minmax(0,1fr))}
+      .cv-plot{height:560px}
+    }
+    @media (max-width: 720px){
+      .cv-controls{grid-template-columns:1fr}
+      .cv-plot{height:500px}
+    }
+  </style>
+</head>
+<body>
+  <div class="cv-shell">
+    <div class="cv-topbar">
+      <div class="cv-titleblock">
+        <h1>Court Vision</h1>
+        <p>
+          Deux vues synchronisées du court de tennis : <strong>All Balls</strong> et <strong>Density</strong>.
+          Le terrain est dessiné à l’échelle, avec l’origine au centre du filet (0,0) et un facteur d’échelle
+          <strong>SCALE_DIV = 2.29</strong>. Les dimensions de référence sont celles d’un court ITF :
+          23,77 m × 10,97 m, lignes de simple à 8,23 m, couloirs de double de 1,37 m, lignes de service à 6,40 m du filet
+          et zones de dégagement recommandées de 6,40 m derrière les fonds et 3,66 m sur les côtés.
+        </p>
+      </div>
+      <div class="cv-source">
+        <strong>Load a JSON file</strong>
+        <div class="row">
+          <input id="cv-json-url" type="text" placeholder="/tools/court_vision_post_treated/prenom_nom_id_court_vision.json">
+          <button id="cv-load-url" type="button">Load</button>
+          <label style="display:flex;gap:6px;align-items:center;cursor:pointer;font-size:13px">
+            <input id="cv-json-file" type="file" accept=".json,application/json">
+            Local file
+          </label>
+        </div>
+        <div class="cv-footer-note" id="cv-load-status">Waiting for a JSON source.</div>
+      </div>
+    </div>
+
+    <div class="cv-card" style="margin-bottom:12px;">
+      <div class="cv-controls">
+        <div class="cv-control">
+          <label for="cv-category">Category</label>
+          <select id="cv-category" multiple size="3"></select>
+          <div class="help">Select one or more categories.</div>
+        </div>
+        <div class="cv-control">
+          <label for="cv-subcategory">Subcategory</label>
+          <select id="cv-subcategory" multiple size="6"></select>
+          <div class="help">Select one or more subcategories.</div>
+        </div>
+        <div class="cv-control">
+          <label for="cv-outcome">Point outcome</label>
+          <select id="cv-outcome" multiple size="3"></select>
+          <div class="help">Won / Lost filtering.</div>
+        </div>
+        <div class="cv-control">
+          <label for="cv-exchange">Exchange length</label>
+          <select id="cv-exchange" multiple size="4"></select>
+          <div class="help">Less than 5, 6 to 10, more than 10.</div>
+        </div>
+
+        <div class="cv-control">
+          <label for="cv-service-types">Service type</label>
+          <div id="cv-service-types" class="cv-multiselect"></div>
+        </div>
+        <div class="cv-control">
+          <label for="cv-placements">Service placement</label>
+          <div id="cv-placements" class="cv-multiselect"></div>
+        </div>
+        <div class="cv-control">
+          <label for="cv-zones">Zone</label>
+          <div id="cv-zones" class="cv-multiselect"></div>
+        </div>
+        <div class="cv-control">
+          <label for="cv-shots">Shot</label>
+          <div id="cv-shots" class="cv-multiselect"></div>
+        </div>
+
+        <div class="cv-control">
+          <label>Speed min / max</label>
+          <div class="cv-range">
+            <input id="cv-speed-min" type="number" step="0.1" placeholder="min">
+            <input id="cv-speed-max" type="number" step="0.1" placeholder="max">
+          </div>
+          <div class="help">Ignored when 3D metric = Speed.</div>
+        </div>
+        <div class="cv-control">
+          <label>Height min / max</label>
+          <div class="cv-range">
+            <input id="cv-height-min" type="number" step="0.1" placeholder="min">
+            <input id="cv-height-max" type="number" step="0.1" placeholder="max">
+          </div>
+          <div class="help">Ignored when 3D metric = Height.</div>
+        </div>
+        <div class="cv-control">
+          <label>Spin min / max</label>
+          <div class="cv-range">
+            <input id="cv-spin-min" type="number" step="0.1" placeholder="min">
+            <input id="cv-spin-max" type="number" step="0.1" placeholder="max">
+          </div>
+          <div class="help">Ignored when 3D metric = Spin.</div>
+        </div>
+        <div class="cv-control">
+          <label for="cv-3d-metric">3D metric</label>
+          <select id="cv-3d-metric">
+            <option value="none">2D</option>
+            <option value="speed">Speed</option>
+            <option value="height">Height</option>
+            <option value="spin">Spin</option>
+          </select>
+          <div class="help">En 3D, le tracé utilise l’échelle du metric choisi en hauteur.</div>
+        </div>
+      </div>
+
+      <div class="cv-actions">
+        <button id="cv-apply" type="button" class="primary">Apply filters</button>
+        <button id="cv-reset" type="button">Reset</button>
+        <span id="cv-filter-summary"></span>
+      </div>
+    </div>
+
+    <div class="cv-layout">
+      <div>
+        <div class="cv-views">
+          <div class="cv-card cv-view-card">
+            <h2>All Balls</h2>
+            <div class="meta">Points jaunes avec un fin contour noir. Clique un point pour afficher ses métadonnées.</div>
+            <div id="cv-all-balls" class="cv-plot"></div>
+            <div id="cv-all-count" class="cv-count"></div>
+          </div>
+          <div class="cv-card cv-view-card">
+            <h2>Density</h2>
+            <div class="meta">Les cellules représentent une densité de probabilité en 2D. En 3D, la même carte devient une surface dont la hauteur correspond au metric choisi.</div>
+            <div id="cv-density" class="cv-plot"></div>
+            <div id="cv-density-count" class="cv-count"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cv-details">
+        <div class="box">
+          <h3>Selected item</h3>
+          <div id="cv-details-body" class="cv-empty">Clique une balle ou une cellule de densité pour voir le détail.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    const CV = window.CV = window.CV || {};
+
+    const SCALE_DIV = 2.29;
+
+    const CATEGORY_ORDER = ['SERVICE','RETURN','GAME'];
+    const OUTCOME_OPTIONS = ['Won','Lost'];
+    const EXCHANGE_OPTIONS = ['<5','6-10','>10'];
+    const DENSITY_COLORS = [
+      [0,   '#173bff'],
+      [0.5, '#ffd84d'],
+      [1,   '#d7191c']
+    ];
+
+    const COURT = {
+      doublesWidth: 10.97 / SCALE_DIV,
+      singlesWidth: 8.23 / SCALE_DIV,
+      length: 23.77 / SCALE_DIV,
+      sideRunOff: 3.66 / SCALE_DIV,
+      backRunOff: 6.40 / SCALE_DIV,
+      serviceLine: 6.40 / SCALE_DIV,
+      netHeightCenter: 0.914 / SCALE_DIV,
+      netHeightPosts: 1.07 / SCALE_DIV
+    };
+
+    const STATE = {
+      data: null,
+      allEvents: [],
+      filteredEvents: [],
+      court: null,
+      lastJsonUrl: '',
+      densityGrid: null
+    };
+
+    const $ = (root, sel) => root.querySelector(sel);
+    const esc = s => String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[m]));
+    const lower = v => String(v ?? '').trim().toLowerCase();
+    const title = v => {
+      const s = String(v ?? '').trim();
+      if(!s) return '';
+      return s.replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase());
+    };
+    const toNum = v => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+    const uniq = arr => Array.from(new Set(arr.filter(v => v !== null && v !== undefined && String(v).trim() !== '')));
+    const isFiniteNum = v => Number.isFinite(Number(v));
+
+    function getJsonUrlFromPage(){
+      const params = new URLSearchParams(location.search);
+      return params.get('json') || params.get('url') || '';
+    }
+
+    function scale(v){
+      const n = toNum(v);
+      return n === null ? null : n / SCALE_DIV;
+    }
+
+    function scaleCourtFromMeters(v){
+      return v / SCALE_DIV;
+    }
+
+    function normalizeOutcome(v){
+      const s = lower(v);
+      if(!s) return 'ALL';
+      if(['won','win','point_won','point won','gagné','gagne','winner'].some(x => s.includes(x))) return 'Won';
+      if(['lost','loss','point_lost','point lost','perdu','perte','error'].some(x => s.includes(x))) return 'Lost';
+      return title(v);
+    }
+
+    function classifyExchange(v){
+      const s = lower(v);
+      const n = parseInt(String(v).match(/\d+/)?.[0] || '', 10);
+      if(Number.isFinite(n)){
+        if(n <= 5) return '<5';
+        if(n <= 10) return '6-10';
+        return '>10';
+      }
+      if(s.includes('moins') || s.includes('<=5') || s.includes('<5') || s.includes('1-4') || s.includes('1 à 4') || s.includes('1 a 4')) return '<5';
+      if(s.includes('6') || s.includes('10')) return '6-10';
+      if(s.includes('plus') || s.includes('>10') || s.includes('9+') || s.includes('11')) return '>10';
+      return 'ALL';
+    }
+
+    function cleanValue(v){
+      const s = String(v ?? '').trim();
+      return s ? s : '';
+    }
+
+    function getSelectedValues(selectEl){
+      return Array.from(selectEl.selectedOptions || []).map(o => o.value).filter(v => v !== 'ALL');
+    }
+
+    function setupSelectOptions(selectEl, values){
+      selectEl.innerHTML = '';
+      const all = document.createElement('option');
+      all.value = 'ALL';
+      all.textContent = 'All';
+      selectEl.appendChild(all);
+      uniq(values).forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = v;
+        selectEl.appendChild(opt);
+      });
+    }
+
+    function setupCheckboxList(container, values){
+      container.innerHTML = '';
+      uniq(values).forEach(v => {
+        const label = document.createElement('label');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = v;
+        cb.checked = true;
+        const span = document.createElement('span');
+        span.textContent = v;
+        label.appendChild(cb);
+        label.appendChild(span);
+        container.appendChild(label);
+      });
+    }
+
+    function getSelectedCheckboxValues(container){
+      return Array.from(container.querySelectorAll('input[type="checkbox"]:checked')).map(cb => cb.value);
+    }
+
+    function countCheckboxes(container){
+      return container.querySelectorAll('input[type="checkbox"]').length;
+    }
+
+    function allSelectedCheckboxes(container){
+      const total = countCheckboxes(container);
+      const checked = getSelectedCheckboxValues(container).length;
+      return total === 0 || checked === total;
+    }
+
+    function allSelectedMulti(selectEl){
+      const options = Array.from(selectEl.options || []).filter(o => o.value !== 'ALL');
+      const selected = getSelectedValues(selectEl);
+      return options.length === 0 || selected.length === options.length;
+    }
+
+    function getNameParts(player){
+      const raw = String(player?.name || player?.fullname || player?.player_name || player?.player || '').trim();
+      const parts = raw.split(/\s+/).filter(Boolean);
+      return {
+        raw,
+        first: parts[0] ? parts[0].toLowerCase().replace(/[^a-z0-9]+/g,'_') : '',
+        last: parts.length ? parts[parts.length - 1].toLowerCase().replace(/[^a-z0-9]+/g,'_') : '',
+        pid: String(player?.player_id || player?.id || player?.pid || '').trim().toLowerCase().replace(/[^a-z0-9]+/g,'_')
+      };
+    }
+
+    function buildCourtVisionCandidates(player){
+      const { first, last, pid } = getNameParts(player);
+      const candidates = [];
+      if(first && last && pid){
+        candidates.push(`/tools/court_vision_post_treated/${first}_${last}_${pid}_court_vision.json`);
+      }
+      if(first && last){
+        candidates.push(`/tools/court_vision_post_treated/${first}_${last}_court_vision.json`);
+      }
+      if(pid){
+        candidates.push(`/tools/court_vision_post_treated/${pid}_court_vision.json`);
+      }
+      return uniq(candidates);
+    }
+
+    async function fetchJsonSafe(url){
+      try{
+        const r = await fetch(url, { cache:'no-store' });
+        if(!r.ok) return null;
+        const txt = await r.text();
+        return JSON.parse(txt.replace(/\bNaN\b/g, 'null'));
+      }catch{
+        return null;
+      }
+    }
+
+    function extractMatches(data){
+      if(Array.isArray(data?.matches)) return data.matches;
+      if(Array.isArray(data?.m)) return data.m;
+      return [];
+    }
+
+    function inferCategoryFromItem(item){
+      const s = lower(item?.origin?.source_category_base || item?.origin?.source_category || item?.category || item?.s || '');
+      if(s.includes('service')) return 'SERVICE';
+      if(s.includes('return') || s.includes('retour')) return 'RETURN';
+      return 'GAME';
+    }
+
+    function plotCoordsFromEvent(ev, geo){
+      if(ev?.g && isFiniteNum(ev.g.x) && isFiniteNum(ev.g.y)){
+        return {
+          x: geo.xMin + Number(ev.g.x) * (geo.xMax - geo.xMin),
+          y: geo.yMin + Number(ev.g.y) * (geo.yMax - geo.yMin)
+        };
+      }
+
+      // Fallback for legacy schemas.
+      const x = scale(ev?.x);
+      const y = scale(ev?.y);
+      return { x, y };
+    }
+
+    function extractEvents(data){
+      const out = [];
+      const geo = buildCourtGeometry(data);
+
+      if(Array.isArray(data?.e)){
+        data.e.forEach((ev, idx) => {
+          const rawCategory = String(ev.s || ev.category || '').trim().toUpperCase();
+          const category = CATEGORY_ORDER.includes(rawCategory) ? rawCategory : inferCategoryFromItem(ev);
+          const p = plotCoordsFromEvent(ev, geo);
+          out.push({
+            id: ev.id || `e_${idx}`,
+            match: {
+              match_id: ev.m || data.ps || '',
+              opponent: '',
+              tour: '',
+              year: null,
+              round_id: '',
+              source_file: '',
+              source_path: ''
+            },
+            category,
+            subcategory: String(ev.c || 'General').trim() || 'General',
+            point_outcome: normalizeOutcome(ev.o),
+            x_raw: toNum(ev.x),
+            y_raw: toNum(ev.y),
+            x: p.x,
+            y: p.y,
+            speed: toNum(ev.v),
+            height: toNum(ev.h),
+            spin: toNum(ev.r),
+            rally_length: toNum(ev.rl),
+            exchange_bucket: ev.rb || classifyExchange(ev.rl),
+            service_type: cleanValue(ev.st),
+            placement: cleanValue(ev.sp),
+            zone: cleanValue(ev.z),
+            shot: cleanValue(ev.sh),
+            hand: cleanValue(ev.hd),
+            kind: cleanValue(ev.k),
+            shot_description: ev.t?.sd || '',
+            tooltip: ev.t || {},
+            origin: ev.src || {},
+            raw: ev,
+            normalized: ev.n || {},
+            has_xy: p.x !== null && p.y !== null
+          });
+        });
+        return out;
+      }
+
+      const matches = extractMatches(data);
+      matches.forEach((m, matchIndex) => {
+        const matchInfo = {
+          match_id: m.match_id || m.id || `match_${matchIndex}`,
+          opponent: m.opponent || m.opponent_half_player || '',
+          tour: m.tour || '',
+          year: m.year || m.event_year || null,
+          round_id: m.round_id || '',
+          source_file: m.source_file || '',
+          source_path: m.source_path || ''
+        };
+
+        const candidateArrays = [m.events, m.points, m.shots, m.own_half_raw, m.opponent_half_raw];
+        candidateArrays.filter(Array.isArray).forEach(arr => {
+          arr.forEach((item, idx) => {
+            if(!item || typeof item !== 'object') return;
+            const event = item.event || item;
+            const origin = event.origin || item.origin || {};
+            const tooltip = event.tooltip || item.tooltip || {};
+            const details = tooltip.details || event.details || item.details || {};
+            const ball = event.ball || item.ball || null;
+
+            const xRaw = toNum(event.x ?? event.x_coord ?? event.court_x ?? event.impact_x ?? event.ball_x ?? ball?.x);
+            const yRaw = toNum(event.y ?? event.y_coord ?? event.court_y ?? event.impact_y ?? event.ball_y ?? ball?.y);
+
+            let x = null, y = null;
+            if(evHasNormalizedPoint(event, item)){
+              const p = plotCoordsFromNormalizedLike(event, item, geo);
+              x = p.x; y = p.y;
+            }else if(xRaw !== null && yRaw !== null){
+              x = scale(xRaw);
+              y = scale(yRaw);
+            }
+
+            if(x === null || y === null) return;
+
+            const rawCategory = String(origin.source_category_base || origin.source_category || event.category || item.category || '').trim();
+            const category = rawCategory
+              ? rawCategory.split(' ')[0].toUpperCase().replace(/^RETOUR$/, 'RETURN').replace(/^JEU$/, 'GAME').replace(/^SERVICE$/, 'SERVICE')
+              : inferCategoryFromItem(item);
+            const subcategory = String(origin.source_category || event.subcategory || item.subcategory || rawCategory || 'General').replace(/^\d+\s*/,'').trim();
+
+            out.push({
+              id: `${matchInfo.match_id}_${origin.idx ?? idx}_${out.length}`,
+              match: matchInfo,
+              category: category || 'GAME',
+              subcategory: subcategory || 'General',
+              point_outcome: normalizeOutcome(event.point_outcome ?? item.point_outcome ?? item.outcome ?? details.point_outcome),
+              x_raw: xRaw,
+              y_raw: yRaw,
+              x, y,
+              speed: toNum(tooltip.speed_kmh ?? details.speed_kmh ?? tooltip.speed_mph ?? details.speed_mph ?? details.Speed?.kmh ?? details.Speed?.mph),
+              height: toNum(details.height ?? details.Height ?? tooltip.height ?? item.height),
+              spin: toNum(details.spin ?? details.rotation ?? details.spin_rpm ?? tooltip.spin ?? item.spin),
+              rally_length: toNum(details.rally_length ?? details['Longueur de l\'échange'] ?? tooltip.exchange_length ?? item.exchange_length),
+              exchange_bucket: classifyExchange(details['Longueur de l\'échange'] ?? details.exchange_length ?? tooltip.exchange_length ?? item.exchange_length),
+              service_type: cleanValue(details['Type de service'] ?? details.service_type ?? tooltip.service_type),
+              placement: cleanValue(details['Placement du service'] ?? details.placement ?? tooltip.placement),
+              zone: cleanValue(details['Zone'] ?? details.zone ?? tooltip.zone),
+              shot: cleanValue(details['Coup'] ?? details.shot ?? tooltip.shot),
+              hand: cleanValue(details['Main'] ?? details.hand ?? tooltip.hand),
+              kind: cleanValue(event.kind || item.kind || ''),
+              shot_description: tooltip.shot_description || event.shot_description || item.shot_description || '',
+              tooltip,
+              origin,
+              raw: item,
+              normalized: {},
+              has_xy: true
+            });
+          });
+        });
+      });
+      return out;
+    }
+
+    function evHasNormalizedPoint(event, item){
+      const g = event?.g || item?.g;
+      return g && isFiniteNum(g.x) && isFiniteNum(g.y);
+    }
+
+    function plotCoordsFromNormalizedLike(event, item, geo){
+      const g = event?.g || item?.g;
+      if(g && isFiniteNum(g.x) && isFiniteNum(g.y)){
+        return {
+          x: geo.xMin + Number(g.x) * (geo.xMax - geo.xMin),
+          y: geo.yMin + Number(g.y) * (geo.yMax - geo.yMin)
+        };
+      }
+      return { x: null, y: null };
+    }
+
+    function buildCourtGeometry(data){
+      // Exact court dimensions, expressed in the same plot units as the data:
+      // all metric dimensions are divided by SCALE_DIV.
+      const widthDoubles = COURT.doublesWidth;
+      const widthSingles = COURT.singlesWidth;
+      const length = COURT.length;
+      const sideRunOff = COURT.sideRunOff;
+      const backRunOff = COURT.backRunOff;
+
+      const xMin = -(widthDoubles / 2 + sideRunOff);
+      const xMax =  (widthDoubles / 2 + sideRunOff);
+      const yMin = -(length / 2 + backRunOff);
+      const yMax =  (length / 2 + backRunOff);
+
+      return {
+        mode: 'physical',
+        xMin, xMax, yMin, yMax,
+        totalWidth: xMax - xMin,
+        totalLength: yMax - yMin,
+        sideRunOff,
+        backRunOff,
+        widthDoubles,
+        widthSingles,
+        length,
+        xOuterL: xMin,
+        xOuterR: xMax,
+        yOuterB: yMin,
+        yOuterT: yMax,
+        xDoubleL: -widthDoubles / 2,
+        xDoubleR:  widthDoubles / 2,
+        xSingleL: -widthSingles / 2,
+        xSingleR:  widthSingles / 2,
+        yBaseB: -length / 2,
+        yBaseT:  length / 2,
+        ySvcB: -COURT.serviceLine,
+        ySvcT:  COURT.serviceLine,
+        yNet: 0,
+        centerX: 0,
+        centerY: 0
+      };
+    }
+
+    function courtShapes(g){
+      const courtFill = '#2673d9';
+      const outerFill = '#0a5a2a';
+      return [
+        {type:'rect',xref:'x',yref:'y',x0:g.xOuterL,y0:g.yOuterB,x1:g.xOuterR,y1:g.yOuterT,line:{color:outerFill,width:0},fillcolor:outerFill,layer:'below'},
+        {type:'rect',xref:'x',yref:'y',x0:g.xDoubleL,y0:g.yBaseB,x1:g.xDoubleR,y1:g.yBaseT,line:{color:courtFill,width:0},fillcolor:courtFill,layer:'below'},
+        {type:'line',xref:'x',yref:'y',x0:g.xDoubleL,y0:g.yNet,x1:g.xDoubleR,y1:g.yNet,line:{color:'#ffffff',width:3}},
+        {type:'line',xref:'x',yref:'y',x0:g.xOuterL,y0:g.ySvcB,x1:g.xOuterR,y1:g.ySvcB,line:{color:'#ffffff',width:2}},
+        {type:'line',xref:'x',yref:'y',x0:g.xOuterL,y0:g.ySvcT,x1:g.xOuterR,y1:g.ySvcT,line:{color:'#ffffff',width:2}},
+        {type:'line',xref:'x',yref:'y',x0:g.xSingleL,y0:g.yBaseB,x1:g.xSingleL,y1:g.yBaseT,line:{color:'#ffffff',width:2}},
+        {type:'line',xref:'x',yref:'y',x0:g.xSingleR,y0:g.yBaseB,x1:g.xSingleR,y1:g.yBaseT,line:{color:'#ffffff',width:2}},
+        {type:'line',xref:'x',yref:'y',x0:g.xDoubleL,y0:g.yBaseB,x1:g.xDoubleR,y1:g.yBaseB,line:{color:'#ffffff',width:2}},
+        {type:'line',xref:'x',yref:'y',x0:g.xDoubleL,y0:g.yBaseT,x1:g.xDoubleR,y1:g.yBaseT,line:{color:'#ffffff',width:2}},
+        {type:'line',xref:'x',yref:'y',x0:g.centerX,y0:g.ySvcB,x1:g.centerX,y1:g.ySvcT,line:{color:'#ffffff',width:2,dash:'dot'}}
+      ];
+    }
+
+    function avg(arr){
+      const vals = arr.map(v => toNum(v)).filter(v => v !== null);
+      if(!vals.length) return null;
+      return vals.reduce((a,b)=>a+b,0) / vals.length;
+    }
+
+    function cellTopCounts(items, key, limit=4){
+      const map = new Map();
+      items.forEach(it => {
+        const v = String(it[key] ?? '').trim();
+        if(!v) return;
+        map.set(v, (map.get(v) || 0) + 1);
+      });
+      return Array.from(map.entries())
+        .sort((a,b)=>b[1]-a[1])
+        .slice(0,limit)
+        .map(([label,count]) => ({label,count}));
+    }
+
+    function summarizeCell(events){
+      return {
+        count: events.length,
+        avgSpeed: avg(events.map(e => e.speed)),
+        avgHeight: avg(events.map(e => e.height)),
+        avgSpin: avg(events.map(e => e.spin)),
+        topCategories: cellTopCounts(events, 'category'),
+        topOutcomes: cellTopCounts(events, 'point_outcome'),
+        topServiceTypes: cellTopCounts(events.filter(e => e.category === 'SERVICE' || e.category === 'RETURN'), 'service_type'),
+        topPlacements: cellTopCounts(events.filter(e => e.category === 'SERVICE' || e.category === 'RETURN'), 'placement'),
+        topZones: cellTopCounts(events.filter(e => e.category === 'SERVICE' || e.category === 'RETURN'), 'zone'),
+        topShots: cellTopCounts(events.filter(e => e.category === 'GAME'), 'shot')
+      };
+    }
+
+    function setDetails(root, evOrCell, isCell=false){
+      const box = $('#cv-details-body', root);
+      if(!box) return;
+
+      if(!evOrCell){
+        box.className = 'cv-empty';
+        box.innerHTML = 'Clique une balle ou une cellule de densité pour voir le détail.';
+        return;
+      }
+
+      if(!isCell){
+        const ev = evOrCell;
+        const t = ev.tooltip || {};
+        const details = t.details || ev.raw?.t?.details || {};
+        const items = [
+          ['Category', `<span class="cv-pill">${esc(ev.category)}</span> ${esc(ev.subcategory)}`],
+          ['Match', esc(ev.match?.match_id || ev.match_id || '')],
+          ['Outcome', esc(ev.point_outcome)],
+          ['Plot XY', `${ev.x === null ? '—' : ev.x.toFixed(4)} / ${ev.y === null ? '—' : ev.y.toFixed(4)}`],
+          ['Raw XY', `${ev.x_raw === null ? '—' : ev.x_raw} / ${ev.y_raw === null ? '—' : ev.y_raw}`],
+          ['Speed', ev.speed === null ? '—' : esc(ev.speed.toFixed(2))],
+          ['Height', ev.height === null ? '—' : esc(ev.height.toFixed(2))],
+          ['Spin', ev.spin === null ? '—' : esc(ev.spin.toFixed(2))],
+          ['Exchange', esc(ev.exchange_bucket || 'ALL')],
+          ['Service type', esc(ev.service_type || '—')],
+          ['Placement', esc(ev.placement || '—')],
+          ['Zone', esc(ev.zone || '—')],
+          ['Shot', esc(ev.shot || '—')],
+          ['Hand', esc(ev.hand || '—')],
+          ['Description', esc(ev.shot_description || '—')]
+        ];
+        let html = '<h3>Selected ball</h3><div class="cv-kv">';
+        items.forEach(([k,v]) => {
+          html += `<div>${esc(k)}</div><div>${v}</div>`;
+        });
+        html += '</div>';
+        if(details && Object.keys(details).length){
+          html += `<div class="cv-footer-note"><strong>Raw details:</strong> ${esc(JSON.stringify(details).slice(0,900))}</div>`;
+        }
+        box.className = '';
+        box.innerHTML = html;
+        return;
+      }
+
+      const c = evOrCell;
+      const s = summarizeCell(c.events || []);
+      const pills = arr => arr.length ? arr.map(x => `<span class="cv-pill">${esc(x.label)} (${x.count})</span>`).join(' ') : '—';
+
+      box.className = '';
+      box.innerHTML = `
+        <h3>Density cell</h3>
+        <div class="cv-kv">
+          <div>Probability</div><div><strong>${(c.prob * 100).toFixed(2)}%</strong></div>
+          <div>Events</div><div><strong>${c.events.length}</strong></div>
+          <div>Average speed</div><div>${s.avgSpeed === null ? '—' : s.avgSpeed.toFixed(2)}</div>
+          <div>Average height</div><div>${s.avgHeight === null ? '—' : s.avgHeight.toFixed(2)}</div>
+          <div>Average spin</div><div>${s.avgSpin === null ? '—' : s.avgSpin.toFixed(2)}</div>
+          <div>Top categories</div><div>${pills(s.topCategories)}</div>
+          <div>Top outcomes</div><div>${pills(s.topOutcomes)}</div>
+          <div>Top service types</div><div>${pills(s.topServiceTypes)}</div>
+          <div>Top placements</div><div>${pills(s.topPlacements)}</div>
+          <div>Top zones</div><div>${pills(s.topZones)}</div>
+          <div>Top shots</div><div>${pills(s.topShots)}</div>
+        </div>
+      `;
+    }
+
+    function metricLabel(mode){
+      if(mode === 'speed') return 'Speed';
+      if(mode === 'height') return 'Height';
+      if(mode === 'spin') return 'Spin';
+      return '';
+    }
+
+    function metricValue(ev, mode){
+      if(mode === 'speed') return ev.speed;
+      if(mode === 'height') return ev.height;
+      if(mode === 'spin') return ev.spin;
+      return null;
+    }
+
+    function normalizeMetricToZ(ev, mode, zScale){
+      const v = metricValue(ev, mode);
+      if(v === null || v === undefined || !Number.isFinite(Number(v))) return 0;
+      if(mode === 'speed') return clamp((Number(v) - 50) / 200, 0, 1) * zScale;
+      if(mode === 'height') return clamp(Number(v) / 4.0, 0, 1) * zScale;
+      if(mode === 'spin') return clamp(Number(v) / 3000.0, 0, 1) * zScale;
+      return 0;
+    }
+
+    function cellMetricAverage(events, mode){
+      const vals = events.map(ev => metricValue(ev, mode)).filter(v => v !== null && v !== undefined && Number.isFinite(Number(v)));
+      return vals.length ? avg(vals) : 0;
+    }
+
+    function buildDensityGrid(events, geo, nx=56, ny=32){
+      const grid = Array.from({length:ny}, () => Array.from({length:nx}, () => ({count:0, events:[]})));
+      const xSpan = geo.xMax - geo.xMin;
+      const ySpan = geo.yMax - geo.yMin;
+      const cellW = xSpan / nx;
+      const cellH = ySpan / ny;
+
+      events.forEach(ev => {
+        if(!ev.has_xy) return;
+        const x = ev.x, y = ev.y;
+        if(x === null || y === null) return;
+        let xi = Math.floor((x - geo.xMin) / xSpan * nx);
+        let yi = Math.floor((y - geo.yMin) / ySpan * ny);
+        xi = clamp(xi, 0, nx - 1);
+        yi = clamp(yi, 0, ny - 1);
+        grid[yi][xi].count += 1;
+        grid[yi][xi].events.push(ev);
+      });
+
+      let max = 0, total = 0;
+      for(const row of grid){
+        for(const cell of row){
+          max = Math.max(max, cell.count);
+          total += cell.count;
+        }
+      }
+      return { grid, nx, ny, cellW, cellH, max, total, xSpan, ySpan };
+    }
+
+    function clearPlotListeners(div){
+      if(!div) return;
+      if(typeof div.removeAllListeners === 'function'){
+        try{ div.removeAllListeners('plotly_click'); }catch{}
+      }
+    }
+
+    function attachClickHandler(div, handler){
+      clearPlotListeners(div);
+      if(typeof div.on === 'function') div.on('plotly_click', handler);
+    }
+
+    function renderAllBalls(root, events, geo, state){
+      const div = $('#cv-all-balls', root);
+      const metric = state.threeDMetric;
+      const traces = [];
+
+      CATEGORY_ORDER.forEach(cat => {
+        const arr = events.filter(ev => ev.category === cat && ev.has_xy);
+        if(!arr.length) return;
+
+        if(metric === 'none'){
+          traces.push({
+            type:'scatter',
+            mode:'markers',
+            name:cat,
+            x: arr.map(ev => ev.x),
+            y: arr.map(ev => ev.y),
+            customdata: arr.map(ev => JSON.stringify(ev)),
+            marker:{
+              size:9,
+              color:'#ffd84d',
+              line:{color:'#000000', width:1},
+              opacity:0.95
+            },
+            hovertemplate:'%{customdata}<extra></extra>'
+          });
+        }else{
+          traces.push({
+            type:'scatter3d',
+            mode:'markers',
+            name:cat,
+            x: arr.map(ev => ev.x),
+            y: arr.map(ev => ev.y),
+            z: arr.map(ev => normalizeMetricToZ(ev, metric, 1.0)),
+            customdata: arr.map(ev => JSON.stringify(ev)),
+            marker:{
+              size:4,
+              color:'#ffd84d',
+              opacity:0.95
+            },
+            hovertemplate:'<extra></extra>'
+          });
+        }
+      });
+
+      const layout2d = {
+        margin:{l:14,r:14,t:14,b:14},
+        paper_bgcolor:'#f4f8ff',
+        plot_bgcolor:'#f4f8ff',
+        xaxis:{
+          range:[geo.xMin, geo.xMax],
+          zeroline:false,
+          showgrid:false,
+          visible:false,
+          scaleanchor:'y',
+          scaleratio:1
+        },
+        yaxis:{
+          range:[geo.yMin, geo.yMax],
+          zeroline:false,
+          showgrid:false,
+          visible:false
+        },
+        shapes:courtShapes(geo),
+        legend:{orientation:'h', y:-0.08},
+        dragmode:'pan'
+      };
+
+      const layout3d = {
+        margin:{l:0,r:0,t:0,b:0},
+        paper_bgcolor:'#ffffff',
+        showlegend:true,
+        scene:{
+          xaxis:{range:[geo.xMin, geo.xMax], title:'Court X', backgroundcolor:'#0a5a2a', gridcolor:'#ffffff', zeroline:false},
+          yaxis:{range:[geo.yMin, geo.yMax], title:'Court Y', backgroundcolor:'#0a5a2a', gridcolor:'#ffffff', zeroline:false},
+          zaxis:{title: metricLabel(metric), backgroundcolor:'#f8fafc', gridcolor:'#e5e7eb', zeroline:false}
+        }
+      };
+
+      const cfg = { displayModeBar:true, responsive:true };
+
+      Plotly.react(div, traces, metric === 'none' ? layout2d : layout3d, cfg);
+
+      attachClickHandler(div, ev => {
+        const p = ev.points && ev.points[0];
+        if(!p || !p.customdata) return;
+        try{ setDetails(root, JSON.parse(p.customdata), false); }catch{}
+      });
+    }
+
+    function renderDensity(root, events, geo, state){
+      const div = $('#cv-density', root);
+      const metric = state.threeDMetric;
+      const grid = buildDensityGrid(events, geo, 56, 32);
+      STATE.densityGrid = grid;
+
+      const xVals = Array.from({length:grid.nx}, (_,i) => geo.xMin + (i + 0.5) * grid.cellW);
+      const yVals = Array.from({length:grid.ny}, (_,i) => geo.yMin + (i + 0.5) * grid.cellH);
+      const probs = grid.grid.map(row => row.map(c => grid.total ? c.count / grid.total : 0));
+
+      if(metric === 'none'){
+        const trace = {
+          type:'heatmap',
+          x:xVals,
+          y:yVals,
+          z:probs,
+          zmin:0,
+          zmax:Math.max(0.0001, Math.max(...probs.flat())),
+          colorscale:DENSITY_COLORS,
+          zsmooth:false,
+          hoverongaps:false,
+          hovertemplate:'Probability: %{z:.4f}<extra></extra>',
+          showscale:true,
+          colorbar:{title:'Probability'}
+        };
+
+        const layout = {
+          margin:{l:14,r:14,t:14,b:14},
+          paper_bgcolor:'#f4f8ff',
+          plot_bgcolor:'#f4f8ff',
+          xaxis:{
+            range:[geo.xMin, geo.xMax],
+            zeroline:false,
+            showgrid:false,
+            visible:false,
+            scaleanchor:'y',
+            scaleratio:1
+          },
+          yaxis:{
+            range:[geo.yMin, geo.yMax],
+            zeroline:false,
+            showgrid:false,
+            visible:false
+          },
+          shapes:courtShapes(geo),
+          dragmode:'pan'
+        };
+
+        Plotly.react(div, [trace], layout, {displayModeBar:true, responsive:true});
+
+        attachClickHandler(div, ev => {
+          const p = ev.points && ev.points[0];
+          if(!p) return;
+          const xi = clamp(Math.floor((p.x - geo.xMin) / (geo.xMax - geo.xMin) * grid.nx), 0, grid.nx - 1);
+          const yi = clamp(Math.floor((p.y - geo.yMin) / (geo.yMax - geo.yMin) * grid.ny), 0, grid.ny - 1);
+          const cell = grid.grid[yi][xi];
+          const prob = grid.total ? cell.count / grid.total : 0;
+          setDetails(root, { prob, events: cell.events }, true);
+        });
+        return;
+      }
+
+      const surfaceZ = grid.grid.map(row => row.map(cell => cell.events.length ? cellMetricAverage(cell.events, metric) : 0));
+
+      const trace = {
+        type:'surface',
+        x:xVals,
+        y:yVals,
+        z:surfaceZ,
+        surfacecolor:probs,
+        colorscale:DENSITY_COLORS,
+        cmin:0,
+        cmax:Math.max(0.0001, Math.max(...probs.flat())),
+        showscale:true,
+        colorbar:{title:'Probability'},
+        hovertemplate:'Probability: %{surfacecolor:.4f}<br>Height: %{z:.3f}<extra></extra>',
+        opacity:0.97
+      };
+
+      const layout = {
+        margin:{l:0,r:0,t:0,b:0},
+        paper_bgcolor:'#ffffff',
+        showlegend:false,
+        scene:{
+          xaxis:{range:[geo.xMin, geo.xMax], title:'Court X', backgroundcolor:'#0a5a2a', gridcolor:'#ffffff', zeroline:false},
+          yaxis:{range:[geo.yMin, geo.yMax], title:'Court Y', backgroundcolor:'#0a5a2a', gridcolor:'#ffffff', zeroline:false},
+          zaxis:{title: metricLabel(metric), backgroundcolor:'#f8fafc', gridcolor:'#e5e7eb', zeroline:false}
+        }
+      };
+
+      Plotly.react(div, [trace], layout, {displayModeBar:true, responsive:true});
+
+      attachClickHandler(div, ev => {
+        const p = ev.points && ev.points[0];
+        if(!p) return;
+        const xi = clamp(Math.floor((p.x - geo.xMin) / (geo.xMax - geo.xMin) * grid.nx), 0, grid.nx - 1);
+        const yi = clamp(Math.floor((p.y - geo.yMin) / (geo.yMax - geo.yMin) * grid.ny), 0, grid.ny - 1);
+        const cell = grid.grid[yi][xi];
+        const prob = grid.total ? cell.count / grid.total : 0;
+        setDetails(root, { prob, events: cell.events }, true);
+      });
+    }
+
+    function passesFilters(ev, state){
+      if(state.categories.length && !state.categories.includes(ev.category)) return false;
+      if(state.subcategories.length && !state.subcategories.includes(ev.subcategory)) return false;
+      if(state.outcomes.length && !state.outcomes.includes(ev.point_outcome)) return false;
+      if(state.exchanges.length && !state.exchanges.includes(ev.exchange_bucket)) return false;
+
+      const serviceLike = ev.category === 'SERVICE' || ev.category === 'RETURN';
+
+      if(serviceLike){
+        if(!state.allServiceTypes && state.serviceTypes.length && !state.serviceTypes.includes(ev.service_type || '')) return false;
+        if(!state.allPlacements && state.placements.length && !state.placements.includes(ev.placement || '')) return false;
+        if(!state.allZones && state.zones.length && !state.zones.includes(ev.zone || '')) return false;
+      }else if(ev.category === 'GAME'){
+        if(!state.allShots && state.shots.length && !state.shots.includes(ev.shot || '')) return false;
+      }
+
+      const metric = state.threeDMetric;
+      if(metric !== 'speed' && !numericRange(ev.speed, state.speedMin, state.speedMax)) return false;
+      if(metric !== 'height' && !numericRange(ev.height, state.heightMin, state.heightMax)) return false;
+      if(metric !== 'spin' && !numericRange(ev.spin, state.spinMin, state.spinMax)) return false;
+
+      return true;
+    }
+
+    function numericRange(v, min, max){
+      if(v === null || v === undefined) return true;
+      if(min !== null && v < min) return false;
+      if(max !== null && v > max) return false;
+      return true;
+    }
+
+    function readState(root){
+      const metric = $('#cv-3d-metric', root).value;
+      const serviceTypesEl = $('#cv-service-types', root);
+      const placementsEl = $('#cv-placements', root);
+      const zonesEl = $('#cv-zones', root);
+      const shotsEl = $('#cv-shots', root);
+
+      return {
+        categories: getSelectedValues($('#cv-category', root)),
+        subcategories: getSelectedValues($('#cv-subcategory', root)),
+        outcomes: getSelectedValues($('#cv-outcome', root)),
+        exchanges: getSelectedValues($('#cv-exchange', root)),
+        serviceTypes: getSelectedCheckboxValues(serviceTypesEl),
+        placements: getSelectedCheckboxValues(placementsEl),
+        zones: getSelectedCheckboxValues(zonesEl),
+        shots: getSelectedCheckboxValues(shotsEl),
+        allServiceTypes: allSelectedCheckboxes(serviceTypesEl),
+        allPlacements: allSelectedCheckboxes(placementsEl),
+        allZones: allSelectedCheckboxes(zonesEl),
+        allShots: allSelectedCheckboxes(shotsEl),
+        speedMin: $('#cv-speed-min', root).value === '' ? null : Number($('#cv-speed-min', root).value),
+        speedMax: $('#cv-speed-max', root).value === '' ? null : Number($('#cv-speed-max', root).value),
+        heightMin: $('#cv-height-min', root).value === '' ? null : Number($('#cv-height-min', root).value),
+        heightMax: $('#cv-height-max', root).value === '' ? null : Number($('#cv-height-max', root).value),
+        spinMin: $('#cv-spin-min', root).value === '' ? null : Number($('#cv-spin-min', root).value),
+        spinMax: $('#cv-spin-max', root).value === '' ? null : Number($('#cv-spin-max', root).value),
+        threeDMetric: metric
+      };
+    }
+
+    function updateFilterSummary(root, state, total, kept){
+      const el = $('#cv-filter-summary', root);
+      if(!el) return;
+      const c = state.categories.length ? state.categories.join(', ') : 'All categories';
+      const s = state.subcategories.length ? `${state.subcategories.length} subcategories` : 'All subcategories';
+      const o = state.outcomes.length ? state.outcomes.join(', ') : 'All outcomes';
+      const e = state.exchanges.length ? state.exchanges.join(', ') : 'All exchange lengths';
+      el.textContent = `${kept} / ${total} balls shown · ${c} · ${s} · ${o} · ${e}`;
+    }
+
+    function resetControls(root){
+      root.querySelectorAll('select[multiple] option').forEach(opt => {
+        opt.selected = opt.value !== 'ALL';
+      });
+      ['#cv-speed-min','#cv-speed-max','#cv-height-min','#cv-height-max','#cv-spin-min','#cv-spin-max'].forEach(id => {
+        const el = $(root, id);
+        if(el) el.value = '';
+      });
+      const metric = $('#cv-3d-metric', root);
+      if(metric) metric.value = 'none';
+      root.querySelectorAll('.cv-multiselect input[type="checkbox"]').forEach(cb => cb.checked = true);
+    }
+
+    function fillControls(root){
+      const events = STATE.allEvents;
+      const subcategories = uniq(events.map(e => e.subcategory)).sort((a,b) => a.localeCompare(b));
+      const serviceTypes = uniq(events.filter(e => e.category === 'SERVICE' || e.category === 'RETURN').map(e => e.service_type)).sort((a,b) => a.localeCompare(b));
+      const placements = uniq(events.filter(e => e.category === 'SERVICE' || e.category === 'RETURN').map(e => e.placement)).sort((a,b) => a.localeCompare(b));
+      const zones = uniq(events.filter(e => e.category === 'SERVICE' || e.category === 'RETURN').map(e => e.zone)).sort((a,b) => a.localeCompare(b));
+      const shots = uniq(events.filter(e => e.category === 'GAME').map(e => e.shot)).sort((a,b) => a.localeCompare(b));
+
+      setupSelectOptions($('#cv-category', root), CATEGORY_ORDER);
+      setupSelectOptions($('#cv-subcategory', root), subcategories);
+      setupSelectOptions($('#cv-outcome', root), OUTCOME_OPTIONS);
+      setupSelectOptions($('#cv-exchange', root), EXCHANGE_OPTIONS);
+
+      setupCheckboxList($('#cv-service-types', root), serviceTypes);
+      setupCheckboxList($('#cv-placements', root), placements);
+      setupCheckboxList($('#cv-zones', root), zones);
+      setupCheckboxList($('#cv-shots', root), shots);
+
+      Array.from($('#cv-category', root).options).forEach(o => o.selected = o.value !== 'ALL');
+      Array.from($('#cv-subcategory', root).options).forEach(o => o.selected = o.value !== 'ALL');
+      Array.from($('#cv-outcome', root).options).forEach(o => o.selected = o.value !== 'ALL');
+      Array.from($('#cv-exchange', root).options).forEach(o => o.selected = o.value !== 'ALL');
+    }
+
+    function render(root){
+      if(!STATE.data) return;
+      const geo = STATE.court || buildCourtGeometry(STATE.data);
+      STATE.court = geo;
+
+      const state = readState(root);
+      const filtered = STATE.allEvents.filter(ev => passesFilters(ev, state) && ev.has_xy);
+
+      STATE.filteredEvents = filtered;
+
+      renderAllBalls(root, filtered, geo, state);
+      renderDensity(root, filtered, geo, state);
+
+      const allCount = $('#cv-all-count', root);
+      const denCount = $('#cv-density-count', root);
+      if(allCount) allCount.textContent = `${filtered.length} balls shown / ${STATE.allEvents.length} total events with coordinates.`;
+      if(denCount) denCount.textContent = `${filtered.length} balls used for the density map.`;
+
+      updateFilterSummary(root, state, STATE.allEvents.length, filtered.length);
+
+      if(filtered.length === 0) setDetails(root, null, false);
+    }
+
+    function bindControls(root){
+      const applyBtn = $('#cv-apply', root);
+      const resetBtn = $('#cv-reset', root);
+      const loadUrlBtn = $('#cv-load-url', root);
+      const loadUrlInput = $('#cv-json-url', root);
+      const fileInput = $('#cv-json-file', root);
+
+      if(!applyBtn || !resetBtn || !loadUrlBtn || !loadUrlInput || !fileInput){
+        console.warn('Court Vision controls not found in the current root.');
+        return;
+      }
+
+      if(applyBtn.dataset.bound !== '1'){
+        applyBtn.dataset.bound = '1';
+        applyBtn.addEventListener('click', () => render(root));
+      }
+
+      if(resetBtn.dataset.bound !== '1'){
+        resetBtn.dataset.bound = '1';
+        resetBtn.addEventListener('click', () => {
+          resetControls(root);
+          render(root);
+        });
+      }
+
+      if(loadUrlBtn.dataset.bound !== '1'){
+        loadUrlBtn.dataset.bound = '1';
+        loadUrlBtn.addEventListener('click', async () => {
+          const url = loadUrlInput.value.trim();
+          if(!url) return;
+          await loadFromUrl(root, url);
+        });
+      }
+
+      if(fileInput.dataset.bound !== '1'){
+        fileInput.dataset.bound = '1';
+        fileInput.addEventListener('change', async () => {
+          const file = fileInput.files && fileInput.files[0];
+          if(!file) return;
+          const text = await file.text();
+          try{
+            const data = JSON.parse(text.replace(/\bNaN\b/g, 'null'));
+            await loadData(root, data, file.name);
+          }catch(err){
+            console.error(err);
+            const status = $('#cv-load-status', root);
+            if(status) status.textContent = 'Fichier JSON invalide.';
+          }
+        });
+      }
+    }
+
+    async function loadData(root, data, sourceLabel){
+      STATE.data = data;
+      STATE.court = buildCourtGeometry(data);
+      STATE.allEvents = extractEvents(data);
+      STATE.filteredEvents = STATE.allEvents.slice();
+      STATE.lastJsonUrl = sourceLabel || '';
+
+      fillControls(root);
+      bindControls(root);
+
+      const meta = $('#cv-load-status', root);
+      if(meta){
+        const name = data?.p || data?.player || data?.player_name || 'Unknown player';
+        const matchesCount = Array.isArray(data?.m) ? data.m.length : Array.isArray(data?.matches) ? data.matches.length : 0;
+        meta.textContent = `Loaded ${name}${sourceLabel ? ` from ${sourceLabel}` : ''} · ${matchesCount} match summary item(s) · ${STATE.allEvents.length} event(s) parsed.`;
+      }
+
+      render(root);
+      return data;
+    }
+
+    async function loadFromUrl(root, url){
+      const status = $('#cv-load-status', root);
+      if(status) status.textContent = 'Loading JSON...';
+      const data = await fetchJsonSafe(url);
+      if(!data){
+        if(status) status.textContent = 'Unable to load JSON from the provided URL.';
+        return null;
+      }
+      return loadData(root, data, url);
+    }
+
+    function ensureRoot(){
+      let root = document.querySelector('.cv-shell');
+      if(!root) root = document.getElementById('cv-app');
+      if(!root){
+        root = document.createElement('div');
+        root.id = 'cv-app';
+        document.body.appendChild(root);
+      }
+      return root;
+    }
+
+    async function boot(){
+      const root = ensureRoot();
+      const queryUrl = getJsonUrlFromPage();
+      const preset = window.CV_DATA || window.CV_CONTEXT?.data || null;
+
+      if(preset){
+        await loadData(root, preset, window.CV_CONTEXT?.sourceUrl || '');
+        return;
+      }
+
+      if(queryUrl){
+        $('#cv-json-url', root).value = queryUrl;
+        await loadFromUrl(root, queryUrl);
+        return;
+      }
+
+      bindControls(root);
+      const status = $('#cv-load-status', root);
+      if(status) status.textContent = 'Waiting for a JSON source.';
+    }
+
+    CV.loadFromUrl = loadFromUrl;
+    CV.loadData = loadData;
+    CV.render = render;
+    CV.boot = boot;
+    CV.getCourtGeometry = buildCourtGeometry;
+
+    window.initCourtVisionTab = function({ container, player, data, sourceUrl }){
+      if(!container || !data) return;
+      const root = container.closest('.cv-shell') || container;
+      window.CV_DATA = data;
+      window.CV_CONTEXT = { player, sourceUrl, data };
+      if(root.id !== 'cv-app'){
+        // Host page may directly call loadData/render on its own container.
+      }
+    };
+
+    document.addEventListener('DOMContentLoaded', boot);
+  })();
+  </script>
+</body>
+</html>

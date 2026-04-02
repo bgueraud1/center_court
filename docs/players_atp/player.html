@@ -95,6 +95,9 @@
     .map-wrap { display:flex; gap:12px; flex-wrap:wrap; }
     .map-card { flex:1 1 480px; min-width:280px; border:1px solid var(--border); border-radius:8px; padding:8px; background:#fff; height:420px; }
 
+    .court-vision-frame { width:100%; height:calc(100vh - 260px); min-height:720px; border:0; border-radius:8px; background:#fff; display:block; }
+    .court-vision-loading-wrap { padding:8px; }
+
     /* detailed stats table */
     .stats-table { width:100%; border-collapse:collapse; margin-top:8px; }
     .stats-table th, .stats-table td { border:1px solid var(--border); padding:8px; text-align:left; font-size:13px; vertical-align:middle; }
@@ -157,7 +160,7 @@
       <button class="tab-btn" data-target="panel-trophies" role="tab" aria-selected="false">Tournaments & best results</button>
       <button class="tab-btn" data-target="panel-stats" role="tab" aria-selected="false">Statistics</button>
       <button class="tab-btn" data-target="panel-advanced" role="tab" aria-selected="false">Advanced statistics</button>
-      <button class="tab-btn" data-target="panel-courtvision" role="tab" aria-selected="false">Court Vision</button>
+      <button class="tab-btn" data-target="panel-court-vision" role="tab" aria-selected="false">Court Vision</button>
     </div>
 
     <div id="panel-matches" class="panel active" role="tabpanel">
@@ -202,6 +205,12 @@
           <div id="detailed-stats-container"></div>
         </div>
 
+
+        <div id="panel-court-vision" class="panel" role="tabpanel" style="display:none; padding:8px;">
+  <div id="court-vision-loading" class="sub">Loading…</div>
+  <div id="court-vision-content" style="display:none;"></div>
+</div>
+
         <!-- Advanced statistics panel (top-level, sibling of panel-matches / panel-trophies / panel-stats) -->
 <div id="panel-advanced" class="panel" role="tabpanel" style="display:none; padding:12px;">
   <!-- loader -->
@@ -213,10 +222,6 @@
   <!-- small debug log shown inside panel (hidden by default) -->
   <div id="advanced-log" style="display:none; font-family:monospace;font-size:12px;color:#111;max-height:260px;overflow:auto;background:#f7f7f7;border:1px solid #ddd;padding:8px;margin-top:8px;"></div>
 </div>
-
-        <div id="panel-courtvision" class="panel" role="tabpanel" style="display:none; padding:12px;">
-          <div class="sub">Loading Court Vision…</div>
-        </div>
 
         <div id="panel-scenarios" style="display:none; padding:8px;"></div>
         <div id="panel-timeseries" style="display:none; padding:8px;"></div>
@@ -235,6 +240,112 @@
 <script>
 /* ---------------- common helpers ---------------- */
 
+function buildCourtVisionJsonUrl(playerData) {
+  const pid = String(playerData.player_id || playerData.id || '').toLowerCase();
+  const nameRaw = String(playerData.name || playerData.fullname || '').trim();
+
+  const normalize = (s) => String(s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '');
+
+  const parts = nameRaw.split(/\s+/).filter(Boolean);
+  const first = parts.length ? normalize(parts[0]) : '';
+  const last = parts.length > 1 ? normalize(parts[parts.length - 1]) : '';
+
+  if (first && last && pid) {
+    return `/tools/court_vision_post_treated/${first}_${last}_${pid}_court_vision.json`;
+  }
+
+  return null;
+}
+
+function escapeForScriptTag(s) {
+  return String(s ?? '').replace(/</g, '\u003c');
+}
+
+function buildCourtVisionSrcdoc(html, courtVisionData, playerData, sourceUrl) {
+  const inject = `<script>
+window.CV_DATA = ${escapeForScriptTag(JSON.stringify(courtVisionData))};
+window.CV_CONTEXT = ${escapeForScriptTag(JSON.stringify({
+    player: {
+      player_id: playerData?.player_id || playerData?.id || '',
+      name: playerData?.name || playerData?.fullname || '',
+      slug: playerData?.slug || '',
+      country: playerData?.country || ''
+    },
+    sourceUrl: sourceUrl || '',
+    data: courtVisionData
+  }))};
+</script>`;
+
+  if (html.includes('<body>')) {
+    return html.replace('<body>', `<body>${inject}`);
+  }
+  return inject + html;
+}
+
+async function loadCourtVisionForPlayer(playerData) {
+  const panel = document.getElementById('panel-court-vision');
+  if (!panel) return;
+
+  if (panel.dataset.loaded === '1') return;
+
+  panel.innerHTML = `
+    <div class="court-vision-loading-wrap">
+      <div id="court-vision-loading" class="sub">Loading…</div>
+      <div id="court-vision-content" style="display:none;"></div>
+    </div>
+  `;
+
+  const jsonUrl = buildCourtVisionJsonUrl(playerData);
+  if (!jsonUrl) {
+    panel.innerHTML = '<div class="no-data">Court Vision data are not available for this player.</div>';
+    return;
+  }
+
+  try {
+    const jsonRes = await fetch(jsonUrl, { cache: 'no-store' });
+    if (!jsonRes.ok) {
+      panel.innerHTML = '<div class="no-data">Court Vision data are not available for this player.</div>';
+      return;
+    }
+    const courtVisionData = await jsonRes.json();
+
+    const htmlRes = await fetch('/tools/court_vision_fixed_density_filtered_embedded.html', { cache: 'no-store' });
+    if (!htmlRes.ok) {
+      panel.innerHTML = '<div class="no-data">Court Vision view is not available.</div>';
+      return;
+    }
+    const embeddedHtml = await htmlRes.text();
+    const srcdoc = buildCourtVisionSrcdoc(embeddedHtml, courtVisionData, playerData, jsonUrl);
+
+    const content = panel.querySelector('#court-vision-content');
+    const loader = panel.querySelector('#court-vision-loading');
+    if (!content || !loader) {
+      panel.innerHTML = '<div class="no-data">Court Vision view is not available.</div>';
+      return;
+    }
+
+    const iframe = document.createElement('iframe');
+    iframe.className = 'court-vision-frame';
+    iframe.setAttribute('title', 'Court Vision');
+    iframe.setAttribute('loading', 'lazy');
+    iframe.srcdoc = srcdoc;
+
+    content.innerHTML = '';
+    content.appendChild(iframe);
+    loader.style.display = 'none';
+    content.style.display = 'block';
+
+    panel.dataset.loaded = '1';
+  } catch (err) {
+    console.error('loadCourtVisionForPlayer error', err);
+    panel.innerHTML = '<div class="no-data">Court Vision data are not available for this player.</div>';
+  }
+}
 
 
 /* ---------- buildAdvancedCandidatesFor (for general_advanced_stats) ---------- */
@@ -632,19 +743,46 @@ function fetchJsonSafe(url){
     btn.addEventListener('click', (e) => {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
+
       const target = btn.getAttribute('data-target');
       document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-      const tgt = document.getElementById(target); if(tgt) tgt.classList.add('active');
 
-      if(target === 'panel-stats'){ initStatsSubtabs(combined); }
-      if(target === 'panel-courtvision' && typeof ensureCourtVisionLoaded === 'function'){
-        console.log('[CourtVision] tab clicked');
-        ensureCourtVisionLoaded(combined);
+      if (target === 'panel-court-vision') {
+        const statsPanel = document.getElementById('panel-stats');
+        const cvPanel = document.getElementById('panel-court-vision');
+
+        if (statsPanel) statsPanel.classList.add('active');
+
+        document.querySelectorAll('#stats-subpanels > div').forEach(d => {
+          if (d.id === 'panel-court-vision') {
+            d.style.display = 'block';
+            d.classList.add('active');
+          } else {
+            d.style.display = 'none';
+            d.classList.remove('active');
+          }
+        });
+
+        if (cvPanel) {
+          cvPanel.style.display = 'block';
+          cvPanel.classList.add('active');
+        }
+
+        loadCourtVisionForPlayer(combined);
+        return;
+      }
+
+      const tgt = document.getElementById(target);
+      if (tgt) tgt.classList.add('active');
+
+      if (target === 'panel-stats') {
+        initStatsSubtabs(combined);
       }
     });
   });
 
-  if(document.getElementById('panel-stats').classList.contains('active')){ initStatsSubtabs(combined); }
+  if (document.getElementById('panel-stats').classList.contains('active')) { initStatsSubtabs(combined); }
+
 
   /* ------------------ Stats subtabs + lazy loaders ------------------ */
 
@@ -1260,6 +1398,11 @@ if(kind === 'detailed'){
 } else {
   // For other kinds it's ok to replace entire panel
   targetDiv.innerHTML = '<div class="sub">Loading…</div>';
+}
+
+if(kind === 'court-vision'){
+  await loadCourtVisionForPlayer(playerData);
+  return;
 }
 
 
@@ -2667,132 +2810,6 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
       console.warn('No advanced loader function found (loadAdvancedForPlayer/openAdvancedForPlayer).');
     }
   }, {passive: true});
-})();
-
-
-/* ------------------ Court Vision loader ------------------ */
-(function(){
-  let __courtVisionSnippetPromise = null;
-
-  function escapeHtmlSafe(s){
-    if (s === null || s === undefined) return '';
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-  }
-
-  function injectFragmentHtml(html){
-    const styleRegex = /<style[^>]*>([\s\S]*?)<\/style>/gi;
-    const scriptRegex = /<script[^>]*>([\s\S]*?)<\/script>/gi;
-
-    let cleaned = String(html || '');
-    let m;
-    while((m = styleRegex.exec(cleaned)) !== null){
-      const style = document.createElement('style');
-      style.textContent = m[1];
-      style.setAttribute('data-courtvision-style','1');
-      document.head.appendChild(style);
-    }
-    while((m = scriptRegex.exec(cleaned)) !== null){
-      const s = document.createElement('script');
-      s.textContent = m[1];
-      s.setAttribute('data-courtvision-script','1');
-      document.body.appendChild(s);
-    }
-  }
-
-  async function loadCourtVisionSnippet(){
-    if(window.CV && typeof window.CV.loadCourtVision === 'function') return true;
-    if(__courtVisionSnippetPromise) return __courtVisionSnippetPromise;
-
-    __courtVisionSnippetPromise = (async () => {
-      const candidates = [
-        '/tools/court_vision_tab_snippet_fixed.html',
-        '/tools/court_vision_tab_snippet.html'
-      ];
-      let lastErr = null;
-      for (const url of candidates){
-        try{
-          const resp = await fetch(url + '?v=' + Date.now(), { cache: 'no-store' });
-          if(!resp.ok){
-            lastErr = new Error(`Court Vision snippet not found at ${url} (${resp.status})`);
-            continue;
-          }
-          const html = await resp.text();
-          injectFragmentHtml(html);
-          if(window.CV && typeof window.CV.loadCourtVision === 'function'){
-            console.info('Court Vision snippet loaded from', url);
-            return true;
-          }
-          lastErr = new Error(`Court Vision snippet loaded from ${url} but API is missing`);
-        }catch(e){
-          lastErr = e;
-        }
-      }
-      throw lastErr || new Error('Court Vision snippet could not be loaded');
-    })();
-
-    return __courtVisionSnippetPromise;
-  }
-
-  window.ensureCourtVisionLoaded = async function(player){
-    const panel = document.getElementById('panel-courtvision');
-    if(!panel) return;
-
-    const log = (msg) => {
-      console.log('[CourtVision]', msg);
-      const dbg = panel.querySelector('#cv-debug');
-      if(dbg){
-        const line = document.createElement('div');
-        line.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
-        dbg.appendChild(line);
-      }
-    };
-
-    panel.style.display = 'block';
-    panel.innerHTML = `
-      <div class="cv-card">
-        <div class="cv-row" style="justify-content:space-between;align-items:flex-start;margin-bottom:10px">
-          <div>
-            <div class="cv-section-title">Court Vision</div>
-            <div class="cv-empty" id="cv-loading-msg" style="padding:0;margin-top:4px">Loading Court Vision…</div>
-          </div>
-          <div class="cv-mini" id="cv-status">Waiting…</div>
-        </div>
-        <div id="cv-debug" class="cv-mini" style="margin-top:10px;max-height:180px;overflow:auto;border:1px dashed #ddd;background:#fcfcfc;padding:8px"></div>
-        <div id="cv-render-root" style="margin-top:12px"></div>
-      </div>`;
-
-    try{
-      const renderRoot = panel.querySelector('#cv-render-root');
-      log('Panel ready. Player=' + JSON.stringify({
-        player_id: player && (player.player_id || player.id || ''),
-        name: player && (player.name || player.fullname || ''),
-        slug: player && (player.slug || '')
-      }));
-      await loadCourtVisionSnippet();
-      log('Snippet loaded. CV API present=' + !!(window.CV && typeof window.CV.loadCourtVision === 'function'));
-      if(window.CV && typeof window.CV.loadCourtVision === 'function'){
-        const data = player || window.combinedPlayer || window.playerData || window.player || null;
-        log('Starting render...');
-        const status = panel.querySelector('#cv-status');
-        if(status) status.textContent = 'Rendering…';
-        await window.CV.loadCourtVision(data, { debug: log, container: renderRoot });
-        log('Render finished.');
-        if(status) status.textContent = 'Ready';
-      } else {
-        panel.innerHTML = '<div class="cv-empty">Court Vision module did not initialize.</div>';
-      }
-    }catch(err){
-      console.error('Court Vision load error', err);
-      const dbg = panel.querySelector('#cv-debug');
-      if(dbg){
-        const line = document.createElement('div');
-        line.style.color = '#b00020';
-        line.textContent = 'ERROR: ' + (err && err.message ? err.message : err);
-        dbg.appendChild(line);
-      }
-      panel.innerHTML = `<div class="cv-empty">Court Vision unavailable: ${escapeHtmlSafe(err && err.message ? err.message : err)}</div>`;
-    }
-  };
 })();
 
 </script>
