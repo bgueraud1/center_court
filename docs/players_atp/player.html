@@ -348,10 +348,12 @@ function buildCourtVisionJsonUrl(playerData){
   if(!pid || !first || !last) return null;
   return `/tools/court_vision_post_treated/${first}_${last}_${pid}_court_vision.json`;
 }
-
 async function loadCourtVisionForPlayer(playerData){
   const panel = document.getElementById('panel-court-vision');
   if(!panel) return;
+
+  // Important: only block re-entry after a successful init.
+  // If a previous attempt failed, allow retry.
   if(panel.dataset.loaded === '1') return;
 
   panel.innerHTML = `
@@ -362,6 +364,7 @@ async function loadCourtVisionForPlayer(playerData){
   const jsonUrl = buildCourtVisionJsonUrl(playerData);
   if(!jsonUrl){
     panel.innerHTML = '<div class="no-data">Court Vision data are not available for this player.</div>';
+    panel.dataset.loaded = '';
     return;
   }
 
@@ -369,14 +372,17 @@ async function loadCourtVisionForPlayer(playerData){
     const jsonRes = await fetch(jsonUrl, { cache:'no-store' });
     if(!jsonRes.ok){
       panel.innerHTML = '<div class="no-data">Court Vision data are not available for this player.</div>';
+      panel.dataset.loaded = '';
       return;
     }
+
     const courtVisionData = await jsonRes.json();
 
     const content = panel.querySelector('#court-vision-content');
     const loader = panel.querySelector('#court-vision-loading');
     if(!content || !loader){
       panel.innerHTML = '<div class="no-data">Court Vision view is not available.</div>';
+      panel.dataset.loaded = '';
       return;
     }
 
@@ -389,46 +395,64 @@ async function loadCourtVisionForPlayer(playerData){
     iframe.style.minHeight = '1100px';
     iframe.style.display = 'block';
 
-    iframe.addEventListener('load', () => {
+    let initialized = false;
+
+    const tryInit = () => {
       try{
         const iw = iframe.contentWindow;
-        if(!iw || !iw.document) return;
+        if(!iw || !iw.document) return false;
+
         const init = iw.initCourtVisionTab;
-        if(typeof init === 'function'){
-          const root = iw.document.getElementById('cv-app') || iw.document.body;
-          init({ container: root, player: playerData, data: courtVisionData, sourceUrl: jsonUrl });
-          return;
-        }
-        let tries = 0;
-        const retry = () => {
-          tries += 1;
-          const initFn = iframe.contentWindow && iframe.contentWindow.initCourtVisionTab;
-          if(typeof initFn === 'function'){
-            const root = iframe.contentWindow.document.getElementById('cv-app') || iframe.contentWindow.document.body;
-            initFn({ container: root, player: playerData, data: courtVisionData, sourceUrl: jsonUrl });
-          } else if(tries < 20){
-            setTimeout(retry, 100);
-          }
-        };
-        setTimeout(retry, 50);
+        if(typeof init !== 'function') return false;
+
+        const root = iw.document.getElementById('cv-app') || iw.document.body;
+        init({
+          container: root,
+          player: playerData,
+          data: courtVisionData,
+          sourceUrl: jsonUrl
+        });
+
+        initialized = true;
+        panel.dataset.loaded = '1';
+        loader.style.display = 'none';
+        content.style.display = 'block';
+        return true;
       }catch(err){
-        console.error('Court Vision iframe init error', err);
+        console.error('Court Vision init failed', err);
+        return false;
       }
+    };
+
+    const retryInit = (attempt = 0) => {
+      if(initialized) return;
+      if(tryInit()) return;
+      if(attempt >= 30) {
+        console.error('Court Vision init timed out');
+        panel.innerHTML = '<div class="no-data">Court Vision could not be initialized.</div>';
+        panel.dataset.loaded = '';
+        return;
+      }
+      setTimeout(() => retryInit(attempt + 1), 100);
+    };
+
+    iframe.addEventListener('load', () => {
+      retryInit(0);
     }, { once:true });
 
     iframe.src = '/tools/court_vision_fixed_density_filtered_embedded.html';
     content.innerHTML = '';
     content.appendChild(iframe);
-    loader.style.display = 'none';
-    content.style.display = 'block';
-    panel.dataset.loaded = '1';
+
+    // Fallback: in some cases the iframe is ready slightly after load.
+    setTimeout(() => retryInit(0), 50);
+
   }catch(err){
     console.error('loadCourtVisionForPlayer error', err);
     panel.innerHTML = '<div class="no-data">Court Vision data are not available for this player.</div>';
+    panel.dataset.loaded = '';
   }
 }
-
-
 /* ----------------- main loader for player data ----------------- */
 (async function(){
   const loading = document.getElementById('loading');
