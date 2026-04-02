@@ -95,9 +95,6 @@
     .map-wrap { display:flex; gap:12px; flex-wrap:wrap; }
     .map-card { flex:1 1 480px; min-width:280px; border:1px solid var(--border); border-radius:8px; padding:8px; background:#fff; height:420px; }
 
-    .court-vision-frame { width:100%; height:calc(100vh - 260px); min-height:720px; border:0; border-radius:8px; background:#fff; display:block; }
-    .court-vision-loading-wrap { padding:8px; }
-
     /* detailed stats table */
     .stats-table { width:100%; border-collapse:collapse; margin-top:8px; }
     .stats-table th, .stats-table td { border:1px solid var(--border); padding:8px; text-align:left; font-size:13px; vertical-align:middle; }
@@ -262,29 +259,34 @@ function buildCourtVisionJsonUrl(playerData) {
   return null;
 }
 
-function escapeForScriptTag(s) {
-  return String(s ?? '').replace(/</g, '\u003c');
+function escapeForSrcdoc(html) {
+  return String(html || '')
+    .replace(/<\/script/gi, '<\\/script')
+    .replace(/<!--/g, '<\\!--');
 }
 
-function buildCourtVisionSrcdoc(html, courtVisionData, playerData, sourceUrl) {
-  const inject = `<script>
-window.CV_DATA = ${escapeForScriptTag(JSON.stringify(courtVisionData))};
-window.CV_CONTEXT = ${escapeForScriptTag(JSON.stringify({
-    player: {
-      player_id: playerData?.player_id || playerData?.id || '',
-      name: playerData?.name || playerData?.fullname || '',
-      slug: playerData?.slug || '',
-      country: playerData?.country || ''
-    },
-    sourceUrl: sourceUrl || '',
-    data: courtVisionData
-  }))};
-</script>`;
+function buildCourtVisionSrcdoc(embeddedHtml, courtVisionData, playerData, jsonUrl) {
+  const dataJson = JSON.stringify(courtVisionData ?? null).replace(/</g, '\\u003c');
+  const playerJson = JSON.stringify(playerData ?? null).replace(/</g, '\\u003c');
+  const urlJson = JSON.stringify(jsonUrl ?? '').replace(/</g, '\\u003c');
 
-  if (html.includes('<body>')) {
-    return html.replace('<body>', `<body>${inject}`);
+  const headInject =
+    `<base href="/tools/">` +
+    `<script>` +
+    `window.CV_DATA = ${dataJson};` +
+    `window.CV_CONTEXT = { player: ${playerJson}, sourceUrl: ${urlJson}, data: window.CV_DATA };` +
+    `</scr` + `ipt>`;
+
+  const injected = String(embeddedHtml || '').replace(
+    /<head([^>]*)>/i,
+    `<head$1>${headInject}`
+  );
+
+  if (/<head[^>]*>/i.test(injected)) {
+    return injected;
   }
-  return inject + html;
+
+  return `<!doctype html><html><head>${headInject}</head><body>${escapeForSrcdoc(embeddedHtml)}</body></html>`;
 }
 
 async function loadCourtVisionForPlayer(playerData) {
@@ -294,10 +296,8 @@ async function loadCourtVisionForPlayer(playerData) {
   if (panel.dataset.loaded === '1') return;
 
   panel.innerHTML = `
-    <div class="court-vision-loading-wrap">
-      <div id="court-vision-loading" class="sub">Loading…</div>
-      <div id="court-vision-content" style="display:none;"></div>
-    </div>
+    <div id="court-vision-loading" class="sub">Loading…</div>
+    <div id="court-vision-content" style="display:none;"></div>
   `;
 
   const jsonUrl = buildCourtVisionJsonUrl(playerData);
@@ -312,6 +312,7 @@ async function loadCourtVisionForPlayer(playerData) {
       panel.innerHTML = '<div class="no-data">Court Vision data are not available for this player.</div>';
       return;
     }
+
     const courtVisionData = await jsonRes.json();
 
     const htmlRes = await fetch('/tools/court_vision_fixed_density_filtered_embedded.html', { cache: 'no-store' });
@@ -319,11 +320,13 @@ async function loadCourtVisionForPlayer(playerData) {
       panel.innerHTML = '<div class="no-data">Court Vision view is not available.</div>';
       return;
     }
+
     const embeddedHtml = await htmlRes.text();
     const srcdoc = buildCourtVisionSrcdoc(embeddedHtml, courtVisionData, playerData, jsonUrl);
 
     const content = panel.querySelector('#court-vision-content');
     const loader = panel.querySelector('#court-vision-loading');
+
     if (!content || !loader) {
       panel.innerHTML = '<div class="no-data">Court Vision view is not available.</div>';
       return;
@@ -331,15 +334,19 @@ async function loadCourtVisionForPlayer(playerData) {
 
     const iframe = document.createElement('iframe');
     iframe.className = 'court-vision-frame';
-    iframe.setAttribute('title', 'Court Vision');
-    iframe.setAttribute('loading', 'lazy');
+    iframe.title = 'Court Vision';
+    iframe.loading = 'eager';
+    iframe.referrerPolicy = 'no-referrer';
+    iframe.style.width = '100%';
+    iframe.style.minHeight = '1200px';
+    iframe.style.height = 'calc(100vh - 240px)';
+    iframe.style.border = '0';
     iframe.srcdoc = srcdoc;
 
     content.innerHTML = '';
     content.appendChild(iframe);
     loader.style.display = 'none';
     content.style.display = 'block';
-
     panel.dataset.loaded = '1';
   } catch (err) {
     console.error('loadCourtVisionForPlayer error', err);
@@ -743,46 +750,15 @@ function fetchJsonSafe(url){
     btn.addEventListener('click', (e) => {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-
       const target = btn.getAttribute('data-target');
       document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      const tgt = document.getElementById(target); if(tgt) tgt.classList.add('active');
 
-      if (target === 'panel-court-vision') {
-        const statsPanel = document.getElementById('panel-stats');
-        const cvPanel = document.getElementById('panel-court-vision');
-
-        if (statsPanel) statsPanel.classList.add('active');
-
-        document.querySelectorAll('#stats-subpanels > div').forEach(d => {
-          if (d.id === 'panel-court-vision') {
-            d.style.display = 'block';
-            d.classList.add('active');
-          } else {
-            d.style.display = 'none';
-            d.classList.remove('active');
-          }
-        });
-
-        if (cvPanel) {
-          cvPanel.style.display = 'block';
-          cvPanel.classList.add('active');
-        }
-
-        loadCourtVisionForPlayer(combined);
-        return;
-      }
-
-      const tgt = document.getElementById(target);
-      if (tgt) tgt.classList.add('active');
-
-      if (target === 'panel-stats') {
-        initStatsSubtabs(combined);
-      }
+      if(target === 'panel-stats'){ initStatsSubtabs(combined); }
     });
   });
 
-  if (document.getElementById('panel-stats').classList.contains('active')) { initStatsSubtabs(combined); }
-
+  if(document.getElementById('panel-stats').classList.contains('active')){ initStatsSubtabs(combined); }
 
   /* ------------------ Stats subtabs + lazy loaders ------------------ */
 
