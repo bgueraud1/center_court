@@ -1154,17 +1154,23 @@
   }
 
   function mirrorEventsForDensity(events){
-    const mirrored = [];
-    events.forEach(ev => {
-      if(!ev || !ev.has_xy || !Number.isFinite(ev.x) || !Number.isFinite(ev.y)) return;
-      const absX = Math.abs(ev.x);
-      mirrored.push({ ...ev, x: absX });
-      if(absX > 1e-9){
-        mirrored.push({ ...ev, x: -absX });
-      }
-    });
-    return mirrored;
-  }
+  const mirrored = [];
+  events.forEach(ev => {
+    if(!ev || !ev.has_xy || !Number.isFinite(ev.x) || !Number.isFinite(ev.y)) return;
+
+    mirrored.push({ ...ev, mirrored: false });
+
+    if(Math.abs(ev.x) > 1e-9 || Math.abs(ev.y) > 1e-9){
+      mirrored.push({
+        ...ev,
+        x: -ev.x,
+        y: -ev.y,
+        mirrored: true
+      });
+    }
+  });
+  return mirrored;
+}
 
   function buildSmoothedDensity(events, bounds, nx=48, ny=64, sigma=2.2, state=null){
     const xSpan = Math.max(bounds.xMax - bounds.xMin, 1e-9);
