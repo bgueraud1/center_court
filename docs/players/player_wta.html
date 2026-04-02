@@ -1,10 +1,31 @@
 <!doctype html>
 <html lang="en">
 <head>
+
+
+  
   <meta charset="utf-8">
   <title>Player profile - Center Court</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
+
+    /* advanced stats UI */
+.adv-grid { display:flex; gap:16px; align-items:flex-start; }
+.adv-card { background:#fff; border:1px solid #e6e6e6; border-radius:8px; padding:12px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+.adv-left { flex:1; min-width:320px; }
+.adv-right { flex:1; min-width:320px; }
+.adv-h { font-weight:700; margin-bottom:6px; }
+.adv-sub { font-size:13px; color:#666; margin-bottom:8px; }
+.small-metric { font-size:14px; font-weight:700; }
+.adv-pie-row { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+.adv-pie-box { width:180px; height:160px; display:flex; align-items:center; justify-content:center; flex-direction:column; }
+.adv-pie-legend { font-size:12px; color:#444; margin-top:6px; text-align:center; }
+.adv-legend-swatch { display:inline-block; width:12px; height:12px; margin-right:6px; border-radius:2px; vertical-align:middle; }
+.adv-info-grid { display:grid; grid-template-columns: repeat(2,1fr); gap:8px; }
+.adv-key { color:#666; font-size:13px; }
+.adv-val { font-weight:700; font-size:14px; }
+.adv-toggle { font-size:13px; padding:6px; }
+
     :root{ --gap:12px; --muted:#666; --border:#e6e6e6; --card:#fff; --glass:#fafafa; --accent:#1366d6; }
     body { font-family: Arial, Helvetica, sans-serif; margin:18px; color:#222; background:#f6f7fb; }
     #loading { font-size:16px; color:#333; }
@@ -103,6 +124,8 @@
     #ts-chart { min-height:360px; width:100%; }
     .ts-controls .muted-small { color:var(--muted); font-size:13px; }
     .ts-legend-note { font-size:13px; color:var(--muted); margin-left:8px; }
+    .court-vision-frame { width:100%; min-height:1100px; border:0; display:block; background:#fff; }
+    .court-vision-wrap { width:100%; }
 
 
     @media (max-width:760px){
@@ -111,33 +134,10 @@
       .map-card { min-width:100%; height:360px; }
       .scenarios-grid { grid-template-columns: 1fr; }
     }
-
-
-
-    <style>
-/* Advanced statistics styling */
-.adv-grid { display:flex; gap:18px; align-items:flex-start; }
-.adv-left, .adv-right { background: #fff; border:1px solid #e6e6e6; border-radius:8px; padding:12px; box-shadow:0 1px 2px rgba(0,0,0,0.04); flex:1; }
-.adv-left { max-width:460px; min-width:320px; }
-.adv-h { font-size:15px; font-weight:700; margin-bottom:8px; color:#222; }
-.adv-sub { font-size:13px; color:#666; margin-bottom:10px; }
-.adv-table { width:100%; border-collapse:collapse; }
-.adv-table th, .adv-table td { padding:8px 6px; border-bottom:1px solid #f1f1f1; text-align:left; font-size:13px; }
-.adv-table th { font-weight:700; font-size:13px; color:#333; }
-.adv-badge { font-size:12px; padding:4px 6px; border-radius:6px; background:#f5f5f5; color:#333; display:inline-block; }
-.adv-mini-bar { height:10px; background:#eee; border-radius:6px; overflow:hidden; }
-.adv-mini-bar > i { display:block; height:100%; background:linear-gradient(90deg,#3b82f6,#60a5fa); }
-.adv-stat-row { display:flex; align-items:center; gap:8px; }
-.adv-left-chart, .adv-right-chart { height:180px; width:100%; }
-.adv-empty { color:#666; font-size:13px; padding:8px; }
-
-/* Responsive */
-@media (max-width:920px) {
-  .adv-grid { flex-direction:column; }
-  .adv-left { max-width:none; }
-}
-</style>
   </style>
+
+
+
   <!-- Plotly for maps (CDN) -->
   <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
 </head>
@@ -159,7 +159,7 @@
       <button class="tab-btn" data-target="panel-trophies" role="tab" aria-selected="false">Tournaments & best results</button>
       <button class="tab-btn" data-target="panel-stats" role="tab" aria-selected="false">Statistics</button>
       <button class="tab-btn" data-target="panel-advanced" role="tab" aria-selected="false">Advanced statistics</button>
-          </div>
+    </div>
 
     <div id="panel-matches" class="panel active" role="tabpanel">
       <div class="year-selector">
@@ -181,6 +181,8 @@
       <div id="best-list"></div>
     </div>
 
+
+
     <div id="panel-stats" class="panel" role="tabpanel">
       <!-- subtabs for stats -->
       <div class="subtabs" id="stats-subtabs"></div>
@@ -201,17 +203,18 @@
           <div id="detailed-stats-container"></div>
         </div>
 
-        
+        <div id="panel-court-vision" class="panel" role="tabpanel" style="display:none; padding:8px;"></div>
 
-        <div id="panel-advanced" class="panel" role="tabpanel" style="display:none; padding:12px;">
+        <!-- Advanced statistics panel (top-level, sibling of panel-matches / panel-trophies / panel-stats) -->
+<div id="panel-advanced" class="panel" role="tabpanel" style="display:none; padding:12px;">
+  <!-- loader -->
   <div id="advanced-loading" style="display:none;padding:8px;color:#666">Loading advanced statistics…</div>
-  <div id="advanced-content" style="display:none;"></div>
-  <div id="advanced-log" style="display:none; font-family:monospace;font-size:12px;color:#111;max-height:260px;overflow:auto;background:#f7f7f7;border:1px solid #ddd;padding:8px;margin-top:8px;"></div>
-</div>
 
-<div id="panel-court-vision" class="panel" role="tabpanel" style="display:none; padding:8px;">
-  <div id="court-vision-loading" class="sub">Loading…</div>
-  <div id="court-vision-content" style="display:none;"></div>
+  <!-- content will be injected here (renderer uses #advanced-content) -->
+  <div id="advanced-content" style="display:none;"></div>
+
+  <!-- small debug log shown inside panel (hidden by default) -->
+  <div id="advanced-log" style="display:none; font-family:monospace;font-size:12px;color:#111;max-height:260px;overflow:auto;background:#f7f7f7;border:1px solid #ddd;padding:8px;margin-top:8px;"></div>
 </div>
 
         <div id="panel-scenarios" style="display:none; padding:8px;"></div>
@@ -221,12 +224,17 @@
             <div id="map-opponents" class="map-card"></div>
             <div id="map-hosts" class="map-card"></div>
           </div>
+
+
         </div>
       </div>
     </div>
   </div>
 
 <script>
+/* ---------------- common helpers ---------------- */
+
+
 
 /* ---------- buildAdvancedCandidatesFor (for general_advanced_stats) ---------- */
 function buildAdvancedCandidatesFor(player){
@@ -237,22 +245,33 @@ function buildAdvancedCandidatesFor(player){
   const last = parts.length > 1 ? parts[parts.length-1].replace(/[^A-Za-z0-9]/g,'') : '';
   const initial = first ? first.charAt(0) : '';
   const slugVal = player && (player.slug || player.name_slug) ? String(player.slug || player.name_slug) : '';
+
   const candidates = [];
+
+  // Prefer id_First_Last (e.g. 315391_Caroline_Garcia.json)
   if(pid && first && last){
     candidates.push(`/general_advanced_stats/${pid}_${first}_${last}.json`);
     candidates.push(`/general_advanced_stats/${pid}_${first.toLowerCase()}_${last.toLowerCase()}.json`);
     candidates.push(`/general_advanced_stats/${pid}_${first.charAt(0).toUpperCase()+first.slice(1)}_${last.charAt(0).toUpperCase()+last.slice(1)}.json`);
   }
+
+  // fallback id initial last (e.g. 21805_D_Gavrilova.json)
   if(pid && initial && last){
     candidates.push(`/general_advanced_stats/${pid}_${initial}_${last}.json`);
   }
+
+  // fallback other formats
   if(pid && slugVal){
     candidates.push(`/general_advanced_stats/${pid}_${slugVal}.json`);
     candidates.push(`/general_advanced_stats/${pid}_${slugVal.toLowerCase()}.json`);
   }
+
+  // basic pid-only
   if(pid){
     candidates.push(`/general_advanced_stats/${pid}.json`);
   }
+
+  // name-only fallbacks
   if(first && last){
     candidates.push(`/general_advanced_stats/${first}_${last}.json`);
     candidates.push(`/general_advanced_stats/${first.toLowerCase()}_${last.toLowerCase()}.json`);
@@ -260,6 +279,8 @@ function buildAdvancedCandidatesFor(player){
   if(nameRaw){
     candidates.push(`/general_advanced_stats/${nameRaw.replace(/\s+/g,'_')}.json`);
   }
+
+  // unique & return
   const seen = new Set();
   return candidates.filter(c => {
     if(!c) return false;
@@ -267,6 +288,44 @@ function buildAdvancedCandidatesFor(player){
     seen.add(c);
     return true;
   });
+}
+
+function escapeHtml(s){
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// --- ADD THIS (put near the top of the <script> in player.html) ---
+const LEADERBOARD_PAGE = '/leaderboard.html';
+function openLeaderboardFor(statKey){
+  if(!statKey) return;
+  // build absolute URL relative à la racine du site (Netlify)
+  const u = new URL(LEADERBOARD_PAGE, window.location.origin);
+  u.searchParams.set('stat', String(statKey));
+  // navigate
+  window.location.href = u.toString();
+}
+
+
+function dateWithoutYear(isoDate){
+  if(!isoDate) return '';
+  try{
+    const d = new Date(isoDate);
+    if(isNaN(d)) {
+      const m = isoDate.match(/^\d{4}-(\d{2}-\d{2})/);
+      if(m) {
+        const parts = m[1].split('-');
+        const mock = new Date(`${new Date().getFullYear()}-${parts[0]}-${parts[1]}`);
+        try{ return new Intl.DateTimeFormat('en', { day: '2-digit', month: 'long' }).format(mock); }catch(e){ return `${parts[1]}-${parts[0]}`; }
+      }
+      return isoDate;
+    }
+    return new Intl.DateTimeFormat('en', { day: '2-digit', month: 'long' }).format(d);
+  }catch(e){ return isoDate; }
+}
+function fetchJsonSafe(url){
+  try{ return fetch(url).then(r => { if(!r.ok) return null; return r.json().catch(()=>null); }).catch(()=>null); }
+  catch(e){ console.warn('fetch failed',url,e); return Promise.resolve(null); }
 }
 
 function normalizeCourtVisionPart(value){
@@ -289,7 +348,6 @@ function buildCourtVisionJsonUrl(playerData){
   if(!pid || !first || !last) return null;
   return `/tools/court_vision_post_treated/${first}_${last}_${pid}_court_vision.json`;
 }
-
 async function loadCourtVisionForPlayer(playerData){
   const panel = document.getElementById('panel-court-vision');
   if(!panel) return;
@@ -395,317 +453,6 @@ async function loadCourtVisionForPlayer(playerData){
     panel.dataset.loaded = '';
   }
 }
-
-
-/* ---------- renderAdvancedStatsFrom (polished renderer) ---------- */
-/* Replaces previous renderer. Injects a two-column layout:
-   - left: rally buckets (table + bar chart)
-   - right: stroke stats (table + mini bars)
-*/
-function renderAdvancedStatsFrom(data, sourceUrl, targetDiv){
-  try{
-    if(!targetDiv) return;
-    const container = targetDiv.querySelector('#advanced-content') || targetDiv;
-
-    // HELPERS (fallback implementations if project doesn't provide them)
-    function escapeHtml(s){
-      if(s === null || s === undefined) return '';
-      return String(s).replace(/[&<>"]/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; });
-    }
-    function smartNumberString(v){
-      if(v === null || v === undefined || isNaN(Number(v))) return '—';
-      const n = Number(v);
-      if(Math.abs(n) >= 1000) return Math.round(n).toLocaleString();
-      if(Math.abs(n) >= 10) return Math.round(n*10)/10; // one decimal if needed
-      return (Math.round(n*100)/100).toString();
-    }
-    function smartPercentFromFraction(f){
-      if(f === null || f === undefined || isNaN(Number(f))) return '—';
-      const n = Number(f);
-      // heuristics: if n > 1 likely a percent already
-      if(Math.abs(n) > 1) return (Math.round(n*10)/10) + '%';
-      return (Math.round(n*1000)/10) + '%'; // one decimal
-    }
-
-    /* robust getter: tries many possible keys used across your JSON variants */
-    function getBucketVal(obj, prefix, suffixCandidates){
-      // prefix e.g. 'pct_short', suffixCandidates e.g. ['cg','fd','fp']
-      const res = {};
-      suffixCandidates.forEach(suf => {
-        const keys = [
-          `${prefix}_${suf}`,           // pct_short_cg
-          `${prefix}${suf.charAt(0).toUpperCase()+suf.slice(1)}`, // shortCg
-          `${prefix}_${suf.toUpperCase()}`, // pct_short_CG
-          `${prefix}${suf}`              // shortcg
-        ];
-        let found = null;
-        for(const k of keys){
-          // check numeric.mean path
-          if(obj && obj.numeric && obj.numeric[k] && obj.numeric[k].mean !== undefined){
-            found = obj.numeric[k].mean; break;
-          }
-          // check obj[k] directly
-          if(obj && obj[k] !== undefined){
-            found = obj[k]; break;
-          }
-        }
-        res[suf] = found;
-      });
-      return res;
-    }
-
-    // Extract small / rally stats
-    const small = data.small_stats || data.rally_stats || data.short_stats || null;
-    const big = data.big_stats || data.stroke_stats || data.strokeStats || null;
-
-    // Build HTML header
-    let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-                  <div style="font-weight:800;font-size:16px">Advanced statistics</div>
-                  <div style="font-size:12px;color:#666">Source: ${escapeHtml(sourceUrl || 'inline')}</div>
-                </div>`;
-
-    // Grid container
-    html += `<div class="adv-grid">`;
-
-    /* ---------- LEFT: Rally buckets ---------- */
-    html += `<div class="adv-left"><div class="adv-h">Rally buckets (by point length)</div>
-             <div class="adv-sub">Buckets: Short (1–4 shots), Medium (5–8), Long (9+). Values shown as means or shares.</div>`;
-
-    if(small && small.numeric){
-      const num = small.numeric;
-
-      // Try to get counts & pct shares
-      const shortCount = (num.short_count && num.short_count.mean !== undefined) ? num.short_count.mean : (num.shortCount && num.shortCount.mean !== undefined ? num.shortCount.mean : null);
-      const midCount   = (num.medium_count && num.medium_count.mean !== undefined) ? num.medium_count.mean : (num.mediumCount && num.mediumCount.mean !== undefined ? num.mediumCount.mean : null);
-      const longCount  = (num.long_count && num.long_count.mean !== undefined) ? num.long_count.mean : (num.longCount && num.longCount.mean !== undefined ? num.longCount.mean : null);
-
-      // share percentages (several naming possibilities)
-      const pctShort = (num.pct_short && num.pct_short.mean !== undefined) ? num.pct_short.mean : (num.pctShort && num.pctShort.mean !== undefined ? num.pctShort.mean : null);
-      const pctMed   = (num.pct_medium && num.pct_medium.mean !== undefined) ? num.pct_medium.mean : (num.pctMedium && num.pctMedium.mean !== undefined ? num.pctMedium.mean : null);
-      const pctLong  = (num.pct_long && num.pct_long.mean !== undefined) ? num.pct_long.mean : (num.pctLong && num.pctLong.mean !== undefined ? num.pctLong.mean : null);
-
-      // winners / unforced / forced: look for many keys
-      const shortVals = getBucketVal(small, 'pct_short', ['cg','fd','fp']);
-      const medVals   = getBucketVal(small, 'pct_medium', ['cg','fd','fp']);
-      const longVals  = getBucketVal(small, 'pct_long', ['cg','fd','fp']);
-
-      // Build table
-      html += `<table class="adv-table"><thead><tr><th>Bucket</th><th>Mean count</th><th>Share</th><th>Winners</th><th>Unforced errors</th><th>Forced errors</th></tr></thead><tbody>`;
-      html += `<tr><td style="font-weight:700">Short<br/><span style="font-weight:600;color:#666">1–4 shots</span></td>
-                <td>${escapeHtml(smartNumberString(shortCount))}</td>
-                <td>${escapeHtml(smartPercentFromFraction(pctShort>1?pctShort/100:pctShort))}</td>
-                <td>${escapeHtml(smartPercentFromFraction(shortVals.cg>1?shortVals.cg/100:shortVals.cg))}</td>
-                <td>${escapeHtml(smartPercentFromFraction(shortVals.fd>1?shortVals.fd/100:shortVals.fd))}</td>
-                <td>${escapeHtml(smartPercentFromFraction(shortVals.fp>1?shortVals.fp/100:shortVals.fp))}</td>
-              </tr>`;
-
-      html += `<tr><td style="font-weight:700">Medium<br/><span style="font-weight:600;color:#666">5–8 shots</span></td>
-                <td>${escapeHtml(smartNumberString(midCount))}</td>
-                <td>${escapeHtml(smartPercentFromFraction(pctMed>1?pctMed/100:pctMed))}</td>
-                <td>${escapeHtml(smartPercentFromFraction(medVals.cg>1?medVals.cg/100:medVals.cg))}</td>
-                <td>${escapeHtml(smartPercentFromFraction(medVals.fd>1?medVals.fd/100:medVals.fd))}</td>
-                <td>${escapeHtml(smartPercentFromFraction(medVals.fp>1?medVals.fp/100:medVals.fp))}</td>
-              </tr>`;
-
-      html += `<tr><td style="font-weight:700">Long<br/><span style="font-weight:600;color:#666">9+ shots</span></td>
-                <td>${escapeHtml(smartNumberString(longCount))}</td>
-                <td>${escapeHtml(smartPercentFromFraction(pctLong>1?pctLong/100:pctLong))}</td>
-                <td>${escapeHtml(smartPercentFromFraction(longVals.cg>1?longVals.cg/100:longVals.cg))}</td>
-                <td>${escapeHtml(smartPercentFromFraction(longVals.fd>1?longVals.fd/100:longVals.fd))}</td>
-                <td>${escapeHtml(smartPercentFromFraction(longVals.fp>1?longVals.fp/100:longVals.fp))}</td>
-              </tr>`;
-
-      html += `</tbody></table>`;
-
-      // prepare chart data arrays for winners/fd/fp (as numbers normalized to fraction 0..1)
-      function norm(v){ if(v === null || v === undefined || isNaN(Number(v))) return null; const n = Number(v); return (Math.abs(n) > 1 ? n/100 : n); }
-      const cats = ['Short','Medium','Long'];
-      const winners = [ norm(shortVals.cg), norm(medVals.cg), norm(longVals.cg) ];
-      const unf = [ norm(shortVals.fd), norm(medVals.fd), norm(longVals.fd) ];
-      const forced = [ norm(shortVals.fp), norm(medVals.fp), norm(longVals.fp) ];
-
-      html += `<div style="margin-top:10px"><div class="adv-left-chart" id="adv-buckets-chart"></div></div>`;
-
-      // pass chart data to DOM after injection
-      container.innerHTML = html + `</div>`; // close adv-left, continue adv-right to be appended below
-
-      // ---------- RIGHT: Stroke stats ----------
-      let rightHtml = `<div class="adv-right"><div class="adv-h">Stroke statistics (aggregates)</div>
-                       <div class="adv-sub">Mean / Std / Count across matches. Keys are the Infosys stroke metrics.</div>`;
-
-      if(big && big.numeric){
-        // Build rows from big.numeric keys
-        const keys = Object.keys(big.numeric).filter(k => k !== 'playerId').sort();
-        if(keys.length === 0){
-          rightHtml += `<div class="adv-empty">No stroke statistics available.</div>`;
-        } else {
-          // Build table header
-          rightHtml += `<table class="adv-table"><thead><tr><th>Statistic</th><th>Mean</th><th>Std</th><th>Count</th><th>Visual</th></tr></thead><tbody>`;
-          // choose top N to show (keep all but show mini-bar)
-          keys.forEach(k => {
-            const node = big.numeric[k] || {};
-            const mean = node.mean !== undefined ? node.mean : null;
-            const std = node.std !== undefined ? node.std : null;
-            const cnt = (node.non_null_samples !== undefined) ? node.non_null_samples : (node.count !== undefined ? node.count : null);
-            // compute bar length as normalized by some heuristic: use absolute mean / (mean+std) or scaled
-            const barVal = (mean === null || mean === undefined || isNaN(Number(mean))) ? 0 : Math.min(1, Math.abs(Number(mean)) / (Math.abs(Number(mean)) + (Math.abs(Number(std))||1)));
-            rightHtml += `<tr>
-                            <td style="font-weight:700">${escapeHtml(k)}</td>
-                            <td>${escapeHtml(smartNumberString(mean))}</td>
-                            <td>${escapeHtml(smartNumberString(std))}</td>
-                            <td>${escapeHtml(cnt === null ? '—' : String(cnt))}</td>
-                            <td style="min-width:120px"><div class="adv-mini-bar"><i style="width:${Math.round(barVal*100)}%"></i></div></td>
-                          </tr>`;
-          });
-          rightHtml += `</tbody></table>`;
-        }
-      } else {
-        rightHtml += `<div class="adv-empty">Stroke statistics not available.</div>`;
-      }
-
-      rightHtml += `<div style="margin-top:10px"><div id="adv-strokes-chart" class="adv-right-chart"></div></div>`;
-      rightHtml += `</div>`; // close adv-right
-
-      // append rightHtml to container (we already wrote left portion)
-      container.innerHTML = container.innerHTML + rightHtml + `</div>`; // close adv-grid
-
-      // --- Render charts: prefer Plotly if present, else keep CSS bars ---
-      const usePlotly = (window.Plotly && typeof window.Plotly.newPlot === 'function');
-
-      // Buckets chart (grouped bars) : winners/unforced/forced by bucket
-      if(usePlotly){
-  try{
-    const traces = [
-      { x: cats, y: winners.map(v => v === null ? 0 : v), name: 'Winners', type: 'bar' },
-      { x: cats, y: unf.map(v => v === null ? 0 : v), name: 'Unforced errors', type: 'bar' },
-      { x: cats, y: forced.map(v => v === null ? 0 : v), name: 'Forced errors', type: 'bar' }
-    ];
-
-    const allVals = winners
-      .concat(unf)
-      .concat(forced)
-      .map(v => (v === null || v === undefined || Number.isNaN(Number(v))) ? 0 : Number(v));
-
-    const maxY = Math.max(0.2, (allVals.length ? Math.max(...allVals) : 0.2) * 1.2);
-
-    const layout = {
-      barmode: 'group',
-      margin: { t: 20, l: 40, r: 12, b: 40 },
-      legend: { orientation: 'h', y: -0.18 },
-      yaxis: {
-        tickformat: '.0%',
-        range: [0, maxY]
-      }
-    };
-
-    Plotly.newPlot('adv-buckets-chart', traces, layout, { displayModeBar: false });
-  }catch(e){
-    console.warn('Plotly buckets error', e);
-  }
-} else {
-  // If no Plotly, add readable percent labels to table (already present) — nothing else needed
-}
-
-      // Strokes chart: horizontal bar for top 8 means (if Plotly)
-      if(usePlotly && big && big.numeric){
-        try{
-          // pick top 8 metrics by absolute mean
-          const stats = Object.entries(big.numeric).map(([k,v]) => ({k, mean: (v && v.mean!==undefined?Number(v.mean):null)})).filter(x => x.mean!==null && !isNaN(x.mean));
-          stats.sort((a,b)=> Math.abs(b.mean) - Math.abs(a.mean));
-          const top = stats.slice(0,8).reverse(); // reverse for horizontal chart
-          const names = top.map(x => x.k);
-          const values = top.map(x => x.mean);
-          const trace = [{ type:'bar', x: values, y: names, orientation:'h', marker:{color:'rgb(59,130,246)'} }];
-          const layout = { margin:{l:180,t:20,b:20,r:20}, xaxis:{title:'Mean'}, height: (names.length*34)+60 };
-          Plotly.newPlot('adv-strokes-chart', trace, layout, {displayModeBar:false});
-        }catch(e){ console.warn('Plotly strokes error', e); }
-      } // else keep mini-bars in table
-
-      // Done
-      return;
-    } else {
-      // small not available: render fallback layout with strokes only or message
-      html += `<div class="adv-empty">Rally (short) statistics not available.</div>`;
-      // right column
-      let rightHtml = `<div class="adv-right"><div class="adv-h">Stroke statistics (aggregates)</div>`;
-      if(big && big.numeric){
-        const keys = Object.keys(big.numeric).filter(k=>k!=='playerId').sort();
-        if(keys.length){
-          rightHtml += `<table class="adv-table"><thead><tr><th>Statistic</th><th>Mean</th><th>Std</th><th>Count</th></tr></thead><tbody>`;
-          keys.forEach(k => {
-            const node = big.numeric[k] || {};
-            const mean = node.mean !== undefined ? node.mean : null;
-            const std = node.std !== undefined ? node.std : null;
-            const cnt = (node.non_null_samples !== undefined) ? node.non_null_samples : (node.count !== undefined ? node.count : null);
-            rightHtml += `<tr><td style="font-weight:700">${escapeHtml(k)}</td><td>${escapeHtml(smartNumberString(mean))}</td><td>${escapeHtml(smartNumberString(std))}</td><td>${escapeHtml(cnt===null?'—':String(cnt))}</td></tr>`;
-          });
-          rightHtml += `</tbody></table>`;
-        } else {
-          rightHtml += `<div class="adv-empty">Stroke statistics not available.</div>`;
-        }
-      } else {
-        rightHtml += `<div class="adv-empty">Stroke statistics not available.</div>`;
-      }
-      rightHtml += `</div>`; // close adv-right
-      // finalize
-      container.innerHTML = html + rightHtml + `</div>`; // close adv-grid
-      return;
-    }
-  }catch(e){
-    console.error('renderAdvancedStatsFrom error', e);
-    if(targetDiv) targetDiv.querySelector('#advanced-content').innerHTML = '<div class="adv-empty">Error rendering advanced statistics.</div>';
-  }
-}
-/* ---------------- common helpers ---------------- */
-function escapeHtml(s){
-  if (s === null || s === undefined) return '';
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}
-
-// --- ADD THIS (put near the top of the <script> in player.html) ---
-const LEADERBOARD_PAGE = '/leaderboard.html';
-function openLeaderboardFor(statKey){
-  if(!statKey) return;
-  // build absolute URL relative à la racine du site (Netlify)
-  const u = new URL(LEADERBOARD_PAGE, window.location.origin);
-  u.searchParams.set('stat', String(statKey));
-  // navigate
-  window.location.href = u.toString();
-}
-
-
-function dateWithoutYear(isoDate){
-  if(!isoDate) return '';
-  try{
-    const d = new Date(isoDate);
-    if(isNaN(d)) {
-      const m = isoDate.match(/^\d{4}-(\d{2}-\d{2})/);
-      if(m) {
-        const parts = m[1].split('-');
-        const mock = new Date(`${new Date().getFullYear()}-${parts[0]}-${parts[1]}`);
-        try{ return new Intl.DateTimeFormat('en', { day: '2-digit', month: 'long' }).format(mock); }catch(e){ return `${parts[1]}-${parts[0]}`; }
-      }
-      return isoDate;
-    }
-    return new Intl.DateTimeFormat('en', { day: '2-digit', month: 'long' }).format(d);
-  }catch(e){ return isoDate; }
-}
-function fetchJsonSafe(url){
-  try{
-    return fetch(url).then(async r => {
-      if(!r.ok) return null;
-      const txt = await r.text();
-      // Remplacer les tokens NaN non-entre-guillemets par null (heuristique)
-      const clean = txt.replace(/\bNaN\b/g, 'null');
-      try { return JSON.parse(clean); } catch(e) { return null; }
-    }).catch(()=>null);
-  } catch(e) {
-    console.warn('fetch failed', url, e);
-    return Promise.resolve(null);
-  }
-}
-
-
 /* ----------------- main loader for player data ----------------- */
 (async function(){
   const loading = document.getElementById('loading');
@@ -746,6 +493,8 @@ function fetchJsonSafe(url){
     } else { loading.textContent = 'Player data unavailable.'; return; }
   }
 
+  window.combinedPlayer = combined;
+
   combined.player_id = combined.player_id || pid;
   combined.name = combined.name || found.name || pid;
   combined.slug = combined.slug || slugLower;
@@ -774,100 +523,67 @@ function fetchJsonSafe(url){
   if(combined.first_appearance) attrs.appendChild(makeAttr('First appearance', combined.first_appearance));
   if(combined.last_appearance) attrs.appendChild(makeAttr('Last appearance', combined.last_appearance));
 
-    // image (use manifest first; no priority to combined.image)
+  // image
+    // image (robust: check manifest first then fallback to combined.image)
   const imageWrap = document.getElementById('player-image');
   imageWrap.innerHTML = '';
 
-  (async function(){
+  async function findImageFromManifest(pid, slug) {
     try {
-      // helper: normalize slug & player_id
-      const pid = String(combined.player_id || '').trim();
-      const slug = String(combined.slug || '').trim().toLowerCase();
-
-      // try several manifest paths (tolerant)
-      const manifestPaths = ['/index/players_images_manifest.json','/players_images_manifest.json','/players/images.json','/index/players/images.json'];
-      let manifest = null;
-      for (const p of manifestPaths) {
-        try {
-          const r = await fetch(p, { cache: 'no-store' });
-          if (r && r.ok) {
-            manifest = await r.json();
-            console.log('[images] loaded manifest from', p, 'length=', Array.isArray(manifest) ? manifest.length : (manifest ? Object.keys(manifest).length : 0));
-            break;
-          }
-        } catch(e) {
-          // ignore and try next
-        }
+      const MANIFEST_URL = '/index/players_atp_images_manifest.json';
+      const r = await fetch(MANIFEST_URL);
+      if(!r.ok) return null;
+      const arr = await r.json();
+      if(!Array.isArray(arr)) return null;
+      // build quick maps (once) - keep simple linear search since manifest is small
+      // try exact player_id match
+      if(pid) {
+        const byId = arr.find(it => it.player_id && String(it.player_id) === String(pid));
+        if(byId && byId.url) return byId;
       }
-
-      // search manifest if present
-      let foundEntry = null;
-      if (manifest) {
-        // manifest might be array of objects {player_id, slug, public_id, url} or array of {id,url}
-        if (Array.isArray(manifest)) {
-          for (const it of manifest) {
-            if (!it) continue;
-            const entryPlayerId = (it.player_id || it.id || '').toString();
-            const entrySlug = (it.slug || (it.public_id || '').replace(/^players\//,'') || it.id || '').toString().toLowerCase();
-            if (pid && entryPlayerId && pid.toString() === entryPlayerId.toString()) { foundEntry = it; break; }
-            if (slug && entrySlug && (entrySlug === slug || entrySlug === slug.replace(/^players\//,''))) { foundEntry = it; break; }
-            // last-resort match: public_id contains slug
-            if (slug && it.public_id && it.public_id.toLowerCase().indexOf(slug) !== -1) { foundEntry = it; break; }
-          }
-        } else {
-          // manifest might be an object keyed by slug
-          if (slug && manifest[slug]) foundEntry = manifest[slug];
-          // or by player_id
-          if (!foundEntry && pid && manifest[pid]) foundEntry = manifest[pid];
-        }
+      // try slug exact match
+      if(slug) {
+        const slugLc = String(slug).toLowerCase();
+        const bySlug = arr.find(it => it.slug && it.slug.toLowerCase() === slugLc);
+        if(bySlug && bySlug.url) return bySlug;
       }
-
-      if (foundEntry && (foundEntry.url || foundEntry.public_id)) {
-        // prefer url if present, else build URL from public_id + cloud name if available
-        let url = foundEntry.url || null;
-        if (!url && foundEntry.public_id && window.CLOUDINARY_CLOUD_NAME) {
-          const safeId = encodeURIComponent(foundEntry.public_id);
-          url = `https://res.cloudinary.com/${window.CLOUDINARY_CLOUD_NAME}/image/upload/f_auto,q_auto/${safeId}`;
-        }
-        if (url) {
-          const img = document.createElement('img');
-          img.src = url;
-          img.alt = combined.name || combined.full_name || '';
-          img.loading = 'lazy';
-          imageWrap.appendChild(img);
-          return;
-        }
+      // try public_id patterns: players/<pid>-<slug>, players/<slug>, players/<pid>
+      const candidates = [];
+      if(pid && slug) candidates.push(`players/${pid}-${slug}`);
+      if(slug) candidates.push(`players/${slug}`);
+      if(pid) candidates.push(`players/${pid}`);
+      for(const c of candidates) {
+        const found = arr.find(it => it.public_id === c || (it.public_id && it.public_id.toLowerCase() === c.toLowerCase()));
+        if(found && found.url) return found;
       }
-
-      // fallback quick generation by naming convention (if you configured cloud name)
-      if (window.CLOUDINARY_CLOUD_NAME) {
-        // candidate slug-based id: try pid-slug, slug, pid
-        const candidates = [];
-        if (pid && slug) candidates.push(`players/${pid}-${slug}`);
-        if (slug) candidates.push(`players/${slug}`);
-        if (pid) candidates.push(`players/${pid}`);
-        const pick = candidates[0];
-        if (pick) {
-          const safeId = encodeURIComponent(pick);
-          const url = `https://res.cloudinary.com/${window.CLOUDINARY_CLOUD_NAME}/image/upload/f_auto,q_auto/${safeId}`;
-          // use it (may 404 in browser)
-          const img = document.createElement('img');
-          img.src = url;
-          img.alt = combined.name || combined.full_name || '';
-          img.loading = 'lazy';
-          imageWrap.appendChild(img);
-          return;
-        }
-      }
-
-      // no image found
-      imageWrap.innerHTML = '<div class="sub">No image</div>';
-    } catch (err) {
-      console.error('player image load error', err);
-      imageWrap.innerHTML = '<div class="sub">No image</div>';
+      return null;
+    } catch(e) {
+      console.warn('manifest lookup failed', e);
+      return null;
     }
-  })();
+  }
 
+  // try manifest first
+  (async () => {
+    const pid = combined.player_id || found.player_id || '';
+    const slugVal = (combined.slug || found.slug || '').toString();
+    const manifestEntry = await findImageFromManifest(pid, slugVal);
+    if(manifestEntry && manifestEntry.url){
+      const img = document.createElement('img');
+      img.src = manifestEntry.url;
+      img.alt = combined.name || '';
+      img.loading = 'lazy';
+      imageWrap.appendChild(img);
+      return;
+    }
+    // fallback: if combined.image exists (legacy), use it
+    if(combined.image){
+      const img = document.createElement('img'); img.src = combined.image; img.alt = combined.name || ''; img.loading = 'lazy'; imageWrap.appendChild(img);
+      return;
+    }
+    // no image
+    imageWrap.innerHTML = '<div class="sub">No image</div>';
+  })();
 
 
   // Matches by year (client)
@@ -1034,82 +750,58 @@ function fetchJsonSafe(url){
   root.style.display = 'block';
 
   // tabs behavior
-  // ---------- tabs behavior (fixed for nested panels) ----------
-document.querySelectorAll('.tab-btn').forEach(btn => {
-  btn.addEventListener('click', (e) => {
-    // visual button state
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const target = btn.getAttribute('data-target');
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      const tgt = document.getElementById(target); if(tgt) tgt.classList.add('active');
 
-    const target = btn.getAttribute('data-target');
-    const tgt = document.getElementById(target);
-    if(!tgt){
-      // fallback behaviour: try to activate by id directly if missing
-      console.warn('Tab target not found in DOM:', target);
-      return;
-    }
-
-    // find the top-level panel: the ancestor panel whose parent is #player-root
-    let topPanel = tgt;
-    while(topPanel && topPanel.parentElement && topPanel.parentElement.id !== 'player-root'){
-      topPanel = topPanel.parentElement;
-    }
-    // if none found, fallback to the panel itself
-    if(!topPanel || !topPanel.classList || !topPanel.classList.contains('panel')){
-      topPanel = tgt;
-    }
-
-    // remove active from top-level panels (direct children of #player-root)
-    document.querySelectorAll('#player-root > .panel').forEach(p => p.classList.remove('active'));
-
-    // activate top-level panel (makes the container visible)
-    if(topPanel && topPanel.id) {
-      topPanel.classList.add('active');
-      // ensure style display toggles are applied
-      topPanel.style.display = 'block';
-      topPanel.style.visibility = 'visible';
-      topPanel.style.opacity = '1';
-    }
-
-    // inside this topPanel, deactivate any nested panels and activate the specific target
-    try {
-      const nestedPanels = topPanel.querySelectorAll('.panel');
-      nestedPanels.forEach(np => np.classList.remove('active'));
-    } catch(e){ /* ignore if no nested panels */ }
-
-    // activate the target panel (in case it's nested)
-    tgt.classList.add('active');
-    tgt.style.display = 'block';
-    tgt.style.visibility = 'visible';
-    tgt.style.opacity = '1';
-
-    // Accessibility attributes
-    document.querySelectorAll('.tab-btn').forEach(b => b.setAttribute('aria-selected','false'));
-    btn.setAttribute('aria-selected','true');
-
-    // If the visible top panel is the stats container, initialize subtabs
-    if(topPanel && topPanel.id === 'panel-stats'){
-      try { if(typeof initStatsSubtabs === 'function') initStatsSubtabs(combined); } catch(e){ console.warn('initStatsSubtabs error', e); }
-    }
-
-    // If the clicked tab is the advanced panel, call loader explicitly
-    if(target === 'panel-advanced'){
-      // call loader using local `combined` (in this scope combined exists)
-      try {
-        if(typeof loadAdvancedForPlayer === 'function'){
-          loadAdvancedForPlayer(combined);
-        } else if(typeof loadStatsSubpanel === 'function'){
-          loadStatsSubpanel('advanced', combined);
-        } else {
-          console.warn('No advanced loader function found.');
-        }
-      } catch(e){ console.error('Error calling advanced loader', e); }
-    }
-
+      if(target === 'panel-stats'){ initStatsSubtabs(combined); }
+    });
   });
-});
 
+  if(document.getElementById('panel-stats').classList.contains('active')){ initStatsSubtabs(combined); }
 
+  /* ------------------ Stats subtabs + lazy loaders ------------------ */
+
+  let statsSubtabsInitialized = false;
+  const statsLoadState = { detailed:false, scenarios:false, timeseries:false, maps:false, 'court-vision':false };
+
+  function initStatsSubtabs(playerData){
+    if(statsSubtabsInitialized) return;
+    statsSubtabsInitialized = true;
+    const subtabs = document.getElementById('stats-subtabs');
+    subtabs.innerHTML = '';
+
+    const tabs = [
+      { id:'detailed', label:'Detailed statistics' },
+      { id:'scenarios', label:'Scenarios' },
+      { id:'timeseries', label:'Time Series' },
+      { id:'maps', label:'Maps' },
+      { id:'court-vision', label:'Court Vision' }
+    ];
+
+    tabs.forEach((t, idx) => {
+      const b = document.createElement('button');
+      b.className = 'subtab-btn' + (idx===0 ? ' active' : '');
+      b.textContent = t.label;
+      b.dataset.target = `panel-${t.id}`;
+      b.addEventListener('click', (e) => {
+        document.querySelectorAll('.subtab-btn').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+        document.querySelectorAll('#stats-subpanels > div').forEach(d => d.style.display = 'none');
+        const tgt = document.getElementById(b.dataset.target);
+        if(tgt) tgt.style.display = 'block';
+        loadStatsSubpanel(t.id, playerData);
+      });
+      subtabs.appendChild(b);
+    });
+
+    document.getElementById('panel-detailed').style.display = 'block';
+    loadStatsSubpanel('detailed', playerData);
+  }
 
   // try multiple candidate URLs sequentially
   function tryCandidatesSequential(candidates){
@@ -1146,84 +838,6 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     candidates.push(`/players/${slugLower}`);
     return candidates;
   }
-function ensureAdvancedVisible(){
-  try{
-    const panel = document.getElementById('panel-advanced');
-    if(!panel) return;
-    let top = panel;
-    while(top && top.parentElement && top.parentElement.id !== 'player-root'){
-      top = top.parentElement;
-    }
-    if(top && top.classList && top.classList.contains('panel')){
-      top.style.display = 'block';
-      top.style.visibility = 'visible';
-      top.style.opacity = '1';
-      top.classList.add('active');
-    }
-    panel.style.display = 'block';
-    panel.style.visibility = 'visible';
-    panel.style.opacity = '1';
-    panel.classList.add('active');
-    const btn = document.querySelector('.tab-btn[data-target="panel-advanced"]');
-    if(btn){
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      btn.setAttribute('aria-selected','true');
-    }
-  }catch(e){
-    console.error('ensureAdvancedVisible error', e);
-  }
-}
-
-async function loadAdvancedForPlayer(player){
-  try{
-    ensureAdvancedVisible();
-    const panel = document.getElementById('panel-advanced');
-    if(!panel) return;
-    if(panel.dataset.loaded === '1') return;
-    if(!panel.querySelector('#advanced-content')){
-      try{
-        const fragResp = await fetch('/includes/advanced_stats.html', {cache:'no-store'});
-        if(fragResp.ok){
-          const fragHtml = await fragResp.text();
-          panel.innerHTML = fragHtml;
-        } else {
-          panel.innerHTML = '<div id="advanced-content" style="padding:8px">Advanced UI fragment missing.</div>';
-        }
-      }catch(e){
-        console.warn('Could not load advanced fragment', e);
-        panel.innerHTML = '<div id="advanced-content" class="no-data">Advanced UI fragment could not be loaded.</div>';
-      }
-    }
-    const loadingEl = panel.querySelector('#advanced-loading');
-    const contentEl = panel.querySelector('#advanced-content');
-    const logEl = panel.querySelector('#advanced-log');
-    if(loadingEl) loadingEl.style.display = 'block';
-    if(contentEl) contentEl.style.display = 'none';
-    if(logEl) logEl.style.display = 'block';
-    const candidates = buildAdvancedCandidatesFor(player);
-    const more = candidates.map(c => c.startsWith('/') ? c.slice(1) : '/' + c);
-    const tryList = candidates.concat(more);
-    const res = await tryCandidatesSequential(tryList);
-    if(!res || !res.data){
-      if(loadingEl) loadingEl.style.display = 'none';
-      if(contentEl){ contentEl.style.display = 'block'; contentEl.innerHTML = '<div class="no-data">Advanced statistics JSON not available for this player.</div>'; }
-      return;
-    }
-    if(loadingEl) loadingEl.style.display = 'none';
-    if(contentEl) contentEl.style.display = 'block';
-    renderAdvancedStatsFrom(res.data, res.url, panel);
-    panel.dataset.loaded = '1';
-  }catch(e){
-    console.error('loadAdvancedForPlayer error', e);
-    const panel = document.getElementById('panel-advanced');
-    if(panel){
-      panel.innerHTML = '<div class="no-data">Error rendering advanced statistics.</div>';
-      panel.dataset.loaded = '';
-    }
-  }
-}
-window.openAdvancedForPlayer = loadAdvancedForPlayer;
 
   /* ---------- Detailed stats renderer (robust) ---------- */
 
@@ -1250,7 +864,12 @@ window.openAdvancedForPlayer = loadAdvancedForPlayer;
     if(Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n));
     return (Math.round(n * 100) / 100).toFixed(2).replace(/\.?0+$/,'');
   }
-  function smartHoursString(h){
+  /* ---------- renderAdvancedStatsFrom (simple, robust) ----------
+   data: the JSON advanced file
+   sourceUrl: path used (for debug)
+   panelElement: the <div id="panel-advanced"> DOM node
+*/
+function smartHoursString(h){
     if(h === null || h === undefined) return '—';
     const n = Number(h);
     if(isNaN(n)) return '—';
@@ -1602,638 +1221,648 @@ try{
   }
 
   function renderScenarios(data, sourceUrl, targetDiv){
-  try{
-    const sc = (data && data.scenarios) ? data.scenarios : data || {};
-    // helper escape
-    const _escapeHtml = (typeof escapeHtml === 'function') ? escapeHtml : function (s) {
-      if (s === null || s === undefined) return '';
-      return String(s).replace(/[&<>"'`]/g, function (ch) {
-        return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;'})[ch];
+    try{
+      const sc = data.scenarios || data; // be forgiving
+      const non_gs = sc.non_gs || {};
+      const gs = sc.gs || {};
+      const retire = sc.retirements || {};
+      const samples = sc.samples || {};
+
+      let html = `<div style="font-weight:700;margin-bottom:8px">Scenarios (source: ${escapeHtml(sourceUrl)})</div>`;
+      html += `<div class="scenarios-grid">`;
+
+      // NON-GS card
+      html += `<div class="scenario-card"><h4>Non-Grand Slam</h4>`;
+      html += `<div class="muted-small">Metrics for non-GS matches</div>`;
+      html += `<table class="scenario-table"><thead><tr><th>Scenario</th><th>Count</th><th>Share</th></tr></thead><tbody>`;
+      const nonGsOrder = [
+        'wins_after_losing_first_set',
+        'losses_after_winning_first_set',
+        'wins_in_2_sets',
+        'wins_in_3_sets',
+        'losses_in_2_sets',
+        'losses_in_3_sets'
+      ];
+      nonGsOrder.forEach(k => {
+        const v = non_gs[k];
+        if(v === undefined) return;
+        const count = (typeof v === 'object' && v.count !== undefined) ? v.count : (typeof v === 'number' ? v : 0);
+        const pct = pctFromObj(v);
+        html += `<tr><td style="font-weight:700">${escapeHtml(humanizeScenarioKey(k))}</td><td>${escapeHtml(String(count))}</td><td>${escapeHtml(pct !== null ? smartPercentFromFraction(pct) : '—')}</td></tr>`;
       });
-    };
-
-    let html = `<div style="font-weight:700;margin-bottom:8px">Scenarios (source: ${_escapeHtml(sourceUrl || '')})</div>`;
-    html += `<div class="scenarios-grid">`;
-
-    // -> 1) Legacy Non-GS card (restored)
-    const non_gs = sc.non_gs || {};
-    html += `<div class="scenario-card"><h4>Non-Grand Slam</h4>`;
-    html += `<div class="muted-small">Metrics for non-GS matches</div>`;
-    html += `<table class="scenario-table" style="margin-top:8px"><thead><tr><th>Scenario</th><th>Count</th><th>Share</th></tr></thead><tbody>`;
-    const nonGsOrder = [
-      'wins_after_losing_first_set',
-      'losses_after_winning_first_set',
-      'wins_in_2_sets',
-      'wins_in_3_sets',
-      'losses_in_2_sets',
-      'losses_in_3_sets'
-    ];
-    nonGsOrder.forEach(k => {
-      const v = non_gs[k];
-      if(v === undefined) return;
-      const count = (typeof v === 'object' && v.count !== undefined) ? v.count : (typeof v === 'number' ? v : 0);
-      let share = '—';
-      if (v && typeof v === 'object' && v.denominator) {
-        const d = Number(v.denominator) || 0;
-        share = d>0 ? ((Number(count)/d*100).toFixed(1) + '%') : '—';
+      html += `</tbody></table>`;
+      // samples for non-GS (if present)
+      html += `<div style="margin-top:8px;"><strong>Samples</strong>`;
+      const sampleKeys = Object.keys(samples || {});
+      if(sampleKeys.length){
+        html += `<div class="sample-list">`;
+        ['wins_after_losing_first_set','losses_after_winning_first_set','wins_in_2_sets','wins_in_3_sets'].forEach(sk=>{
+          if(samples[sk] && samples[sk].length){
+            html += `<div><div style="font-weight:700;margin-top:6px">${escapeHtml(humanizeScenarioKey(sk))} (${samples[sk].length})</div>`;
+            samples[sk].slice(0,6).forEach(it=>{
+              html += `<div class="sample-item"><div><strong>${escapeHtml(it.score || it.match_id || '')}</strong> — ${escapeHtml(it.start_date || '')}</div></div>`;
+            });
+            html += `</div>`;
+          }
+        });
+        html += `</div>`;
       }
-      html += `<tr><td style="font-weight:700">${_escapeHtml(k)}</td><td>${_escapeHtml(String(count))}</td><td>${_escapeHtml(share)}</td></tr>`;
-    });
-    html += `</tbody></table>`;
-    html += `</div>`; // end non-gs card
+      html += `</div></div>`;
 
-    // -> 2) Profile by set card (new)
-    if (sc.profile_by_set && sc.profile_by_set.sets){
-      const profile = sc.profile_by_set;
-      const sets = profile.sets || {};
-      const patterns = profile.patterns || {};
-      const matches2 = profile.matches_2_sets || 0;
-      const matches3 = profile.matches_3_sets || 0;
-      html += `<div class="scenario-card"><h4>Profile by set</h4>`;
-      html += `<div class="muted-small">Per-set averages and set-pattern distribution (W = set won, P = set lost)</div>`;
-
-      // sets table
-      html += `<table class="scenario-table" style="margin-top:8px"><thead><tr><th>Set</th><th>Avg time</th><th>Avg breaks suffered</th><th>Avg breaks obtained</th><th>1st serve %</th><th>1st serve win %</th><th>Avg aces</th><th>Avg double faults</th><th>Matches with set</th></tr></thead><tbody>`;
-      [1,2,3].forEach(i=>{
-        const s = sets[String(i)] || {};
-        html += `<tr>
-          <td style="font-weight:700">Set ${i}</td>
-          <td>${_escapeHtml(s.avg_set_time_hms || '-')}${s.avg_set_time_sec ? ' ('+_escapeHtml(String(s.avg_set_time_sec))+'s)' : ''}</td>
-          <td>${s.avg_breaks_suffered != null ? _escapeHtml(String(s.avg_breaks_suffered)) : '-'}</td>
-          <td>${s.avg_breaks_obtained != null ? _escapeHtml(String(s.avg_breaks_obtained)) : '-'}</td>
-          <td>${s.first_serve_pct != null ? _escapeHtml(String(s.first_serve_pct)) + '%' : '-'}</td>
-          <td>${s.first_serve_win_pct != null ? _escapeHtml(String(s.first_serve_win_pct)) + '%' : '-'}</td>
-          <td>${s.avg_aces != null ? _escapeHtml(String(s.avg_aces)) : '-'}</td>
-          <td>${s.avg_doublefaults != null ? _escapeHtml(String(s.avg_doublefaults)) : '-'}</td>
-          <td>${s.matches_with_set != null ? _escapeHtml(String(s.matches_with_set)) : '-'}</td>
-        </tr>`;
+      // GS card
+      html += `<div class="scenario-card"><h4>Grand Slams (GS)</h4>`;
+      html += `<div class="muted-small">GS-specific scenarios & set-length breakdown</div>`;
+      html += `<table class="scenario-table"><thead><tr><th>Scenario</th><th>Count</th><th>Share</th></tr></thead><tbody>`;
+      const gsOrder = [
+        'wins_after_losing_first_set',
+        'wins_after_losing_first_two_sets',
+        'wins_after_down_2_1',
+        'losses_after_winning_first_two_sets',
+        'losses_after_winning_first_set',
+        'losses_after_leading_2_1',
+        'wins_in_3_sets',
+        'wins_in_4_sets',
+        'wins_in_5_sets',
+        'losses_in_3_sets',
+        'losses_in_4_sets',
+        'losses_in_5_sets'
+      ];
+      gsOrder.forEach(k => {
+        const v = gs[k];
+        if(v === undefined) return;
+        const count = (typeof v === 'object' && v.count !== undefined) ? v.count : (typeof v === 'number' ? v : 0);
+        const pct = pctFromObj(v);
+        html += `<tr><td style="font-weight:700">${escapeHtml(humanizeScenarioKey(k))}</td><td>${escapeHtml(String(count))}</td><td>${escapeHtml(pct !== null ? smartPercentFromFraction(pct) : '—')}</td></tr>`;
       });
       html += `</tbody></table>`;
+      // GS samples
+      html += `<div style="margin-top:8px;"><strong>Samples (GS)</strong>`;
+      if(sampleKeys.length){
+        html += `<div class="sample-list">`;
+        ['wins_after_losing_first_two_sets','wins_after_down_2_1','wins_in_5_sets'].forEach(sk=>{
+          if(samples[sk] && samples[sk].length){
+            html += `<div><div style="font-weight:700;margin-top:6px">${escapeHtml(humanizeScenarioKey(sk))} (${samples[sk].length})</div>`;
+            samples[sk].slice(0,6).forEach(it=>{
+              html += `<div class="sample-item"><div><strong>${escapeHtml(it.score || it.match_id || '')}</strong> — ${escapeHtml(it.start_date || '')}</div></div>`;
+            });
+            html += `</div>`;
+          }
+        });
+        html += `</div>`;
+      }
+      html += `</div></div>`;
 
-      // patterns table
-      html += `<h4 style="margin-top:12px">Set patterns</h4>`;
-      html += `<div class="muted-small" style="margin-bottom:6px">Patterns: 2-set patterns (VV, PP) denom = number of 2-set matches; 3-set patterns denom = number of 3-set matches.</div>`;
-      html += `<table class="scenario-table" style="margin-top:8px"><thead><tr><th>Pattern</th><th>Count</th><th>Denominator</th><th>Ratio</th></tr></thead><tbody>`;
-      const knownPatterns = ['VV','PP','PVP','PVV','VPV','VPP'];
-      knownPatterns.forEach(k=>{
-        const v = patterns[k] || {count:0, denominator: (k.length===2 ? matches2 : matches3)};
-        const denom = (v.denominator || (k.length===2 ? matches2 : matches3) || 0);
-        const cnt = (typeof v.count === 'number') ? v.count : (v.count ? Number(v.count) : 0);
-        const ratio = (denom && denom>0) ? ((cnt/denom)*100).toFixed(1)+'%' : '-';
-        html += `<tr><td style="font-weight:700">${_escapeHtml(k)}</td><td>${_escapeHtml(String(cnt))}</td><td>${_escapeHtml(String(denom))}</td><td>${_escapeHtml(ratio)}</td></tr>`;
-      });
-      html += `</tbody></table>`;
-      html += `</div>`; // end profile card
+      html += `</div>`; // end grid
+
+      // Retirements block (separate full row)
+      html += `<div style="margin-top:12px" class="scenario-card">`;
+      html += `<h4>Retirements / abandons</h4>`;
+      html += `<div class="muted-small">Matches not finished </div>`;
+      html += `<div style="margin-top:8px">Count: <strong>${escapeHtml(String(retire.count || 0))}</strong></div>`;
+      if(retire.by_set && Object.keys(retire.by_set).length){
+        html += `<div style="margin-top:8px"><table class="scenario-table"><thead><tr><th>Set at retirement</th><th>Count</th></tr></thead><tbody>`;
+        Object.keys(retire.by_set).sort((a,b)=>Number(a)-Number(b)).forEach(setk=>{
+          html += `<tr><td>${escapeHtml(setk)}</td><td>${escapeHtml(String(retire.by_set[setk]))}</td></tr>`;
+        });
+        html += `</tbody></table></div>`;
+      }
+      
+      html += `</div>`;
+
+      // raw JSON preview toggle
+      html += `<div style="margin-top:12px" class="scenario-card"><div style="display:flex;align-items:center;gap:12px"><div style="font-weight:700">Raw scenarios JSON</div><button id="scenarios-toggle-raw" class="tab-btn" style="padding:6px 8px">Toggle</button></div><div id="scenarios-raw" style="display:none;margin-top:8px;max-height:320px;overflow:auto;border:1px solid var(--border);padding:8px;background:#fff"><pre class="muted-small">${escapeHtml(JSON.stringify(data, null, 2).slice(0,20000))}${String(JSON.stringify(data).length>20000 ? '…' : '')}</pre></div></div>`;
+
+      targetDiv.innerHTML = html;
+
+      const toggle = document.getElementById('scenarios-toggle-raw');
+      if(toggle){
+        toggle.addEventListener('click', ()=>{
+          const pre = document.getElementById('scenarios-raw');
+          if(pre) pre.style.display = (pre.style.display === 'none' ? 'block' : 'none');
+        });
+      }
+    }catch(e){
+      console.error('renderScenarios error', e);
+      targetDiv.innerHTML = '<div class="no-data">Error rendering scenarios.</div>';
     }
-
-    // -> 3) Retirements block (global, full width)
-    const retire = sc.retirements || {};
-    html += `<div style="margin-top:12px" class="scenario-card">`;
-    html += `<h4>Retirements / abandons</h4>`;
-    html += `<div class="muted-small">Matches not finished</div>`;
-    html += `<div style="margin-top:8px">Count: <strong>${_escapeHtml(String(retire.count || 0))}</strong></div>`;
-    if(retire.by_set && Object.keys(retire.by_set).length){
-      html += `<div style="margin-top:8px"><table class="scenario-table"><thead><tr><th>Set at retirement</th><th>Count</th></tr></thead><tbody>`;
-      Object.keys(retire.by_set).sort((a,b)=>Number(a)-Number(b)).forEach(setk=>{
-        html += `<tr><td>${_escapeHtml(setk)}</td><td>${_escapeHtml(String(retire.by_set[setk]))}</td></tr>`;
-      });
-      html += `</tbody></table></div>`;
-    }
-    html += `</div>`; // end retirements
-
-    html += `</div>`; // end grid
-
-    targetDiv.innerHTML = html;
-
-  }catch(e){
-    console.error('renderScenarios error', e);
-    targetDiv.innerHTML = '<div class="no-data">Error rendering scenarios.</div>';
   }
-}
-
-
 
   /* ------------------ loadStatsSubpanel (re-used) ------------------ */
-async function loadStatsSubpanel(kind, playerData){
-  if (statsLoadState[kind]) return;
-  statsLoadState[kind] = true;
 
-  const pid = playerData.player_id;
-  const slugVal = playerData.slug || slug;
+  async function loadStatsSubpanel(kind, playerData){
+    if(kind !== 'court-vision' && statsLoadState[kind]) return;
+    if(kind !== 'court-vision') statsLoadState[kind] = true;
+    const pid = playerData.player_id;
+    const slugVal = playerData.slug || slug;
 
-  const targetDiv = document.getElementById('panel-' + kind);
-  if(!targetDiv) return;
+    const targetDiv = document.getElementById('panel-' + kind);
+if(!targetDiv) return;
 
-  // For detailed panel we must not wipe the whole panel (it contains the year/surface selects).
-  // Instead, put the loading indicator inside the internal container if present, otherwise fall back to replacing.
-  if(kind === 'detailed'){
-    // Ensure panel-detailed retains its header/filters while we load content below it.
-    // Put loading indicator into #detailed-stats-container (create if missing).
-    let inner = targetDiv.querySelector('#detailed-stats-container');
-    if(!inner){
-      inner = document.createElement('div');
-      inner.id = 'detailed-stats-container';
+if(kind === 'court-vision'){
+  await loadCourtVisionForPlayer(playerData);
+  return;
+}
+
+// For detailed panel we must not wipe the whole panel (it contains the year/surface selects).
+// Instead, put the loading indicator inside the internal container if present, otherwise fall back to replacing.
+if(kind === 'detailed'){
+  // Ensure panel-detailed retains its header/filters while we load content below it.
+  // Put loading indicator into #detailed-stats-container (create if missing).
+  let inner = targetDiv.querySelector('#detailed-stats-container');
+  if(!inner){
+    inner = document.createElement('div');
+    inner.id = 'detailed-stats-container';
+    // append after the header if present, otherwise put as only child
+    const headerNode = targetDiv.querySelector('[style*="margin-bottom:10px"], .select-year') || targetDiv.firstChild;
+    if(headerNode && headerNode.parentNode === targetDiv){
+      targetDiv.appendChild(inner);
+    } else {
       targetDiv.appendChild(inner);
     }
-    inner.innerHTML = '<div class="sub">Loading…</div>';
-  } else {
-    // For other kinds it's ok to replace entire panel
-    targetDiv.innerHTML = '<div class="sub">Loading…</div>';
   }
-
-  if(kind === 'detailed'){
-    const candidates = buildCandidatesFor(playerData, 'stats').concat([
-      `/players/${pid}.stats.json`,
-      `/players/${slugVal}.stats.json`
-    ]);
-    const res = await tryCandidatesSequential(candidates);
-    if(!res || !res.data){
-      targetDiv.innerHTML = '<div class="no-data">Detailed statistics are not available for this player.</div>';
-      console.warn('loadStatsSubpanel: no stats candidate succeeded', candidates);
-      return;
-    }
-    console.info('loadStatsSubpanel: selected stats candidate', res.url, 'top-level keys=', Object.keys(res.data || {}));
-    await renderDetailedStatsFrom(res.data, targetDiv);
-    return;
-  }
-
-  if(kind === 'scenarios'){
-    const candidates = buildCandidatesFor(playerData, 'scenarios').concat([
-      `/players/${pid}.scenarios.json`,
-      `/players/${slugVal}.scenarios.json`
-    ]);
-    const res = await tryCandidatesSequential(candidates);
-    if(!res || !res.data){
-      targetDiv.innerHTML = '<div class="no-data">Scenarios are not available for this player.</div>';
-      return;
-    }
-    renderScenarios(res.data, res.url, targetDiv);
-    return;
-  }
-
-  if(kind === 'advanced'){
-    await loadAdvancedForPlayer(playerData);
-    return;
-  }
-
-  if(kind === 'court-vision'){
-    await loadCourtVisionForPlayer(playerData);
-    return;
-  }
-
-  // ----------------- Time Series handler -----------------
-  if(kind === 'timeseries'){
-    // try to locate the stats JSON already present (playerData) or load fallback file
-    const tsUrlCandidates = [];
-
-    if(typeof playerData === 'object' && playerData !== null && (playerData.stats_by_year || playerData.available_years)) {
-      // use playerData directly
-    } else {
-      tsUrlCandidates.push(`/players/${pid}.stats.json`);
-      if(slugVal) tsUrlCandidates.push(`/players/${slugVal}.stats.json`);
-    }
-
-    async function loadStatsJson(){
-      if(typeof playerData === 'object' && playerData !== null && (playerData.stats_by_year || playerData.available_years)) return playerData;
-      for(const u of tsUrlCandidates){
-        try{
-          const r = await fetch(u);
-          if(!r.ok) continue;
-          const j = await r.json();
-          return j;
-        }catch(e){
-          continue;
-        }
-      }
-      return null;
-    }
-
-    const statsJson = await loadStatsJson();
-    if(!statsJson){
-      targetDiv.innerHTML = '<div class="no-data">No detailed stats JSON available for time series.</div>';
-      return;
-    }
-
-    targetDiv.innerHTML = `
-      <div style="font-weight:700;margin-bottom:8px">Time Series</div>
-      <div id="ts-controls" class="ts-controls"></div>
-      <div id="ts-chart" style="min-height:360px;width:100%"></div>
-    `;
-
-    const SURFACE_COLORS = {
-      'ALL':'#000000',
-      'grass':'#2ea24e',
-      'hard':'#2b63c6',
-      'clay':'#d2483b',
-      'carpet':'#8a3fae',
-      'other':'#999999'
-    };
-    const CANON_SURFACES = ['ALL','grass','hard','clay','carpet','other'];
-
-    const statsKeysFromJson = (() => {
-      const sby = statsJson.stats_by_year || {};
-      const yearsKeys = Object.keys(sby);
-      if(yearsKeys.length){
-        for(const y of yearsKeys){
-          const sy = sby[y];
-          if(sy && sy.stat_agg){
-            return Object.keys(sy.stat_agg);
-          }
-        }
-      }
-      if(statsJson.career && statsJson.career.stat_agg){
-        return Object.keys(statsJson.career.stat_agg);
-      }
-      return [];
-    })();
-
-    function getAvailableYears(){
-      if(Array.isArray(statsJson.available_years) && statsJson.available_years.length){
-        return statsJson.available_years.map(y => Number(y)).sort((a,b) => a-b);
-      }
-      if(statsJson.stats_by_year){
-        return Object.keys(statsJson.stats_by_year)
-          .map(y => Number(y))
-          .filter(n => !Number.isNaN(n))
-          .sort((a,b) => a-b);
-      }
-      if(Array.isArray(statsJson.matches) && statsJson.matches.length){
-        const s = new Set();
-        statsJson.matches.forEach(m => { if(m.event_year) s.add(Number(m.event_year)); });
-        return Array.from(s).sort((a,b) => a-b);
-      }
-      return [];
-    }
-
-    const years = getAvailableYears();
-    if(!years.length){
-      document.getElementById('ts-chart').innerHTML = '<div class="no-data">No available year in stats_by_year.</div>';
-      return;
-    }
-
-    function getSurfaces(){
-      const s = new Set();
-      if(Array.isArray(statsJson.available_surfaces) && statsJson.available_surfaces.length){
-        statsJson.available_surfaces.forEach(x => { if(x) s.add(String(x).toLowerCase()); });
-      }
-      if(statsJson.stats_by_year){
-        Object.values(statsJson.stats_by_year).forEach(sy => {
-          if(sy && sy.by_surface){
-            Object.keys(sy.by_surface).forEach(k => s.add(String(k).toLowerCase()));
-          }
-        });
-      }
-      const mapped = Array.from(s).map(v => {
-        const t = String(v).toLowerCase();
-        if(['all','total','overall'].includes(t)) return 'ALL';
-        if(t.includes('grass')) return 'grass';
-        if(t.includes('hard')) return 'hard';
-        if(t.includes('clay')) return 'clay';
-        if(t.includes('carpet')) return 'carpet';
-        return t;
-      });
-      CANON_SURFACES.forEach(c => { if(!mapped.includes(c)) mapped.unshift(c); });
-      return Array.from(new Set(mapped));
-    }
-
-    const surfaces = getSurfaces();
-
-    const ctrl = document.getElementById('ts-controls');
-    const statSelect = document.createElement('select');
-    statSelect.id = 'ts-stat-select';
-    statSelect.style.padding = '6px 8px';
-    statSelect.style.border = '1px solid #ddd';
-    statSelect.style.borderRadius = '6px';
-
-    if(typeof STATS_DEFINITION !== 'undefined' && Array.isArray(STATS_DEFINITION) && STATS_DEFINITION.length){
-      STATS_DEFINITION.forEach(s => {
-        const o = document.createElement('option');
-        o.value = s.key;
-        o.textContent = s.label || s.key;
-        statSelect.appendChild(o);
-      });
-    } else {
-      statsKeysFromJson.forEach(k => {
-        const o = document.createElement('option');
-        o.value = k;
-        o.textContent = k;
-        statSelect.appendChild(o);
-      });
-    }
-
-    const leftDiv = document.createElement('div');
-    leftDiv.className = 'ts-left';
-    leftDiv.appendChild(document.createTextNode('Statistic: '));
-    leftDiv.appendChild(statSelect);
-
-    const note = document.createElement('span');
-    note.className = 'ts-legend-note';
-    note.textContent = ' (use checkboxes to show/hide surfaces)';
-    leftDiv.appendChild(note);
-    ctrl.appendChild(leftDiv);
-
-    const surfaceDiv = document.createElement('div');
-    surfaceDiv.className = 'ts-surfaces';
-
-    surfaces.forEach(surf => {
-      const s = String(surf);
-      const lbl = document.createElement('label');
-      lbl.className = 'ts-surface';
-
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.value = s;
-      cb.checked = (s === 'ALL');
-      cb.style.marginRight = '6px';
-
-      const sw = document.createElement('span');
-      sw.className = 'swatch';
-      sw.style.background = SURFACE_COLORS[s] || SURFACE_COLORS['other'];
-
-      const txt = document.createElement('span');
-      txt.textContent = ' ' + s;
-
-      lbl.appendChild(cb);
-      lbl.appendChild(sw);
-      lbl.appendChild(txt);
-      surfaceDiv.appendChild(lbl);
-    });
-
-    ctrl.appendChild(surfaceDiv);
-
-    function isPercentStat(key){
-      if(typeof STATS_DEFINITION !== 'undefined' && Array.isArray(STATS_DEFINITION)){
-        for(const s of STATS_DEFINITION){
-          if(s.key === key && (s.type === 'pct' || s.type === 'rate')) return true;
-        }
-      }
-      if(key && (
-        key.toLowerCase().includes('percent') ||
-        key.toLowerCase().includes('rate') ||
-        key.toLowerCase().includes('pct') ||
-        key.toLowerCase().includes('win_rate')
-      )) return true;
-      return false;
-    }
-
-    function normalizePercentValue(n){
-      if(n === null || n === undefined) return null;
-      const num = Number(n);
-      if(!Number.isFinite(num)) return null;
-      if(Math.abs(num) <= 1.0) return num * 100.0;
-      return num;
-    }
-
-    function getValueForYear(statKey, surface, year){
-      const ystr = String(year);
-      const sy = statsJson.stats_by_year && statsJson.stats_by_year[ystr] ? statsJson.stats_by_year[ystr] : null;
-      let raw = null;
-
-      if(sy){
-        if(surface && surface !== 'ALL' && sy.by_surface && (sy.by_surface[surface] || sy.by_surface[surface.toLowerCase()])){
-          const candidate = sy.by_surface[surface] || sy.by_surface[surface.toLowerCase()];
-          if(candidate && candidate.stat_agg && candidate.stat_agg[statKey]) raw = candidate.stat_agg[statKey].mean;
-        }
-        if(raw === null && sy.stat_agg && sy.stat_agg[statKey]) raw = sy.stat_agg[statKey].mean;
-      }
-
-      if(raw === undefined) raw = null;
-      return raw === null ? null : Number(raw);
-    }
-
-    function buildAnnualSeries(statKey, surface){
-      const pts = [];
-      for(const y of years){
-        let raw = getValueForYear(statKey, surface, y);
-        if(raw === null || raw === undefined || isNaN(Number(raw))){
-          pts.push({ year: y, value: null });
-        } else {
-          if(isPercentStat(statKey)){
-            const v = normalizePercentValue(raw);
-            pts.push({ year: y, value: (v === null ? null : Number(v)) });
-          } else {
-            pts.push({ year: y, value: Number(raw) });
-          }
-        }
-      }
-      return pts;
-    }
-
-    function naturalCubicSpline(xs, ys){
-      const n = xs.length;
-      if(n === 1){
-        return {
-          eval: function(xq){
-            return Array.isArray(xq) ? xq.map(() => ys[0]) : ys[0];
-          }
-        };
-      }
-
-      const h = new Array(n - 1);
-      for(let i = 0; i < n - 1; i++) h[i] = xs[i + 1] - xs[i];
-
-      const alpha = new Array(n).fill(0);
-      for(let i = 1; i < n - 1; i++){
-        alpha[i] = (3 / h[i]) * (ys[i + 1] - ys[i]) - (3 / h[i - 1]) * (ys[i] - ys[i - 1]);
-      }
-
-      const l = new Array(n).fill(0);
-      const mu = new Array(n).fill(0);
-      const z = new Array(n).fill(0);
-
-      l[0] = 1;
-      mu[0] = 0;
-      z[0] = 0;
-
-      for(let i = 1; i < n - 1; i++){
-        l[i] = 2 * (xs[i + 1] - xs[i - 1]) - h[i - 1] * mu[i - 1];
-        mu[i] = h[i] / l[i];
-        z[i] = (alpha[i] - h[i - 1] * z[i - 1]) / l[i];
-      }
-
-      l[n - 1] = 1;
-      z[n - 1] = 0;
-
-      const c = new Array(n).fill(0);
-      const b = new Array(n - 1).fill(0);
-      const d = new Array(n - 1).fill(0);
-      for(let j = n - 2; j >= 0; j--){
-        c[j] = z[j] - mu[j] * c[j + 1];
-        b[j] = (ys[j + 1] - ys[j]) / h[j] - h[j] * (c[j + 1] + 2 * c[j]) / 3;
-        d[j] = (c[j + 1] - c[j]) / (3 * h[j]);
-      }
-      const a = ys.slice(0, n - 1);
-
-      function evalOne(xq){
-        if(xq <= xs[0]) return ys[0];
-        if(xq >= xs[n - 1]) return ys[n - 1];
-
-        let i = 0;
-        let lo = 0, hi = n - 2;
-        while(lo <= hi){
-          const mid = Math.floor((lo + hi) / 2);
-          if(xs[mid] <= xq && xq <= xs[mid + 1]) { i = mid; break; }
-          if(xq < xs[mid]) hi = mid - 1;
-          else lo = mid + 1;
-        }
-
-        const dx = xq - xs[i];
-        return a[i] + b[i] * dx + c[i] * dx * dx + d[i] * dx * dx * dx;
-      }
-
-      return {
-        eval: function(xq){
-          if(Array.isArray(xq)) return xq.map(xx => evalOne(xx));
-          return evalOne(xq);
-        }
-      };
-    }
-
-    function buildSmoothedFromPoints(points){
-      const known = points.filter(p => p.value !== null && p.value !== undefined && !Number.isNaN(Number(p.value)));
-      if(known.length === 0) return [];
-      if(known.length === 1) return [{ x: known[0].year, y: known[0].value }];
-
-      const xs = known.map(p => Number(p.year));
-      const ys = known.map(p => Number(p.value));
-
-      for(let i = 1; i < xs.length; i++){
-        if(xs[i] <= xs[i - 1]) xs[i] = xs[i - 1] + 1e-6;
-      }
-
-      const spline = naturalCubicSpline(xs, ys);
-      const xMin = xs[0], xMax = xs[xs.length - 1];
-      const samples = 100;
-      const out = [];
-
-      for(let k = 0; k < samples; k++){
-        const xv = xMin + (xMax - xMin) * (k / (samples - 1));
-        const yv = spline.eval(xv);
-        out.push({
-          x: Number((Math.round(xv * 10000) / 10000).toFixed(4)),
-          y: Number((Math.round(yv * 10000) / 10000).toFixed(4))
-        });
-      }
-      return out;
-    }
-
-    function renderTS(){
-      const statKey = statSelect.value;
-
-      const checked = Array.from(surfaceDiv.querySelectorAll('input[type="checkbox"]'))
-        .filter(c => c.checked)
-        .map(c => c.value);
-
-      if(checked.length === 0){
-        const cb = surfaceDiv.querySelector('input[value="ALL"]');
-        if(cb) cb.checked = true;
-        checked.push('ALL');
-      }
-
-      const traces = [];
-      for(const surf of checked){
-        const pts = buildAnnualSeries(statKey, surf);
-        const xPts = pts.map(p => p.year);
-        const yPts = pts.map(p => (p.value === null ? NaN : Number(p.value)));
-        const color = SURFACE_COLORS[surf] || SURFACE_COLORS['other'];
-
-        traces.push({
-          x: xPts,
-          y: yPts,
-          mode: 'markers',
-          marker: { color: color, size: 6 },
-          name: `${statKey} — ${surf} (points)`,
-          hovertemplate: '%{x}<br>%{y:.2f}<extra></extra>',
-          type: 'scatter'
-        });
-
-        const sm = buildSmoothedFromPoints(pts);
-        if(sm.length){
-          traces.push({
-            x: sm.map(s => s.x),
-            y: sm.map(s => s.y),
-            mode: 'lines',
-            line: { color: color, width: 2 },
-            name: `${statKey} — ${surf}`,
-            hoverinfo: 'x+y',
-            type: 'scatter'
-          });
-        }
-      }
-
-      const isPct = isPercentStat(statKey);
-      const yaxis = isPct ? { range: [0, 100], ticksuffix: '%' } : { automargin: true };
-
-      const layout = {
-        margin: { t: 20, r: 10, l: 60, b: 40 },
-        xaxis: { title: 'Year', tickmode: 'linear', dtick: 1 },
-        yaxis: Object.assign({ title: (isPct ? 'Percent (%)' : statKey) }, yaxis),
-        legend: { orientation: 'h', x: 0, y: 1.12, bgcolor: 'rgba(0,0,0,0)' },
-        hovermode: 'closest'
-      };
-
-      const cfg = { responsive: true, displayModeBar: false };
-
-      try{
-        Plotly.react('ts-chart', traces, layout, cfg);
-        setTimeout(() => {
-          try{
-            Plotly.Plots.resize(document.getElementById('ts-chart'));
-          }catch(e){}
-        }, 200);
-      }catch(e){
-        console.error('TS Plotly error', e);
-        document.getElementById('ts-chart').innerHTML = '<div class="no-data">Chart error (see console)</div>';
-      }
-    }
-
-    statSelect.addEventListener('change', renderTS);
-    surfaceDiv.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.addEventListener('change', renderTS));
-
-    if(!statSelect.value && statSelect.options.length) statSelect.value = statSelect.options[0].value;
-    renderTS();
-    return;
-  }
-
-  if(kind === 'maps'){
-    const candidates = buildCandidatesFor(playerData, 'maps').concat([
-      `/players/${pid}.maps.json`,
-      `/players/${slugVal}.maps.json`,
-      `/players/${slugVal}.maps.json`
-    ]);
-    const res = await tryCandidatesSequential(candidates);
-
-    if(!res || !res.data){
-      targetDiv.innerHTML = '<div class="sub">Maps data not found locally — attempting client-side discovery...</div>';
-      if(window.MapsClient && typeof window.MapsClient.initMaps === 'function'){
-        window.MapsClient.initMaps({ slug: slugVal });
-      } else {
-        targetDiv.innerHTML = '<div class="no-data">Maps renderer not available.</div>';
-      }
-      return;
-    }
-
-    const mapData = res.data;
-    const opp = mapData.map_opponent_stats || mapData.opponent_countries || {};
-    const host = mapData.map_host_stats || mapData.host_countries || {};
-
-    if(window.MapsClient && typeof window.MapsClient.renderOpponentMap === 'function' && typeof window.MapsClient.renderHostMap === 'function'){
-      if(Object.keys(opp).length === 0 && Object.keys(host).length === 0){
-        targetDiv.innerHTML = '<div class="no-data">Maps JSON is present but contains no data.</div>';
+  inner.innerHTML = '<div class="sub">Loading…</div>';
+} else {
+  // For other kinds it's ok to replace entire panel
+  targetDiv.innerHTML = '<div class="sub">Loading…</div>';
+}
+
+
+    if(kind === 'detailed'){
+      const candidates = buildCandidatesFor(playerData, 'stats').concat([`/players/${pid}.stats.json`, `/players/${slugVal}.stats.json`]);
+      const res = await tryCandidatesSequential(candidates);
+      if(!res || !res.data){
+        targetDiv.innerHTML = '<div class="no-data">Detailed statistics are not available for this player.</div>';
+        console.warn('loadStatsSubpanel: no stats candidate succeeded', candidates);
         return;
       }
-      window.MapsClient.renderOpponentMap(opp);
-      window.MapsClient.renderHostMap(host);
-      targetDiv.innerHTML = '';
-    } else {
-      targetDiv.innerHTML = `<div class="sub">Maps JSON loaded from ${escapeHtml(res.url)} — rendering...</div>`;
-      if(window.MapsClient && typeof window.MapsClient.initMaps === 'function'){
-        window.MapsClient.initMaps({ slug: slugVal });
-      }
+      console.info('loadStatsSubpanel: selected stats candidate', res.url, 'top-level keys=', Object.keys(res.data || {}));
+      // pass the already-fetched data to renderDetailedStatsFrom to avoid refetch & CORS/404 surprises
+      await renderDetailedStatsFrom(res.data, targetDiv);
+      return;
     }
+
+
+
+    if(kind === 'scenarios'){
+      const candidates = buildCandidatesFor(playerData, 'scenarios').concat([`/players/${pid}.scenarios.json`, `/players/${slugVal}.scenarios.json`]);
+      const res = await tryCandidatesSequential(candidates);
+      if(!res || !res.data){ targetDiv.innerHTML = '<div class="no-data">Scenarios are not available for this player.</div>'; return; }
+      // render nicely using new renderer
+      renderScenarios(res.data, res.url, targetDiv);
+      return;
+    }
+
+    // ----------------- Time Series handler (remplacer la branche timeseries) -----------------
+if(kind === 'timeseries'){
+  // try to locate the stats JSON already present (playerData) or load fallback file
+  // playerData variable already exists in player.html context; otherwise fallback to /players/<pid>.stats.json
+  const tsUrlCandidates = [];
+  // if playerData is the same as the JSON loaded, use it:
+  if(typeof playerData === 'object' && playerData !== null && (playerData.stats_by_year || playerData.available_years)) {
+    // we will use playerData directly
+  } else {
+    tsUrlCandidates.push(`/players/${pid}.stats.json`);
+    if(slugVal) tsUrlCandidates.push(`/players/${slugVal}.stats.json`);
+  }
+
+  // ---------- advanced panel handler ----------
+if(kind === 'advanced'){
+  const targetDiv = document.getElementById('panel-advanced');
+  if(!targetDiv) return;
+
+  // 1) load external HTML fragment (keeps markup separate)
+  try{
+    const fragUrl = '/includes/advanced_stats.html';
+    const resp = await fetch(fragUrl, {cache:'no-store'});
+    if(resp && resp.ok){
+      const html = await resp.text();
+      // inject fragment (this will create #advanced-content inside it)
+      targetDiv.innerHTML = html;
+    } else {
+      // fallback markup if fragment missing
+      targetDiv.innerHTML = '<div id="advanced-content" style="padding:8px">Advanced UI fragment missing.</div>';
+    }
+  }catch(e){
+    console.warn('Could not load advanced fragment', e);
+    targetDiv.innerHTML = '<div id="advanced-content" class="no-data">Advanced UI fragment could not be loaded.</div>';
+  }
+
+  // 2) show loading
+  const innerContent = targetDiv.querySelector('#advanced-content') || targetDiv;
+  const loader = targetDiv.querySelector('#advanced-loading');
+  if(loader) loader.style.display = 'block';
+  innerContent.style.display = 'none';
+
+  // 3) find JSON candidates and try loading
+  const candidates = buildAdvancedCandidatesFor(playerData);
+  // also try non-root variants in case local testing needs them
+  const more = candidates.map(c => c.startsWith('/') ? c.slice(1) : '/' + c);
+  const tryList = candidates.concat(more);
+
+  const res = await tryCandidatesSequential(tryList);
+  if(!res || !res.data){
+    if(loader) loader.style.display = 'none';
+    if(innerContent) innerContent.style.display = 'block';
+    innerContent.innerHTML = '<div class="no-data">Advanced statistics JSON not available for this player.</div>';
+    console.warn('loadStatsSubpanel(advanced): no candidate succeeded', tryList);
     return;
   }
+
+  // 4) render into the injected fragment
+  try{
+    if(loader) loader.style.display = 'none';
+    if(innerContent) innerContent.style.display = 'block';
+    // call renderer we add below
+    if(typeof renderAdvancedStatsFrom === 'function'){
+      renderAdvancedStatsFrom(res.data, res.url, targetDiv);
+    } else {
+      // fallback: raw JSON
+      innerContent.innerHTML = `<pre>${escapeHtml(JSON.stringify(res.data, null, 2).slice(0,20000))}</pre>`;
+    }
+  }catch(e){
+    console.error('Error rendering advanced stats', e);
+    innerContent.innerHTML = '<div class="no-data">Error rendering advanced statistics.</div>';
+  }
+  return;
 }
+
+  // Helper: load JSON if needed
+  async function loadStatsJson(){
+    if(typeof playerData === 'object' && playerData !== null && (playerData.stats_by_year || playerData.available_years)) return playerData;
+    for(const u of tsUrlCandidates){
+      try{
+        const r = await fetch(u);
+        if(!r.ok) continue;
+        const j = await r.json();
+        return j;
+      }catch(e){ continue; }
+    }
+    return null;
+  }
+
+  const statsJson = await loadStatsJson();
+  if(!statsJson){
+    targetDiv.innerHTML = '<div class="no-data">No detailed stats JSON available for time series.</div>';
+    return;
+  }
+
+  // UI container
+  targetDiv.innerHTML = `
+    <div style="font-weight:700;margin-bottom:8px">Time Series</div>
+    <div id="ts-controls" class="ts-controls"></div>
+    <div id="ts-chart" style="min-height:360px;width:100%"></div>
+  `;
+
+  // colors
+  const SURFACE_COLORS = { 'ALL':'#000000', 'grass':'#2ea24e', 'hard':'#2b63c6', 'clay':'#d2483b', 'carpet':'#8a3fae', 'other':'#999999' };
+  const CANON_SURFACES = ['ALL','grass','hard','clay','carpet','other'];
+  // Stat definition fallback if not present: use keys from stats_by_year.stat_agg
+  const statsKeysFromJson = (() => {
+    const sby = statsJson.stats_by_year || {};
+    const yearsKeys = Object.keys(sby);
+    if(yearsKeys.length){
+      // pick first year with stat_agg
+      for(const y of yearsKeys){
+        const sy = sby[y];
+        if(sy && sy.stat_agg){
+          return Object.keys(sy.stat_agg);
+        }
+      }
+    }
+    // fallback global career.stat_agg
+    if(statsJson.career && statsJson.career.stat_agg){
+      return Object.keys(statsJson.career.stat_agg);
+    }
+    return [];
+  })();
+
+  // helper to get available years (sorted)
+  function getAvailableYears(){
+    if(Array.isArray(statsJson.available_years) && statsJson.available_years.length){
+      return statsJson.available_years.map(y=>Number(y)).sort((a,b)=>a-b);
+    }
+    if(statsJson.stats_by_year){
+      return Object.keys(statsJson.stats_by_year).map(y=>Number(y)).filter(n=>!Number.isNaN(n)).sort((a,b)=>a-b);
+    }
+    // fallback from matches if present: scan matches[].event_year
+    if(Array.isArray(statsJson.matches) && statsJson.matches.length){
+      const s = new Set();
+      statsJson.matches.forEach(m => { if(m.event_year) s.add(Number(m.event_year)); });
+      return Array.from(s).sort((a,b)=>a-b);
+    }
+    return [];
+  }
+
+  const years = getAvailableYears();
+  if(!years.length){
+    document.getElementById('ts-chart').innerHTML = '<div class="no-data">Aucune année disponible dans stats_by_year.</div>';
+    return;
+  }
+
+  // detect surfaces available in json
+  function getSurfaces(){
+    const s = new Set();
+    if(Array.isArray(statsJson.available_surfaces) && statsJson.available_surfaces.length){
+      statsJson.available_surfaces.forEach(x => { if(x) s.add(String(x).toLowerCase()); });
+    }
+    // also inspect stats_by_year.by_surface
+    if(statsJson.stats_by_year){
+      Object.values(statsJson.stats_by_year).forEach(sy => {
+        if(sy && sy.by_surface){
+          Object.keys(sy.by_surface).forEach(k => s.add(String(k).toLowerCase()));
+        }
+      });
+    }
+    // map to canonical names if possible
+    const mapped = Array.from(s).map(v => {
+      const t = String(v).toLowerCase();
+      if(['all','total','overall'].includes(t)) return 'ALL';
+      if(t.includes('grass')) return 'grass';
+      if(t.includes('hard')) return 'hard';
+      if(t.includes('clay')) return 'clay';
+      if(t.includes('carpet')) return 'carpet';
+      return t;
+    });
+    // ensure canonical present
+    CANON_SURFACES.forEach(c => { if(!mapped.includes(c)) mapped.unshift(c); });
+    // unique
+    return Array.from(new Set(mapped));
+  }
+
+  const surfaces = getSurfaces();
+
+  // create controls: stat select + surface checkboxes
+  const ctrl = document.getElementById('ts-controls');
+  const statSelect = document.createElement('select'); statSelect.id = 'ts-stat-select'; statSelect.style.padding='6px 8px'; statSelect.style.border='1px solid #ddd'; statSelect.style.borderRadius='6px';
+  // fill options: prefer global STATS_DEFINITION if present else use keys
+  if(typeof STATS_DEFINITION !== 'undefined' && Array.isArray(STATS_DEFINITION) && STATS_DEFINITION.length){
+    STATS_DEFINITION.forEach(s => { const o=document.createElement('option'); o.value=s.key; o.textContent=s.label||s.key; statSelect.appendChild(o); });
+  } else {
+    statsKeysFromJson.forEach(k => { const o = document.createElement('option'); o.value=k; o.textContent=k; statSelect.appendChild(o); });
+  }
+  const leftDiv = document.createElement('div'); leftDiv.className='ts-left';
+  leftDiv.appendChild(document.createTextNode('Statistic: ')); leftDiv.appendChild(statSelect);
+  const note = document.createElement('span'); note.className='ts-legend-note'; note.textContent=' (use checkboxes to show/hide surfaces)';
+  leftDiv.appendChild(note);
+  ctrl.appendChild(leftDiv);
+
+  const surfaceDiv = document.createElement('div'); surfaceDiv.className = 'ts-surfaces';
+  surfaces.forEach(surf => {
+    const s = String(surf);
+    const lbl = document.createElement('label'); lbl.className='ts-surface';
+    const cb = document.createElement('input'); cb.type='checkbox'; cb.value=s; // default: ALL checked
+    cb.checked = (s==='ALL');
+    cb.style.marginRight='6px';
+    const sw = document.createElement('span'); sw.className='swatch'; sw.style.background = SURFACE_COLORS[s] || SURFACE_COLORS['other'];
+    const txt = document.createElement('span'); txt.textContent = ' ' + s;
+    lbl.appendChild(cb); lbl.appendChild(sw); lbl.appendChild(txt);
+    surfaceDiv.appendChild(lbl);
+  });
+  ctrl.appendChild(surfaceDiv);
+
+  // utils: safe number and normalize percent
+  function maybeNumber(v){
+    if(v === null || v === undefined) return null;
+    const n = Number(v);
+    if(Number.isFinite(n)) return n;
+    return null;
+  }
+  // decide whether stat is percentage: check STATS_DEFINITION or key heuristics
+  function isPercentStat(key){
+    if(typeof STATS_DEFINITION !== 'undefined' && Array.isArray(STATS_DEFINITION)){
+      for(const s of STATS_DEFINITION){ if(s.key === key && (s.type==='pct' || s.type==='rate')) return true; }
+    }
+    // heuristics
+    if(key && (key.toLowerCase().includes('percent') || key.toLowerCase().includes('rate') || key.toLowerCase().includes('pct') || key.toLowerCase().includes('win_rate'))) return true;
+    return false;
+  }
+  function normalizePercentValue(n, key){
+    if(n === null || n === undefined) return null;
+    const num = Number(n);
+    if(!Number.isFinite(num)) return null;
+    // if value looks like 0..1 -> convert to 0..100
+    if(Math.abs(num) <= 1.0) return num * 100.0;
+    return num;
+  }
+
+  // extract per-year value for statKey & surface (surface can be 'ALL' or canonical)
+  function getValueForYear(statKey, surface, year){
+    const ystr = String(year);
+    const sy = statsJson.stats_by_year && statsJson.stats_by_year[ystr] ? statsJson.stats_by_year[ystr] : null;
+    let raw = null;
+    if(sy){
+      if(surface && surface !== 'ALL' && sy.by_surface && (sy.by_surface[surface] || sy.by_surface[surface.toLowerCase()])){
+        const candidate = sy.by_surface[surface] || sy.by_surface[surface.toLowerCase()];
+        if(candidate && candidate.stat_agg && candidate.stat_agg[statKey]) raw = candidate.stat_agg[statKey].mean;
+      }
+      if(raw === null && sy.stat_agg && sy.stat_agg[statKey]) raw = sy.stat_agg[statKey].mean;
+    }
+    // fallback: career_by_surface if single value per career (not per-year) - don't use for per-year series
+    if(raw === undefined) raw = null;
+    return raw === null ? null : Number(raw);
+  }
+
+  // Build annual points series for given statKey + surface
+  function buildAnnualSeries(statKey, surface){
+    const pts = [];
+    for(const y of years){
+      let raw = getValueForYear(statKey, surface, y);
+      if(raw === null || raw === undefined || isNaN(Number(raw))){
+        pts.push({ year: y, value: null });
+      } else {
+        if(isPercentStat(statKey)){
+          const v = normalizePercentValue(raw, statKey);
+          pts.push({ year: y, value: (v===null ? null : Number(v)) });
+        } else {
+          pts.push({ year: y, value: Number(raw) });
+        }
+      }
+    }
+    return pts;
+  }
+
+  // ---------- Natural cubic spline interpolation (passes through points) ----------
+  // Implementation adapted to JS numeric arrays (natural boundary conditions)
+  function naturalCubicSpline(xs, ys){
+    // xs: strictly increasing, ys: numeric, length n >= 1
+    const n = xs.length;
+    if(n === 1){
+      return {
+        eval: function(xq){ return Array.isArray(xq) ? xq.map(()=>ys[0]) : ys[0]; }
+      };
+    }
+    const h = new Array(n-1);
+    for(let i=0;i<n-1;i++) h[i] = xs[i+1]-xs[i];
+    // solve tridiagonal for c
+    const alpha = new Array(n).fill(0);
+    for(let i=1;i<n-1;i++){
+      alpha[i] = (3/h[i])*(ys[i+1]-ys[i]) - (3/h[i-1])*(ys[i]-ys[i-1]);
+    }
+    const l = new Array(n).fill(0), mu = new Array(n).fill(0), z = new Array(n).fill(0);
+    l[0] = 1; mu[0]=0; z[0]=0;
+    for(let i=1;i<n-1;i++){
+      l[i] = 2*(xs[i+1]-xs[i-1]) - h[i-1]*mu[i-1];
+      mu[i] = h[i]/l[i];
+      z[i] = (alpha[i] - h[i-1]*z[i-1]) / l[i];
+    }
+    l[n-1] = 1; z[n-1]=0;
+    const c = new Array(n).fill(0), b = new Array(n-1).fill(0), d = new Array(n-1).fill(0);
+    for(let j=n-2;j>=0;j--){
+      c[j] = z[j] - mu[j]*c[j+1];
+      b[j] = (ys[j+1]-ys[j])/h[j] - h[j]*(c[j+1]+2*c[j])/3;
+      d[j] = (c[j+1]-c[j]) / (3*h[j]);
+    }
+    const a = ys.slice(0, n-1);
+    // eval function
+    function evalOne(xq){
+      // clamp to [xs[0], xs[n-1]]
+      if(xq <= xs[0]) return ys[0];
+      if(xq >= xs[n-1]) return ys[n-1];
+      // find interval i where xs[i] <= xq <= xs[i+1]
+      let i = 0; // binary search
+      let lo = 0, hi = n-2;
+      while(lo<=hi){
+        const mid = Math.floor((lo+hi)/2);
+        if(xs[mid] <= xq && xq <= xs[mid+1]) { i = mid; break; }
+        if(xq < xs[mid]) hi = mid-1; else lo = mid+1;
+      }
+      const dx = xq - xs[i];
+      return a[i] + b[i]*dx + c[i]*dx*dx + d[i]*dx*dx*dx;
+    }
+    return {
+      eval: function(xq){
+        if(Array.isArray(xq)) return xq.map(xx => evalOne(xx));
+        return evalOne(xq);
+      }
+    };
+  }
+
+  // Build smoothed sampling (100 points between min and max year), ensuring the spline passes through original points
+  function buildSmoothedFromPoints(points){
+    const known = points.filter(p => p.value !== null && p.value !== undefined && !Number.isNaN(Number(p.value)));
+    if(known.length === 0) return [];
+    if(known.length === 1) return [{x: known[0].year, y: known[0].value}];
+    const xs = known.map(p => Number(p.year));
+    const ys = known.map(p => Number(p.value));
+    // ensure xs strictly increasing
+    for(let i=1;i<xs.length;i++){ if(xs[i] <= xs[i-1]) xs[i] = xs[i-1] + 1e-6; }
+    const spline = naturalCubicSpline(xs, ys);
+    const xMin = xs[0], xMax = xs[xs.length-1];
+    const samples = 100;
+    const out = [];
+    for(let k=0;k<samples;k++){
+      const xv = xMin + (xMax - xMin) * (k/(samples-1));
+      const yv = spline.eval(xv);
+      out.push({ x: Number((Math.round(xv*10000)/10000).toFixed(4)), y: Number((Math.round(yv*10000)/10000).toFixed(4)) });
+    }
+    return out;
+  }
+
+  // Render function
+  function renderTS(){
+    const statKey = statSelect.value;
+    // which surfaces checked
+    const checked = Array.from(surfaceDiv.querySelectorAll('input[type="checkbox"]')).filter(c=>c.checked).map(c=>c.value);
+    if(checked.length === 0){
+      // default to ALL
+      const cb = surfaceDiv.querySelector('input[value="ALL"]'); if(cb) cb.checked = true; checked.push('ALL');
+    }
+    const traces = [];
+    for(const surf of checked){
+      const pts = buildAnnualSeries(statKey, surf);
+      const xPts = pts.map(p => p.year);
+      const yPts = pts.map(p => (p.value===null ? NaN : Number(p.value)));
+      const color = SURFACE_COLORS[surf] || SURFACE_COLORS['other'];
+      // markers trace
+      traces.push({
+        x: xPts,
+        y: yPts,
+        mode: 'markers',
+        marker: { color: color, size:6 },
+        name: `${statKey} — ${surf} (points)`,
+        hovertemplate: '%{x}<br>%{y:.2f}<extra></extra>',
+        type: 'scatter'
+      });
+      // smoothed (line)
+      const sm = buildSmoothedFromPoints(pts);
+      if(sm.length){
+        traces.push({
+          x: sm.map(s=>s.x),
+          y: sm.map(s=>s.y),
+          mode: 'lines',
+          line: { color: color, width: 2 },
+          name: `${statKey} — ${surf}`,
+          hoverinfo: 'x+y',
+          type: 'scatter'
+        });
+      }
+    }
+
+    const isPct = isPercentStat(statKey);
+    const yaxis = isPct ? { range: [0,100], ticksuffix: '%' } : { automargin: true };
+    const layout = {
+      margin: { t:20, r:10, l:60, b:40 },
+      xaxis: { title: 'Year', tickmode: 'linear', dtick: 1 },
+      yaxis: Object.assign({ title: (isPct ? 'Percent (%)' : statKey) }, yaxis),
+      legend: { orientation: 'h', x:0, y:1.12, bgcolor: 'rgba(0,0,0,0)' },
+      hovermode: 'closest'
+    };
+    const cfg = { responsive: true, displayModeBar: false };
+    try{
+      Plotly.react('ts-chart', traces, layout, cfg);
+      setTimeout(()=>{ try{ Plotly.Plots.resize(document.getElementById('ts-chart')); }catch(e){} }, 200);
+    }catch(e){
+      console.error('TS Plotly error', e);
+      document.getElementById('ts-chart').innerHTML = '<div class="no-data">Chart error (see console)</div>';
+    }
+  }
+
+  // wire events
+  statSelect.addEventListener('change', renderTS);
+  surfaceDiv.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.addEventListener('change', renderTS));
+  // initial choose stat: prefer first option
+  if(!statSelect.value && statSelect.options.length) statSelect.value = statSelect.options[0].value;
+  renderTS();
+  return;
+}
+
+
+    if(kind === 'maps'){
+      const candidates = buildCandidatesFor(playerData, 'maps').concat([`/players/${pid}.maps.json`, `/players/${slugVal}.maps.json`, `/players/${slugVal}.maps.json`]);
+      const res = await tryCandidatesSequential(candidates);
+      if(!res || !res.data){
+        targetDiv.innerHTML = '<div class="sub">Maps data not found locally — attempting client-side discovery...</div>';
+        if(window.MapsClient && typeof window.MapsClient.initMaps === 'function'){
+          window.MapsClient.initMaps({ slug: slugVal });
+        } else {
+          targetDiv.innerHTML = '<div class="no-data">Maps renderer not available.</div>';
+        }
+        return;
+      }
+      const mapData = res.data;
+      const opp = mapData.map_opponent_stats || mapData.opponent_countries || {};
+      const host = mapData.map_host_stats || mapData.host_countries || {};
+      if(window.MapsClient && typeof window.MapsClient.renderOpponentMap === 'function' && typeof window.MapsClient.renderHostMap === 'function'){
+        if(Object.keys(opp).length === 0 && Object.keys(host).length === 0){
+          targetDiv.innerHTML = '<div class="no-data">Maps JSON is present but contains no data.</div>';
+          return;
+        }
+        window.MapsClient.renderOpponentMap(opp);
+        window.MapsClient.renderHostMap(host);
+        targetDiv.innerHTML = '';
+      } else {
+        targetDiv.innerHTML = `<div class="sub">Maps JSON loaded from ${escapeHtml(res.url)} — rendering...</div>`;
+        if(window.MapsClient && typeof window.MapsClient.initMaps === 'function'){
+          window.MapsClient.initMaps({ slug: slugVal });
+        }
+      }
+      return;
+    }
+  }
+
+  // end main IIFE
+})();
+
 /* ------------------ maps-client (Plotly) ------------------ */
 /* (kept intact) */
 (function(){
@@ -2443,7 +2072,726 @@ async function loadStatsSubpanel(kind, playerData){
     renderHostMap: renderHostMap
   };
 })();
-});
+
+/* ---------- Advanced tab: load fragment + JSON + render (safe, DOM-ready) ---------- */
+(function(){
+  // Do nothing until DOM is ready to avoid breaking other scripts
+  document.addEventListener('DOMContentLoaded', () => {
+
+    // Small helper: append logs to in-page log and console
+    function adv_log(msg, level='log'){
+      try {
+        if(level === 'warn') console.warn(msg);
+        else if(level === 'error') console.error(msg);
+        else console.log(msg);
+      } catch(e){}
+      try{
+        const logDiv = document.getElementById('advanced-log');
+        if(logDiv){
+          logDiv.style.display = 'block';
+          const line = document.createElement('div');
+          line.textContent = '[' + (new Date()).toLocaleTimeString() + '] ' + msg;
+          logDiv.appendChild(line);
+          logDiv.scrollTop = logDiv.scrollHeight;
+        }
+      }catch(e){}
+    }
+
+    // Ensure the advanced panel (and its ancestor top panel) is visible
+    function ensureAdvancedVisible(){
+      try{
+        const panel = document.getElementById('panel-advanced');
+        if(!panel) return;
+        let top = panel;
+        while(top && top.parentElement && top.parentElement.id !== 'player-root'){
+          top = top.parentElement;
+        }
+        if(top && top.classList && top.classList.contains('panel')){
+          top.style.display = 'block';
+          top.style.visibility = 'visible';
+          top.style.opacity = '1';
+          top.classList.add('active');
+        }
+        panel.style.display = 'block';
+        panel.style.visibility = 'visible';
+        panel.style.opacity = '1';
+        panel.classList.add('active');
+        const btn = document.querySelector('.tab-btn[data-target="panel-advanced"]');
+        if(btn){
+          document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          btn.setAttribute('aria-selected','true');
+        }
+      }catch(e){
+        console.error('ensureAdvancedVisible error', e);
+      }
+    }
+
+    // Build candidate JSON paths (root-first). Returns array of '/general_advanced_stats/..' strings.
+    function buildAdvancedCandidatesFor(player){
+      const pid = player && (player.player_id || player.id || player.pid) ? String(player.player_id || player.id || player.pid) : '';
+      const nameRaw = player && (player.name || player.fullname) ? String(player.name || player.fullname).trim() : '';
+      const parts = nameRaw ? nameRaw.split(/\s+/) : [];
+      const first = parts.length ? parts[0].replace(/[^A-Za-z0-9]/g,'') : '';
+      const last = parts.length > 1 ? parts[parts.length-1].replace(/[^A-Za-z0-9]/g,'') : '';
+      const initial = first ? first.charAt(0) : '';
+      const slug = (player && (player.slug || player.name_slug)) ? String(player.slug || player.name_slug) : '';
+
+      const candidates = [];
+      if(pid && first && last){
+        candidates.push(`/general_advanced_stats/${pid}_${first}_${last}.json`);
+        candidates.push(`/general_advanced_stats/${pid}_${first.charAt(0).toUpperCase()+first.slice(1)}_${last.charAt(0).toUpperCase()+last.slice(1)}.json`);
+        candidates.push(`/general_advanced_stats/${pid}_${first.toLowerCase()}_${last.toLowerCase()}.json`);
+      }
+      if(pid && initial && last){
+        candidates.push(`/general_advanced_stats/${pid}_${initial}_${last}.json`);
+      }
+      if(pid && slug){
+        candidates.push(`/general_advanced_stats/${pid}_${slug}.json`);
+        candidates.push(`/general_advanced_stats/${pid}_${slug.toLowerCase()}.json`);
+      }
+      if(pid){
+        candidates.push(`/general_advanced_stats/${pid}.json`);
+      }
+      if(first && last){
+        candidates.push(`/general_advanced_stats/${first}_${last}.json`);
+        candidates.push(`/general_advanced_stats/${first.toLowerCase()}_${last.toLowerCase()}.json`);
+      }
+      if(nameRaw){
+        candidates.push(`/general_advanced_stats/${nameRaw.replace(/\s+/g,'_')}.json`);
+      }
+      // dedupe preserve order
+      const seen = new Set();
+      return candidates.filter(c => {
+        if(!c) return false;
+        if(seen.has(c)) return false;
+        seen.add(c);
+        return true;
+      });
+    }
+
+    // Try candidates sequentially, try root and origin variants. Return {url, data} or null.
+    async function tryCandidatesSequential(candidates){
+      adv_log('Trying JSON candidates: ' + candidates.join(' ; '));
+      const origin = window.location.origin;
+      for(const c of candidates){
+        const url = c.startsWith('/') ? c : ('/' + c);
+        const full = origin + url;
+        adv_log('fetch -> ' + url);
+        try{
+          const resp = await fetch(url, {cache:'no-store', mode:'cors'});
+          adv_log(`-> status ${resp.status} ${resp.statusText} (${resp.headers.get('content-type')||'n/a'})`);
+          if(resp.ok){
+            try{
+              const data = await resp.json();
+              return { url, data };
+            }catch(parseErr){
+              adv_log('JSON parse error for ' + url + ' : ' + (parseErr && parseErr.message ? parseErr.message : parseErr), 'warn');
+            }
+          }
+        }catch(e){
+          adv_log('Fetch error for ' + url + ' : ' + (e && e.message ? e.message : e), 'warn');
+        }
+        // try origin+url
+        try{
+          adv_log('fetch -> ' + full);
+          const resp2 = await fetch(full, {cache:'no-store', mode:'cors'});
+          adv_log(`-> status ${resp2.status} ${resp2.statusText} (${resp2.headers.get('content-type')||'n/a'})`);
+          if(resp2.ok){
+            try{
+              const data2 = await resp2.json();
+              return { url: full, data: data2 };
+            }catch(e){
+              adv_log('JSON parse error for ' + full + ' : ' + (e && e.message ? e.message : e), 'warn');
+            }
+          }
+        }catch(e){
+          adv_log('Fetch error for ' + full + ' : ' + (e && e.message ? e.message : e), 'warn');
+        }
+      }
+      adv_log('No JSON candidate succeeded.', 'warn');
+      return null;
+    }
+
+    // Minimal renderer (injects into fragment #advanced-content)
+/* ---------------- Robust renderer (replace any old renderAdvancedStatsFrom / renderAdvancedStatsFull) ---------------- */
+function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
+  try{
+    console.log('enter renderAdvancedStatsFrom — sourceUrl =', sourceUrl);
+    if(!panelElement){
+      console.warn('renderAdvancedStatsFrom: panelElement is null');
+      return;
+    }
+
+    const container = panelElement.querySelector('#advanced-content') || panelElement;
+    const debugEl = panelElement.querySelector('#advanced-log');
+    if(debugEl){ debugEl.style.display='block'; debugEl.innerHTML = `<div>renderAdvancedStatsFrom called — source: ${String(sourceUrl||'(inline)')}</div>`; }
+
+    // escape helper
+    const esc = s => s===null||s===undefined ? '' : String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]);
+
+    // tolerant key lookup (normalize)
+    const normalizeKey = s => {
+      if(s===null||s===undefined) return '';
+      try{ return String(s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/['’`"]/g,'').replace(/\s+/g,'').replace(/[^a-z0-9_]/gi,'').toLowerCase(); }
+      catch(e){ return String(s).toLowerCase(); }
+    };
+    const ciGet = (obj, key) => {
+      if(!obj || !key) return undefined;
+      if(Object.prototype.hasOwnProperty.call(obj, key)) return obj[key];
+      const target = normalizeKey(key);
+      for(const k of Object.keys(obj)) if(normalizeKey(k) === target) return obj[k];
+      return undefined;
+    };
+    const readFrom = (obj, ...keys) => {
+      if(!obj) return null;
+      for(const k of keys){
+        if(!k) continue;
+        const v = ciGet(obj, k);
+        if(v !== undefined && v !== null) return v;
+      }
+      return null;
+    };
+
+    const toNumRaw = v => { if(v===null||v===undefined||v==='') return null; const n = Number(v); return isNaN(n) ? null : n; };
+    const toFrac = v => { const n = toNumRaw(v); if(n===null) return null; if(Math.abs(n) > 1 && Math.abs(n) <= 100) return n/100; return n; };
+    const fmtPct = (f, digits=1) => { if(f===null||f===undefined) return '—'; const perc = (Math.abs(f) > 1 && Math.abs(f) <= 100) ? f : (f*100); return (Math.round(perc * Math.pow(10,digits)) / Math.pow(10,digits)) + '%'; };
+    const fmtNum = (v, digits=1) => { if(v===null||v===undefined) return '—'; if(typeof v === 'number') return (Math.round(v * Math.pow(10,digits)) / Math.pow(10,digits)).toLocaleString(); return String(v); };
+
+    // labels/colors
+    const NAME = { CG: 'Winner', FD: 'Unforced Error', FP: 'Forced Error', EX: 'In-exchange' };
+    const COLORS = { CG: '#2563eb', FD:'#ef4444', FP:'#f59e0b', EX:'#9ca3ff' };
+
+    // normalize input objects
+    let smallCols = null;
+    if(data && data.small_stats){
+      if(data.small_stats.columns && Object.keys(data.small_stats.columns).length) smallCols = data.small_stats.columns;
+      else if(data.small_stats.numeric && Object.keys(data.small_stats.numeric).length) smallCols = data.small_stats.numeric;
+      else if(Object.keys(data.small_stats).length) smallCols = data.small_stats;
+    }
+    if(!smallCols && data.rally_stats && data.rally_stats.numeric) smallCols = data.rally_stats.numeric;
+    if(!smallCols && data.short_stats && data.short_stats.numeric) smallCols = data.short_stats.numeric;
+
+    let bigObj = data && (data.big_stats || data.stroke_stats || data.bigStats || data.strokeStats) || null;
+    const bigNumeric = bigObj && bigObj.numeric ? bigObj.numeric : bigObj;
+
+    // Build shell
+    let html = `<div style="display:flex;justify-content:space-between;align-items:center"><div style="font-weight:700">Advanced statistics</div><div style="font-size:12px;color:#666">Source: ${esc(sourceUrl||'(inline)')}</div></div>`;
+    const matchesAgg = readFrom(data && data.meta ? data.meta : {}, 'matches_aggregated','matches_count','matchesCount') || readFrom(bigNumeric, 'matches_count','matchesCount');
+    if(matchesAgg !== null && matchesAgg !== undefined) html += `<div style="margin-top:6px;color:#333;font-size:13px"><strong>Matches aggregated:</strong> ${esc(String(matchesAgg))}</div>`;
+
+    html += `<div style="margin-top:8px"><button id="adv-show-raw" style="padding:6px 8px">Show raw JSON</button></div>`;
+    html += `<div id="adv-raw-json" style="display:none;max-height:260px;overflow:auto;border:1px solid #eee;padding:8px;background:#fff;margin-top:8px"><pre>${esc(JSON.stringify(data, null, 2).slice(0,20000))}${JSON.stringify(data).length>20000? '…':''}</pre></div>`;
+
+    // containers
+    html += `<div id="adv-rally" style="margin-top:12px"></div>`;
+    html += `<div id="adv-strokes" style="margin-top:14px"></div>`;
+
+    container.style.display = 'block';
+    container.innerHTML = html;
+
+    // raw toggle
+    const rawBtn = panelElement.querySelector('#adv-show-raw');
+    if(rawBtn) rawBtn.addEventListener('click', () => { const r = panelElement.querySelector('#adv-raw-json'); if(r) r.style.display = (r.style.display === 'none' ? 'block' : 'none'); });
+
+    // shared legend (single place)
+    const ensureSharedLegend = () => {
+      const parent = document.getElementById('adv-rally') || container;
+      if(document.getElementById('__adv_shared_legend')) return;
+      const legend = document.createElement('div');
+      legend.id = '__adv_shared_legend';
+      legend.style.display = 'flex';
+      legend.style.gap = '12px';
+      legend.style.marginTop = '8px';
+      legend.style.alignItems = 'center';
+      legend.innerHTML = `<div style="font-size:12px;color:#666">Legend</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <div style="width:12px;height:12px;background:${COLORS.CG};border-radius:3px"></div><div style="font-weight:700">Winner</div>
+          <div style="width:12px;height:12px;background:${COLORS.FD};border-radius:3px;margin-left:8px"></div><div style="font-weight:700">Unforced Error</div>
+          <div style="width:12px;height:12px;background:${COLORS.FP};border-radius:3px;margin-left:8px"></div><div style="font-weight:700">Forced Error</div>
+          <div style="width:12px;height:12px;background:${COLORS.EX};border-radius:3px;margin-left:8px"></div><div style="font-weight:700">In-exchange</div>
+        </div>`;
+      parent.appendChild(legend);
+    };
+
+    // -------- RALLY: build placeholders & draw --------
+    (function drawRally(){
+      const el = document.getElementById('adv-rally');
+      if(!el) return;
+      if(!smallCols){ el.innerHTML = `<h3>Rally (point length)</h3><div style="color:#666">Rally stats not available.</div>`; return; }
+
+      const get = k => {
+        const v = readFrom(smallCols, k);
+        if(v !== null && v !== undefined) return v;
+        return readFrom(smallCols, (k||'').toLowerCase());
+      };
+
+      const ranges = [
+        { id:'short', label:'Short', win:'pct_won_short', lose:'pct_lost_short', pct:'match_pct_short' },
+        { id:'medium', label:'Medium', win:'pct_won_medium', lose:'pct_lost_medium', pct:'match_pct_medium' },
+        { id:'long', label:'Long', win:'pct_won_long', lose:'pct_lost_long', pct:'match_pct_long' }
+      ];
+
+      // top summary
+      let rhtml = `<h3 style="margin:0 0 8px 0">Rally (point length)</h3><div style="display:flex;gap:12px;flex-wrap:wrap">`;
+      ranges.forEach(r=>{
+        const pct = toFrac(get(r.pct));
+        const win = toFrac(get(r.win));
+        rhtml += `<div style="background:rgba(0,0,0,0.03);padding:10px;border-radius:8px;min-width:140px;text-align:center">
+                   <div style="color:#666">${r.label}</div>
+                   <div style="font-weight:800;font-size:20px">${pct===null?'—':fmtPct(pct,1)}</div>
+                   <div style="color:#666">Win: ${win===null?'—':fmtPct(win,1)}</div>
+                  </div>`;
+      });
+      rhtml += `</div>`;
+      // placeholders for 6 pies (Win & Lose)
+      rhtml += `<div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:12px">`;
+      ranges.forEach((r, idx)=>{
+        rhtml += `<div style="width:260px"><div style="font-weight:600;margin-bottom:6px">${r.label} — Win</div><div id="rally-pie-win-${idx}" style="width:220px;height:160px"></div><div id="rally-pie-win-info-${idx}" style="font-size:12px;color:#333;margin-top:6px"></div></div>`;
+        rhtml += `<div style="width:260px"><div style="font-weight:600;margin-bottom:6px">${r.label} — Lose</div><div id="rally-pie-lose-${idx}" style="width:220px;height:160px"></div><div id="rally-pie-lose-info-${idx}" style="font-size:12px;color:#333;margin-top:6px"></div></div>`;
+      });
+      rhtml += `</div>`;
+
+      // is_leading table
+      rhtml += `<div style="margin-top:12px"><h4 style="margin:8px 0">Proportion of matches where player led (by range)</h4>
+                <table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:8px;color:#666">Range</th><th style="text-align:left;padding:8px;color:#666">Winner</th><th style="text-align:left;padding:8px;color:#666">Unforced Error</th><th style="text-align:left;padding:8px;color:#666">Forced Error</th></tr></thead><tbody>`;
+      [['short','Short'],['medium','Medium'],['long','Long']].forEach(rr=>{
+        const cg = toFrac(get(`is_leading_${rr[0]}_CG`));
+        const fd = toFrac(get(`is_leading_${rr[0]}_FD`));
+        const fp = toFrac(get(`is_leading_${rr[0]}_FP`));
+        rhtml += `<tr><td style="padding:8px">${rr[1]}</td><td style="padding:8px">${cg===null?'—':fmtPct(cg,1)}</td><td style="padding:8px">${fd===null?'—':fmtPct(fd,1)}</td><td style="padding:8px">${fp===null?'—':fmtPct(fp,1)}</td></tr>`;
+      });
+      rhtml += `</tbody></table></div>`;
+
+      // shot series + Win/Lose switch
+      rhtml += `<div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px">
+                  <div style="font-weight:700">Shot series</div>
+                  <div id="adv-shot-mode" style="display:flex;gap:8px;align-items:center">
+                    <label style="font-size:13px"><input type="radio" name="adv-shot-mode" value="win" checked> Win</label>
+                    <label style="font-size:13px"><input type="radio" name="adv-shot-mode" value="lose"> Lose</label>
+                  </div>
+                </div>`;
+      rhtml += `<div id="adv-shot-series" style="margin-top:10px;min-height:320px"></div>`;
+
+      el.innerHTML = rhtml;
+      ensureSharedLegend();
+
+      // draw the 6 pies and shot series
+      const hoverTpl = '%{percent:.0%}<extra></extra>';
+      ranges.forEach((r, idx)=>{
+        // Win values
+        const wCG = toFrac(get(r.win + '_CG')) || 0;
+        const wFD = toFrac(get(r.win + '_FD')) || 0;
+        const wFP = toFrac(get(r.win + '_FP')) || 0;
+        const elWin = document.getElementById(`rally-pie-win-${idx}`);
+        const infoWin = document.getElementById(`rally-pie-win-info-${idx}`);
+        if(elWin){
+          if(window.Plotly && typeof window.Plotly.newPlot === 'function'){
+            Plotly.newPlot(elWin, [{ labels:[NAME.CG,NAME.FD,NAME.FP], values:[wCG,wFD,wFP], type:'pie', marker:{colors:[COLORS.CG,COLORS.FD,COLORS.FP]}, textinfo:'percent', textposition:'inside', hovertemplate: hoverTpl }], {height:160,width:220,margin:{t:8,l:4,r:4,b:8}, showlegend:false}, {displayModeBar:false});
+            elWin.on('plotly_click', function(evt){ const p = evt.points && evt.points[0]; if(!p) return; if(infoWin) infoWin.innerHTML = fmtPct(p.percent/100,0); });
+          } else {
+            elWin.innerHTML = `<div style="font-size:12px;color:#666">Pie (no Plotly)</div><div>${[wCG,wFD,wFP].map(v=>fmtPct(v,1)).join('<br>')}</div>`;
+            if(infoWin) infoWin.innerHTML = '';
+          }
+        }
+        // Lose values
+        const lCG = toFrac(get(r.lose + '_CG')) || 0;
+        const lFD = toFrac(get(r.lose + '_FD')) || 0;
+        const lFP = toFrac(get(r.lose + '_FP')) || 0;
+        const elLose = document.getElementById(`rally-pie-lose-${idx}`);
+        const infoLose = document.getElementById(`rally-pie-lose-info-${idx}`);
+        if(elLose){
+          if(window.Plotly && typeof window.Plotly.newPlot === 'function'){
+            Plotly.newPlot(elLose, [{ labels:[NAME.CG,NAME.FD,NAME.FP], values:[lCG,lFD,lFP], type:'pie', marker:{colors:[COLORS.CG,COLORS.FD,COLORS.FP]}, textinfo:'percent', textposition:'inside', hovertemplate: hoverTpl }], {height:160,width:220,margin:{t:8,l:4,r:4,b:8}, showlegend:false}, {displayModeBar:false});
+            elLose.on('plotly_click', function(evt){ const p = evt.points && evt.points[0]; if(!p) return; if(infoLose) infoLose.innerHTML = fmtPct(p.percent/100,0); });
+          } else {
+            elLose.innerHTML = `<div style="font-size:12px;color:#666">Pie (no Plotly)</div><div>${[lCG,lFD,lFP].map(v=>fmtPct(v,1)).join('<br>')}</div>`;
+            if(infoLose) infoLose.innerHTML = '';
+          }
+        }
+      });
+
+      // shot series drawing function (mode = 'win' or 'lose')
+      const shotKeysWon = [
+        ['Service','shot_Service_won_pct_CG','shot_Service_won_pct_FD','shot_Service_won_pct_FP'],
+        ['Return','shot_Retour_won_pct_CG','shot_Retour_won_pct_FD','shot_Retour_won_pct_FP'],
+        ['3rd','shot_3me_coup_won_pct_CG','shot_3me_coup_won_pct_FD','shot_3me_coup_won_pct_FP'],
+        ['4th','shot_4me_coup_won_pct_CG','shot_4me_coup_won_pct_FD','shot_4me_coup_won_pct_FP'],
+        ['5th','shot_5me_coup_won_pct_CG','shot_5me_coup_won_pct_FD','shot_5me_coup_won_pct_FP'],
+        ['6th','shot_6me_coup_won_pct_CG','shot_6me_coup_won_pct_FD','shot_6me_coup_won_pct_FP'],
+        ['7th','shot_7me_coup_won_pct_CG','shot_7me_coup_won_pct_FD','shot_7me_coup_won_pct_FP'],
+        ['8th','shot_8me_coup_won_pct_CG','shot_8me_coup_won_pct_FD','shot_8me_coup_won_pct_FP'],
+        ['9th','shot_9_coups_impairs_won_pct_CG','shot_9_coups_impairs_won_pct_FD','shot_9_coups_impairs_won_pct_FP'],
+        ['10th','shot_10_coups_pairs_won_pct_CG','shot_10_coups_pairs_won_pct_FD','shot_10_coups_pairs_won_pct_FP']
+      ];
+      const drawShotSeries = (mode='win') => {
+        const xs = [], yCG = [], yFD = [], yFP = [];
+        shotKeysWon.forEach(s => {
+          xs.push(s[0]);
+          const base1 = (mode === 'win') ? s[1] : s[1].replace('_won_','_lost_').replace('_won_','_lost_');
+          const base2 = (mode === 'win') ? s[2] : s[2].replace('_won_','_lost_').replace('_won_','_lost_');
+          const base3 = (mode === 'win') ? s[3] : s[3].replace('_won_','_lost_').replace('_won_','_lost_');
+          yCG.push(toFrac(readFrom(smallCols, base1, base1.toLowerCase())) || 0);
+          yFD.push(toFrac(readFrom(smallCols, base2, base2.toLowerCase())) || 0);
+          yFP.push(toFrac(readFrom(smallCols, base3, base3.toLowerCase())) || 0);
+        });
+        const seriesEl = document.getElementById('adv-shot-series');
+        if(!seriesEl) return;
+        if(window.Plotly && typeof window.Plotly.newPlot === 'function'){
+          const traces = [
+            { x: xs, y: yCG, name:'Winner', mode:'lines+markers', line:{color:COLORS.CG} },
+            { x: xs, y: yFD, name:'Unforced Error', mode:'lines+markers', line:{color:COLORS.FD} },
+            { x: xs, y: yFP, name:'Forced Error', mode:'lines+markers', line:{color:COLORS.FP} }
+          ];
+          Plotly.newPlot(seriesEl, traces, {height:360, margin:{t:20,l:50,r:20,b:80}, yaxis:{tickformat:'.0%'}}, {displayModeBar:false});
+        } else {
+          let t = '<table style="width:100%;border-collapse:collapse"><thead><tr><th>Shot</th><th>Winner</th><th>Unforced Err</th><th>Forced Err</th></tr></thead><tbody>';
+          for(let i=0;i<xs.length;i++) t += `<tr><td style="font-weight:700">${esc(xs[i])}</td><td>${yCG[i]===0?'—':fmtPct(yCG[i],1)}</td><td>${yFD[i]===0?'—':fmtPct(yFD[i],1)}</td><td>${yFP[i]===0?'—':fmtPct(yFP[i],1)}</td></tr>`;
+          t += '</tbody></table>';
+          seriesEl.innerHTML = t;
+        }
+      };
+
+      // init series with Win
+      drawShotSeries('win');
+
+      // wire radio buttons to redraw
+      const radios = document.querySelectorAll('#adv-shot-mode input[name="adv-shot-mode"]');
+      if(radios && radios.length){
+        radios.forEach(radio => radio.addEventListener('change', (ev)=>{ if(ev.target && ev.target.value) drawShotSeries(ev.target.value); }));
+      }
+    })();
+
+    // -------- STROKES: shot-type pies & boxes (kept as previously) --------
+    (function drawStrokes(){
+      const el = document.getElementById('adv-strokes');
+      if(!el) return;
+      if(!bigNumeric){ el.innerHTML = `<h3>Stroke statistics</h3><div style="color:#666">Stroke stats not available.</div>`; return; }
+
+      // general info mapping
+      const infoMap = [
+        ['matches_count','Matches (count)'],
+        ['aces_per_match','Aces / match'],
+        ['double_faults_per_match','Double faults / match'],
+        ['vitesse_max_avg_per_match','Max serve speed (avg)'],
+        ['vitesse_1st_mean_avg_per_match','1st serve mean speed (avg)'],
+        ['winners_per_match','Winners / match'],
+        ['direct_errors_per_match','Direct errors / match'],
+        ['forced_errors_per_match','Forced errors / match'],
+        ['points_at_net_per_match','Points at net / match'],
+        ['white_games_per_match','White games / match']
+      ];
+
+      let strokeHtml = `<h3 style="margin:0 0 8px 0">Stroke statistics</h3><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px">`;
+      infoMap.forEach(p=>{
+        const v = readFrom(bigNumeric, p[0]);
+        if(v !== null && v !== undefined){
+          const display = (Math.abs(Number(v)) <= 1 ? fmtPct(toFrac(v),1) : fmtNum(v,1));
+          strokeHtml += `<div style="background:rgba(0,0,0,0.03);padding:10px;border-radius:8px"><div style="color:#666">${esc(p[1])}</div><div style="font-weight:700">${display}</div></div>`;
+        }
+      });
+      strokeHtml += `</div>`;
+
+      // exclude checkbox + placeholders
+      strokeHtml += `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px"><div style="font-weight:700">Shot type outcomes</div><div><label style="font-size:13px"><input id="adv-exclude-exchange" type="checkbox" style="margin-right:6px">Exclude in-exchange</label></div></div>`;
+      const shotTypes = [
+        { key:'shot_coups_fond_de_court', label:'Baseline' },
+        { key:'shot_smashs', label:'Smash' },
+        { key:'shot_passing', label:'Passing' },
+        { key:'shot_volées', label:'Volley' },
+        { key:'shot_montées_au_filet', label:'Net points' },
+        { key:'shot_amorties', label:'Dropshot' },
+        { key:'shot_lobs', label:'Lobs' }
+      ];
+      strokeHtml += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;margin-top:12px">`;
+      shotTypes.forEach((st,i)=> strokeHtml += `<div style="padding:10px;border-radius:8px;background:rgba(0,0,0,0.03)"><div style="font-weight:700;margin-bottom:8px">${esc(st.label)}</div><div id="shottype-pie-${i}" style="width:100%;height:200px"></div><div id="shottype-pie-info-${i}" style="font-size:12px;margin-top:6px"></div></div>`);
+      strokeHtml += `</div>`;
+
+      strokeHtml += `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px">
+        <div style="min-width:240px;padding:12px;border-radius:8px;background:rgba(0,0,0,0.03)"><div style="font-weight:700;margin-bottom:8px">Break points (summary)</div><div id="bp-block"></div></div>
+        <div style="min-width:240px;padding:12px;border-radius:8px;background:rgba(0,0,0,0.03)"><div style="font-weight:700;margin-bottom:8px">Return</div><div id="return-block"></div></div>
+      </div>`;
+
+      el.innerHTML = strokeHtml;
+
+      // draw shot-type pies (with in-exchange slice) and wire exclude checkbox
+      // implementation is same idea as earlier: sum variants, create base 4-slice arrays [Win, Prov, Dir, In-exchange]
+      window.__adv_shot_drawers = [];
+      const winSufs = ['_outcome_coupsgagnants_frac','_outcome_coupgagnant_frac'];
+      const provSufs = ['_outcome_fautesprovoquees_frac','_outcome_fautesprovoquee_frac','_outcome_fautesprovoquées_frac'];
+      const dirSufs = ['_outcome_fautedirecte_frac','_outcome_fautesdirectes_frac'];
+      const exSufs  = ['_outcome_coupsdansl_echange_frac','_outcome_coupsdanslexchange_frac', "_outcome_coupsdansl'echange_frac", '_outcome_coupsdansl\u00E9change_frac'];
+
+      const countSufs = ['_outcome_coupsgagnants_count','_outcome_fautesprovoquées_count','_outcome_fautedirecte_count','_outcome_coupsdansl_echange_count','_outcome_coupsdanslexchange_count', "_outcome_coupsdansl'echange_count", '_outcome_coupsdansl\u00E9change_count','_count','_num','_total'];
+
+      shotTypes.forEach((st,i)=>{
+        const sumFrac = (sufs) => {
+          let sum = 0; let found=false;
+          for(const s of sufs){
+            const v = readFrom(bigNumeric, st.key + s);
+            const f = toFrac(v);
+            if(f !== null){ sum += f; found = true; }
+          }
+          return found ? sum : null;
+        };
+        const sumCount = (sufs) => {
+          let sum = 0; let found=false;
+          for(const s of sufs){
+            const v = readFrom(bigNumeric, st.key + s);
+            const n = toNumRaw(v);
+            if(n !== null){ sum += n; found = true; }
+          }
+          return found ? sum : null;
+        };
+
+        const winFrac = sumFrac(winSufs) || 0;
+        const provFrac = sumFrac(provSufs) || 0;
+        const dirFrac = sumFrac(dirSufs) || 0;
+        const exFrac = sumFrac(exSufs) || 0;
+        const totalCount = sumCount(countSufs.concat([st.key + '_count', st.key + '_num', st.key + '_total']));
+
+        const baseVals = [winFrac, provFrac, dirFrac, exFrac];
+        const labels = [NAME.CG, NAME.FD, NAME.FP, NAME.EX];
+        const colors = [COLORS.CG, COLORS.FD, COLORS.FP, COLORS.EX];
+
+        const elPie = document.getElementById(`shottype-pie-${i}`);
+        const infoEl = document.getElementById(`shottype-pie-info-${i}`);
+
+        const drawer = (excludeExchange=false) => {
+          let vals = baseVals.slice();
+          if(excludeExchange){
+            const ex = vals[3] || 0;
+            const denom = vals.reduce((a,b)=>a+b,0);
+            if(denom > 0){
+              const base = denom - ex;
+              if(base > 0) vals = vals.map((v,idx)=> idx===3 ? 0 : ((v / base) || 0));
+            }
+          }
+          if(!elPie) return;
+          const hoverTpl = '%{percent:.0%}<extra></extra>';
+          if(window.Plotly && typeof window.Plotly.newPlot === 'function'){
+            Plotly.newPlot(elPie, [{ labels, values: vals, type:'pie', marker:{colors}, textinfo:'percent', textposition:'inside', hovertemplate: hoverTpl }], {height:200,width:260,margin:{t:10,l:4,r:4,b:10}, showlegend:false}, {displayModeBar:false});
+            elPie.on('plotly_click', function(evt){
+              const p = evt.points && evt.points[0];
+              if(!p) return;
+              // try to find count per-slice
+              const label = p.label;
+              let outcomeCount = null;
+              const tryPer = (sufs) => {
+                let sum=0; let found=false;
+                for(const sfx of sufs){
+                  const v = readFrom(bigNumeric, st.key + sfx);
+                  const n = toNumRaw(v);
+                  if(n !== null){ sum += n; found=true; }
+                }
+                return found ? sum : null;
+              };
+              if(label === NAME.CG) outcomeCount = tryPer(['_outcome_coupsgagnants_count','_outcome_coupsgagnant_count']);
+              else if(label === NAME.FD) outcomeCount = tryPer(['_outcome_fautesprovoquees_count','_outcome_fautesprovoquee_count','_outcome_fautesprovoquées_count']);
+              else if(label === NAME.FP) outcomeCount = tryPer(['_outcome_fautedirecte_count','_outcome_fautesdirectes_count']);
+              else if(label === NAME.EX) outcomeCount = tryPer(['_outcome_coupsdansl_echange_count','_outcome_coupsdanslexchange_count', "_outcome_coupsdansl'echange_count"]);
+              if(outcomeCount !== null){
+                if(infoEl) infoEl.innerHTML = `${esc(st.label)} — ${label}: ${Math.round(outcomeCount)}`;
+                return;
+              }
+              if(totalCount !== null && toNumRaw(totalCount) !== null){
+                const cnt = Math.round((p.value) * toNumRaw(totalCount));
+                if(infoEl) infoEl.innerHTML = `${esc(st.label)} — ${label}: ${cnt} (estimated)`;
+                return;
+              }
+              if(infoEl) infoEl.innerHTML = `${esc(st.label)} — ${fmtPct(p.percent/100,0)}`;
+            });
+          } else {
+            elPie.innerHTML = `<div style="font-size:12px;color:#666">Pie (no Plotly)</div><div>${labels.map((L,idx)=>L+': '+fmtPct(vals[idx],1)).join('<br>')}</div>`;
+            if(infoEl) infoEl.innerHTML = '';
+          }
+        };
+
+        // draw initially (exclude false)
+        drawer(false);
+        window.__adv_shot_drawers.push(drawer);
+      });
+
+      // BP & Return as earlier
+      const bpBlock = document.getElementById('bp-block');
+      const rBlock = document.getElementById('return-block');
+      if(bpBlock){
+        const bdb_converted_pct = toFrac(readFrom(bigNumeric, 'bdb_converted_pct'));
+        const bdb_converted_num = readFrom(bigNumeric, 'bdb_converted_num','bdb_converted_count');
+        const bdb_converted_den = readFrom(bigNumeric, 'bdb_converted_den','bdb_converted_total');
+        const bdb_games_with_pct = toFrac(readFrom(bigNumeric, 'bdb_games_with_pct'));
+        const bdb_games_with_num = readFrom(bigNumeric, 'bdb_games_with_num','bdb_games_with_count');
+        const bdb_games_with_den = readFrom(bigNumeric, 'bdb_games_with_den','bdb_games_with_total');
+        const bdb_played_num = readFrom(bigNumeric, 'bdb_played_num','bdb_played_count');
+        const matches_count = readFrom(bigNumeric, 'matches_count','matchesCount') || matchesAgg;
+        let mean_bp = null;
+        if(bdb_played_num !== null && matches_count !== null && toNumRaw(matches_count) !== null) mean_bp = toNumRaw(bdb_played_num) / toNumRaw(matches_count);
+        bpBlock.innerHTML = `
+          <div style="font-size:20px;font-weight:800">${bdb_converted_pct===null?'—':fmtPct(bdb_converted_pct,1)}</div>
+          <div style="color:#666">Converted <span style="font-size:12px">(${bdb_converted_num===null?'—':esc(String(bdb_converted_num))}/${bdb_converted_den===null?'—':esc(String(bdb_converted_den))})</span></div>
+          <div style="height:8px"></div>
+          <div style="font-size:20px;font-weight:800">${bdb_games_with_pct===null?'—':fmtPct(bdb_games_with_pct,1)}</div>
+          <div style="color:#666">Games with BP <span style="font-size:12px">(${bdb_games_with_num===null?'—':esc(String(bdb_games_with_num))}/${bdb_games_with_den===null?'—':esc(String(bdb_games_with_den))})</span></div>
+          <div style="height:8px"></div>
+          <div style="color:#666">Mean BP / match: <strong>${mean_bp===null?'—':fmtNum(mean_bp,2)}</strong></div>`;
+      }
+      if(rBlock){
+        const return_points_pct = toFrac(readFrom(bigNumeric, 'return_points_pct'));
+        const return_points_num = readFrom(bigNumeric, 'return_points_num');
+        const return_points_den = readFrom(bigNumeric, 'return_points_den');
+        const return_1st_pct = toFrac(readFrom(bigNumeric, 'return_1st_pct'));
+        const return_1st_num = readFrom(bigNumeric, 'return_1st_num');
+        const return_1st_den = readFrom(bigNumeric, 'return_1st_den');
+        const return_2nd_pct = toFrac(readFrom(bigNumeric, 'return_2nd_pct'));
+        const return_2nd_num = readFrom(bigNumeric, 'return_2nd_num');
+        const return_2nd_den = readFrom(bigNumeric, 'return_2nd_den');
+        rBlock.innerHTML = `
+          <div style="font-size:20px;font-weight:800">${return_points_pct===null?'—':fmtPct(return_points_pct,1)}</div>
+          <div style="color:#666">Points won on return <span style="font-size:12px">(${return_points_num===null?'—':esc(String(return_points_num))}/${return_points_den===null?'—':esc(String(return_points_den))})</span></div>
+          <div style="height:8px"></div>
+          <div style="font-size:20px;font-weight:800">${return_1st_pct===null?'—':fmtPct(return_1st_pct,1)}</div>
+          <div style="color:#666">Return of 1st serve <span style="font-size:12px">(${return_1st_num===null?'—':esc(String(return_1st_num))}/${return_1st_den===null?'—':esc(String(return_1st_den))})</span></div>
+          <div style="height:8px"></div>
+          <div style="font-size:20px;font-weight:800">${return_2nd_pct===null?'—':fmtPct(return_2nd_pct,1)}</div>
+          <div style="color:#666">Return of 2nd serve <span style="font-size:12px">(${return_2nd_num===null?'—':esc(String(return_2nd_num))}/${return_2nd_den===null?'—':esc(String(return_2nd_den))})</span></div>`;
+      }
+
+      // wire exclude-exchange checkbox to redraw
+      const chk = document.getElementById('adv-exclude-exchange');
+      if(chk){
+        chk.addEventListener('change', ()=>{
+          const exclude = !!chk.checked;
+          if(window.__adv_shot_drawers && window.__adv_shot_drawers.length){
+            window.__adv_shot_drawers.forEach(fn => { try{ if(typeof fn === 'function') fn(exclude); } catch(e){ console.warn('drawer redraw error', e); } });
+          }
+        });
+      }
+    })();
+
+    console.log('rendered advanced stats (source=' + sourceUrl + ')');
+    if(debugEl) debugEl.innerHTML += `<div>render completed</div>`;
+  }catch(err){
+    console.error('renderAdvancedStatsFrom error', err);
+    try{ const c = panelElement.querySelector('#advanced-content') || panelElement; if(c) c.innerHTML = '<div style="color:#c00">Error rendering advanced statistics.</div>'; }catch(e){}
+  }
+}
+
+// Main entry: open advanced for player
+    window.openAdvancedForPlayer = async function(player){
+      try{
+        adv_log('Opening Advanced Statistics tab for player id=' + (player && (player.player_id||player.id) ? (player.player_id||player.id) : 'unknown'));
+        ensureAdvancedVisible();
+
+        const panel = document.getElementById('panel-advanced');
+        if(!panel){
+          adv_log('panel-advanced element not found', 'warn');
+          return;
+        }
+
+        // load fragment if needed
+        const fragPresent = !!panel.querySelector('#advanced-content');
+        if(!fragPresent){
+          try{
+            const fragResp = await fetch('/includes/advanced_stats.html', {cache:'no-store'});
+            if(fragResp.ok){
+              const fragHtml = await fragResp.text();
+              panel.innerHTML = fragHtml;
+            } else {
+              panel.innerHTML = '<div id="advanced-content">Could not load advanced fragment.</div>';
+              adv_log('Could not fetch fragment: ' + fragResp.status + ' ' + fragResp.statusText, 'warn');
+            }
+          }catch(e){
+            panel.innerHTML = '<div id="advanced-content">Could not load advanced fragment (fetch error).</div>';
+            adv_log('Could not load fragment: ' + (e && e.message ? e.message : e), 'error');
+          }
+        }
+
+        // show loader, hide content
+        const loadingEl = panel.querySelector('#advanced-loading');
+        const contentEl = panel.querySelector('#advanced-content');
+        const logEl = panel.querySelector('#advanced-log');
+        if(loadingEl) loadingEl.style.display = 'block';
+        if(contentEl) contentEl.style.display = 'none';
+        if(logEl) logEl.style.display = 'block';
+
+        // find json
+        const candidates = buildAdvancedCandidatesFor(player);
+        const res = await tryCandidatesSequential(candidates);
+        if(!res || !res.data){
+          if(loadingEl) loadingEl.style.display = 'none';
+          if(contentEl){ contentEl.style.display = 'block'; contentEl.innerHTML = '<div style="color:#666">Advanced statistics JSON not available for this player.</div>'; }
+          adv_log('Advanced JSON not found for player', 'warn');
+          return;
+        }
+
+        // put raw json in raw box if present
+        const rawBox = panel.querySelector('#adv-raw');
+        if(rawBox) rawBox.innerText = JSON.stringify(res.data, null, 2);
+
+        // hide loader and render
+        if(loadingEl) loadingEl.style.display = 'none';
+        if(contentEl) contentEl.style.display = 'block';
+        renderAdvancedStatsFrom(res.data, res.url, panel);
+      }catch(e){
+        adv_log('openAdvancedForPlayer error: ' + (e && e.message ? e.message : e), 'error');
+        console.error(e);
+      }
+    };
+
+    // Attach click handler to the Advanced tab button (safe attach)
+    const btn = document.querySelector('.tab-btn[data-target="panel-advanced"]');
+    if(btn){
+      btn.addEventListener('click', function(e){
+        const player = window.combinedPlayer || window.playerData || window.player || (typeof combined !== 'undefined' ? combined : null);
+        if(!player){
+          console.warn('Player object not found in globals. Ensure window.combinedPlayer = combined is set after player construction.');
+          adv_log('Player object not found in globals; cannot load advanced JSON.', 'warn');
+          return;
+        }
+        // clear previous fragment log
+        const panel = document.getElementById('panel-advanced');
+        if(panel){
+          const l = panel.querySelector('#advanced-log'); if(l) l.innerHTML = '';
+        }
+        window.openAdvancedForPlayer(player);
+      });
+    } else {
+      console.warn('Advanced tab button not found (data-target="panel-advanced") — add it to the tabs markup.');
+    }
+
+    adv_log('Advanced tab code initialized (DOM ready).');
+  }); // DOMContentLoaded
+})(); // IIFE
+
+// Safe fallback attach: ensures clicking the Advanced tab triggers the loader
+(function(){
+  const btn = document.querySelector('.tab-btn[data-target="panel-advanced"]');
+  if(!btn) return;
+  btn.addEventListener('click', function(e){
+    console.log('Advanced tab button clicked (fallback handler).');
+    const player = window.combinedPlayer || window.playerData || window.player || (typeof combined !== 'undefined' ? combined : null);
+    if(!player){
+      console.warn('Advanced fallback: player object not found in globals.');
+      // still show panel so UI changes visibly
+      const p = document.getElementById('panel-advanced');
+      if(p){
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        document.querySelectorAll('.panel').forEach(pn => pn.classList.remove('active'));
+        p.classList.add('active');
+      }
+      return;
+    }
+    // prefer the verbose loader if available
+    if(typeof loadAdvancedForPlayer === 'function'){
+      loadAdvancedForPlayer(player);
+    } else if (typeof openAdvancedForPlayer === 'function'){
+      openAdvancedForPlayer(player);
+    } else {
+      console.warn('No advanced loader function found (loadAdvancedForPlayer/openAdvancedForPlayer).');
+    }
+  }, {passive: true});
+})();
 
 </script>
 
