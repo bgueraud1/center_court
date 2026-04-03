@@ -178,3 +178,28 @@ def scrape_data(specific_dates: List[datetime.date], save_dir: str) -> None:
         log_failed_urls(failed_urls, save_dir)
 
     print("\nAll dates processed.")
+
+
+
+
+
+if __name__ == "__main__":
+    import datetime
+
+    dates = [
+    datetime.date(2026, 1, 12),
+    datetime.date(2026, 1, 19),
+    datetime.date(2026, 1, 26),
+    datetime.date(2026, 2, 2),
+    datetime.date(2026, 2, 9),
+    datetime.date(2026, 2, 16),
+    datetime.date(2026, 2, 23),
+    datetime.date(2026, 3, 2),
+    datetime.date(2026, 3, 9),
+    datetime.date(2026, 3, 16),
+    datetime.date(2026, 3, 23),
+    datetime.date(2026, 3, 30),
+    datetime.date(2026, 4, 6),
+]
+
+    scrape_data(dates, save_dir="wta_rankings")

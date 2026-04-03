@@ -21,7 +21,7 @@ CREATED_FILES = []
 
 URL = "https://www.atptour.com/-/Hawkeye/MatchStats/Complete/2026/339/MS001"
 
-def fetch_with_playwright(headless: bool = True):
+def fetch_with_playwright(headless: bool = False):
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=headless)  # headless=False affiche le navigateur
         context = browser.new_context(locale="fr-FR")

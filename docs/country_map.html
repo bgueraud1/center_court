@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Carte interactive tennis — pays</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <style>
+    :root{
+      --bg:#05050a;
+      --panel: rgba(12, 12, 20, .84);
+      --panel-2: rgba(18, 18, 30, .94);
+      --line: rgba(255,255,255,.10);
+      --text:#f3f5ff;
+      --muted:#a5acc7;
+      --atp:#4aa3ff;
+      --atp-2:#1f6feb;
+      --wta:#c26bff;
+      --wta-2:#8e4dff;
+      --accent:#9b7cff;
+      --shadow: 0 24px 80px rgba(0,0,0,.45);
+      --radius: 22px;
+    }
+    *{box-sizing:border-box}
+    html, body { height:100%; margin:0; background:var(--bg); color:var(--text); font-family:Inter, system-ui, -apple-system, Segoe UI, sans-serif; }
+    body { overflow:hidden; }
+    #app {
+      position:relative;
+      width:100vw; height:100vh;
+      display:grid;
+      grid-template-columns: 390px 1fr;
+      background:
+        radial-gradient(circle at top left, rgba(194,107,255,.11), transparent 28%),
+        radial-gradient(circle at top right, rgba(74,163,255,.10), transparent 24%),
+        linear-gradient(180deg, #06060b 0%, #05050a 100%);
+    }
+    .sidebar {
+      position:relative;
+      z-index:20;
+      padding:24px 20px 18px;
+      background: linear-gradient(180deg, rgba(8,8,14,.96), rgba(10,10,18,.82));
+      border-right:1px solid var(--line);
+      backdrop-filter: blur(18px);
+      display:flex;
+      flex-direction:column;
+      gap:16px;
+      box-shadow: var(--shadow);
+    }
+    .brand {
+      display:flex; align-items:center; gap:14px;
+      padding:18px 18px;
+      border:1px solid var(--line);
+      border-radius: 24px;
+      background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02));
+    }
+    .logo {
+      width:48px; height:48px; border-radius:16px;
+      display:grid; place-items:center;
+      background: linear-gradient(135deg, rgba(74,163,255,.95), rgba(194,107,255,.95));
+      box-shadow: 0 14px 30px rgba(94,95,255,.26);
+      font-size:23px;
+    }
+    .brand h1 { margin:0; font-size:18px; line-height:1.15; }
+    .brand p { margin:4px 0 0; color:var(--muted); font-size:13px; line-height:1.4; }
+    .searchBox, .infoCard, .legend, .tips {
+      border:1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+    .searchBox { padding:14px; }
+    .searchBox label { display:block; font-size:12px; color:var(--muted); margin-bottom:8px; letter-spacing:.03em; text-transform:uppercase; }
+    .searchRow { display:flex; gap:10px; }
+    .searchRow input {
+      flex:1;
+      height:48px;
+      border-radius:16px;
+      border:1px solid rgba(255,255,255,.10);
+      outline:none;
+      background: rgba(255,255,255,.03);
+      color:var(--text);
+      padding:0 14px;
+      font-size:15px;
+    }
+    .searchRow button {
+      border:none;
+      border-radius:16px;
+      padding:0 16px;
+      background: linear-gradient(135deg, rgba(74,163,255,.95), rgba(194,107,255,.92));
+      color:#fff;
+      font-weight:700;
+      cursor:pointer;
+    }
+    .searchResults {
+      margin-top:10px;
+      max-height: 180px;
+      overflow:auto;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      padding-right:4px;
+    }
+    .result {
+      text-align:left;
+      border:1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.03);
+      color:var(--text);
+      border-radius:14px;
+      padding:10px 12px;
+      cursor:pointer;
+      transition:.18s ease;
+    }
+    .result:hover { transform: translateY(-1px); background: rgba(255,255,255,.06); }
+    .result small { display:block; color:var(--muted); margin-top:2px; }
+    .infoCard { padding:16px 16px 14px; }
+    .infoCard h2 { margin:0 0 8px; font-size:16px; }
+    .infoCard p { margin:0; color:var(--muted); line-height:1.55; font-size:14px; }
+    .chips { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
+    .chip {
+      display:inline-flex; align-items:center; gap:8px;
+      border-radius:999px;
+      padding:8px 12px;
+      font-size:12px;
+      border:1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.03);
+    }
+    .swatch { width:10px; height:10px; border-radius:999px; }
+    .swatch.atp { background: var(--atp); box-shadow:0 0 18px rgba(74,163,255,.55); }
+    .swatch.wta { background: var(--wta); box-shadow:0 0 18px rgba(194,107,255,.55); }
+    .legend { padding:16px; }
+    .legend h3, .tips h3 { margin:0 0 10px; font-size:14px; text-transform:uppercase; letter-spacing:.06em; color:#dfe4ff; }
+    .legendItem {
+      display:flex; align-items:center; justify-content:space-between;
+      padding:10px 0;
+      border-bottom:1px solid rgba(255,255,255,.06);
+      color:var(--muted);
+      font-size:13px;
+    }
+    .legendItem:last-child { border-bottom:none; }
+    .legendItem strong { color:var(--text); font-weight:600; }
+    .tips { padding:16px; margin-top:auto; }
+    .tips ul { margin:0; padding-left:18px; color:var(--muted); line-height:1.55; }
+    .tips li + li { margin-top:8px; }
+    #map { position:relative; height:100%; width:100%; }
+    .mapWrap { position:relative; }
+    .topbar {
+      position:absolute;
+      top:18px;
+      left:18px;
+      right:18px;
+      z-index:18;
+      display:flex;
+      justify-content:flex-end;
+      pointer-events:none;
+    }
+    .topbar .pill {
+      pointer-events:auto;
+      display:flex; gap:10px; align-items:center;
+      padding:12px 14px;
+      border-radius:999px;
+      background: rgba(9, 9, 14, .78);
+      border:1px solid rgba(255,255,255,.09);
+      backdrop-filter: blur(18px);
+      box-shadow: var(--shadow);
+      color:var(--muted);
+      font-size:13px;
+    }
+    .pill b { color:var(--text); }
+    .leaflet-container { background:#020205; }
+    .leaflet-control-zoom a {
+      background: rgba(10,10,18,.88) !important;
+      color:#fff !important;
+      border-color: rgba(255,255,255,.10) !important;
+    }
+    .leaflet-popup-content-wrapper,
+    .leaflet-popup-tip {
+      background: rgba(12,12,20,.96);
+      color: var(--text);
+      border: 1px solid rgba(255,255,255,.08);
+      box-shadow: var(--shadow);
+    }
+    .leaflet-popup-content { margin: 12px 14px; font-family: Inter, sans-serif; }
+    .popupTitle { font-weight:800; font-size:15px; margin-bottom:4px; }
+    .popupSub { color:var(--muted); font-size:12px; line-height:1.45; }
+    .goBtn {
+      display:inline-block; margin-top:10px;
+      border-radius:12px; padding:9px 11px;
+      text-decoration:none; color:#fff; font-size:12px; font-weight:700;
+      background: linear-gradient(135deg, rgba(74,163,255,.95), rgba(194,107,255,.92));
+    }
+    .status {
+      position:absolute;
+      left:18px; bottom:18px; z-index:18;
+      background: rgba(10,10,18,.84);
+      border:1px solid rgba(255,255,255,.08);
+      padding:12px 14px;
+      border-radius:16px;
+      color:var(--muted);
+      backdrop-filter: blur(18px);
+      box-shadow: var(--shadow);
+      max-width: 58ch;
+      font-size:13px;
+    }
+    .status strong { color:var(--text); }
+    @media (max-width: 980px){
+      body { overflow:auto; }
+      #app { grid-template-columns:1fr; grid-template-rows:auto 56vh; height:auto; min-height:100vh; }
+      .sidebar { border-right:none; border-bottom:1px solid var(--line); }
+      .mapWrap { min-height:56vh; }
+      .topbar, .status { left:12px; right:12px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="logo">◉</div>
+        <div>
+          <h1>Carte mondiale tennis</h1>
+          <p>Clique sur un pays pour ouvrir sa fiche ATP/WTA, semaine en cours et année courante.</p>
+        </div>
+      </div>
+
+      <div class="searchBox">
+        <label for="searchInput">Rechercher un pays</label>
+        <div class="searchRow">
+          <input id="searchInput" type="text" placeholder="Ex. France, Japan, Brasil…" autocomplete="off" />
+          <button id="searchBtn">Go</button>
+        </div>
+        <div id="searchResults" class="searchResults"></div>
+      </div>
+
+      <div class="infoCard">
+        <h2>Navigation</h2>
+        <p>Le fond noir met en valeur les polygones. Les couleurs bleues sont réservées à l’ATP, les violettes à la WTA.</p>
+        <div class="chips">
+          <span class="chip"><span class="swatch atp"></span>ATP</span>
+          <span class="chip"><span class="swatch wta"></span>WTA</span>
+        </div>
+      </div>
+
+      <div class="legend">
+        <h3>Légende</h3>
+        <div class="legendItem"><strong>Survol</strong><span>bordure claire + accent</span></div>
+        <div class="legendItem"><strong>Clic</strong><span>page détail du pays</span></div>
+        <div class="legendItem"><strong>Zoom</strong><span>molette / boutons</span></div>
+      </div>
+
+      <div class="tips">
+        <h3>Astuce</h3>
+        <ul>
+          <li>La page détail tentera plusieurs noms de fichiers pour charger le bon JSON pays.</li>
+          <li>Les statistiques sont affichées en mode Weekly ou depuis le début de l’année.</li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="mapWrap">
+      <div class="topbar">
+        <div class="pill"><b>ATP</b> bleu · <b>WTA</b> violet · pays cliquables</div>
+      </div>
+      <div id="map"></div>
+      <div id="status" class="status">Chargement de la carte…</div>
+    </main>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script>
+    const map = L.map('map', {
+      worldCopyJump: true,
+      zoomControl: true,
+      minZoom: 2,
+    }).setView([18, 10], 2);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      subdomains: 'abcd',
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap &copy; CARTO'
+    }).addTo(map);
+
+    const statusEl = document.getElementById('status');
+    const searchInput = document.getElementById('searchInput');
+    const searchResults = document.getElementById('searchResults');
+    const searchBtn = document.getElementById('searchBtn');
+
+    const slugify = (s) => (s || '')
+      .toString()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/['’]/g, '')
+      .replace(/[^a-zA-Z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .toLowerCase();
+
+    let worldLayer = null;
+    let allCountries = [];
+
+    function getCountryProps(f) {
+      const p = f?.properties || {};
+      const name = p.name_en || p.name || p.brk_name || p.admin || p.soverignt || p.sovereignt || 'Unknown';
+      const iso3 = p.iso_a3 || p.adm0_a3 || p.brk_a3 || p.sov_a3 || p.su_a3 || p.filename?.replace('.geojson','') || '';
+      const iso2 = p.iso_a2 || p.postal || '';
+      return { name, iso3, iso2, props: p };
+    }
+
+    function buildCountryUrl(feature) {
+      const { name, iso3, iso2 } = getCountryProps(feature);
+      const params = new URLSearchParams({
+        code: iso3 || iso2 || '',
+        name: name || '',
+        iso2: iso2 || ''
+      });
+      return `country_stats.html?${params.toString()}`;
+    }
+
+    function highlightFeature(e) {
+      const layer = e.target;
+      layer.setStyle({
+        weight: 1.8,
+        color: '#c26bff',
+        fillColor: '#1f6feb',
+        fillOpacity: 0.85
+      });
+      layer.bringToFront();
+    }
+
+    function resetHighlight(e) {
+      if (worldLayer) worldLayer.resetStyle(e.target);
+    }
+
+    function zoomToFeature(e) {
+      const layer = e.target;
+      const { name, iso3 } = getCountryProps(layer.feature);
+      statusEl.innerHTML = `Pays sélectionné : <strong>${name}</strong> ${iso3 ? `(${iso3})` : ''}. Ouverture de la fiche…`;
+      window.location.href = buildCountryUrl(layer.feature);
+    }
+
+    function onEachFeature(feature, layer) {
+      const { name, iso3, iso2 } = getCountryProps(feature);
+      layer.on({
+        mouseover: highlightFeature,
+        mouseout: resetHighlight,
+        click: zoomToFeature
+      });
+      layer.bindPopup(`
+        <div class="popupTitle">${name}</div>
+        <div class="popupSub">${iso3 ? `ISO-3 : ${iso3}<br>` : ''}${iso2 ? `ISO-2 : ${iso2}<br>` : ''}Clique pour ouvrir la fiche stats</div>
+        <a class="goBtn" href="${buildCountryUrl(feature)}">Ouvrir la fiche</a>
+      `, { closeButton: false, offset: [0, -4] });
+      allCountries.push({ name, iso3, iso2, feature });
+    }
+
+    function styleFeature(feature) {
+      return {
+        weight: 0.6,
+        opacity: 0.85,
+        color: 'rgba(255,255,255,.20)',
+        fillColor: '#151522',
+        fillOpacity: 0.72
+      };
+    }
+
+    function renderSearchResults(query) {
+      const q = slugify(query);
+      searchResults.innerHTML = '';
+      if (!q) return;
+
+      const matches = allCountries
+        .filter(c => slugify(c.name).includes(q) || slugify(c.iso3).includes(q) || slugify(c.iso2).includes(q))
+        .slice(0, 12);
+
+      if (!matches.length) {
+        searchResults.innerHTML = `<div class="result" style="cursor:default;opacity:.7">Aucun résultat</div>`;
+        return;
+      }
+
+      for (const c of matches) {
+        const btn = document.createElement('button');
+        btn.className = 'result';
+        btn.innerHTML = `${c.name}<small>${c.iso3 || '—'}${c.iso2 ? ` · ${c.iso2}` : ''}</small>`;
+        btn.addEventListener('click', () => {
+          const layer = worldLayer?.getLayers().find(l => l.feature === c.feature);
+          if (layer && layer.getBounds) {
+            map.fitBounds(layer.getBounds(), { padding: [30, 30] });
+            layer.openPopup();
+          }
+          window.location.href = buildCountryUrl(c.feature);
+        });
+        searchResults.appendChild(btn);
+      }
+    }
+
+    searchInput.addEventListener('input', (e) => renderSearchResults(e.target.value));
+    searchBtn.addEventListener('click', () => renderSearchResults(searchInput.value));
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') renderSearchResults(searchInput.value);
+    });
+
+    async function init() {
+      try {
+        const res = await fetch('tools/geojsons_borders/world_borders.json');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const geojson = await res.json();
+
+        worldLayer = L.geoJSON(geojson, {
+          style: styleFeature,
+          onEachFeature
+        }).addTo(map);
+
+        map.fitBounds(worldLayer.getBounds(), { padding: [20, 20] });
+        statusEl.innerHTML = `Carte chargée : <strong>${allCountries.length}</strong> pays disponibles.`;
+      } catch (err) {
+        console.error(err);
+        statusEl.innerHTML = `Impossible de charger <strong>tools/geojsons_borders/world_borders.json</strong>. Ouvre cette page depuis un serveur web à la racine du dossier <code>docs</code>.`;
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

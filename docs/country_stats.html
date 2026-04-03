@@ -1,0 +1,966 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fiche pays tennis</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#05050a;
+      --panel: rgba(13, 13, 20, .86);
+      --panel2: rgba(18, 18, 30, .94);
+      --line: rgba(255,255,255,.10);
+      --text:#f5f7ff;
+      --muted:#a8b0cc;
+      --atp:#4aa3ff;
+      --atp2:#1f6feb;
+      --wta:#c26bff;
+      --wta2:#8e4dff;
+      --good:#45e39a;
+      --bad:#ff6d7d;
+      --gold:#ffd166;
+      --shadow: 0 24px 80px rgba(0,0,0,.45);
+      --radius: 22px;
+    }
+    * { box-sizing:border-box; }
+    html, body { min-height:100%; margin:0; background:var(--bg); color:var(--text); font-family:Inter, system-ui, -apple-system, Segoe UI, sans-serif; }
+    body {
+      background:
+        radial-gradient(circle at top left, rgba(194,107,255,.13), transparent 24%),
+        radial-gradient(circle at top right, rgba(74,163,255,.12), transparent 24%),
+        linear-gradient(180deg, #05050a 0%, #07070d 100%);
+    }
+    a { color:inherit; text-decoration:none; }
+    .shell {
+      max-width: 1540px;
+      margin:0 auto;
+      padding:26px 18px 34px;
+    }
+    .hero {
+      border:1px solid var(--line);
+      border-radius: 28px;
+      background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02));
+      box-shadow: var(--shadow);
+      overflow:hidden;
+    }
+    .heroTop {
+      padding:22px 24px 18px;
+      display:flex;
+      justify-content:space-between;
+      gap:18px;
+      align-items:flex-start;
+      border-bottom:1px solid var(--line);
+      background:
+        linear-gradient(135deg, rgba(74,163,255,.10), rgba(194,107,255,.10)),
+        rgba(10,10,16,.4);
+    }
+    .titleBlock h1 { margin:0; font-size:30px; line-height:1.05; letter-spacing:-.03em; }
+    .titleBlock p { margin:10px 0 0; color:var(--muted); line-height:1.6; max-width: 78ch; }
+    .navRow {
+      display:flex; gap:10px; flex-wrap:wrap;
+      justify-content:flex-end;
+    }
+    .pill, .tabBtn {
+      border:1px solid var(--line);
+      background: rgba(255,255,255,.03);
+      color:var(--text);
+      border-radius:999px;
+      padding:10px 14px;
+      font-size:13px;
+      font-weight:600;
+      cursor:pointer;
+      transition: .18s ease;
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+    }
+    .pill:hover, .tabBtn:hover { transform: translateY(-1px); background: rgba(255,255,255,.06); }
+    .pill.active.atp, .tabBtn.active.atp {
+      background: linear-gradient(135deg, rgba(74,163,255,.22), rgba(31,111,235,.22));
+      border-color: rgba(74,163,255,.35);
+      box-shadow: 0 0 0 1px rgba(74,163,255,.18) inset;
+    }
+    .pill.active.wta, .tabBtn.active.wta {
+      background: linear-gradient(135deg, rgba(194,107,255,.22), rgba(142,77,255,.22));
+      border-color: rgba(194,107,255,.35);
+      box-shadow: 0 0 0 1px rgba(194,107,255,.18) inset;
+    }
+    .subnav {
+      padding:14px 24px;
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      justify-content:space-between;
+      align-items:center;
+      border-bottom:1px solid var(--line);
+      background: rgba(255,255,255,.02);
+    }
+    .subnavGroup { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    .content { padding: 18px; }
+    .gridKPIs {
+      display:grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap:14px;
+      margin-bottom: 16px;
+    }
+    .card {
+      border:1px solid var(--line);
+      border-radius: 22px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+    }
+    .kpi {
+      padding:16px 16px 14px;
+      min-height:114px;
+      display:flex;
+      flex-direction:column;
+      justify-content:space-between;
+    }
+    .kpi .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.08em; }
+    .kpi .value { font-size:31px; font-weight:800; letter-spacing:-.03em; line-height:1; }
+    .kpi .hint { color:var(--muted); font-size:13px; line-height:1.45; }
+    .sectionGrid {
+      display:grid;
+      grid-template-columns: 1.1fr .9fr;
+      gap:14px;
+      margin-bottom:14px;
+    }
+    .sectionHeader {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:12px;
+      padding:16px 18px 0;
+    }
+    .sectionHeader h2 {
+      margin:0;
+      font-size:18px;
+      letter-spacing:-.02em;
+    }
+    .sectionHeader .meta {
+      color:var(--muted);
+      font-size:12px;
+    }
+    .sectionBody { padding: 14px 18px 18px; }
+    .statList { display:grid; gap:10px; }
+    .statRow {
+      display:grid;
+      grid-template-columns: 220px 1fr 82px;
+      gap:12px;
+      align-items:center;
+      padding:10px 12px;
+      border-radius:16px;
+      background: rgba(255,255,255,.03);
+      border:1px solid rgba(255,255,255,.06);
+    }
+    .statRow .name { color:#f4f7ff; font-size:13px; }
+    .bar {
+      height:10px;
+      background: rgba(255,255,255,.08);
+      border-radius:999px;
+      overflow:hidden;
+      position:relative;
+    }
+    .fill {
+      height:100%;
+      border-radius:999px;
+      width:0%;
+      background: linear-gradient(90deg, var(--atp), var(--atp2));
+    }
+    .fill.wta {
+      background: linear-gradient(90deg, var(--wta), var(--wta2));
+    }
+    .statRow .val { text-align:right; color:var(--muted); font-variant-numeric: tabular-nums; font-size:13px; }
+    .tableWrap { overflow:auto; border-radius:18px; border:1px solid rgba(255,255,255,.06); }
+    table { width:100%; border-collapse:collapse; min-width: 900px; }
+    thead th {
+      position:sticky; top:0;
+      background: rgba(8,8,14,.96);
+      color:#dfe7ff;
+      text-align:left;
+      font-size:12px;
+      text-transform:uppercase;
+      letter-spacing:.08em;
+      padding:13px 14px;
+      border-bottom:1px solid rgba(255,255,255,.08);
+    }
+    tbody td {
+      padding:12px 14px;
+      border-bottom:1px solid rgba(255,255,255,.06);
+      color:#f6f7ff;
+      font-size:13px;
+      vertical-align:top;
+    }
+    tbody tr:hover { background: rgba(255,255,255,.03); }
+    tbody td.muted { color:var(--muted); }
+    .tag {
+      display:inline-flex; align-items:center; gap:8px;
+      border-radius:999px;
+      padding:7px 10px;
+      font-size:12px;
+      font-weight:700;
+      background: rgba(255,255,255,.04);
+      border:1px solid rgba(255,255,255,.07);
+    }
+    .tag.atp { background: rgba(74,163,255,.12); border-color: rgba(74,163,255,.25); }
+    .tag.wta { background: rgba(194,107,255,.12); border-color: rgba(194,107,255,.25); }
+    .split {
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:14px;
+      margin-bottom:14px;
+    }
+    .miniCard { padding:16px 18px; }
+    .miniCard h3 { margin:0 0 10px; font-size:15px; }
+    .miniList { display:grid; gap:8px; color:var(--muted); font-size:13px; line-height:1.5; }
+    .miniList strong { color:var(--text); }
+    .empty {
+      padding:16px 18px;
+      color:var(--muted);
+      background: rgba(255,255,255,.03);
+      border:1px dashed rgba(255,255,255,.10);
+      border-radius:18px;
+    }
+    .loading {
+      min-height: 220px;
+      display:grid;
+      place-items:center;
+      color:var(--muted);
+      font-size:14px;
+    }
+    .spinner {
+      width:42px; height:42px;
+      border-radius:50%;
+      border:3px solid rgba(255,255,255,.10);
+      border-top-color: var(--wta);
+      animation: spin 1s linear infinite;
+      margin-bottom:12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .footerNote {
+      margin-top:16px;
+      color:var(--muted);
+      font-size:12px;
+      line-height:1.6;
+      text-align:center;
+    }
+    @media (max-width: 1100px){
+      .gridKPIs { grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .sectionGrid, .split { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 680px){
+      .heroTop { flex-direction:column; }
+      .navRow { justify-content:flex-start; }
+      .subnav { align-items:flex-start; }
+      .gridKPIs { grid-template-columns: 1fr; }
+      .statRow { grid-template-columns: 1fr; }
+      .statRow .val { text-align:left; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="hero">
+      <div class="heroTop">
+        <div class="titleBlock">
+          <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
+            <a class="pill" href="country_map.html">← Retour à la carte</a>
+            <span id="countryBadge" class="pill">Pays</span>
+          </div>
+          <h1 id="countryTitle">Chargement du pays…</h1>
+          <p id="countrySubtitle">La page va charger automatiquement le JSON de statistiques correspondant au pays sélectionné, puis afficher les sections ATP et WTA en Weekly ou Year-to-date.</p>
+        </div>
+        <div class="navRow">
+          <button class="pill atp active" data-circuit="ATP">ATP</button>
+          <button class="pill wta" data-circuit="WTA">WTA</button>
+        </div>
+      </div>
+
+      <div class="subnav">
+        <div class="subnavGroup">
+          <button class="tabBtn atp active" data-period="weekly">Weekly</button>
+          <button class="tabBtn wta" data-period="year">Depuis le début de l’année</button>
+        </div>
+        <div class="subnavGroup">
+          <span id="fileHint" class="tag">Recherche du fichier JSON…</span>
+        </div>
+      </div>
+
+      <div class="content">
+        <div id="loading" class="card loading">
+          <div style="text-align:center; padding:24px;">
+            <div class="spinner"></div>
+            <div>Chargement des données…</div>
+          </div>
+        </div>
+
+        <div id="dashboard" style="display:none;">
+          <div class="gridKPIs" id="kpis"></div>
+
+          <div class="sectionGrid">
+            <section class="card">
+              <div class="sectionHeader">
+                <h2>Vue générale</h2>
+                <div class="meta" id="overviewMeta"></div>
+              </div>
+              <div class="sectionBody" id="overview"></div>
+            </section>
+
+            <section class="card">
+              <div class="sectionHeader">
+                <h2>Performance / cohérence</h2>
+                <div class="meta" id="perfMeta"></div>
+              </div>
+              <div class="sectionBody" id="performance"></div>
+            </section>
+          </div>
+
+          <div class="split">
+            <section class="card">
+              <div class="sectionHeader">
+                <h2>Statistiques de jeu</h2>
+                <div class="meta">Sommes pour les volumes, moyennes pour les ratios</div>
+              </div>
+              <div class="sectionBody" id="gameStats"></div>
+            </section>
+
+            <section class="card">
+              <div class="sectionHeader">
+                <h2>Rang / évolutions / nouveautés</h2>
+                <div class="meta">Partie ATP ou WTA selon l’onglet actif</div>
+              </div>
+              <div class="sectionBody" id="rankStats"></div>
+            </section>
+          </div>
+
+          <section class="card" style="margin-bottom:14px;">
+            <div class="sectionHeader">
+              <h2>Joueurs avec classement</h2>
+              <div class="meta">Ordre du meilleur rang au moins bon</div>
+            </div>
+            <div class="sectionBody">
+              <div class="tableWrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Joueur</th>
+                      <th>Rang</th>
+                      <th>Tournament / highest round</th>
+                      <th>Points</th>
+                      <th>Signal</th>
+                    </tr>
+                  </thead>
+                  <tbody id="playersTable"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="sectionHeader">
+              <h2>Répartition détaillée</h2>
+              <div class="meta">Blocs additionnels détectés automatiquement</div>
+            </div>
+            <div class="sectionBody" id="extraBlocks"></div>
+          </section>
+
+          <div class="footerNote">
+            Les couleurs bleu et violet suivent le circuit actif. Les champs non présents dans le JSON sont simplement ignorés.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const slugify = (s) => (s || '')
+      .toString()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/['’]/g, '')
+      .replace(/[^a-zA-Z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .toLowerCase();
+
+    const qs = new URLSearchParams(location.search);
+    const code = (qs.get('code') || '').trim();
+    const name = (qs.get('name') || '').trim();
+    const iso2 = (qs.get('iso2') || '').trim();
+
+    const state = {
+      raw: null,
+      circuit: 'ATP',
+      period: 'weekly',
+      sourceFile: null,
+      section: null,
+    };
+
+    const el = (id) => document.getElementById(id);
+
+    function setText(id, value) {
+      el(id).textContent = value ?? '';
+    }
+
+    function isObj(v) { return v && typeof v === 'object' && !Array.isArray(v); }
+
+    function prettyKey(key) {
+      return String(key)
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, m => m.toUpperCase());
+    }
+
+    function numberFmt(v) {
+      if (v === null || v === undefined || v === '') return '—';
+      if (typeof v === 'number' && Number.isFinite(v)) return new Intl.NumberFormat('fr-FR').format(v);
+      if (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v.trim())) {
+        const n = Number(v);
+        return new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 3 }).format(n);
+      }
+      return String(v);
+    }
+
+    function formatMaybePercent(key, value) {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return numberFmt(value);
+      const k = key.toLowerCase();
+      if (k.includes('rate') || k.includes('percent') || k.includes('percentage') || k.includes('ratio') || k.includes('proportion')) {
+        return `${(n * (n <= 1 ? 100 : 1)).toFixed(n <= 1 ? 1 : 2)}${n <= 1 ? '%' : ''}`;
+      }
+      return numberFmt(value);
+    }
+
+    function deepGet(obj, paths) {
+      for (const path of paths) {
+        let cur = obj;
+        let ok = true;
+        for (const k of path) {
+          if (cur && Object.prototype.hasOwnProperty.call(cur, k)) cur = cur[k];
+          else { ok = false; break; }
+        }
+        if (ok && cur !== undefined && cur !== null) return cur;
+      }
+      return undefined;
+    }
+
+    function pickFirst(obj, keys) {
+      if (!isObj(obj)) return undefined;
+      for (const key of keys) {
+        if (Object.prototype.hasOwnProperty.call(obj, key)) return obj[key];
+      }
+      return undefined;
+    }
+
+    function normalizeSection(section) {
+      if (!isObj(section)) return {};
+      return section;
+    }
+
+    function resolveCircuitBlock(raw, circuit) {
+      const variants = [circuit, circuit.toLowerCase(), circuit.toUpperCase()];
+      for (const v of variants) {
+        if (raw?.[v]) return normalizeSection(raw[v]);
+      }
+      for (const key of Object.keys(raw || {})) {
+        if (key.toLowerCase() === circuit.toLowerCase()) return normalizeSection(raw[key]);
+      }
+      return {};
+    }
+
+    function resolvePeriodBlock(section, period) {
+      if (!isObj(section)) return {};
+      const candidates = period === 'weekly'
+        ? ['weekly', 'last_week', 'week', 'lastWeek', 'previous_week']
+        : ['year', 'current_year', 'ytd', 'season', 'from_beginning_year', 'beginning_year', 'year_to_date'];
+
+      for (const k of candidates) {
+        if (section[k]) return normalizeSection(section[k]);
+      }
+
+      for (const key of Object.keys(section)) {
+        if (candidates.some(c => key.toLowerCase() === c.toLowerCase())) {
+          return normalizeSection(section[key]);
+        }
+      }
+
+      return section;
+    }
+
+    function candidateFiles() {
+      const base = [];
+      const tokens = [code, iso2, name].filter(Boolean);
+      const cleanName = slugify(name);
+      const cleanCode = slugify(code);
+      const cleanIso2 = slugify(iso2);
+
+      const variants = new Set();
+      for (const t of tokens) {
+        const s = String(t).trim();
+        if (!s) continue;
+        variants.add(s);
+        variants.add(s.toUpperCase());
+        variants.add(s.toLowerCase());
+        variants.add(slugify(s));
+        variants.add(s.replace(/\s+/g, '_'));
+        variants.add(s.replace(/\s+/g, '-'));
+      }
+      if (cleanName) variants.add(cleanName);
+      if (cleanCode) variants.add(cleanCode);
+      if (cleanIso2) variants.add(cleanIso2);
+
+      const dirs = [
+        'generated/weekly_update',
+        'generated/weekly_update/countries',
+        'generated',
+      ];
+      for (const v of variants) {
+        if (!v) continue;
+        base.push(`${v}.json`);
+        base.push(`${v}.JSON`);
+        for (const dir of dirs) base.push(`${dir}/${v}.json`);
+      }
+      base.push('generated/weekly_update/index.json');
+      base.push('generated/index.json');
+      return [...new Set(base)];
+    }
+
+    async function tryFetchJson(path) {
+      const res = await fetch(path, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`${path} -> ${res.status}`);
+      return await res.json();
+    }
+
+    async function loadCountryData() {
+      const candidates = candidateFiles();
+
+      for (const path of candidates) {
+        if (path.endsWith('index.json')) continue;
+        try {
+          const json = await tryFetchJson(path);
+          state.sourceFile = path;
+          return json;
+        } catch (_) {}
+      }
+
+      for (const path of candidates.filter(p => p.endsWith('index.json'))) {
+        try {
+          const index = await tryFetchJson(path);
+          const lookup = [
+            code, code.toUpperCase(), code.toLowerCase(),
+            iso2, iso2.toUpperCase(), iso2.toLowerCase(),
+            name, name.toLowerCase(), slugify(name)
+          ].filter(Boolean);
+
+          const manifests = [];
+          if (Array.isArray(index)) manifests.push(...index);
+          else if (isObj(index)) {
+            if (Array.isArray(index.countries)) manifests.push(...index.countries);
+            if (Array.isArray(index.files)) manifests.push(...index.files);
+          }
+
+          for (const item of manifests) {
+            if (!item) continue;
+            if (typeof item === 'string' && lookup.some(k => item.toLowerCase().includes(String(k).toLowerCase()))) {
+              try {
+                const json = await tryFetchJson(item.startsWith('http') ? item : `generated/weekly_update/${item.replace(/^\/+/, '')}`);
+                state.sourceFile = item;
+                return json;
+              } catch (_) {}
+            }
+            if (isObj(item)) {
+              const keys = [item.code, item.iso3, item.iso2, item.name, item.country, item.file].filter(Boolean).map(String);
+              if (lookup.some(k => keys.some(x => x.toLowerCase() === String(k).toLowerCase() || x.toLowerCase().includes(String(k).toLowerCase())))) {
+                const file = item.file || item.path || item.json || item.filename;
+                if (file) {
+                  const path = file.startsWith('generated/') ? file : `generated/weekly_update/${file.replace(/^\/+/, '')}`;
+                  try {
+                    const json = await tryFetchJson(path);
+                    state.sourceFile = path;
+                    return json;
+                  } catch (_) {}
+                }
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
+      throw new Error('Aucun fichier JSON pays trouvé.');
+    }
+
+    function resolveContainer(raw) {
+      if (raw && (raw.ATP || raw.WTA || raw.atp || raw.wta)) return raw;
+      if (raw && isObj(raw.data) && (raw.data.ATP || raw.data.WTA || raw.data.atp || raw.data.wta)) return raw.data;
+      if (raw && Array.isArray(raw.countries)) {
+        const target = raw.countries.find(c =>
+          [code, iso2, name, slugify(name)].filter(Boolean).some(k =>
+            [c.code, c.iso2, c.iso3, c.name, c.country, c.country_name, c.country_code].filter(Boolean).some(v => String(v).toLowerCase() === String(k).toLowerCase())
+          )
+        );
+        if (target) return target;
+      }
+      return raw;
+    }
+
+    function sectionByCircuit(raw, circuit) {
+      const root = resolveContainer(raw);
+      const circuitBlock = resolveCircuitBlock(root, circuit);
+      if (Object.keys(circuitBlock).length) return circuitBlock;
+      if (root && (root.periods || root.weekly || root.current_year)) return root;
+      return root || {};
+    }
+
+    function periodData(section, period) {
+      return resolvePeriodBlock(section, period);
+    }
+
+    function findStatsBlock(data) {
+      const keys = ['game_stats', 'match_stats', 'stats', 'statistics', 'performance_stats', 'game_statistics'];
+      for (const k of keys) {
+        if (data?.[k]) return data[k];
+      }
+      return null;
+    }
+
+    function renderKpis(section, periodBlock) {
+      const kpis = [];
+      const matches = pickFirst(periodBlock, ['number_of_matches', 'matches', 'match_count', 'n_matches']);
+      const players = pickFirst(periodBlock, ['players_count', 'player_count', 'number_of_players']);
+      const sigWins = pickFirst(periodBlock, ['significant_wins_count', 'significant_wins', 'sig_wins']);
+      const newPlayers = pickFirst(periodBlock, ['new_players_count', 'new_players']);
+      const perf = pickFirst(section, ['performance_index', 'performance_score', 'index', 'score']);
+
+      kpis.push({ label: 'Matches', value: matches ?? '—', hint: 'Tous les matchs pris en compte' });
+      kpis.push({ label: 'Joueurs', value: players ?? '—', hint: 'Joueurs distincts détectés' });
+      kpis.push({ label: 'Significant wins', value: sigWins ?? '—', hint: 'Victoires marquantes' });
+      kpis.push({ label: 'Performance', value: perf ?? '—', hint: 'Indice calculé par joueur/pays' });
+
+      el('kpis').innerHTML = kpis.map((k, idx) => `
+        <div class="card kpi" style="${idx===0 ? 'background:linear-gradient(180deg, rgba(74,163,255,.14), rgba(255,255,255,.03));' : idx===1 ? 'background:linear-gradient(180deg, rgba(194,107,255,.14), rgba(255,255,255,.03));' : ''}">
+          <div class="label">${k.label}</div>
+          <div class="value">${k.value}</div>
+          <div class="hint">${k.hint}</div>
+        </div>
+      `).join('');
+    }
+
+    function renderMiniList(container, items) {
+      if (!items || !items.length) {
+        container.innerHTML = `<div class="empty">Aucune donnée à afficher ici.</div>`;
+        return;
+      }
+      container.innerHTML = `<div class="miniList">${items.map(x => `<div>• ${x}</div>`).join('')}</div>`;
+    }
+
+    function renderOverview(section, periodBlock) {
+      const lines = [];
+
+      const matches = pickFirst(periodBlock, ['number_of_matches', 'matches', 'match_count']);
+      if (matches !== undefined) lines.push(`<div>Nombre de matchs : <strong>${numberFmt(matches)}</strong></div>`);
+
+      const mostPlayed = pickFirst(periodBlock, ['most_played_tourney_name', 'tourney_name_most', 'top_tourney_name', 'tourney_name_where_most_played']);
+      if (mostPlayed !== undefined) lines.push(`<div>Tournament le plus fréquent : <strong>${String(mostPlayed)}</strong></div>`);
+
+      const winners = pickFirst(periodBlock, ['tournaments_won', 'titles', 'won_tournaments']);
+      if (Array.isArray(winners) && winners.length) {
+        lines.push(`<div>Titres / tournois gagnés : <strong>${winners.map(String).join(', ')}</strong></div>`);
+      }
+
+      const significantWins = pickFirst(periodBlock, ['significant_wins', 'sig_wins', 'important_wins']);
+      if (Array.isArray(significantWins) && significantWins.length) {
+        lines.push(`<div>Victoires significatives : <strong>${significantWins.length}</strong></div>`);
+      }
+
+      const newPlayers = pickFirst(periodBlock, ['new_players', 'new_players_list']);
+      if (Array.isArray(newPlayers) && newPlayers.length) {
+        lines.push(`<div>Nouveaux joueurs : <strong>${newPlayers.length}</strong></div>`);
+      }
+
+      const ranks = pickFirst(section, ['country_rankings', 'rankings', 'ranks']);
+      if (isObj(ranks)) {
+        const compact = Object.entries(ranks)
+          .filter(([,v]) => v !== undefined && v !== null)
+          .map(([k,v]) => `<div>${prettyKey(k)} : <strong>${numberFmt(v)}</strong></div>`);
+        lines.push(...compact);
+      }
+
+      if (!lines.length) {
+        el('overview').innerHTML = `<div class="empty">Le JSON ne contient pas de bloc de synthèse explicite. Les autres sections restent affichées automatiquement.</div>`;
+      } else {
+        el('overview').innerHTML = `<div class="miniList">${lines.join('')}</div>`;
+      }
+
+      const meta = [];
+      if (state.sourceFile) meta.push(`Source : ${state.sourceFile}`);
+      meta.push(`Mode : ${state.circuit} · ${state.period === 'weekly' ? 'Weekly' : 'Year-to-date'}`);
+      el('overviewMeta').textContent = meta.join(' · ');
+    }
+
+    function renderPerformance(section, periodBlock) {
+      const items = [];
+      const perfBlock = pickFirst(periodBlock, ['performance', 'performance_index', 'performance_scores', 'indices']);
+      const countryPerf = pickFirst(section, ['country_performance', 'coherence_index', 'coherence', 'atp_wta_coherence']);
+
+      if (isObj(countryPerf)) {
+        for (const [k, v] of Object.entries(countryPerf)) {
+          items.push(`${prettyKey(k)} : ${numberFmt(v)}`);
+        }
+      } else if (typeof countryPerf !== 'undefined') {
+        items.push(`Cohérence ATP/WTA : ${numberFmt(countryPerf)}`);
+      }
+
+      if (isObj(perfBlock)) {
+        for (const [k, v] of Object.entries(perfBlock)) {
+          if (typeof v === 'number' || (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v.trim()))) {
+            items.push(`${prettyKey(k)} : ${numberFmt(v)}`);
+          }
+        }
+      }
+
+      const sig = pickFirst(periodBlock, ['significant_wins', 'significant_losses', 'ranking_moves', 'evolutions']);
+      if (Array.isArray(sig) && sig.length) {
+        items.push(`Éléments marquants : ${sig.length}`);
+      }
+
+      renderMiniList(el('performance'), items.map(x => String(x)));
+      el('perfMeta').textContent = state.circuit;
+    }
+
+    function renderGameStats(section, periodBlock) {
+      const statsSource = findStatsBlock(periodBlock) || findStatsBlock(section) || periodBlock;
+      const metrics = [
+        ['Number of aces', ['aces', 'number_of_aces', 'aces_count', 'total_aces']],
+        ['Aces per service point', ['aces_per_service_point', 'ace_rate', 'aces_rate']],
+        ['Number of double faults', ['double_faults', 'doublefaults', 'number_of_double_faults']],
+        ['Double faults per service point', ['double_faults_per_service_point', 'double_fault_rate']],
+        ['First serve %', ['first_serve_percent', 'firstserve_percent', 'first_serve_rate']],
+        ['First serve points won %', ['first_serve_points_won_percent', 'firstservepointswon_percent']],
+        ['Second serve points won %', ['second_serve_points_won_percent', 'secondservepointswon_percent']],
+        ['Service points won %', ['service_points_won_percent', 'totalservicepointswon_percent']],
+        ['Return points won %', ['return_points_won_percent', 'totalreturnpointswon_percent']],
+        ['Breakpoints faced', ['breakpoints_faced', 'breakpointsplayed', 'breakpoints_against']],
+        ['Breakpoints converted (count)', ['breakpoints_converted', 'breakpointsconv', 'breakpoints_won']],
+        ['Breakpoints converted rate', ['breakpoints_converted_rate', 'breakpointsconv_percent']],
+        ['Service games lost rate', ['service_games_lost_rate', 'servicegameslost_rate']],
+        ['Tie-breaks win rate', ['tiebreaks_win_rate', 'tie_breaks_win_rate']],
+        ['Mean match time (hours)', ['mean_match_time_hours', 'match_time_hours', 'mean_time_hours']],
+      ];
+
+      const rows = metrics.map(([label, keys]) => {
+        let value;
+        for (const k of keys) {
+          value = deepGet(statsSource, k.split('.').filter(Boolean).map(x => x));
+          if (value === undefined) value = statsSource?.[k];
+          if (value !== undefined && value !== null) break;
+        }
+        if (value === undefined) value = statsSource?.[label];
+        const n = Number(value);
+        const pct = /%|rate|percent/i.test(label) ? (Number.isFinite(n) ? (n <= 1 ? (n * 100).toFixed(1) + '%' : n.toFixed(1) + '%') : numberFmt(value)) : formatMaybePercent(label, value);
+        return { label, value: pct, numeric: Number.isFinite(n) ? n : null };
+      }).filter(r => r.value !== '—' || r.numeric !== null);
+
+      if (!rows.length) {
+        el('gameStats').innerHTML = `<div class="empty">Aucune statistique de jeu exploitable n’a été trouvée dans ce bloc JSON.</div>`;
+        return;
+      }
+
+      const max = Math.max(...rows.map(r => Math.abs(r.numeric ?? 0)), 1);
+      el('gameStats').innerHTML = `
+        <div class="statList">
+          ${rows.map((r) => {
+            const pct = r.numeric === null ? 0 : Math.max(4, Math.min(100, (Math.abs(r.numeric) / max) * 100));
+            const isWta = state.circuit === 'WTA';
+            return `
+              <div class="statRow">
+                <div class="name">${r.label}</div>
+                <div class="bar"><div class="fill ${isWta ? 'wta' : ''}" style="width:${pct}%"></div></div>
+                <div class="val">${r.value}</div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+    }
+
+    function playerName(item) {
+      return item?.full_name || item?.name || item?.player_name || item?.player || item?.playerFullName || item?.fullName || '—';
+    }
+    function playerRank(item) {
+      return item?.ranking ?? item?.rank ?? item?.current_rank ?? item?.currentRanking ?? '—';
+    }
+    function playerPoints(item) {
+      return item?.points ?? item?.ranking_points ?? item?.rankingPoints ?? '—';
+    }
+    function highestRound(item) {
+      return item?.highest_round || item?.highestRound || item?.best_round || item?.round || item?.highestReachedRound || '—';
+    }
+    function playerTournament(item) {
+      return item?.tourney_name || item?.tournament || item?.tournament_name || item?.tournament_title || item?.event || '—';
+    }
+    function signalTag(item) {
+      if (item?.significant_win || item?.has_significant_win) return 'Significant win';
+      if (item?.new_player || item?.is_new_player) return 'New player';
+      if (item?.ranking_evolution) return `Δ ${item.ranking_evolution}`;
+      return item?.signal || item?.status || '—';
+    }
+
+    function extractPlayers(periodBlock) {
+      const keys = ['players', 'player_list', 'ranking_players', 'players_with_ranking', 'ranked_players', 'player_stats'];
+      for (const k of keys) {
+        const v = periodBlock?.[k];
+        if (Array.isArray(v)) return v;
+        if (isObj(v) && Array.isArray(v.items)) return v.items;
+      }
+      if (Array.isArray(periodBlock)) return periodBlock;
+      return [];
+    }
+
+    function renderPlayersTable(periodBlock) {
+      const players = extractPlayers(periodBlock);
+      if (!players.length) {
+        el('playersTable').innerHTML = `<tr><td colspan="5" class="muted">Aucun tableau joueur détecté dans ce bloc.</td></tr>`;
+        return;
+      }
+
+      const ranked = players.slice().sort((a, b) => {
+        const ra = Number(playerRank(a));
+        const rb = Number(playerRank(b));
+        const aa = Number.isFinite(ra) ? ra : 99999;
+        const bb = Number.isFinite(rb) ? rb : 99999;
+        return aa - bb;
+      });
+
+      el('playersTable').innerHTML = ranked.map(item => `
+        <tr>
+          <td>
+            <div style="font-weight:700">${playerName(item)}</div>
+            <div class="muted">${item?.country_code || item?.country_name || item?.country || ''}</div>
+          </td>
+          <td>${playerRank(item)}</td>
+          <td>
+            <div>${playerTournament(item)}</div>
+            <div class="muted">${highestRound(item)}</div>
+          </td>
+          <td>${playerPoints(item)}</td>
+          <td>
+            <span class="tag ${state.circuit === 'ATP' ? 'atp' : 'wta'}">${signalTag(item)}</span>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function renderExtraBlocks(periodBlock) {
+      const known = new Set([
+        'number_of_matches','matches','match_count','most_played_tourney_name','tourney_name_most','top_tourney_name',
+        'players','player_list','ranking_players','players_with_ranking','ranked_players','player_stats',
+        'stats','statistics','game_stats','match_stats','performance','performance_index','significant_wins',
+        'significant_losses','ranking_moves','evolutions','new_players','new_players_list','tournaments_won','titles'
+      ]);
+
+      const entries = Object.entries(periodBlock || {})
+        .filter(([k, v]) => !known.has(k) && v !== null && v !== undefined);
+
+      if (!entries.length) {
+        el('extraBlocks').innerHTML = `<div class="empty">Aucun bloc supplémentaire détecté.</div>`;
+        return;
+      }
+
+      const blocks = entries.map(([key, value]) => {
+        if (Array.isArray(value)) {
+          return `
+            <div class="card miniCard" style="margin-bottom:12px;">
+              <h3>${prettyKey(key)}</h3>
+              <div class="miniList">
+                ${value.slice(0, 30).map(v => `<div>• ${typeof v === 'object' ? JSON.stringify(v) : String(v)}</div>`).join('')}
+                ${value.length > 30 ? `<div>… + ${value.length - 30} éléments</div>` : ''}
+              </div>
+            </div>
+          `;
+        }
+        if (isObj(value)) {
+          const compact = Object.entries(value).map(([k,v]) => `<div><strong>${prettyKey(k)}</strong> : ${typeof v === 'number' ? numberFmt(v) : String(v)}</div>`).join('');
+          return `
+            <div class="card miniCard" style="margin-bottom:12px;">
+              <h3>${prettyKey(key)}</h3>
+              <div class="miniList">${compact}</div>
+            </div>
+          `;
+        }
+        return `
+          <div class="card miniCard" style="margin-bottom:12px;">
+            <h3>${prettyKey(key)}</h3>
+            <div class="miniList"><div><strong>Valeur</strong> : ${String(value)}</div></div>
+          </div>
+        `;
+      }).join('');
+
+      el('extraBlocks').innerHTML = blocks;
+    }
+
+    function updateHeader() {
+      const title = `${name || 'Pays inconnu'}${code ? ` · ${code}` : ''}`;
+      setText('countryTitle', title);
+      setText('countryBadge', code || iso2 || 'Pays');
+      setText('countrySubtitle', `Données provenant du JSON pays chargé automatiquement. Circuit actif : ${state.circuit}. Période : ${state.period === 'weekly' ? 'Weekly' : 'Depuis le début de l’année'}.`);
+      setText('fileHint', state.sourceFile ? `Fichier : ${state.sourceFile}` : 'Fichier JSON détecté');
+      document.querySelectorAll('.pill[data-circuit]').forEach(btn => btn.classList.toggle('active', btn.dataset.circuit === state.circuit));
+      document.querySelectorAll('.tabBtn[data-period]').forEach(btn => btn.classList.toggle('active', btn.dataset.period === state.period));
+    }
+
+    function renderAll() {
+      const root = state.raw || {};
+      const section = sectionByCircuit(root, state.circuit);
+      const periodBlock = periodData(section, state.period);
+
+      state.section = section;
+
+      updateHeader();
+      renderKpis(section, periodBlock);
+      renderOverview(section, periodBlock);
+      renderPerformance(section, periodBlock);
+      renderGameStats(section, periodBlock);
+      renderPlayersTable(periodBlock);
+      renderExtraBlocks(periodBlock);
+
+      el('loading').style.display = 'none';
+      el('dashboard').style.display = 'block';
+    }
+
+    document.querySelectorAll('[data-circuit]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.circuit = btn.dataset.circuit;
+        renderAll();
+      });
+    });
+    document.querySelectorAll('[data-period]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.period = btn.dataset.period;
+        renderAll();
+      });
+    });
+
+    async function init() {
+      try {
+        const raw = await loadCountryData();
+        state.raw = raw;
+        renderAll();
+      } catch (err) {
+        console.error(err);
+        el('loading').innerHTML = `
+          <div style="max-width:720px; text-align:center; padding:24px;">
+            <div style="font-size:20px; font-weight:800; margin-bottom:10px;">Impossible de charger le JSON du pays</div>
+            <div style="color:var(--muted); line-height:1.7">
+              J’ai essayé plusieurs chemins dans <code>generated/weekly_update/</code>, mais aucun fichier n’a répondu.
+              Vérifie le nom du fichier pays ou la présence d’un <code>index.json</code> / manifeste.
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
