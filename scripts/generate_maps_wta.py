@@ -23,6 +23,8 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List
 import pandas as pd
 import numbers
+import pycountry
+
 
 
 # ----------------- Helpers -----------------
@@ -116,7 +118,6 @@ def parse_date_only(val: Optional[str]) -> str:
 
 
 # ----------------- IOC -> ISO3 mapping -----------------
-import pycountry
 
 # ISO 3166-1 alpha-2 -> alpha-3, complet et à jour via la base ISO de pycountry.
 ISO2_TO_ISO3_COMMON = {c.alpha_2: c.alpha_3 for c in pycountry.countries}
@@ -607,7 +608,7 @@ def main(matches_dir: str, out_dir: str, host_event_map_path: Optional[str] = No
     if limit_players:
         player_ids = player_ids[:int(limit_players)]
 
-    players_dir = os.path.join(out_dir, "players")
+    players_dir = out_dir
     safe_mkdir(players_dir)
 
     for i, pid in enumerate(player_ids, start=1):

@@ -5,7 +5,7 @@ generate_maps.py - Module: génération des cartes (geo aggregates)
 
 Usage:
   python generate_maps.py --matches-dir /path/to/matches --out-dir ./dist --host-event-map ./host_event_map.json --limit-players 200
-
+python generate_maps.py --matches-dir /docs/matches/atp_matches --out-dir ./dist --host-event-map ./host_event_map.json --limit-players 200
 Sorties:
   - <out_dir>/players_atp/{PLAYER_ID}.maps.json
 
@@ -619,7 +619,7 @@ def main(
     if limit_players:
         player_ids = player_ids[:int(limit_players)]
 
-    players_dir = os.path.join(out_dir, "players_atp")
+    players_dir = out_dir
     safe_mkdir(players_dir)
 
     for i, pid in enumerate(player_ids, start=1):

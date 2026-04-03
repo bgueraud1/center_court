@@ -335,6 +335,57 @@ def main():
     outpath = Path(args.out)
     outpath.parent.mkdir(parents=True, exist_ok=True)
     print("Writing output JSON to", outpath)
+
+        # --- INSÉRER ICI : robustifier parsing des birth_date et remplir 'age' si possible ---
+    # utilise pandas (pd est déjà importé en haut) pour parser massivement les dates
+    try:
+        # ranking_date_str provient de process_rankings_in_chunks retourné plus haut
+        ranking_date_val = pd.to_datetime(ranking_date_str) if ranking_date_str else pd.to_datetime(pd.Timestamp.utcnow().strftime("%Y-%m-%d"))
+    except Exception:
+        ranking_date_val = pd.to_datetime(pd.Timestamp.utcnow().strftime("%Y-%m-%d"))
+
+    # Collect birth_date strings
+    bd_list = [ (r.get('birth_date') or '') for r in out_rows ]
+    if bd_list:
+        # Vectorized parse — tolérant à plusieurs formats
+        parsed = pd.to_datetime(pd.Series(bd_list).replace('', pd.NaT), errors='coerce', dayfirst=False, infer_datetime_format=True)
+
+        for idx, r in enumerate(out_rows):
+            # if age already present and valid, keep it
+            if isinstance(r.get('age'), int):
+                continue
+            age_val = None
+            try:
+                pd_parsed = parsed.iloc[idx]
+            except Exception:
+                pd_parsed = pd.NaT
+            if pd.notna(pd_parsed):
+                days = (ranking_date_val - pd_parsed).days
+                if days >= 0:
+                    age_val = int(days // 365.25)
+            else:
+                # fallback: try to parse single-string with pandas again (rare formats)
+                bd_raw = (r.get('birth_date') or '').strip()
+                if bd_raw:
+                    try:
+                        alt = pd.to_datetime(bd_raw, errors='coerce', dayfirst=False)
+                        if pd.notna(alt):
+                            days = (ranking_date_val - alt).days
+                            if days >= 0:
+                                age_val = int(days // 365.25)
+                    except Exception:
+                        age_val = None
+            # assign explicit None (null in JSON) if age_val is None
+            r['age'] = age_val if age_val is not None else None
+    else:
+        # ensure key exists for all rows
+        for r in out_rows:
+            if 'age' not in r:
+                r['age'] = None
+    # --- FIN INSÉRER ---
+
+
+    
     with outpath.open("w", encoding="utf-8") as fh:
         if args.compact:
             json.dump(out_rows, fh, ensure_ascii=False, separators=(',',':'))

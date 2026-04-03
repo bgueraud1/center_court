@@ -850,7 +850,7 @@ def main(matches_dir, out_dir, rankings_dir=None, host_event_map_path=None, play
         player_ids = player_ids[:int(limit_players)]
     print(f"[dstats] processing {len(player_ids)} players")
 
-    players_dir = os.path.join(out_dir, "players")
+    players_dir = out_dir
     safe_mkdir(players_dir)
 
     for i, pid in enumerate(player_ids, start=1):
