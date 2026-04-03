@@ -50,12 +50,40 @@ jobs:
           if [ -f requirements-build.txt ]; then pip install -r requirements-build.txt; fi
           pip install geopy pandas "selenium>=4.8" "webdriver-manager>=4.0"
 
+      - name: Prepare tmp branch from origin/main
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_FOR_CI || secrets.GITHUB_TOKEN }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          AUTH="${GITHUB_TOKEN:-}"
+          if [ -z "$AUTH" ]; then
+            echo "No auth token available — aborting"
+            exit 1
+          fi
+
+          TMP_BRANCH="update/weekly/${GITHUB_RUN_ID}"
+          echo "TMP_BRANCH=${TMP_BRANCH}" >> "$GITHUB_ENV"
+          echo "TMP_BRANCH=${TMP_BRANCH}"
+
+          git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}" || true
+          git fetch origin main --quiet || true
+
+          if git rev-parse --verify origin/main >/dev/null 2>&1; then
+            git checkout -B "${TMP_BRANCH}" origin/main
+          else
+            git checkout -B "${TMP_BRANCH}"
+          fi
+
+          echo "On branch: $(git branch --show-current)"
+          git status --porcelain || true
+
       # Run main.py with explicit RANKINGS_DIR absolute path (workspace)
       - name: Run main.py (update CSV)
         working-directory: ${{ github.workspace }}
         env:
           SKIP_GEOCODE: "1"
-          # ensure we pass absolute path for WTA rankings
           RANKINGS_DIR: "${{ github.workspace }}/wta_rankings"
         run: |
           echo "Running main.py with RANKINGS_DIR=${RANKINGS_DIR}"
@@ -92,7 +120,6 @@ jobs:
             --out-csv games/blur_game/players_list.csv \
             --out-json games/blur_game/players_ranks.json
 
-      
       - name: Copy generated JSONs into site_static/tools
         run: |
           mkdir -p site_static/tools
@@ -100,14 +127,11 @@ jobs:
           cp -v "${BUILD_DIR}/tools/"*.json site_static/tools/ || true
           ls -la site_static/tools || true
 
-      
-      
       - name: Run build_all (generate maps & docs)
         env:
           SKIP_GEOCODE: "1"
         run: |
           python scripts/build_all.py --out-dir "${BUILD_DIR}"
-
 
       - name: Show build_dir contents (debug)
         run: |
@@ -139,7 +163,6 @@ jobs:
           echo "--- listing wta_rankings (first 200) ---"
           ls -la wta_rankings | sed -n '1,200p' || true
 
-
       - name: Generate latest ATP ranking JSON
         run: |
           python3 scripts/generate_latest_rankings_json.py \
@@ -160,6 +183,29 @@ jobs:
             --circuit WTA \
             --base-url "https://www.center-court.net"
 
+      - name: Generate player meta, maps, detailed stats, scenarios, and leaderboards
+        run: |
+          set -euo pipefail
+          mkdir -p docs/players_atp docs/players docs/leaderboards docs/leaderboards_wta
+
+          python3 scripts/generate_player_meta.py \
+            --matches-dir docs/matches/atp_matches \
+            --out-dir ./docs \
+            --player-data-csv ./player_data_atp.csv
+
+          python3 scripts/generate_player_meta_wta.py \
+            --matches-dir docs/matches/wta_matches \
+            --out-dir ./docs \
+            --player-data-csv ./player_data_atp.csv
+
+          python scripts/generate_maps.py --matches-dir docs/matches/atp_matches --out-dir docs/players_atp --host-event-map ./host_event_map.json
+          python scripts/generate_maps_wta.py --matches-dir docs/matches/wta_matches --out-dir docs/players --host-event-map ./host_event_map_wta.json
+          python scripts/generate_detailed_stats.py --matches-dir docs/matches/atp_matches --out-dir docs/players_atp --rankings-dir atp_rankings
+          python scripts/generate_detailed_stats_wta.py --matches-dir docs/matches/wta_matches --out-dir docs/players --rankings-dir wta_rankings
+          python scripts/generate_scenarios.py --matches-dir docs/matches/atp_matches --out-dir docs/players_atp
+          python scripts/generate_scenarios_wta.py --matches-dir docs/matches/wta_matches --out-dir docs/players
+          python scripts/generate_stats_leaderboards.py --players-dir ./docs/players_atp --out-dir ./docs/leaderboards --players-csv ./player_data_atp.csv
+          python scripts/generate_stats_leaderboards_wta.py --players-dir ./docs/players --out-dir ./docs/leaderboards_wta --players-csv ./player_data_wta.csv
 
       # ---------------------------
       # Commit only newly created/untracked ranking CSVs + docs & CSVs
@@ -173,27 +219,34 @@ jobs:
           git config user.name "$GIT_AUTHOR_NAME"
           git config user.email "$GIT_AUTHOR_EMAIL"
 
+          stage_tree() {
+            local path="$1"
+            if [ -d "$path" ]; then
+              find "$path" -type f -print0 | while IFS= read -r -d '' f; do
+                git add -f -- "$f"
+              done
+            else
+              echo "[WARN] Missing directory (skip): $path"
+            fi
+          }
+
           echo "Detect untracked files in ranking dirs..."
           dirs="wta_rankings atp_rankings center_court/wta_rankings center_court/atp_rankings"
-          untracked_count=0
-
           for d in $dirs; do
             if [ -d "$d" ]; then
               echo "Scanning $d for untracked files..."
-              git ls-files --others --exclude-standard -z -- "$d" | while IFS= read -r -d '' f; do
+              while IFS= read -r -d '' f; do
                 if [ -f "$f" ]; then
                   echo " -> adding $f"
                   git add -f -- "$f"
-                  untracked_count=$((untracked_count+1))
                 fi
-              done
+              done < <(git ls-files --others --exclude-standard -z -- "$d")
             else
               echo "Dir missing: $d"
             fi
           done
 
-          echo "Also stage only specific generated artifacts (whitelist)"
-          # Whitelist: only these patterns will be staged for commit
+          echo "Also stage specific generated artifacts (whitelist)"
           git add -f ${BUILD_DIR}/tools/*.json 2>/dev/null || true
           git add -f site_static/tools/*.json 2>/dev/null || true
           git add -f site_static/rankings/*.html 2>/dev/null || true
@@ -202,10 +255,17 @@ jobs:
           git add -f player_data_wta.csv 2>/dev/null || true
           git add -f player_data_atp.csv 2>/dev/null || true
 
+          stage_tree docs/players_atp
+          stage_tree docs/players
+          stage_tree docs/leaderboards
+          stage_tree docs/leaderboards_wta
+
+          git add -f docs/*.json 2>/dev/null || true
+          git add -f docs/*.csv 2>/dev/null || true
+
           echo "Staged files (preview):"
           git diff --name-only --cached | sed -n '1,200p' || true
 
-          # Safety: abort if index.html or other manual files would be staged
           if git diff --name-only --cached | grep -Eiq '(^|/)index\.html$'; then
             echo "ERROR: index.html is staged by the workflow — aborting to avoid overwriting manual changes."
             echo "Staged list:"
@@ -222,7 +282,6 @@ jobs:
             echo "No generated changes to commit"
           fi
 
-
       - name: Check for changes
         id: git-check
         run: |
@@ -237,31 +296,79 @@ jobs:
             echo "no-changes=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Push changes (robust, PAT preferred, fallback to GITHUB_TOKEN)
+      - name: Push changes (tmp branch -> main)
         if: steps.git-check.outputs.no-changes == 'false'
         env:
           PAT: ${{ secrets.PAT_FOR_CI }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          AUTH="${PAT:-${GITHUB_TOKEN}}"
+
+          AUTH="${PAT:-${GITHUB_TOKEN:-}}"
           if [ -z "$AUTH" ]; then
-            echo "ERROR: no PAT_FOR_CI or GITHUB_TOKEN available to perform push" >&2
-            exit 1
+            echo "No auth token available — skipping push"
+            exit 0
           fi
+
+          TMP_BRANCH="${TMP_BRANCH:-update/weekly/${GITHUB_RUN_ID}}"
+          echo "TMP_BRANCH=${TMP_BRANCH}"
+
           git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}" || true
           git fetch origin main --quiet || true
-          if git rev-parse --verify origin/main >/dev/null 2>&1; then
-            git rebase origin/main || echo "rebase had conflicts or failed; continuing to push attempt"
+
+          # Push the tmp branch that already contains the commit(s)
+          git push --set-upstream origin "${TMP_BRANCH}" --force-with-lease || git push --set-upstream origin "${TMP_BRANCH}"
+
+          MAX_RETRIES=4
+          attempt=0
+          merged_success=false
+
+          while [ $attempt -lt $MAX_RETRIES ]; do
+            attempt=$((attempt + 1))
+            echo "Merge attempt ${attempt}/${MAX_RETRIES}: update local main and merge ${TMP_BRANCH}..."
+
+            if git show-ref --verify --quiet refs/heads/main; then
+              git checkout main
+            else
+              if git rev-parse --verify origin/main >/dev/null 2>&1; then
+                git checkout -B main origin/main
+              else
+                git checkout -B main
+              fi
+            fi
+
+            git fetch origin main --quiet || true
+            if git rev-parse --verify origin/main >/dev/null 2>&1; then
+              git merge --ff-only origin/main || git merge --no-edit origin/main || true
+            fi
+
+            if git merge --no-edit --no-ff "${TMP_BRANCH}"; then
+              echo "Merge of ${TMP_BRANCH} into main succeeded locally."
+            else
+              echo "Merge reported issues; attempting ours strategy."
+              git merge --strategy-option=ours --no-edit "${TMP_BRANCH}" || true
+            fi
+
+            echo "Attempting to push main to origin (attempt ${attempt})..."
+            if git push origin HEAD:main; then
+              echo "Push of main successful."
+              merged_success=true
+              break
+            fi
+
+            echo "Push failed on attempt ${attempt}. Will retry after refetch."
+            git fetch origin "${TMP_BRANCH}" --quiet || true
+            sleep 1
+          done
+
+          if [ "$merged_success" = "false" ]; then
+            echo "Failed to merge & push main after ${MAX_RETRIES} attempts."
+            echo "Work has been preserved on branch: ${TMP_BRANCH} (pushed)."
           fi
-          if git push origin HEAD:main; then
-            echo "Push succeeded."
-          else
-            git push --force-with-lease origin HEAD:main
-          fi
-          git ls-remote origin HEAD || true
+
+          echo "Done. Remote refs:"
+          git ls-remote --heads origin main "${TMP_BRANCH}" || true
 
       - name: Trigger Netlify deploy via build hook
         if: ${{ success() }}
