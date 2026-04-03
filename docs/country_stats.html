@@ -398,6 +398,10 @@
       section: null,
       resolvedIOC: null,
       countryAliasMap: null,
+      activeBlock: null,
+      periodNode: null,
+      circuitNode: null,
+      rootNode: null,
     };
 
     const el = (id) => document.getElementById(id);
@@ -421,6 +425,7 @@
     }
 
     function formatMaybePercent(key, value) {
+      if (value === null || value === undefined || value === '') return '—';
       const n = Number(value);
       if (!Number.isFinite(n)) return numberFmt(value);
       const k = key.toLowerCase();
@@ -430,17 +435,14 @@
       return numberFmt(value);
     }
 
-    function deepGet(obj, paths) {
-      for (const path of paths) {
-        let cur = obj;
-        let ok = true;
-        for (const k of path) {
-          if (cur && Object.prototype.hasOwnProperty.call(cur, k)) cur = cur[k];
-          else { ok = false; break; }
-        }
-        if (ok && cur !== undefined && cur !== null) return cur;
+    function deepGet(obj, path) {
+      if (!obj || !path) return undefined;
+      let cur = obj;
+      for (const k of path) {
+        if (cur && Object.prototype.hasOwnProperty.call(cur, k)) cur = cur[k];
+        else return undefined;
       }
-      return undefined;
+      return cur;
     }
 
     function pickFirst(obj, keys) {
@@ -463,8 +465,8 @@
     async function loadCountryAliasMap() {
       if (state.countryAliasMap) return state.countryAliasMap;
       const paths = [
+        './tools/country_to_ioc.json',
         'tools/country_to_ioc.json',
-        '/tools/country_to_ioc.json',
         '../tools/country_to_ioc.json'
       ];
       for (const path of paths) {
@@ -502,49 +504,75 @@
       return null;
     }
 
-    function resolveCircuitBlock(raw, circuit) {
-      const variants = [circuit, circuit.toLowerCase(), circuit.toUpperCase()];
-      for (const v of variants) {
-        if (raw?.[v]) return normalizeSection(raw[v]);
-      }
-      for (const key of Object.keys(raw || {})) {
-        if (key.toLowerCase() === circuit.toLowerCase()) return normalizeSection(raw[key]);
-      }
-      return {};
+    function resolvePeriodKeys(period) {
+      return period === 'weekly'
+        ? ['weekly', 'last_week', 'week', 'lastWeek', 'previous_week', 'current_week']
+        : ['current_year', 'year', 'ytd', 'season', 'from_beginning_year', 'beginning_year', 'year_to_date', 'since_start_of_year'];
     }
 
-    function resolvePeriodBlock(section, period) {
-      if (!isObj(section)) return {};
-      const candidates = period === 'weekly'
-        ? ['weekly', 'last_week', 'week', 'lastWeek', 'previous_week']
-        : ['year', 'current_year', 'ytd', 'season', 'from_beginning_year', 'beginning_year', 'year_to_date'];
+    function resolveCircuitKeys(circuit) {
+      return [circuit, circuit.toLowerCase(), circuit.toUpperCase()];
+    }
 
-      for (const k of candidates) {
-        if (section[k]) return normalizeSection(section[k]);
-      }
-      for (const key of Object.keys(section)) {
-        if (candidates.some(c => key.toLowerCase() === c.toLowerCase())) {
-          return normalizeSection(section[key]);
+    function hasUsefulFields(obj) {
+      if (!isObj(obj)) return false;
+      return ['players', 'stats', 'matches', 'ranked_players', 'top_players_by_matches', 'top_players_by_points', 'significant_wins', 'significant_losses', 'new_players']
+        .some(k => Object.prototype.hasOwnProperty.call(obj, k));
+    }
+
+    function resolveActiveBlock(raw, circuit, period) {
+      const roots = [raw, raw?.data, raw?.payload, raw?.result, raw?.country].filter(isObj);
+      const periodKeys = resolvePeriodKeys(period);
+      const circuitKeys = resolveCircuitKeys(circuit);
+
+      for (const root of roots) {
+        for (const p of periodKeys) {
+          const pNode = root[p];
+          if (!isObj(pNode)) continue;
+
+          for (const c of circuitKeys) {
+            const cNode = pNode[c];
+            if (isObj(cNode) && hasUsefulFields(cNode)) {
+              return { root, periodNode: pNode, circuitNode: cNode, activeBlock: cNode };
+            }
+          }
+
+          if (hasUsefulFields(pNode)) {
+            return { root, periodNode: pNode, circuitNode: pNode, activeBlock: pNode };
+          }
+        }
+
+        for (const c of circuitKeys) {
+          const cNode = root[c];
+          if (!isObj(cNode)) continue;
+
+          for (const p of periodKeys) {
+            const pNode = cNode[p];
+            if (isObj(pNode) && hasUsefulFields(pNode)) {
+              return { root, periodNode: pNode, circuitNode: pNode, activeBlock: pNode };
+            }
+          }
+
+          if (hasUsefulFields(cNode)) {
+            return { root, periodNode: cNode, circuitNode: cNode, activeBlock: cNode };
+          }
+        }
+
+        if (hasUsefulFields(root)) {
+          return { root, periodNode: root, circuitNode: root, activeBlock: root };
         }
       }
-      return section;
+
+      return { root: raw || {}, periodNode: {}, circuitNode: {}, activeBlock: {} };
     }
 
-    async function candidateFiles() {
-      const ioc = await resolveIOC();
-      const base = [];
-      if (ioc) {
-        base.push(`generated/weekly_update/countries/${ioc}.json`);
-        base.push(`generated/weekly_update/countries/${ioc.toLowerCase()}.json`);
-        base.push(`generated/weekly_update/countries/${ioc.toUpperCase()}.json`);
-        base.push(`generated/weekly_update/${ioc}.json`);
-      }
+    function candidateFiles() {
+      const files = new Set();
+      const add = (p) => { if (p) files.add(p); };
 
-      const cleanName = slugify(name);
-      const cleanCode = slugify(code);
-      const cleanIso2 = slugify(iso2);
+      const ioc = state.resolvedIOC;
       const variants = new Set();
-      for (const t of [code, iso2, name].filter(Boolean)) {
+      for (const t of [ioc, code, iso2, name].filter(Boolean)) {
         const s = String(t).trim();
         if (!s) continue;
         variants.add(s);
@@ -554,24 +582,37 @@
         variants.add(s.replace(/\s+/g, '_'));
         variants.add(s.replace(/\s+/g, '-'));
       }
-      if (cleanName) variants.add(cleanName);
-      if (cleanCode) variants.add(cleanCode);
-      if (cleanIso2) variants.add(cleanIso2);
 
-      const dirs = [
-        'generated/weekly_update',
-        'generated/weekly_update/countries',
-        'generated',
-      ];
       for (const v of variants) {
-        if (!v) continue;
-        base.push(`${v}.json`);
-        base.push(`${v}.JSON`);
-        for (const dir of dirs) base.push(`${dir}/${v}.json`);
+        add(`./${v}.json`);
+        add(`${v}.json`);
+        add(`./data/${v}.json`);
+        add(`data/${v}.json`);
+        add(`./generated/${v}.json`);
+        add(`generated/${v}.json`);
+        add(`./generated/weekly_update/${v}.json`);
+        add(`generated/weekly_update/${v}.json`);
+        add(`./generated/weekly_update/countries/${v}.json`);
+        add(`generated/weekly_update/countries/${v}.json`);
       }
-      base.push('generated/weekly_update/index.json');
-      base.push('generated/index.json');
-      return [...new Set(base)];
+
+      if (ioc) {
+        add(`./${ioc}.json`);
+        add(`${ioc}.json`);
+        add(`./generated/weekly_update/${ioc}.json`);
+        add(`generated/weekly_update/${ioc}.json`);
+        add(`./generated/weekly_update/countries/${ioc}.json`);
+        add(`generated/weekly_update/countries/${ioc}.json`);
+        add(`./generated/${ioc}.json`);
+        add(`generated/${ioc}.json`);
+      }
+
+      add('./generated/weekly_update/index.json');
+      add('generated/weekly_update/index.json');
+      add('./generated/index.json');
+      add('generated/index.json');
+
+      return [...files];
     }
 
     async function tryFetchJson(path) {
@@ -581,7 +622,7 @@
     }
 
     async function loadCountryData() {
-      const candidates = await candidateFiles();
+      const candidates = candidateFiles();
 
       for (const path of candidates) {
         if (path.endsWith('index.json')) continue;
@@ -612,22 +653,27 @@
 
           for (const item of manifests) {
             if (!item) continue;
+
             if (typeof item === 'string' && lookup.some(k => item.toLowerCase().includes(String(k).toLowerCase()))) {
               try {
-                const json = await tryFetchJson(item.startsWith('http') ? item : `generated/weekly_update/${item.replace(/^\/+/, '')}`);
-                state.sourceFile = item;
+                const filePath = item.startsWith('http') ? item : (item.startsWith('./') || item.startsWith('/') ? item : `./generated/weekly_update/${item.replace(/^\/+/, '')}`);
+                const json = await tryFetchJson(filePath);
+                state.sourceFile = filePath;
                 return json;
               } catch (_) {}
             }
+
             if (isObj(item)) {
               const keys = [item.code, item.iso3, item.iso2, item.name, item.country, item.file].filter(Boolean).map(String);
               if (lookup.some(k => keys.some(x => x.toLowerCase() === String(k).toLowerCase() || x.toLowerCase().includes(String(k).toLowerCase())))) {
                 const file = item.file || item.path || item.json || item.filename;
                 if (file) {
-                  const path = file.startsWith('generated/') ? file : `generated/weekly_update/${file.replace(/^\/+/, '')}`;
+                  const filePath = file.startsWith('http')
+                    ? file
+                    : (file.startsWith('./') || file.startsWith('/') ? file : `./generated/weekly_update/${file.replace(/^\/+/, '')}`);
                   try {
-                    const json = await tryFetchJson(path);
-                    state.sourceFile = path;
+                    const json = await tryFetchJson(filePath);
+                    state.sourceFile = filePath;
                     return json;
                   } catch (_) {}
                 }
@@ -640,30 +686,6 @@
       throw new Error('No country JSON file found.');
     }
 
-    function resolveContainer(raw) {
-      if (raw && (raw.ATP || raw.WTA || raw.atp || raw.wta)) return raw;
-      if (raw && isObj(raw.data) && (raw.data.ATP || raw.data.WTA || raw.data.atp || raw.data.wta)) return raw.data;
-      if (raw && Array.isArray(raw.countries)) {
-        const target = raw.countries.find(c =>
-          [code, iso2, name, slugify(name)].filter(Boolean).some(k =>
-            [c.code, c.iso2, c.iso3, c.name, c.country, c.country_name, c.country_code].filter(Boolean).some(v => String(v).toLowerCase() === String(k).toLowerCase())
-          )
-        );
-        if (target) return target;
-      }
-      return raw;
-    }
-
-    function sectionByCircuit(raw, circuit) {
-      const root = resolveContainer(raw);
-      const circuitBlock = resolveCircuitBlock(root, circuit);
-      if (Object.keys(circuitBlock).length) return circuitBlock;
-      if (root && (root.periods || root.weekly || root.current_year)) return root;
-      return root || {};
-    }
-
-    function periodData(section, period) { return resolvePeriodBlock(section, period); }
-
     function findStatsBlock(data) {
       const keys = ['game_stats', 'match_stats', 'stats', 'statistics', 'performance_stats', 'game_statistics'];
       for (const k of keys) {
@@ -672,18 +694,38 @@
       return null;
     }
 
-    function renderKpis(section, periodBlock) {
-      const kpis = [];
-      const matches = pickFirst(periodBlock, ['number_of_matches', 'matches', 'match_count', 'n_matches']);
-      const players = pickFirst(periodBlock, ['players_count', 'player_count', 'number_of_players']);
-      const sigWins = pickFirst(periodBlock, ['significant_wins_count', 'significant_wins', 'sig_wins']);
-      const newPlayers = pickFirst(periodBlock, ['new_players_count', 'new_players']);
-      const perf = pickFirst(section, ['performance_index', 'performance_score', 'index', 'score']);
+    function resolveCurrentSources() {
+      const root = state.rootNode || state.raw || {};
+      const periodNode = state.periodNode || {};
+      const circuitNode = state.circuitNode || {};
+      const activeBlock = state.activeBlock || {};
+      return [activeBlock, circuitNode, periodNode, root].filter(Boolean);
+    }
 
-      kpis.push({ label: 'Matches', value: matches ?? '—', hint: 'All included matches' });
-      kpis.push({ label: 'Players', value: players ?? '—', hint: 'Distinct players detected' });
-      kpis.push({ label: 'Significant wins', value: sigWins ?? '—', hint: 'Notable wins' });
-      kpis.push({ label: 'Performance', value: perf ?? '—', hint: 'Index computed per player/country' });
+    function getFromSources(keys) {
+      const sources = resolveCurrentSources();
+      for (const src of sources) {
+        for (const key of keys) {
+          const value = deepGet(src, String(key).split('.'));
+          if (value !== undefined && value !== null) return value;
+        }
+      }
+      return undefined;
+    }
+
+    function renderKpis() {
+      const matches = getFromSources(['matches', 'number_of_matches', 'match_count', 'n_matches']);
+      const players = getFromSources(['players_count', 'player_count', 'number_of_players']);
+      const sigWins = getFromSources(['significant_wins_count', 'significant_wins', 'sig_wins']);
+      const newPlayers = getFromSources(['new_players_count', 'new_players']);
+      const perf = getFromSources(['performance_index', 'performance_score', 'index', 'score']);
+
+      const kpis = [
+        { label: 'Matches', value: matches ?? '—', hint: 'All included matches' },
+        { label: 'Players', value: players ?? '—', hint: 'Distinct players detected' },
+        { label: 'Significant wins', value: sigWins ?? '—', hint: 'Notable wins' },
+        { label: 'Performance', value: perf ?? '—', hint: 'Index computed per player/country' }
+      ];
 
       el('kpis').innerHTML = kpis.map((k, idx) => `
         <div class="card kpi" style="${idx===0 ? 'background:linear-gradient(180deg, rgba(74,163,255,.14), rgba(255,255,255,.03));' : idx===1 ? 'background:linear-gradient(180deg, rgba(194,107,255,.14), rgba(255,255,255,.03));' : ''}">
@@ -702,24 +744,33 @@
       container.innerHTML = `<div class="miniList">${items.map(x => `<div>• ${x}</div>`).join('')}</div>`;
     }
 
-    function renderOverview(section, periodBlock) {
+    function renderOverview() {
       const lines = [];
-      const matches = pickFirst(periodBlock, ['number_of_matches', 'matches', 'match_count']);
+
+      const matches = getFromSources(['matches', 'number_of_matches', 'match_count']);
       if (matches !== undefined) lines.push(`<div>Number of matches: <strong>${numberFmt(matches)}</strong></div>`);
 
-      const mostPlayed = pickFirst(periodBlock, ['most_played_tourney_name', 'tourney_name_most', 'top_tourney_name', 'tourney_name_where_most_played']);
-      if (mostPlayed !== undefined) lines.push(`<div>Most frequent tournament: <strong>${String(mostPlayed)}</strong></div>`);
+      const mostPlayed = getFromSources(['top_tourney_name', 'most_played_tourney_name', 'tourney_name_most', 'top_tourney_name', 'tourney_name_where_most_played']);
+      if (mostPlayed !== undefined && mostPlayed !== null && String(mostPlayed).trim() !== '') {
+        lines.push(`<div>Most frequent tournament: <strong>${String(mostPlayed)}</strong></div>`);
+      }
 
-      const winners = pickFirst(periodBlock, ['tournaments_won', 'titles', 'won_tournaments']);
-      if (Array.isArray(winners) && winners.length) lines.push(`<div>Titles / tournaments won: <strong>${winners.map(String).join(', ')}</strong></div>`);
+      const tournamentsWon = getFromSources(['tournaments_won']);
+      if (Array.isArray(tournamentsWon) && tournamentsWon.length) {
+        lines.push(`<div>Titles / tournaments won: <strong>${tournamentsWon.map(String).join(', ')}</strong></div>`);
+      }
 
-      const significantWins = pickFirst(periodBlock, ['significant_wins', 'sig_wins', 'important_wins']);
-      if (Array.isArray(significantWins) && significantWins.length) lines.push(`<div>Significant wins: <strong>${significantWins.length}</strong></div>`);
+      const significantWins = getFromSources(['significant_wins']);
+      if (Array.isArray(significantWins) && significantWins.length) {
+        lines.push(`<div>Significant wins: <strong>${significantWins.length}</strong></div>`);
+      }
 
-      const newPlayers = pickFirst(periodBlock, ['new_players', 'new_players_list']);
-      if (Array.isArray(newPlayers) && newPlayers.length) lines.push(`<div>New players: <strong>${newPlayers.length}</strong></div>`);
+      const newPlayers = getFromSources(['new_players']);
+      if (Array.isArray(newPlayers) && newPlayers.length) {
+        lines.push(`<div>New players: <strong>${newPlayers.length}</strong></div>`);
+      }
 
-      const ranks = pickFirst(section, ['country_rankings', 'rankings', 'ranks']);
+      const ranks = getFromSources(['country_rankings', 'rankings', 'ranks']);
       if (isObj(ranks)) {
         const compact = Object.entries(ranks)
           .filter(([,v]) => v !== undefined && v !== null)
@@ -736,10 +787,9 @@
       el('overviewMeta').textContent = meta.join(' · ');
     }
 
-    function renderPerformance(section, periodBlock) {
+    function renderPerformance() {
       const items = [];
-      const perfBlock = pickFirst(periodBlock, ['performance', 'performance_index', 'performance_scores', 'indices']);
-      const countryPerf = pickFirst(section, ['country_performance', 'coherence_index', 'coherence', 'atp_wta_coherence']);
+      const countryPerf = getFromSources(['country_performance', 'coherence_index', 'coherence', 'atp_wta_coherence']);
 
       if (isObj(countryPerf)) {
         for (const [k, v] of Object.entries(countryPerf)) items.push(`${prettyKey(k)}: ${numberFmt(v)}`);
@@ -747,21 +797,26 @@
         items.push(`ATP/WTA coherence: ${numberFmt(countryPerf)}`);
       }
 
+      const perfBlock = getFromSources(['performance', 'performance_index', 'performance_scores', 'indices']);
       if (isObj(perfBlock)) {
         for (const [k, v] of Object.entries(perfBlock)) {
-          if (typeof v === 'number' || (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v.trim()))) items.push(`${prettyKey(k)}: ${numberFmt(v)}`);
+          if (typeof v === 'number' || (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v.trim()))) {
+            items.push(`${prettyKey(k)}: ${numberFmt(v)}`);
+          }
         }
       }
 
-      const sig = pickFirst(periodBlock, ['significant_wins', 'significant_losses', 'ranking_moves', 'evolutions']);
+      const sig = getFromSources(['significant_wins', 'significant_losses', 'ranking_moves', 'evolutions']);
       if (Array.isArray(sig) && sig.length) items.push(`Notable items: ${sig.length}`);
 
       renderMiniList(el('performance'), items.map(x => String(x)));
       el('perfMeta').textContent = state.circuit;
     }
 
-    function renderGameStats(section, periodBlock) {
-      const statsSource = findStatsBlock(periodBlock) || findStatsBlock(section) || periodBlock;
+    function renderGameStats() {
+      const sources = resolveCurrentSources();
+      const statsSource = findStatsBlock(state.activeBlock) || findStatsBlock(state.circuitNode) || findStatsBlock(state.periodNode) || sources[0] || {};
+
       const metrics = [
         ['Number of aces', ['aces', 'number_of_aces', 'aces_count', 'total_aces']],
         ['Aces per service point', ['aces_per_service_point', 'ace_rate', 'aces_rate']],
@@ -773,7 +828,7 @@
         ['Service points won %', ['service_points_won_percent', 'totalservicepointswon_percent']],
         ['Return points won %', ['return_points_won_percent', 'totalreturnpointswon_percent']],
         ['Breakpoints faced', ['breakpoints_faced', 'breakpointsplayed', 'breakpoints_against']],
-        ['Breakpoints converted (count)', ['breakpoints_converted', 'breakpointsconv', 'breakpoints_won']],
+        ['Breakpoints converted (count)', ['breakpoints_converted_count', 'breakpoints_converted', 'breakpointsconv', 'breakpoints_won']],
         ['Breakpoints converted rate', ['breakpoints_converted_rate', 'breakpointsconv_percent']],
         ['Service games lost rate', ['service_games_lost_rate', 'servicegameslost_rate']],
         ['Tie-breaks win rate', ['tiebreaks_win_rate', 'tie_breaks_win_rate']],
@@ -783,14 +838,18 @@
       const rows = metrics.map(([label, keys]) => {
         let value;
         for (const k of keys) {
-          value = deepGet(statsSource, k.split('.').filter(Boolean).map(x => x));
-          if (value === undefined) value = statsSource?.[k];
+          value = deepGet(statsSource, String(k).split('.'));
+          if (value !== undefined && value !== null) break;
+          value = statsSource?.[k];
           if (value !== undefined && value !== null) break;
         }
         if (value === undefined) value = statsSource?.[label];
         const n = Number(value);
-        const pct = /%|rate|percent/i.test(label) ? (Number.isFinite(n) ? (n <= 1 ? (n * 100).toFixed(1) + '%' : n.toFixed(1) + '%') : numberFmt(value)) : formatMaybePercent(label, value);
-        return { label, value: pct, numeric: Number.isFinite(n) ? n : null };
+        const isPctLabel = /%|rate|percent/i.test(label);
+        const rendered = isPctLabel
+          ? (Number.isFinite(n) ? (n <= 1 ? (n * 100).toFixed(1) + '%' : n.toFixed(1) + '%') : numberFmt(value))
+          : formatMaybePercent(label, value);
+        return { label, value: rendered, numeric: Number.isFinite(n) ? n : null };
       }).filter(r => r.value !== '—' || r.numeric !== null);
 
       if (!rows.length) {
@@ -816,20 +875,37 @@
       `;
     }
 
-    function playerName(item) { return item?.full_name || item?.name || item?.player_name || item?.player || item?.playerFullName || item?.fullName || '—'; }
-    function playerRank(item) { return item?.ranking ?? item?.rank ?? item?.current_rank ?? item?.currentRanking ?? '—'; }
-    function playerPoints(item) { return item?.points ?? item?.ranking_points ?? item?.rankingPoints ?? '—'; }
-    function highestRound(item) { return item?.highest_round || item?.highestRound || item?.best_round || item?.round || item?.highestReachedRound || '—'; }
-    function playerTournament(item) { return item?.tourney_name || item?.tournament || item?.tournament_name || item?.tournament_title || item?.event || '—'; }
+    function playerName(item) {
+      return item?.full_name || item?.name || item?.player_name || item?.player || item?.playerFullName || item?.fullName || '—';
+    }
+    function playerRank(item) {
+      return item?.ranking ?? item?.rank ?? item?.current_rank ?? item?.currentRanking ?? '—';
+    }
+    function playerPoints(item) {
+      return item?.points ?? item?.points_earned ?? item?.ranking_points ?? item?.rankingPoints ?? '—';
+    }
+    function highestRound(item) {
+      return item?.highest_round || item?.highestRound || item?.best_round_label || item?.best_round || item?.round || item?.highestReachedRound || '—';
+    }
+    function playerTournament(item) {
+      if (item?.tourney_name) return item.tourney_name;
+      if (Array.isArray(item?.tournaments) && item.tournaments.length) {
+        const first = item.tournaments[0];
+        return first?.tourney_name || first?.tournament || first?.event || '—';
+      }
+      return item?.tournament || item?.tournament_name || item?.tournament_title || item?.event || '—';
+    }
     function signalTag(item) {
       if (item?.significant_win || item?.has_significant_win) return 'Significant win';
+      if (item?.very_significant_win) return 'Very significant win';
       if (item?.new_player || item?.is_new_player) return 'New player';
       if (item?.ranking_evolution) return `Δ ${item.ranking_evolution}`;
+      if (item?.ranked_last_week === false && item?.ever_ranked) return 'Back in rankings';
       return item?.signal || item?.status || '—';
     }
 
     function extractPlayers(periodBlock) {
-      const keys = ['players', 'player_list', 'ranking_players', 'players_with_ranking', 'ranked_players', 'player_stats'];
+      const keys = ['players', 'player_list', 'ranking_players', 'players_with_ranking', 'ranked_players', 'player_stats', 'top_players_by_matches', 'top_players_by_points'];
       for (const k of keys) {
         const v = periodBlock?.[k];
         if (Array.isArray(v)) return v;
@@ -839,8 +915,10 @@
       return [];
     }
 
-    function renderPlayersTable(periodBlock) {
-      const players = extractPlayers(periodBlock);
+    function renderPlayersTable() {
+      const activeBlock = state.activeBlock || {};
+      const players = extractPlayers(activeBlock);
+
       if (!players.length) {
         el('playersTable').innerHTML = `<tr><td colspan="5" class="muted">No player table detected in this block.</td></tr>`;
         return;
@@ -873,15 +951,54 @@
       `).join('');
     }
 
-    function renderExtraBlocks(periodBlock) {
+    function renderRankStats() {
+      const activeBlock = state.activeBlock || {};
+      const evolutions = activeBlock.ranking_evolutions || activeBlock.ranking_changes || activeBlock.changes || {};
+      const newPlayers = activeBlock.new_players || [];
+
+      const lines = [];
+
+      const lastWeek = evolutions.last_week || evolutions.week || null;
+      const beginningYear = evolutions.beginning_year || evolutions.ytd || null;
+
+      if (lastWeek && isObj(lastWeek)) {
+        const rise = lastWeek.significant?.rise || [];
+        const drop = lastWeek.significant?.drop || [];
+        if (rise.length || drop.length) {
+          lines.push(`Last week: ${rise.length} rises, ${drop.length} drops`);
+        }
+      }
+
+      if (beginningYear && isObj(beginningYear)) {
+        const rise = beginningYear.significant?.rise || [];
+        const drop = beginningYear.significant?.drop || [];
+        if (rise.length || drop.length) {
+          lines.push(`Since start of year: ${rise.length} rises, ${drop.length} drops`);
+        }
+      }
+
+      if (Array.isArray(newPlayers) && newPlayers.length) {
+        lines.push(`New players: ${newPlayers.length}`);
+      }
+
+      const sigWins = activeBlock.significant_wins || [];
+      const sigLosses = activeBlock.significant_losses || [];
+      if (Array.isArray(sigWins) && sigWins.length) lines.push(`Significant wins: ${sigWins.length}`);
+      if (Array.isArray(sigLosses) && sigLosses.length) lines.push(`Significant losses: ${sigLosses.length}`);
+
+      renderMiniList(el('rankStats'), lines);
+    }
+
+    function renderExtraBlocks() {
+      const activeBlock = state.activeBlock || {};
       const known = new Set([
-        'number_of_matches','matches','match_count','most_played_tourney_name','tourney_name_most','top_tourney_name',
-        'players','player_list','ranking_players','players_with_ranking','ranked_players','player_stats',
-        'stats','statistics','game_stats','match_stats','performance','performance_index','significant_wins',
-        'significant_losses','ranking_moves','evolutions','new_players','new_players_list','tournaments_won','titles'
+        'matches','number_of_matches','match_count','top_tourney_name','most_played_tourney_name','tourney_name_most','top_tourney_name','tourney_name_where_most_played',
+        'players','player_list','ranking_players','players_with_ranking','ranked_players','player_stats','top_players_by_matches','top_players_by_points',
+        'stats','statistics','game_stats','match_stats','performance','performance_index','significant_wins','significant_losses','ranking_moves','evolutions',
+        'new_players','new_players_list','tournaments_won','titles','players_count','player_match_entries'
       ]);
 
-      const entries = Object.entries(periodBlock || {}).filter(([k, v]) => !known.has(k) && v !== null && v !== undefined);
+      const entries = Object.entries(activeBlock || {}).filter(([k, v]) => !known.has(k) && v !== null && v !== undefined);
       if (!entries.length) {
         el('extraBlocks').innerHTML = `<div class="empty">No additional block detected.</div>`;
         return;
@@ -930,17 +1047,23 @@
     }
 
     function renderAll() {
-      const root = state.raw || {};
-      const section = sectionByCircuit(root, state.circuit);
-      const periodBlock = periodData(section, state.period);
-      state.section = section;
+      const resolved = resolveActiveBlock(state.raw || {}, state.circuit, state.period);
+
+      state.rootNode = resolved.root || {};
+      state.periodNode = resolved.periodNode || {};
+      state.circuitNode = resolved.circuitNode || {};
+      state.activeBlock = resolved.activeBlock || {};
+      state.section = state.activeBlock;
+
       updateHeader();
-      renderKpis(section, periodBlock);
-      renderOverview(section, periodBlock);
-      renderPerformance(section, periodBlock);
-      renderGameStats(section, periodBlock);
-      renderPlayersTable(periodBlock);
-      renderExtraBlocks(periodBlock);
+      renderKpis();
+      renderOverview();
+      renderPerformance();
+      renderGameStats();
+      renderRankStats();
+      renderPlayersTable();
+      renderExtraBlocks();
+
       el('loading').style.display = 'none';
       el('dashboard').style.display = 'block';
     }
@@ -948,6 +1071,7 @@
     document.querySelectorAll('[data-circuit]').forEach(btn => {
       btn.addEventListener('click', () => { state.circuit = btn.dataset.circuit; renderAll(); });
     });
+
     document.querySelectorAll('[data-period]').forEach(btn => {
       btn.addEventListener('click', () => { state.period = btn.dataset.period; renderAll(); });
     });
@@ -957,6 +1081,7 @@
         const resolved = await resolveIOC();
         state.resolvedIOC = resolved;
         if (resolved) setText('fileHint', `Resolving ${resolved}.json…`);
+
         const raw = await loadCountryData();
         state.raw = raw;
         renderAll();
@@ -966,8 +1091,8 @@
           <div style="max-width:720px; text-align:center; padding:24px;">
             <div style="font-size:20px; font-weight:800; margin-bottom:10px;">Unable to load the country JSON</div>
             <div style="color:var(--muted); line-height:1.7">
-              I tried several paths in <code>generated/weekly_update/</code>, but no file responded.
-              Check the country filename or the presence of an <code>index.json</code> / manifest.
+              I tried several paths in the project, but no file responded.
+              Check the country filename or the presence of an index.json / manifest.
             </div>
           </div>
         `;
