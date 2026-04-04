@@ -101,26 +101,74 @@ VERY_SIGNIFICANT_RANK_CHANGE_THRESHOLDS = [
     (1000, 120),
 ]
 
-ROUND_ORDER_MAP = {
-    "F": 1,
-    "SF": 2,
-    "QF": 3,
-    "R16": 4,
-    "R32": 5,
-    "R64": 6,
-    "R128": 7,
-    "RR": 8,
-    "Q": 5,
-    "S": 6,
-    "R1": 7,
-    "R2": 6,
-    "R3": 5,
-    "R4": 4,
+
+ROUND_STAGE_LABELS = {
+    1: "F",
+    2: "SF",
+    3: "QF",
+    4: "R16",
+    5: "R32",
+    6: "R64",
+    7: "R128",
 }
+
+
+def _round_number_from_code(value: Any) -> Optional[int]:
+    s = clean_str(value).upper()
+    if not s:
+        return None
+    m = re.search(r"(?:MS|LS)?0*(\d{1,3})", s)
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def _round_stage_order_from_number(number: int) -> int:
+    if number <= 1:
+        return 1
+    if number <= 3:
+        return 2
+    if number <= 7:
+        return 3
+    if number <= 15:
+        return 4
+    if number <= 31:
+        return 5
+    if number <= 63:
+        return 6
+    return 7
+
+
+def _round_label_from_number(number: int) -> str:
+    return ROUND_STAGE_LABELS.get(_round_stage_order_from_number(number), "UNK")
+
+
+def _round_order_from_value(value: Any) -> int:
+    number = _round_number_from_code(value)
+    if number is not None:
+        return _round_stage_order_from_number(number)
+    s = clean_str(value).upper()
+    if not s:
+        return 999
+    if s in {"F", "FINAL"}:
+        return 1
+    if s in {"SF", "SEMI", "SEMIFINAL", "SEMIFINALS"}:
+        return 2
+    if s in {"QF", "Q", "QUARTERFINAL", "QUARTERFINALS"}:
+        return 3
+    if s in {"R16", "R32", "R64", "R128"}:
+        return {"R16": 4, "R32": 5, "R64": 6, "R128": 7}[s]
+    return 999
+
+
+def is_final_match_code(round_code: Any) -> bool:
+    s = clean_str(round_code).upper()
+    return bool(re.fullmatch(r"(?:MS|LS)0*1", s))
 
 
 @dataclass
 class Participation:
+
     circuit: str
     period: str
     match_key: str
@@ -134,6 +182,7 @@ class Participation:
     end_date: Optional[date]
     match_date: Optional[date]
     round_raw: str
+    round_code: str
     round_order: int
     round_label: str
     surface: str
@@ -314,29 +363,27 @@ def weighted_average(values: Sequence[Optional[float]], weights: Sequence[float]
 # ---------------------------------------------------------------------------
 
 
+
+
 def round_order(round_raw: Any) -> int:
-    s = clean_str(round_raw).upper()
-    if not s:
-        return 999
-    if s in ROUND_ORDER_MAP:
-        return ROUND_ORDER_MAP[s]
-    m = re.search(r"(\d{1,3})", s)
-    if m:
-        # Lower numbers are deeper rounds, as requested by the user.
-        return int(m.group(1))
-    return 999
+    return _round_order_from_value(round_raw)
 
 
 def round_label(round_raw: Any) -> str:
+    number = _round_number_from_code(round_raw)
+    if number is not None:
+        return _round_label_from_number(number)
     s = clean_str(round_raw).upper()
-    if s in {"F", "SF", "QF", "R16", "R32", "R64", "R128", "RR"}:
-        return s
-    if s.startswith("MS") or s.startswith("LS"):
-        return s
-    if s == "S":
+    if s in {"F", "FINAL"}:
+        return "F"
+    if s in {"SF", "SEMI", "SEMIFINAL", "SEMIFINALS", "S"}:
         return "SF"
-    if s == "Q":
+    if s in {"QF", "Q", "QUARTERFINAL", "QUARTERFINALS"}:
         return "QF"
+    if s in {"R16", "R32", "R64", "R128"}:
+        return s
+    if s in {"RR"}:
+        return "RR"
     return s or "UNK"
 
 
@@ -345,12 +392,21 @@ def _contains_any(text: str, patterns: Sequence[str]) -> bool:
     return any(p.lower() in t for p in patterns)
 
 
-def canonical_level(circuit: str, level_raw: Any, tourney_name: Any, draw_size: Any) -> str:
-    level = clean_str(level_raw).strip()
-    name = clean_str(tourney_name)
+
+
+def canonical_level(circuit: str, level_raw: Any, tourney_name: Any, draw_size: Any, tournament_meta: Optional[Dict[str, Any]] = None) -> str:
+    meta = tournament_meta or {}
+    level = clean_str(meta.get("level") or meta.get("Type") or level_raw).strip()
+    name = clean_str(
+        meta.get("Name")
+        or meta.get("title")
+        or meta.get("name")
+        or meta.get("tourney_name")
+        or tourney_name
+    )
     name_l = name.lower()
     level_l = level.lower()
-    draw = parse_int(draw_size)
+    draw = parse_int(meta.get("SglDrawSize") or meta.get("singlesDrawSize") or draw_size)
 
     # Finals first.
     if _contains_any(level_l + " " + name_l, ["atp finals", "wta finals", "finals"]):
@@ -360,7 +416,6 @@ def canonical_level(circuit: str, level_raw: Any, tourney_name: Any, draw_size: 
     if _contains_any(level_l + " " + name_l, ["grand slam", "australian open", "roland garros", "wimbledon", "us open"]):
         return "Grand Slam (ATP)" if circuit == "ATP" else "Grand Slam (WTA)"
 
-    # ATP / WTA main tour.
     if circuit == "ATP":
         if any(x in level_l for x in ["1000", "masters 1000", "m1000"]):
             return "ATP 1000 (96)" if (draw or 0) >= 96 else "ATP 1000 (56)"
@@ -368,20 +423,28 @@ def canonical_level(circuit: str, level_raw: Any, tourney_name: Any, draw_size: 
             return "ATP 500 (48)" if (draw or 0) >= 48 else "ATP 500 (32)"
         if any(x in level_l for x in ["250", "atp 250"]):
             return "ATP 250 (48)" if (draw or 0) >= 48 else "ATP 250 (32)"
-        if any(x in level_l for x in ["challenger 175", "175"]):
-            return "Challenger 175"
-        if any(x in level_l for x in ["challenger 125", "125"]):
-            return "Challenger 125"
-        if any(x in level_l for x in ["challenger 100", "100"]):
+        if any(x in level_l for x in ["challenger", "ch"]):
+            if re.search(r"(ch175|175)", name_l):
+                return "Challenger 175"
+            if re.search(r"(ch125|125)", name_l):
+                return "Challenger 125"
+            if re.search(r"(ch100|100)", name_l):
+                return "Challenger 100"
+            if re.search(r"(ch75|75)", name_l):
+                return "Challenger 75"
+            if re.search(r"(ch50|50)", name_l):
+                return "Challenger 50"
             return "Challenger 100"
-        if any(x in level_l for x in ["challenger 75", "75"]):
-            return "Challenger 75"
-        if any(x in level_l for x in ["challenger 50", "50"]):
-            return "Challenger 50"
-        if any(x in level_l for x in ["m25", "future m25", "25"]):
+        if any(x in level_l for x in ["future", "fu", "m25", "m15"]):
+            if re.search(r"m25", name_l):
+                return "Future M25"
+            if re.search(r"m15", name_l):
+                return "Future M15"
+            if re.search(r"25", name_l):
+                return "Future M25"
+            if re.search(r"15", name_l):
+                return "Future M15"
             return "Future M25"
-        if any(x in level_l for x in ["m15", "future m15", "15"]):
-            return "Future M15"
     else:
         if any(x in level_l for x in ["1000", "wta 1000", "premier 5"]):
             return "WTA 1000 (96)" if (draw or 0) >= 96 else "WTA 1000 (56)"
@@ -395,88 +458,94 @@ def canonical_level(circuit: str, level_raw: Any, tourney_name: Any, draw_size: 
             return "WTA 250 (32)"
         if any(x in level_l for x in ["125", "wta 125"]):
             return "WTA 125 (32)"
-        if any(x in level_l for x in ["w100"]):
-            return "W100 (48)" if (draw or 0) >= 48 else "W100 (32)"
-        if any(x in level_l for x in ["w75"]):
-            return "W75 (48)" if (draw or 0) >= 48 else "W75 (32)"
-        if any(x in level_l for x in ["w50"]):
-            return "W50 (48)" if (draw or 0) >= 48 else "W50 (32)"
-        if any(x in level_l for x in ["w35"]):
-            return "W35 (48)" if (draw or 0) >= 48 else "W35 (32)"
-        if any(x in level_l for x in ["w15"]):
-            return "W15 (32)"
+        if any(x in level_l for x in ["itf", "wtt", "w100", "w75", "w50", "w35", "w15"]):
+            if re.search(r"w100", name_l):
+                return "W100 (48)" if (draw or 0) >= 48 else "W100 (32)"
+            if re.search(r"w75", name_l):
+                return "W75 (48)" if (draw or 0) >= 48 else "W75 (32)"
+            if re.search(r"w50", name_l):
+                return "W50 (48)" if (draw or 0) >= 48 else "W50 (32)"
+            if re.search(r"w35", name_l):
+                return "W35 (48)" if (draw or 0) >= 48 else "W35 (32)"
+            if re.search(r"w15", name_l):
+                return "W15 (32)"
 
     # Try the tournament name if level is not explicit.
     if circuit == "ATP":
-        if re.search(r"\b1000\b", name_l):
+        if re.search(r"1000", name_l):
             return "ATP 1000 (96)" if (draw or 0) >= 96 else "ATP 1000 (56)"
-        if re.search(r"\b500\b", name_l):
+        if re.search(r"500", name_l):
             return "ATP 500 (48)" if (draw or 0) >= 48 else "ATP 500 (32)"
-        if re.search(r"\b250\b", name_l):
+        if re.search(r"250", name_l):
             return "ATP 250 (48)" if (draw or 0) >= 48 else "ATP 250 (32)"
-        if re.search(r"\b175\b", name_l):
+        if re.search(r"175", name_l):
             return "Challenger 175"
-        if re.search(r"\b125\b", name_l):
+        if re.search(r"125", name_l):
             return "Challenger 125"
-        if re.search(r"\b100\b", name_l):
+        if re.search(r"100", name_l):
             return "Challenger 100"
-        if re.search(r"\b75\b", name_l):
+        if re.search(r"75", name_l):
             return "Challenger 75"
-        if re.search(r"\b50\b", name_l):
+        if re.search(r"50", name_l):
             return "Challenger 50"
+        if re.search(r"m25", name_l):
+            return "Future M25"
+        if re.search(r"m15", name_l):
+            return "Future M15"
     else:
-        if re.search(r"\bw100\b", name_l):
+        if re.search(r"w100", name_l):
             return "W100 (48)" if (draw or 0) >= 48 else "W100 (32)"
-        if re.search(r"\bw75\b", name_l):
+        if re.search(r"w75", name_l):
             return "W75 (48)" if (draw or 0) >= 48 else "W75 (32)"
-        if re.search(r"\bw50\b", name_l):
+        if re.search(r"w50", name_l):
             return "W50 (48)" if (draw or 0) >= 48 else "W50 (32)"
-        if re.search(r"\bw35\b", name_l):
+        if re.search(r"w35", name_l):
             return "W35 (48)" if (draw or 0) >= 48 else "W35 (32)"
-        if re.search(r"\bw15\b", name_l):
+        if re.search(r"w15", name_l):
             return "W15 (32)"
 
     return level if level else "Unknown"
 
 
-def points_for_level_round(circuit: str, level_canonical: str, round_label_value: str, won_final: bool = False) -> int:
+
+
+def points_for_level_round(circuit: str, level_canonical: str, round_value: str, won_final: bool = False) -> int:
     table = POINTS_BY_LEVEL.get(level_canonical)
     if not table:
         return 0
 
-    # Finals/round-robin events require a bit of special handling.
+    stage_label = round_label(round_value)
+
+    # Finals / round-robin events require a bit of special handling.
     if level_canonical in {"ATP Finals", "WTA Finals"}:
-        if round_label_value in {"F", "MS001", "LS001"}:
+        if stage_label == "F":
             return table.get("W_max", 0) if won_final else table.get("F_max", 0)
-        if round_label_value in {"SF", "MS002", "LS002"}:
-            key = "SF_win" if circuit == "ATP" else "SF_max"
-            return table.get(key, 0)
-        if round_label_value == "RR":
+        if stage_label == "SF":
+            if circuit == "ATP":
+                return table.get("SF_win", 0)
+            return table.get("SF_max", 0)
+        if stage_label == "RR":
             return table.get("RR_win", 0)
         return 0
 
-    if round_label_value in table:
-        return table[round_label_value]
+    if stage_label == "F":
+        if won_final and "W" in table:
+            return table["W"]
+        if not won_final and "F" in table:
+            return table["F"]
+        if won_final and "W" not in table and "F" in table:
+            return table["F"]
 
-    # Fallback for numeric match codes such as MS008 / LS008.
-    m = re.search(r"(\d{1,3})", round_label_value)
-    if m:
-        n = int(m.group(1))
-        # Rough mapping: 001 = final, 002 = semi, 003 = QF, ...
-        if n <= 1:
-            return table.get("W", 0) if won_final else table.get("F", 0)
-        if n == 2:
-            return table.get("SF", table.get("SF_max", table.get("SF_win", 0)))
-        if n == 3:
-            return table.get("QF", 0)
-        if n == 4:
-            return table.get("R16", 0)
-        if n == 5:
-            return table.get("R32", 0)
-        if n == 6:
-            return table.get("R64", 0)
-        if n == 7:
-            return table.get("R128", 0)
+    if stage_label in {"SF", "QF", "R16", "R32", "R64", "R128"} and stage_label in table:
+        return table[stage_label]
+
+    # Fallback for unexpected labels.
+    number = _round_number_from_code(round_value)
+    if number is not None:
+        fallback_label = _round_label_from_number(number)
+        if fallback_label in table:
+            return table[fallback_label]
+
     return 0
 
 
@@ -489,11 +558,11 @@ def significance_threshold(rank: Optional[int], thresholds: Sequence[Tuple[int, 
     return thresholds[-1][1] if thresholds else None
 
 
+
+
 def is_significant_win(player_rank: Optional[int], opponent_rank: Optional[int], very: bool = False) -> bool:
     if not player_rank or not opponent_rank:
         return False
-    # A significant win is a win against a much better-ranked opponent:
-    # opponent_rank must be lower than player_rank by a meaningful gap.
     if opponent_rank >= player_rank:
         return False
     gap = player_rank - opponent_rank
@@ -504,8 +573,6 @@ def is_significant_win(player_rank: Optional[int], opponent_rank: Optional[int],
 def is_significant_loss(player_rank: Optional[int], opponent_rank: Optional[int], very: bool = False) -> bool:
     if not player_rank or not opponent_rank:
         return False
-    # A significant loss is a loss against a much worse-ranked opponent:
-    # opponent_rank must be higher than player_rank by a meaningful gap.
     if opponent_rank <= player_rank:
         return False
     gap = opponent_rank - player_rank
@@ -545,6 +612,147 @@ def load_ranking_json(path: Path) -> Dict[str, Dict[str, Any]]:
             continue
         result[player_id] = item
     return result
+
+
+
+
+# ---------------------------------------------------------------------------
+# Tournament metadata loading.
+# ---------------------------------------------------------------------------
+
+
+def normalize_name_key(value: Any) -> str:
+    s = clean_str(value).lower()
+    return re.sub(r"[^a-z0-9]+", "", s)
+
+
+def _load_json_file(path: Path) -> Any:
+    if not path.exists():
+        raise FileNotFoundError(f"File not found: {path}")
+    with path.open("r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def load_country_ioc_map(root_dir: Path) -> Dict[str, str]:
+    candidates = [
+        root_dir / "docs" / "tools" / "country_to_ioc.json",
+        root_dir / "docs" / "Tools" / "country_to_ioc.json",
+        root_dir / "docs" / "country_to_ioc.json",
+    ]
+    path = next((p for p in candidates if p.exists()), None)
+    if path is None:
+        return {}
+    data = _load_json_file(path)
+    if not isinstance(data, dict):
+        return {}
+    return {normalize_name_key(k): clean_str(v).upper() for k, v in data.items()}
+
+
+def _parse_atp_tournament_file(payload: Any) -> Dict[str, Dict[str, Any]]:
+    result: Dict[str, Dict[str, Any]] = {}
+    if not isinstance(payload, dict):
+        return result
+    for group in payload.get("TournamentDates", []) or []:
+        for item in group.get("Tournaments", []) or []:
+            event_id = clean_str(item.get("Id"))
+            if not event_id:
+                continue
+            result[event_id] = {
+                "event_id": event_id,
+                "name": clean_str(item.get("Name")),
+                "title": clean_str(item.get("Name")),
+                "location": clean_str(item.get("Location")),
+                "surface": clean_str(item.get("Surface")),
+                "level": clean_str(item.get("Type")),
+                "event_type_detail": item.get("EventTypeDetail"),
+                "event_type": clean_str(item.get("EventType")),
+                "challenger_category": item.get("ChallengerCategory"),
+                "sgl_draw_size": parse_int(item.get("SglDrawSize")),
+                "dbl_draw_size": parse_int(item.get("DblDrawSize")),
+                "country_code": "",
+                "country_name": "",
+                "source": "ATP",
+            }
+    return result
+
+
+def _parse_wta_tournament_file(payload: Any) -> Dict[str, Dict[str, Any]]:
+    result: Dict[str, Dict[str, Any]] = {}
+    if not isinstance(payload, dict):
+        return result
+    for item in payload.get("content", []) or []:
+        group = item.get("tournamentGroup") or {}
+        event_id = clean_str(item.get("liveScoringId") or group.get("id") or item.get("tournamentLink") or item.get("title"))
+        if not event_id:
+            continue
+        result[event_id] = {
+            "event_id": event_id,
+            "name": clean_str(group.get("name") or item.get("title")),
+            "title": clean_str(item.get("title")),
+            "location": clean_str(item.get("city") or item.get("country")),
+            "surface": clean_str(item.get("surface")),
+            "level": clean_str(group.get("level") or item.get("level")),
+            "country_code": normalize_country(item.get("country")),
+            "country_name": clean_str(item.get("country")),
+            "sgl_draw_size": parse_int(item.get("singlesDrawSize")),
+            "dbl_draw_size": parse_int(item.get("doublesDrawSize")),
+            "source": "WTA",
+        }
+    return result
+
+
+def load_tournament_index(root_dir: Path, circuit: str, year: int) -> Dict[str, Dict[str, Any]]:
+    circuit = circuit.upper()
+    candidates = []
+    if circuit == "ATP":
+        candidates = [
+            root_dir / "docs" / f"atp_tournaments_{year}.json",
+            root_dir / "docs" / "atp_tournaments.json",
+            root_dir / "docs" / "tools" / f"atp_tournaments_{year}.json",
+            root_dir / "docs" / "Tools" / f"atp_tournaments_{year}.json",
+        ]
+    else:
+        candidates = [
+            root_dir / "docs" / f"wta_tournaments_{year}.json",
+            root_dir / "docs" / "wta_tournaments.json",
+            root_dir / "docs" / "tools" / f"wta_tournaments_{year}.json",
+            root_dir / "docs" / "Tools" / f"wta_tournaments_{year}.json",
+        ]
+    path = next((p for p in candidates if p.exists()), None)
+    if path is None:
+        return {"by_event_id": {}, "by_name": {}, "country_ioc": load_country_ioc_map(root_dir)}
+
+    payload = _load_json_file(path)
+    by_event_id = _parse_atp_tournament_file(payload) if circuit == "ATP" else _parse_wta_tournament_file(payload)
+    by_name = {normalize_name_key(info.get("name") or info.get("title")): info for info in by_event_id.values() if info.get("name") or info.get("title")}
+    by_name.update({normalize_name_key(info.get("title")): info for info in by_event_id.values() if info.get("title")})
+    return {"by_event_id": by_event_id, "by_name": by_name, "country_ioc": load_country_ioc_map(root_dir), "source_path": str(path)}
+
+
+def find_tournament_metadata(index: Optional[Dict[str, Dict[str, Any]]], event_id: Any, tourney_name: Any) -> Optional[Dict[str, Any]]:
+    if not index:
+        return None
+    by_event = index.get("by_event_id", {})
+    by_name = index.get("by_name", {})
+    event_key = clean_str(event_id)
+    if event_key and event_key in by_event:
+        return by_event[event_key]
+    name_key = normalize_name_key(tourney_name)
+    if name_key and name_key in by_name:
+        return by_name[name_key]
+    return None
+
+
+def _country_from_location(location: str, country_ioc: Dict[str, str]) -> Tuple[str, str]:
+    loc = clean_str(location)
+    if not loc:
+        return "", ""
+    parts = [p.strip() for p in loc.split(",") if p.strip()]
+    if not parts:
+        return "", ""
+    country_name = parts[-1]
+    country_code = country_ioc.get(normalize_name_key(country_name), normalize_country(country_name))
+    return country_code, country_name
 
 
 # ---------------------------------------------------------------------------
@@ -836,88 +1044,121 @@ def get_side_float_or_none(row: Dict[str, Any], keys: Sequence[str]) -> Optional
     return get_side_value(row, keys)
 
 
-def normalize_match_row(row: Dict[str, Any], circuit: str, source_file: Path, period: str) -> Dict[str, Any]:
-    if circuit == "ATP":
-        winner_id = clean_str(find_first(row, ["player_id_winner", "winner_player_id", "PlayerIDA", "PlayerID_winner", "player_winner_id"]))
-        loser_id = clean_str(find_first(row, ["player_id_loser", "loser_player_id", "PlayerIDB", "PlayerID_loser", "player_loser_id"]))
-        winner_name = clean_str(find_first(row, ["player_winner", "winner_player_name", "winner"]))
-        loser_name = clean_str(find_first(row, ["player_loser", "loser_player_name", "loser"]))
-        winner_country = normalize_country(find_first(row, ["country_winner", "winner_country"]))
-        loser_country = normalize_country(find_first(row, ["country_loser", "loser_country"]))
-        winner_seed = get_side_int(row, ["seed_winner", "winner_seed"])
-        loser_seed = get_side_int(row, ["seed_loser", "loser_seed"])
-        round_raw = clean_str(find_first(row, ["round"]))
-        draw_size = parse_int(find_first(row, ["singles_draw_size"]))
-        event_year = parse_int(find_first(row, ["event_year", "tourney_year"])) or 0
-        event_id = clean_str(find_first(row, ["event_id", "tourney_id"]))
-        tourney_name = clean_str(find_first(row, ["tourney_name", "tournament_name", "tournament_title"]))
-        start_date = parse_date(find_first(row, ["start_date"]))
-        end_date = parse_date(find_first(row, ["end_date"]))
-        match_date = derive_match_date(row)
-        match_key = match_key_for_row(row, source_file)
-        event_key = derive_event_key(row, source_file)
-        level_raw = clean_str(find_first(row, ["level"]))
-        surface = clean_str(find_first(row, ["surface"]))
-        event_country_code, event_country_name = derive_event_country(row)
-        result = {
-            "circuit": circuit,
-            "period": period,
-            "match_key": match_key,
-            "event_key": event_key,
-            "event_year": event_year,
-            "event_id": event_id,
-            "tourney_name": tourney_name,
-            "level_raw": level_raw,
-            "level_canonical": canonical_level(circuit, level_raw, tourney_name, draw_size),
-            "start_date": start_date,
-            "end_date": end_date,
-            "match_date": match_date,
-            "round_raw": round_raw,
-            "round_order": round_order(round_raw),
-            "round_label": round_label(round_raw),
-            "surface": surface,
-            "draw_size": draw_size,
-            "event_country_code": event_country_code,
-            "event_country_name": event_country_name,
-            "winner": {
-                "player_id": winner_id,
-                "player_name": winner_name,
-                "country_code": winner_country,
-                "seed": winner_seed,
-                "stats": derive_stats_for_side(row, circuit, "winner"),
-            },
-            "loser": {
-                "player_id": loser_id,
-                "player_name": loser_name,
-                "country_code": loser_country,
-                "seed": loser_seed,
-                "stats": derive_stats_for_side(row, circuit, "loser"),
-            },
-        }
-        return result
 
-    # WTA and mixed naming.
-    winner_name = clean_str(find_first(row, ["player_winner", "winner_player_name", "winner"]))
-    loser_name = clean_str(find_first(row, ["player_loser", "loser_player_name", "loser"]))
-    winner_id = clean_str(find_first(row, ["player_id_winner", "PlayerIDA", "PlayerIDA2", "winner_player_id"]))
-    loser_id = clean_str(find_first(row, ["player_id_loser", "PlayerIDB", "PlayerIDB2", "loser_player_id"]))
-    winner_country = normalize_country(find_first(row, ["country_winner", "winner_country", "country_a"]))
-    loser_country = normalize_country(find_first(row, ["country_loser", "loser_country", "country_b"]))
-    winner_seed = get_side_int(row, ["seed_winner", "winner_seed", "seed_a"])
-    loser_seed = get_side_int(row, ["seed_loser", "loser_seed", "seed_b"])
-    round_raw = clean_str(find_first(row, ["round"]))
-    draw_size = parse_int(find_first(row, ["singles_draw_size"]))
+
+def normalize_match_row(
+    row: Dict[str, Any],
+    circuit: str,
+    source_file: Path,
+    period: str,
+    tournament_index: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
     event_year = parse_int(find_first(row, ["event_year", "tourney_year"])) or 0
     event_id = clean_str(find_first(row, ["event_id", "tourney_id"]))
-    tourney_name = clean_str(find_first(row, ["tourney_name", "tournament_name", "tournament_title", "city"]))
+    tourney_name = clean_str(find_first(row, ["tourney_name", "tournament_name", "tournament_title", "title", "city"]))
+    tournament_meta = find_tournament_metadata(tournament_index, event_id, tourney_name)
+
+    if tournament_meta:
+        tourney_name = clean_str(tournament_meta.get("name") or tournament_meta.get("title") or tourney_name)
+    level_raw = clean_str(find_first(row, ["level"]))
+    draw_size = parse_int(find_first(row, ["singles_draw_size"]))
     start_date = parse_date(find_first(row, ["start_date"]))
     end_date = parse_date(find_first(row, ["end_date"]))
     match_date = derive_match_date(row)
     match_key = match_key_for_row(row, source_file)
     event_key = derive_event_key(row, source_file)
-    level_raw = clean_str(find_first(row, ["level"]))
+
+    if tournament_meta:
+        level_raw = clean_str(tournament_meta.get("level") or level_raw)
+        draw_size = parse_int(tournament_meta.get("sgl_draw_size") or draw_size)
+        if circuit == "ATP":
+            event_country_code, event_country_name = _country_from_location(
+                clean_str(tournament_meta.get("location")),
+                (tournament_index or {}).get("country_ioc", {}),
+            )
+        else:
+            event_country_code = normalize_country(tournament_meta.get("country_code"))
+            event_country_name = clean_str(tournament_meta.get("country_name"), default=event_country_code)
+    else:
+        event_country_code, event_country_name = derive_event_country(row)
+
+    round_raw = clean_str(find_first(row, ["round"]))
+    round_code = clean_str(find_first(row, ["match_id", "round_code", "match_code"]))
+    if not round_code:
+        round_code = round_raw
+    round_order_value = _round_order_from_value(round_code or round_raw)
+    round_label_value = round_label(round_code or round_raw)
+
     surface = clean_str(find_first(row, ["surface"]))
-    event_country_code, event_country_name = derive_event_country(row)
+    level_canonical = canonical_level(circuit, level_raw, tourney_name, draw_size, tournament_meta=tournament_meta)
+
+    def norm_name(value: Any) -> str:
+        return normalize_name_key(value)
+
+    def side_matches(explicit: str, candidate: str) -> bool:
+        explicit_key = norm_name(explicit)
+        candidate_key = norm_name(candidate)
+        return bool(explicit_key and candidate_key and explicit_key == candidate_key)
+
+    # ATP rows usually expose both a/b and winner/loser columns.
+    player_a_name = clean_str(find_first(row, ["player_a", "player_a_name", "player1", "participant_a"]))
+    player_b_name = clean_str(find_first(row, ["player_b", "player_b_name", "player2", "participant_b"]))
+    player_a_id = clean_str(find_first(row, ["player_a_id", "player_id_a", "PlayerIDA", "playerid_a"]))
+    player_b_id = clean_str(find_first(row, ["player_b_id", "player_id_b", "PlayerIDB", "playerid_b"]))
+    player_a_country = normalize_country(find_first(row, ["country_a", "player_a_country", "player_a_country_code"]))
+    player_b_country = normalize_country(find_first(row, ["country_b", "player_b_country", "player_b_country_code"]))
+    player_a_seed = get_side_int(row, ["seed_a", "player_a_seed"])
+    player_b_seed = get_side_int(row, ["seed_b", "player_b_seed"])
+
+    winner_name = clean_str(find_first(row, ["winner_player_name", "player_winner", "winner"]))
+    loser_name = clean_str(find_first(row, ["loser_player_name", "player_loser", "loser"]))
+    winner_id = clean_str(find_first(row, ["winner_player_id", "player_id_winner"]))
+    loser_id = clean_str(find_first(row, ["loser_player_id", "player_id_loser"]))
+    winner_country = normalize_country(find_first(row, ["winner_country", "country_winner"]))
+    loser_country = normalize_country(find_first(row, ["loser_country", "country_loser"]))
+    winner_seed = get_side_int(row, ["winner_seed", "seed_winner"])
+    loser_seed = get_side_int(row, ["loser_seed", "seed_loser"])
+
+    winner_side = None
+    if winner_name:
+        if side_matches(winner_name, player_a_name):
+            winner_side = "a"
+        elif side_matches(winner_name, player_b_name):
+            winner_side = "b"
+    if winner_side is None:
+        flag = clean_str(find_first(row, ["winner_flag_raw", "winner_flag"])).upper()
+        if flag in {"A", "1", "W", "WINNER_A"}:
+            winner_side = "a"
+        elif flag in {"B", "2", "L", "WINNER_B"}:
+            winner_side = "b"
+
+    if winner_side == "a":
+        loser_side = "b"
+    elif winner_side == "b":
+        loser_side = "a"
+    else:
+        loser_side = None
+
+    if not winner_name:
+        winner_name = player_a_name if winner_side == "a" else player_b_name if winner_side == "b" else player_a_name or player_b_name
+    if not loser_name:
+        loser_name = player_b_name if winner_side == "a" else player_a_name if winner_side == "b" else player_b_name or player_a_name
+
+    if not winner_id:
+        winner_id = player_a_id if winner_side == "a" else player_b_id if winner_side == "b" else player_a_id or player_b_id
+    if not loser_id:
+        loser_id = player_b_id if winner_side == "a" else player_a_id if winner_side == "b" else player_b_id or player_a_id
+
+    if not winner_country:
+        winner_country = player_a_country if winner_side == "a" else player_b_country if winner_side == "b" else player_a_country or player_b_country
+    if not loser_country:
+        loser_country = player_b_country if winner_side == "a" else player_a_country if winner_side == "b" else player_b_country or player_a_country
+
+    if winner_seed is None:
+        winner_seed = player_a_seed if winner_side == "a" else player_b_seed if winner_side == "b" else player_a_seed or player_b_seed
+    if loser_seed is None:
+        loser_seed = player_b_seed if winner_side == "a" else player_a_seed if winner_side == "b" else player_b_seed or player_a_seed
+
     return {
         "circuit": circuit,
         "period": period,
@@ -927,13 +1168,14 @@ def normalize_match_row(row: Dict[str, Any], circuit: str, source_file: Path, pe
         "event_id": event_id,
         "tourney_name": tourney_name,
         "level_raw": level_raw,
-        "level_canonical": canonical_level(circuit, level_raw, tourney_name, draw_size),
+        "level_canonical": level_canonical,
         "start_date": start_date,
         "end_date": end_date,
         "match_date": match_date,
         "round_raw": round_raw,
-        "round_order": round_order(round_raw),
-        "round_label": round_label(round_raw),
+        "round_code": round_code,
+        "round_order": round_order_value,
+        "round_label": round_label_value,
         "surface": surface,
         "draw_size": draw_size,
         "event_country_code": event_country_code,
@@ -955,8 +1197,10 @@ def normalize_match_row(row: Dict[str, Any], circuit: str, source_file: Path, pe
     }
 
 
+
 def load_matches(root_dir: Path, circuit: str, year: int, period: str, start: Optional[date] = None, end: Optional[date] = None) -> List[Dict[str, Any]]:
     files = iter_csv_files(root_dir, circuit, year)
+    tournament_index = load_tournament_index(root_dir, circuit, year)
     matches: List[Dict[str, Any]] = []
     for path in files:
         with path.open("r", encoding="utf-8-sig", newline="") as fh:
@@ -967,13 +1211,15 @@ def load_matches(root_dir: Path, circuit: str, year: int, period: str, start: Op
                     continue
                 if end and (mdate is None or mdate >= end):
                     continue
-                matches.append(normalize_match_row(row, circuit, path, period))
+                matches.append(normalize_match_row(row, circuit, path, period, tournament_index=tournament_index))
     return matches
 
 
 # ---------------------------------------------------------------------------
 # Participation generation and aggregation.
 # ---------------------------------------------------------------------------
+
+
 
 
 def make_participation(
@@ -987,17 +1233,17 @@ def make_participation(
     opponent_id = clean_str(opponent.get("player_id"))
     player_rank = None
     opponent_rank = None
-    ranking_entry = ranking_map.get(player_id)
-    opponent_ranking_entry = ranking_map.get(opponent_id)
+    ranking_entry = ranking_map.get(player_id) or {}
+    opponent_ranking_entry = ranking_map.get(opponent_id) or {}
     if ranking_entry is not None:
         player_rank = parse_int(ranking_entry.get("ranking"))
     if opponent_ranking_entry is not None:
         opponent_rank = parse_int(opponent_ranking_entry.get("ranking"))
 
     level = match["level_canonical"]
-    round_lbl = match["round_label"]
-    won_final = bool(side == "winner" and round_lbl in {"F", "MS001", "LS001"})
-    points = points_for_level_round(match["circuit"], level, round_lbl, won_final=won_final)
+    round_code = clean_str(match.get("round_code") or match.get("round_raw"))
+    won_final = bool(side == "winner" and is_final_match_code(round_code))
+    points = points_for_level_round(match["circuit"], level, round_code, won_final=won_final)
 
     stats = player["stats"].copy()
     significant_win = False
@@ -1012,15 +1258,15 @@ def make_participation(
         significant_loss = is_significant_loss(player_rank, opponent_rank, very=False)
         very_significant_loss = is_significant_loss(player_rank, opponent_rank, very=True)
 
-    country = normalize_country(player.get("country_code") or (ranking_entry.get("country_name") if ranking_entry else ""))
-    if not country:
-        country = "UNK"
-    country_name = clean_str((ranking_entry or {}).get("country_name"), default=country)
-    if not country_name:
-        country_name = country
+    player_country_code = normalize_country(player.get("country_code") or ranking_entry.get("country_code"))
+    if not player_country_code:
+        player_country_code = "UNK"
+    player_country_name = clean_str(ranking_entry.get("country_name"), default=player_country_code)
+    if not player_country_name:
+        player_country_name = player_country_code
 
-    opponent_country = normalize_country(opponent.get("country_code") or (opponent_ranking_entry.get("country_name") if opponent_ranking_entry else ""))
-    opponent_country_name = clean_str((opponent_ranking_entry or {}).get("country_name"), default=opponent_country or "UNK")
+    opponent_country = normalize_country(opponent.get("country_code") or opponent_ranking_entry.get("country_code"))
+    opponent_country_name = clean_str(opponent_ranking_entry.get("country_name"), default=opponent_country or "UNK")
     if not opponent_country_name:
         opponent_country_name = opponent_country or "UNK"
 
@@ -1043,16 +1289,17 @@ def make_participation(
         end_date=match["end_date"],
         match_date=match["match_date"],
         round_raw=match["round_raw"],
+        round_code=round_code,
         round_order=match["round_order"],
-        round_label=round_lbl,
+        round_label=match["round_label"],
         surface=match["surface"],
         draw_size=match["draw_size"],
         player_id=player_id,
-        player_name=player.get("player_name") or player_id,
+        player_name=player.get("player_name") or ranking_entry.get("full_name") or player_id,
         opponent_id=opponent_id,
-        opponent_name=opponent.get("player_name") or opponent_id,
-        country_code=country,
-        country_name=country_name,
+        opponent_name=opponent.get("player_name") or opponent_ranking_entry.get("full_name") or opponent_id,
+        country_code=player_country_code,
+        country_name=player_country_name,
         is_winner=side == "winner",
         player_rank=player_rank,
         opponent_rank=opponent_rank,
@@ -1067,6 +1314,7 @@ def make_participation(
         very_significant_win=very_significant_win,
         very_significant_loss=very_significant_loss,
     )
+
 
 
 def build_participations(matches: List[Dict[str, Any]], ranking_map: Dict[str, Dict[str, Any]]) -> List[Participation]:
@@ -1098,18 +1346,22 @@ def _normalize_series(values: List[float]) -> List[float]:
     return [100.0 * (v - vmin) / (vmax - vmin) for v in values]
 
 
+
+
 def summarize_players(participations: List[Participation], ranking_map: Dict[str, Dict[str, Any]], period: str) -> Dict[str, PlayerSummary]:
     summaries: Dict[str, PlayerSummary] = {}
     # Aggregate per player.
     tournament_best: Dict[Tuple[str, str], Tuple[int, str, Dict[str, Any]]] = {}
     for p in participations:
-        entry = ranking_map.get(p.player_id, {})
+        entry = ranking_map.get(p.player_id, {}) or {}
+        entry_country_code = normalize_country(entry.get("country_code"))
+        entry_country_name = clean_str(entry.get("country_name"), default=entry_country_code)
         if p.player_id not in summaries:
             summaries[p.player_id] = PlayerSummary(
                 player_id=p.player_id,
                 player_name=p.player_name,
-                country_code=p.country_code or clean_str(entry.get("country_name")),
-                country_name=clean_str(entry.get("country_name"), default=p.country_name or p.country_code),
+                country_code=p.country_code or entry_country_code,
+                country_name=entry_country_name or p.country_name or p.country_code,
                 circuit=p.circuit,
                 period=period,
                 ranking=parse_int(entry.get("ranking")),
@@ -1122,9 +1374,7 @@ def summarize_players(participations: List[Participation], ranking_map: Dict[str
         s.matches += 1
         s.wins += 1 if p.is_winner else 0
         s.losses += 0 if p.is_winner else 1
-        s.points_earned += p.points_earned
         s.opponent_ranks.append(p.opponent_rank) if p.opponent_rank is not None else None
-        s.level_points.append(p.points_earned)
         s.significant_wins += 1 if p.significant_win else 0
         s.significant_losses += 1 if p.significant_loss else 0
         s.very_significant_wins += 1 if p.very_significant_win else 0
@@ -1132,19 +1382,11 @@ def summarize_players(participations: List[Participation], ranking_map: Dict[str
 
         # Stats accumulation: counts are summed; percentages are weighted by their natural denominator if available,
         # otherwise by one match.
-        weight = 1.0
         for k, v in p.stats.items():
             if v is None:
                 continue
-            if k in {"first_serve_percent", "first_serve_points_won_percent", "second_serve_points_won_percent", "service_points_won_percent", "return_points_won_percent", "breakpoints_converted_rate", "service_games_lost_rate", "tie_breaks_win_rate"}:
-                s.stats_sums[k] += v
-                s.stats_weights[k] += 1.0
-            elif k == "mean_match_time_hours":
-                s.stats_sums[k] += v
-                s.stats_weights[k] += 1.0
-            else:
-                s.stats_sums[k] += v
-                s.stats_weights[k] += 1.0
+            s.stats_sums[k] += v
+            s.stats_weights[k] += 1.0
 
         # Tournament best round for the player.
         key = (p.player_id, p.event_key)
@@ -1158,6 +1400,8 @@ def summarize_players(participations: List[Participation], ranking_map: Dict[str
             "tourney_name": p.tourney_name,
             "level": p.level_canonical,
             "round": p.round_raw,
+            "round_code": p.round_code,
+            "is_winner": p.is_winner,
             "best_round_order": candidate_order,
             "best_round_label": candidate_label,
             "match_key": p.match_key,
@@ -1169,17 +1413,27 @@ def summarize_players(participations: List[Participation], ranking_map: Dict[str
     for pid, s in summaries.items():
         if s.opponent_ranks:
             s.avg_opponent_rank = sum(s.opponent_ranks) / len(s.opponent_ranks)
-        if s.level_points:
-            s.avg_tournament_points = sum(s.level_points) / len(s.level_points)
-        # Build per-player tournament list.
         player_tournaments = [meta for (p_id, _), (_, _, meta) in tournament_best.items() if p_id == pid]
         player_tournaments.sort(key=lambda x: (x.get("best_round_order", 999), x.get("event_year", 0), x.get("tourney_name", "")))
         s.tournaments = player_tournaments
         s.unique_tournaments = len(player_tournaments)
+        tournament_points: List[int] = []
+        for meta in player_tournaments:
+            points = points_for_level_round(
+                s.circuit,
+                meta.get("level", ""),
+                meta.get("round_code") or meta.get("round") or "",
+                won_final=bool(meta.get("is_winner") and is_final_match_code(meta.get("round_code") or meta.get("round"))),
+            )
+            tournament_points.append(points)
+        s.level_points = tournament_points
+        s.points_earned = sum(tournament_points)
         if player_tournaments:
             best = min(player_tournaments, key=lambda x: x.get("best_round_order", 999))
             s.best_round_order = best.get("best_round_order")
             s.best_round_label = best.get("best_round_label")
+        if s.level_points:
+            s.avg_tournament_points = sum(s.level_points) / len(s.level_points)
 
     # Raw score.
     raw_scores: List[Tuple[str, float]] = []

@@ -172,7 +172,7 @@ def aggregate_country_circuit(
             significant_wins.append(base)
         if p.is_winner and p.very_significant_win:
             very_significant_wins.append(base)
-        if (p.is_winner and p.round_order <= 1) or p.round_label in {"F", "MS001", "LS001"}:
+        if p.is_winner and tp.is_final_match_code(p.round_code):
             tournaments_won.append({
                 "player_id": p.player_id,
                 "player_name": p.player_name,
