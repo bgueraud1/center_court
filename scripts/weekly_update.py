@@ -392,6 +392,31 @@ def build_country_rank_tables(
     return rows
 
 
+def _ranking_export_rows(
+    country_payloads: Dict[str, Dict[str, Any]],
+    country_rankings: Dict[str, Dict[str, Any]],
+    rank_key: str,
+    value_key: str,
+) -> Dict[str, Any]:
+    rows: List[Dict[str, Any]] = []
+    for cc, info in country_rankings.items():
+        payload = country_payloads.get(cc, {})
+        rows.append(
+            {
+                "country_code": cc,
+                "country_name": payload.get("country_name", cc),
+                "rank": info.get(rank_key),
+                "points": info.get(value_key),
+            }
+        )
+    rows.sort(key=lambda row: (row["rank"] if row["rank"] is not None else 10**9, row["country_code"]))
+    return {
+        "ranking": value_key,
+        "countries": rows,
+        "count": len(rows),
+    }
+
+
 def _inject_stat_rankings(country_payloads: Dict[str, Dict[str, Any]]) -> None:
     for period in ["weekly", "current_year"]:
         for circuit in ["ATP", "WTA"]:
@@ -463,6 +488,14 @@ def write_outputs(
             ]
         },
     )
+
+    ranking_exports = {
+        "country_rankings_by_mass.json": _ranking_export_rows(country_payloads, country_rankings, "mass_rank", "mass"),
+        "country_rankings_by_efficiency.json": _ranking_export_rows(country_payloads, country_rankings, "efficiency_rank", "efficiency"),
+        "country_rankings_by_coherence.json": _ranking_export_rows(country_payloads, country_rankings, "coherence_rank", "coherence_distance"),
+    }
+    for filename, payload in ranking_exports.items():
+        tp.json_dump(output_dir / filename, payload)
 
 
 def main() -> None:
