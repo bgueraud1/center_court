@@ -540,7 +540,7 @@
           <section class="card" style="margin-bottom:14px;">
             <div class="sectionHeader">
               <h2>Rankings</h2>
-              <div class="meta">Tap a card to open the full ranking</div>
+              <div class="meta">Click a card to open the full ranking</div>
             </div>
             <div class="sectionBody" id="rankingsPanel"></div>
           </section>
@@ -664,6 +664,21 @@
             ATP country = blue. WTA country = violet. Fields not present in the JSON are ignored safely.
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="rankingModal" class="rankModalOverlay" aria-hidden="true">
+    <div class="rankModal" role="dialog" aria-modal="true" aria-labelledby="rankModalTitle">
+      <div class="rankModalHeader">
+        <div>
+          <h3 id="rankModalTitle">Ranking</h3>
+          <div class="meta" id="rankModalMeta">Select a ranking card.</div>
+        </div>
+        <button class="rankModalClose" id="rankModalClose" type="button" aria-label="Close ranking modal">×</button>
+      </div>
+      <div class="rankModalBody">
+        <div class="rankTable" id="rankModalList"></div>
       </div>
     </div>
   </div>
@@ -1136,24 +1151,34 @@
       container.innerHTML = `<div class="matchList">${items.map(item => matchCardHTML(item, type)).join('')}</div>`;
     }
 
-    function rankingMetricDefinitions() {
-      return [
+    function rankingMetricDefinitions(circuit) {
+      const base = [
         { id: 'year_mass', label: 'Year mass', currentPath: 'year_mass', dataPath: ['mass'], rankPath: ['mass_rank'], sort: 'desc', format: 'number' },
         { id: 'year_efficiency', label: 'Year efficiency', currentPath: 'year_efficiency', dataPath: ['efficiency'], rankPath: ['efficiency_rank'], sort: 'desc', format: 'number' },
         { id: 'year_coherence_distance', label: 'Year coherence distance', currentPath: 'year_coherence_distance', dataPath: ['coherence_distance'], rankPath: ['coherence_rank'], sort: 'asc', format: 'number' },
-        { id: 'atp_vector.ranking', label: 'ATP ranking', currentPath: 'atp_vector.ranking', dataPath: ['atp_vector', 'ranking'], sort: 'desc', format: 'number' },
-        { id: 'atp_vector.performance', label: 'ATP performance', currentPath: 'atp_vector.performance', dataPath: ['atp_vector', 'performance'], sort: 'desc', format: 'number' },
-        { id: 'atp_vector.win_rate', label: 'ATP win rate', currentPath: 'atp_vector.win_rate', dataPath: ['atp_vector', 'win_rate'], sort: 'desc', format: 'percent' },
-        { id: 'atp_vector.significant_win_rate', label: 'ATP significant win rate', currentPath: 'atp_vector.significant_win_rate', dataPath: ['atp_vector', 'significant_win_rate'], sort: 'desc', format: 'percent' },
-        { id: 'atp_vector.avg_opponent_rank', label: 'ATP average opponent rank', currentPath: 'atp_vector.avg_opponent_rank', dataPath: ['atp_vector', 'avg_opponent_rank'], sort: 'asc', format: 'number' },
-        { id: 'atp_vector.points', label: 'ATP points', currentPath: 'atp_vector.points', dataPath: ['atp_vector', 'points'], sort: 'desc', format: 'number' },
-        { id: 'wta_vector.ranking', label: 'WTA ranking', currentPath: 'wta_vector.ranking', dataPath: ['wta_vector', 'ranking'], sort: 'desc', format: 'number' },
-        { id: 'wta_vector.performance', label: 'WTA performance', currentPath: 'wta_vector.performance', dataPath: ['wta_vector', 'performance'], sort: 'desc', format: 'number' },
-        { id: 'wta_vector.win_rate', label: 'WTA win rate', currentPath: 'wta_vector.win_rate', dataPath: ['wta_vector', 'win_rate'], sort: 'desc', format: 'percent' },
-        { id: 'wta_vector.significant_win_rate', label: 'WTA significant win rate', currentPath: 'wta_vector.significant_win_rate', dataPath: ['wta_vector', 'significant_win_rate'], sort: 'desc', format: 'percent' },
-        { id: 'wta_vector.avg_opponent_rank', label: 'WTA average opponent rank', currentPath: 'wta_vector.avg_opponent_rank', dataPath: ['wta_vector', 'avg_opponent_rank'], sort: 'asc', format: 'number' },
-        { id: 'wta_vector.points', label: 'WTA points', currentPath: 'wta_vector.points', dataPath: ['wta_vector', 'points'], sort: 'desc', format: 'number' },
       ];
+
+      if (String(circuit || '').toUpperCase() === 'ATP') {
+        base.push(
+          { id: 'atp_vector.ranking', label: 'ATP ranking', currentPath: 'atp_vector.ranking', dataPath: ['atp_vector', 'ranking'], sort: 'desc', format: 'number' },
+          { id: 'atp_vector.performance', label: 'ATP performance', currentPath: 'atp_vector.performance', dataPath: ['atp_vector', 'performance'], sort: 'desc', format: 'number' },
+          { id: 'atp_vector.win_rate', label: 'ATP win rate', currentPath: 'atp_vector.win_rate', dataPath: ['atp_vector', 'win_rate'], sort: 'desc', format: 'percent' },
+          { id: 'atp_vector.significant_win_rate', label: 'ATP significant win rate', currentPath: 'atp_vector.significant_win_rate', dataPath: ['atp_vector', 'significant_win_rate'], sort: 'desc', format: 'percent' },
+          { id: 'atp_vector.avg_opponent_rank', label: 'ATP average opponent rank', currentPath: 'atp_vector.avg_opponent_rank', dataPath: ['atp_vector', 'avg_opponent_rank'], sort: 'asc', format: 'number' },
+          { id: 'atp_vector.points', label: 'ATP points', currentPath: 'atp_vector.points', dataPath: ['atp_vector', 'points'], sort: 'desc', format: 'number' },
+        );
+      } else {
+        base.push(
+          { id: 'wta_vector.ranking', label: 'WTA ranking', currentPath: 'wta_vector.ranking', dataPath: ['wta_vector', 'ranking'], sort: 'desc', format: 'number' },
+          { id: 'wta_vector.performance', label: 'WTA performance', currentPath: 'wta_vector.performance', dataPath: ['wta_vector', 'performance'], sort: 'desc', format: 'number' },
+          { id: 'wta_vector.win_rate', label: 'WTA win rate', currentPath: 'wta_vector.win_rate', dataPath: ['wta_vector', 'win_rate'], sort: 'desc', format: 'percent' },
+          { id: 'wta_vector.significant_win_rate', label: 'WTA significant win rate', currentPath: 'wta_vector.significant_win_rate', dataPath: ['wta_vector', 'significant_win_rate'], sort: 'desc', format: 'percent' },
+          { id: 'wta_vector.avg_opponent_rank', label: 'WTA average opponent rank', currentPath: 'wta_vector.avg_opponent_rank', dataPath: ['wta_vector', 'avg_opponent_rank'], sort: 'asc', format: 'number' },
+          { id: 'wta_vector.points', label: 'WTA points', currentPath: 'wta_vector.points', dataPath: ['wta_vector', 'points'], sort: 'desc', format: 'number' },
+        );
+      }
+
+      return base;
     }
 
     function getCurrentIndices() {
@@ -1215,6 +1240,8 @@
       const currentRow = rows.find(r => r.code === countryCode);
       const currentRank = currentRow?.computedRank ?? currentRow?.rank ?? '—';
 
+      if (!modal || !list || !title || !meta) return;
+
       title.textContent = metric.label;
       meta.textContent = `Your country: ${countryCode || '—'} · Rank ${currentRank} · Value ${formatRankingValue(metric, currentValue)}`;
       list.innerHTML = rows.map(row => {
@@ -1237,6 +1264,7 @@
 
     function closeRankingModal() {
       const modal = el('rankingModal');
+      if (!modal) return;
       modal.classList.remove('open');
       modal.setAttribute('aria-hidden', 'true');
     }
@@ -1244,7 +1272,7 @@
     function renderCountryRankings() {
       const panel = el('rankingsPanel');
       const current = getCurrentIndices();
-      const metrics = rankingMetricDefinitions();
+      const metrics = rankingMetricDefinitions(state.circuit);
       if (!metrics.length) {
         panel.innerHTML = `<div class="empty">No rankings are available yet.</div>`;
         return;
@@ -1713,7 +1741,7 @@
       setText('countryTitle', `${countryName}${countryCode ? ` · ${countryCode}` : ''}`);
       setText('countryBadge', state.resolvedIOC || countryCode || 'Country');
       setText('countrySubtitle', `Data loaded automatically from the country JSON. Active circuit: ${state.circuit}. Period: ${state.period === 'weekly' ? 'Weekly' : 'Since the start of the year'}.`);
-      setText('fileHint', 'JSON chargé');
+      setText('fileHint', 'JSON loaded');
       document.querySelectorAll('.pill[data-circuit]').forEach(btn => btn.classList.toggle('active', btn.dataset.circuit === state.circuit));
       document.querySelectorAll('.tabBtn[data-period]').forEach(btn => btn.classList.toggle('active', btn.dataset.period === state.period));
       return block;
@@ -1748,6 +1776,18 @@
     });
     document.querySelectorAll('[data-period]').forEach(btn => {
       btn.addEventListener('click', () => { state.period = btn.dataset.period; renderAll(); });
+    });
+
+    const rankingModal = el('rankingModal');
+    const rankingModalClose = el('rankModalClose');
+    if (rankingModal) {
+      rankingModal.addEventListener('click', (e) => {
+        if (e.target === rankingModal) closeRankingModal();
+      });
+    }
+    if (rankingModalClose) rankingModalClose.addEventListener('click', closeRankingModal);
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeRankingModal();
     });
 
     window.addEventListener('resize', () => {
