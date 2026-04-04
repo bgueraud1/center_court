@@ -149,6 +149,10 @@ class Participation:
     opponent_rank: Optional[int]
     points_earned: int
     stats: Dict[str, Optional[float]]
+    opponent_country_code: str = ""
+    opponent_country_name: str = ""
+    event_country_code: str = ""
+    event_country_name: str = ""
     significant_win: bool = False
     significant_loss: bool = False
     very_significant_win: bool = False
@@ -488,9 +492,11 @@ def significance_threshold(rank: Optional[int], thresholds: Sequence[Tuple[int, 
 def is_significant_win(player_rank: Optional[int], opponent_rank: Optional[int], very: bool = False) -> bool:
     if not player_rank or not opponent_rank:
         return False
-    if opponent_rank <= player_rank:
+    # A significant win is a win against a much better-ranked opponent:
+    # opponent_rank must be lower than player_rank by a meaningful gap.
+    if opponent_rank >= player_rank:
         return False
-    gap = opponent_rank - player_rank
+    gap = player_rank - opponent_rank
     threshold = significance_threshold(player_rank, VERY_SIGNIFICANT_WIN_THRESHOLDS if very else SIGNIFICANT_WIN_THRESHOLDS)
     return bool(threshold is not None and gap >= threshold)
 
@@ -498,9 +504,11 @@ def is_significant_win(player_rank: Optional[int], opponent_rank: Optional[int],
 def is_significant_loss(player_rank: Optional[int], opponent_rank: Optional[int], very: bool = False) -> bool:
     if not player_rank or not opponent_rank:
         return False
-    if opponent_rank >= player_rank:
+    # A significant loss is a loss against a much worse-ranked opponent:
+    # opponent_rank must be higher than player_rank by a meaningful gap.
+    if opponent_rank <= player_rank:
         return False
-    gap = player_rank - opponent_rank
+    gap = opponent_rank - player_rank
     threshold = significance_threshold(player_rank, VERY_SIGNIFICANT_WIN_THRESHOLDS if very else SIGNIFICANT_WIN_THRESHOLDS)
     return bool(threshold is not None and gap >= threshold)
 
@@ -598,6 +606,46 @@ def match_key_for_row(row: Dict[str, Any], source_file: Path) -> str:
     player_b = clean_str(find_first(row, ["player_loser", "loser", "player_b", "loser_player_name"]))
     mdate = clean_str(find_first(row, ["match_date", "date"]))
     return f"{event_key}::{mdate}::{player_a}::{player_b}"
+
+
+def derive_event_country(row: Dict[str, Any]) -> Tuple[str, str]:
+    code = normalize_country(
+        find_first(
+            row,
+            [
+                "tourney_country",
+                "tourney_country_code",
+                "country_tourney",
+                "country",
+                "event_country",
+                "event_country_code",
+                "host_country",
+                "location_country",
+                "site_country",
+                "venue_country",
+            ],
+        )
+    )
+    name = clean_str(
+        find_first(
+            row,
+            [
+                "tourney_country_name",
+                "country_name",
+                "event_country_name",
+                "host_country_name",
+                "location_country_name",
+                "site_country_name",
+                "venue_country_name",
+            ],
+        ),
+        default=code,
+    )
+    if not code and name:
+        code = normalize_country(name)
+    if not name:
+        name = code
+    return code or "UNK", name or "UNK"
 
 
 # ---------------------------------------------------------------------------
@@ -810,6 +858,7 @@ def normalize_match_row(row: Dict[str, Any], circuit: str, source_file: Path, pe
         event_key = derive_event_key(row, source_file)
         level_raw = clean_str(find_first(row, ["level"]))
         surface = clean_str(find_first(row, ["surface"]))
+        event_country_code, event_country_name = derive_event_country(row)
         result = {
             "circuit": circuit,
             "period": period,
@@ -828,6 +877,8 @@ def normalize_match_row(row: Dict[str, Any], circuit: str, source_file: Path, pe
             "round_label": round_label(round_raw),
             "surface": surface,
             "draw_size": draw_size,
+            "event_country_code": event_country_code,
+            "event_country_name": event_country_name,
             "winner": {
                 "player_id": winner_id,
                 "player_name": winner_name,
@@ -866,6 +917,7 @@ def normalize_match_row(row: Dict[str, Any], circuit: str, source_file: Path, pe
     event_key = derive_event_key(row, source_file)
     level_raw = clean_str(find_first(row, ["level"]))
     surface = clean_str(find_first(row, ["surface"]))
+    event_country_code, event_country_name = derive_event_country(row)
     return {
         "circuit": circuit,
         "period": period,
@@ -884,6 +936,8 @@ def normalize_match_row(row: Dict[str, Any], circuit: str, source_file: Path, pe
         "round_label": round_label(round_raw),
         "surface": surface,
         "draw_size": draw_size,
+        "event_country_code": event_country_code,
+        "event_country_name": event_country_name,
         "winner": {
             "player_id": winner_id,
             "player_name": winner_name,
@@ -965,6 +1019,16 @@ def make_participation(
     if not country_name:
         country_name = country
 
+    opponent_country = normalize_country(opponent.get("country_code") or (opponent_ranking_entry.get("country_name") if opponent_ranking_entry else ""))
+    opponent_country_name = clean_str((opponent_ranking_entry or {}).get("country_name"), default=opponent_country or "UNK")
+    if not opponent_country_name:
+        opponent_country_name = opponent_country or "UNK"
+
+    event_country_code = normalize_country(match.get("event_country_code"))
+    event_country_name = clean_str(match.get("event_country_name"), default=event_country_code)
+    if not event_country_name:
+        event_country_name = event_country_code or "UNK"
+
     return Participation(
         circuit=match["circuit"],
         period=match["period"],
@@ -994,6 +1058,10 @@ def make_participation(
         opponent_rank=opponent_rank,
         points_earned=points,
         stats=stats,
+        opponent_country_code=opponent_country,
+        opponent_country_name=opponent_country_name,
+        event_country_code=event_country_code,
+        event_country_name=event_country_name,
         significant_win=significant_win,
         significant_loss=significant_loss,
         very_significant_win=very_significant_win,

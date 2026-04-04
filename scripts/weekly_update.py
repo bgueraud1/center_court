@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import argparse
-import json
 from collections import Counter, defaultdict
-from dataclasses import asdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -13,10 +11,27 @@ import tennis_performance as tp
 
 PARIS_TZ = ZoneInfo("Europe/Paris")
 
+STAT_RANKING_DIRECTIONS: Dict[str, bool] = {
+    "number_of_aces": True,
+    "aces_per_service_point": True,
+    "number_of_double_faults": False,
+    "double_faults_per_service_point": False,
+    "first_serve_percent": True,
+    "first_serve_points_won_percent": True,
+    "second_serve_points_won_percent": True,
+    "service_points_won_percent": True,
+    "return_points_won_percent": True,
+    "breakpoints_faced": True,
+    "breakpoints_converted_count": True,
+    "breakpoints_converted_rate": True,
+    "service_games_lost_rate": False,
+    "tie_breaks_win_rate": True,
+}
+
 
 def current_period_dates(today: Optional[datetime] = None) -> Tuple[date, date, date]:
     now = today or datetime.now(tz=PARIS_TZ)
-    current_monday = (now.date() - timedelta(days=now.weekday()))
+    current_monday = now.date() - timedelta(days=now.weekday())
     last_monday = current_monday - timedelta(days=7)
     return last_monday, current_monday, date(now.year, 1, 1)
 
@@ -45,23 +60,74 @@ def ranking_map_by_circuit(atp: Dict[str, Dict[str, Any]], wta: Dict[str, Dict[s
     return {"ATP": atp, "WTA": wta}
 
 
-def load_matches_and_participations(
-    root_dir: Path,
-    circuit: str,
-    period: str,
-    ranking_map: Dict[str, Dict[str, Any]],
-    year: int,
-    week_start: Optional[date] = None,
-    week_end: Optional[date] = None,
-) -> Tuple[List[Dict[str, Any]], List[tp.Participation], Dict[str, tp.PlayerSummary]]:
-    matches = tp.load_matches(root_dir, circuit, year, period, start=week_start, end=week_end)
-    participations = tp.build_participations(matches, ranking_map)
-    summaries = tp.summarize_players(participations, ranking_map, period)
-    return matches, participations, summaries
+def _safe_country_code(value: Any) -> str:
+    code = tp.normalize_country(value)
+    return code if code else "UNK"
 
 
-def entry_matches_for_country(participations: Iterable[tp.Participation], country_code: str, circuit: str) -> List[tp.Participation]:
-    return [p for p in participations if p.country_code == country_code and p.circuit == circuit]
+def _evolution_ranks(current_rank: Optional[int], evolution: Optional[int]) -> Tuple[Optional[int], Optional[int]]:
+    if current_rank is None or evolution is None:
+        return None, None
+    if tp.RANK_EVOLUTION_POSITIVE_IS_RISE:
+        start_rank = current_rank + evolution
+    else:
+        start_rank = current_rank - evolution
+    return start_rank, current_rank
+
+
+def _relation_rows(participations: Iterable[tp.Participation], attr_country_code: str, attr_country_name: str) -> List[Dict[str, Any]]:
+    buckets: Dict[str, Dict[str, Any]] = {}
+    for p in participations:
+        code = _safe_country_code(getattr(p, attr_country_code, ""))
+        if not code or code == "UNK":
+            continue
+        row = buckets.setdefault(
+            code,
+            {
+                "country_code": code,
+                "country_name": getattr(p, attr_country_name, "") or code,
+                "matches": 0,
+                "wins": 0,
+            },
+        )
+        row["matches"] += 1
+        if p.is_winner:
+            row["wins"] += 1
+
+    rows = list(buckets.values())
+    for row in rows:
+        row["win_rate"] = (row["wins"] / row["matches"]) if row["matches"] else None
+    rows.sort(key=lambda r: (-r["matches"], -r["wins"], r["country_code"]))
+    return rows
+
+
+def _stat_rankings_for_block(country_payloads: Dict[str, Dict[str, Any]], period: str, circuit: str) -> Dict[str, Dict[str, Any]]:
+    rows: List[Tuple[str, Dict[str, Any]]] = []
+    for cc, payload in country_payloads.items():
+        block = payload.get(period, {}).get(circuit, {})
+        stats = block.get("stats", {})
+        if stats:
+            rows.append((cc, stats))
+
+    rankings: Dict[str, Dict[str, Any]] = {cc: {} for cc, _ in rows}
+    for metric, higher_is_better in STAT_RANKING_DIRECTIONS.items():
+        metric_rows = []
+        for cc, stats in rows:
+            value = stats.get(metric)
+            if value is None:
+                continue
+            metric_rows.append((cc, float(value)))
+        metric_rows.sort(key=lambda x: (-x[1], x[0]) if higher_is_better else (x[1], x[0]))
+
+        rank = 0
+        last_value = None
+        for idx, (cc, value) in enumerate(metric_rows, start=1):
+            if last_value is None or value != last_value:
+                rank = idx
+                last_value = value
+            rankings.setdefault(cc, {})[metric] = rank
+            rankings[cc][f"{metric}_direction"] = "desc" if higher_is_better else "asc"
+    return rankings
 
 
 def aggregate_country_circuit(
@@ -79,45 +145,33 @@ def aggregate_country_circuit(
     player_summaries_by_points = sorted(player_summaries, key=lambda s: (-s.points_earned, s.player_name))
 
     unique_matches = len({p.match_key for p in participations})
-    tournament_counter = Counter(p.tourney_name for p in participations)
+    tournament_counter = Counter(p.tourney_name for p in participations if p.tourney_name)
     top_tourney_name = tournament_counter.most_common(1)[0][0] if tournament_counter else None
 
-    # Match-level notable events.
-    significant_wins = []
-    very_significant_wins = []
-    significant_losses = []
-    very_significant_losses = []
-    tournaments_won = []
+    significant_wins: List[Dict[str, Any]] = []
+    very_significant_wins: List[Dict[str, Any]] = []
+    significant_losses: List[Dict[str, Any]] = []
+    very_significant_losses: List[Dict[str, Any]] = []
+    tournaments_won: List[Dict[str, Any]] = []
+
     for p in participations:
+        base = {
+            "player_id": p.player_id,
+            "player_name": p.player_name,
+            "opponent_id": p.opponent_id,
+            "opponent_name": p.opponent_name,
+            "player_rank": p.player_rank,
+            "opponent_rank": p.opponent_rank,
+            "tourney_name": p.tourney_name,
+            "level": p.level_canonical,
+            "round": p.round_raw,
+            "match_date": p.match_date.isoformat() if p.match_date else None,
+            "match_key": p.match_key,
+        }
         if p.is_winner and p.significant_win:
-            item = {
-                "player_id": p.player_id,
-                "player_name": p.player_name,
-                "opponent_id": p.opponent_id,
-                "opponent_name": p.opponent_name,
-                "player_rank": p.player_rank,
-                "opponent_rank": p.opponent_rank,
-                "tourney_name": p.tourney_name,
-                "level": p.level_canonical,
-                "round": p.round_raw,
-                "match_date": p.match_date.isoformat() if p.match_date else None,
-                "match_key": p.match_key,
-            }
-            significant_wins.append(item)
+            significant_wins.append(base)
         if p.is_winner and p.very_significant_win:
-            very_significant_wins.append({
-                "player_id": p.player_id,
-                "player_name": p.player_name,
-                "opponent_id": p.opponent_id,
-                "opponent_name": p.opponent_name,
-                "player_rank": p.player_rank,
-                "opponent_rank": p.opponent_rank,
-                "tourney_name": p.tourney_name,
-                "level": p.level_canonical,
-                "round": p.round_raw,
-                "match_date": p.match_date.isoformat() if p.match_date else None,
-                "match_key": p.match_key,
-            })
+            very_significant_wins.append(base)
         if (p.is_winner and p.round_order <= 1) or p.round_label in {"F", "MS001", "LS001"}:
             tournaments_won.append({
                 "player_id": p.player_id,
@@ -129,35 +183,10 @@ def aggregate_country_circuit(
                 "match_key": p.match_key,
             })
         if (not p.is_winner) and p.significant_loss:
-            significant_losses.append({
-                "player_id": p.player_id,
-                "player_name": p.player_name,
-                "opponent_id": p.opponent_id,
-                "opponent_name": p.opponent_name,
-                "player_rank": p.player_rank,
-                "opponent_rank": p.opponent_rank,
-                "tourney_name": p.tourney_name,
-                "level": p.level_canonical,
-                "round": p.round_raw,
-                "match_date": p.match_date.isoformat() if p.match_date else None,
-                "match_key": p.match_key,
-            })
+            significant_losses.append(base)
         if (not p.is_winner) and p.very_significant_loss:
-            very_significant_losses.append({
-                "player_id": p.player_id,
-                "player_name": p.player_name,
-                "opponent_id": p.opponent_id,
-                "opponent_name": p.opponent_name,
-                "player_rank": p.player_rank,
-                "opponent_rank": p.opponent_rank,
-                "tourney_name": p.tourney_name,
-                "level": p.level_canonical,
-                "round": p.round_raw,
-                "match_date": p.match_date.isoformat() if p.match_date else None,
-                "match_key": p.match_key,
-            })
+            very_significant_losses.append(base)
 
-    # Ranking evolutions for the players present in the country and circuit.
     relevant_players = {
         p.player_id: ranking_map.get(p.player_id, {})
         for p in participations
@@ -173,16 +202,16 @@ def aggregate_country_circuit(
             evo = tp.parse_int(entry.get(field_name))
             if evo is None or evo == 0:
                 continue
-            if very:
-                is_sig = tp.is_significant_evolution(summary.ranking, evo, very=True)
-            else:
-                is_sig = tp.is_significant_evolution(summary.ranking, evo, very=False)
+            is_sig = tp.is_significant_evolution(summary.ranking, evo, very=very)
             if not is_sig:
                 continue
             direction = tp.evolution_direction(evo)
+            ranking_from, ranking_to = _evolution_ranks(summary.ranking, evo)
             item = {
                 "player_id": pid,
                 "player_name": summary.player_name,
+                "ranking_from": ranking_from,
+                "ranking_to": ranking_to,
                 "ranking": summary.ranking,
                 "evolution": evo,
                 "direction": direction,
@@ -192,8 +221,8 @@ def aggregate_country_circuit(
                 "ever_ranked": summary.ever_ranked,
             }
             bucket[direction].append(item)
-        bucket["rise"].sort(key=lambda x: (-abs(x["evolution"]), x["ranking"]))
-        bucket["drop"].sort(key=lambda x: (-abs(x["evolution"]), x["ranking"]))
+        bucket["rise"].sort(key=lambda x: (-abs(x["evolution"]), x["ranking_to"] or 10**9, x["player_name"]))
+        bucket["drop"].sort(key=lambda x: (-abs(x["evolution"]), x["ranking_to"] or 10**9, x["player_name"]))
         return bucket
 
     ranking_evolutions = {
@@ -212,7 +241,7 @@ def aggregate_country_circuit(
     }
 
     new_players = []
-    for pid, entry in relevant_players.items():
+    for pid, _entry in relevant_players.items():
         summary = summaries.get(pid)
         if not summary:
             continue
@@ -233,6 +262,9 @@ def aggregate_country_circuit(
     stats["unique_matches"] = unique_matches
     stats["player_match_entries"] = sum(s.matches for s in player_summaries)
     stats["top_tourney_name"] = top_tourney_name
+
+    opponent_countries = _relation_rows(participations, "opponent_country_code", "opponent_country_name")
+    played_countries = _relation_rows(participations, "event_country_code", "event_country_name")
 
     return {
         "matches": unique_matches,
@@ -256,6 +288,8 @@ def aggregate_country_circuit(
         "very_significant_losses": very_significant_losses,
         "ranking_evolutions": ranking_evolutions,
         "new_players": new_players,
+        "opponent_countries": opponent_countries,
+        "played_countries": played_countries,
         "stats": stats,
     }
 
@@ -267,7 +301,7 @@ def aggregate_country_payload(
     period_summaries: Dict[str, Dict[str, tp.PlayerSummary]],
     ranking_maps: Dict[str, Dict[str, Dict[str, Any]]],
 ) -> Dict[str, Any]:
-    payload = {
+    payload: Dict[str, Any] = {
         "country_code": country_code,
         "country_name": country_name,
         "weekly": {},
@@ -288,8 +322,10 @@ def aggregate_country_payload(
     return payload
 
 
-def build_country_rank_tables(year_country_participations: Dict[str, List[tp.Participation]], year_country_summaries: Dict[str, Dict[str, tp.PlayerSummary]]) -> Dict[str, Dict[str, Any]]:
-    # Build one coherent list of players per country across both circuits for the year.
+def build_country_rank_tables(
+    year_country_participations: Dict[str, List[tp.Participation]],
+    year_country_summaries: Dict[str, Dict[str, tp.PlayerSummary]],
+) -> Dict[str, Dict[str, Any]]:
     rows: Dict[str, Dict[str, Any]] = {}
     for country_code, participations in year_country_participations.items():
         summaries = year_country_summaries.get(country_code, {})
@@ -352,7 +388,27 @@ def build_country_rank_tables(year_country_participations: Dict[str, List[tp.Par
         row["efficiency_rank"] = i
     for i, row in enumerate(coherence_ranked, start=1):
         row["coherence_rank"] = i
+
     return rows
+
+
+def _inject_stat_rankings(country_payloads: Dict[str, Dict[str, Any]]) -> None:
+    for period in ["weekly", "current_year"]:
+        for circuit in ["ATP", "WTA"]:
+            rankings = _stat_rankings_for_block(country_payloads, period, circuit)
+            for cc, payload in country_payloads.items():
+                block = payload.get(period, {}).get(circuit, {})
+                stats = block.get("stats")
+                if not isinstance(stats, dict):
+                    continue
+                stats.setdefault("country_ranks", {})
+                stats.setdefault("country_rank_directions", {})
+                stats["country_ranks"].update(rankings.get(cc, {}))
+                # Keep only the direction keys relevant for metrics.
+                for metric in STAT_RANKING_DIRECTIONS:
+                    direction_key = f"{metric}_direction"
+                    if direction_key in rankings.get(cc, {}):
+                        stats["country_rank_directions"][metric] = rankings[cc][direction_key]
 
 
 def write_outputs(
@@ -368,6 +424,8 @@ def write_outputs(
     players_dir = output_dir / "players"
     countries_dir.mkdir(parents=True, exist_ok=True)
     players_dir.mkdir(parents=True, exist_ok=True)
+
+    _inject_stat_rankings(country_payloads)
 
     for country_code, payload in sorted(country_payloads.items()):
         ranking_info = country_rankings.get(country_code, {})
@@ -386,7 +444,6 @@ def write_outputs(
         }
         tp.json_dump(countries_dir / f"{tp.safe_filename_slug(country_code)}.json", payload)
 
-    # Player-level tables are also useful for debugging and downstream ranking.
     def player_table(period_map: Dict[str, Dict[str, tp.PlayerSummary]]) -> Dict[str, Any]:
         rows: List[Dict[str, Any]] = []
         for circuit, player_map in period_map.items():
@@ -397,12 +454,15 @@ def write_outputs(
 
     tp.json_dump(players_dir / "weekly_players.json", player_table(weekly_player_summaries))
     tp.json_dump(players_dir / "current_year_players.json", player_table(year_player_summaries))
-    tp.json_dump(output_dir / "country_rankings.json", {
-        "countries": [
-            {"country_code": cc, **info}
-            for cc, info in sorted(country_rankings.items(), key=lambda item: item[1].get("mass_rank", 10**9))
-        ]
-    })
+    tp.json_dump(
+        output_dir / "country_rankings.json",
+        {
+            "countries": [
+                {"country_code": cc, **info}
+                for cc, info in sorted(country_rankings.items(), key=lambda item: item[1].get("mass_rank", 10**9))
+            ]
+        },
+    )
 
 
 def main() -> None:
@@ -420,7 +480,6 @@ def main() -> None:
     year = datetime.now(tz=PARIS_TZ).year
     week_start, week_end, year_start = current_period_dates()
 
-    # Weekly period: previous ISO week.
     weekly_matches = {
         "ATP": tp.load_matches(root_dir, "ATP", year, "weekly", start=week_start, end=week_end),
         "WTA": tp.load_matches(root_dir, "WTA", year, "weekly", start=week_start, end=week_end),
@@ -434,7 +493,6 @@ def main() -> None:
         for circuit, participations in weekly_participations.items()
     }
 
-    # Year-to-date period.
     ytd_matches = {
         "ATP": tp.load_matches(root_dir, "ATP", year, "current_year", start=year_start, end=week_end),
         "WTA": tp.load_matches(root_dir, "WTA", year, "current_year", start=year_start, end=week_end),
@@ -448,27 +506,36 @@ def main() -> None:
         for circuit, participations in ytd_participations.items()
     }
 
-    # Country collections.
     all_country_codes = set()
+    country_name_lookup: Dict[str, str] = {}
     for circuit in ["ATP", "WTA"]:
-        all_country_codes.update(p.country_code for p in weekly_participations[circuit] if p.country_code)
-        all_country_codes.update(p.country_code for p in ytd_participations[circuit] if p.country_code)
-        all_country_codes.update(code for code in (tp.clean_str(entry.get("country_name"), default="") for entry in ranking_maps[circuit].values()) if code)
+        for p in weekly_participations[circuit]:
+            if p.country_code:
+                all_country_codes.add(p.country_code)
+                country_name_lookup.setdefault(p.country_code, p.country_name or p.country_code)
+            if p.opponent_country_code:
+                country_name_lookup.setdefault(p.opponent_country_code, p.opponent_country_name or p.opponent_country_code)
+            if p.event_country_code:
+                country_name_lookup.setdefault(p.event_country_code, p.event_country_name or p.event_country_code)
+        for p in ytd_participations[circuit]:
+            if p.country_code:
+                all_country_codes.add(p.country_code)
+                country_name_lookup.setdefault(p.country_code, p.country_name or p.country_code)
+            if p.opponent_country_code:
+                country_name_lookup.setdefault(p.opponent_country_code, p.opponent_country_name or p.opponent_country_code)
+            if p.event_country_code:
+                country_name_lookup.setdefault(p.event_country_code, p.event_country_name or p.event_country_code)
 
-    # Build by country, by period.
     weekly_by_country: Dict[str, List[tp.Participation]] = defaultdict(list)
     ytd_by_country: Dict[str, List[tp.Participation]] = defaultdict(list)
     weekly_summaries_by_country: Dict[str, Dict[str, tp.PlayerSummary]] = defaultdict(dict)
     ytd_summaries_by_country: Dict[str, Dict[str, tp.PlayerSummary]] = defaultdict(dict)
-    country_name_lookup: Dict[str, str] = {}
 
     for circuit in ["ATP", "WTA"]:
         for p in weekly_participations[circuit]:
             weekly_by_country[p.country_code].append(p)
-            country_name_lookup.setdefault(p.country_code, p.country_name)
         for p in ytd_participations[circuit]:
             ytd_by_country[p.country_code].append(p)
-            country_name_lookup.setdefault(p.country_code, p.country_name)
         for pid, summary in weekly_summaries[circuit].items():
             weekly_summaries_by_country[summary.country_code][pid] = summary
         for pid, summary in ytd_summaries[circuit].items():
@@ -486,7 +553,6 @@ def main() -> None:
         )
         country_payloads[cc] = payload
 
-    # Year-only rankings.
     country_rankings = build_country_rank_tables(ytd_by_country, ytd_summaries_by_country)
 
     write_outputs(
