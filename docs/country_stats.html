@@ -590,21 +590,64 @@
       return undefined;
     }
 
+    let countryToIOC = null;
+
     function isValidIOC(value) {
       return typeof value === 'string' && /^[A-Z]{3}$/.test(value.trim()) && value.trim() !== '-99';
     }
 
-    async function resolveIOC() {
-      const candidates = [code, iso2, name].filter(Boolean);
-      for (const v of candidates) {
-        const s = String(v).trim();
-        if (isValidIOC(s)) return s.toUpperCase();
+    function normalizeCountryKey(value) {
+      return String(value || '')
+        .trim()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/['’]/g, '')
+        .replace(/[^a-zA-Z0-9]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+    }
+
+    async function loadCountryToIOCMap() {
+      if (countryToIOC) return countryToIOC;
+      const candidates = ['./tools/country_to_ioc.json', 'tools/country_to_ioc.json', '../tools/country_to_ioc.json', './docs/tools/country_to_ioc.json'];
+      for (const path of candidates) {
+        try {
+          const res = await fetch(path, { cache: 'no-store' });
+          if (!res.ok) continue;
+          const json = await res.json();
+          if (isObj(json)) {
+            countryToIOC = json;
+            return countryToIOC;
+          }
+        } catch (_) {}
       }
-      const c = String(code || '').trim();
-      if (c && c.length <= 3) return c.toUpperCase();
-      const i = String(iso2 || '').trim();
-      if (i && i.length <= 3) return i.toUpperCase();
-      return name ? name.toUpperCase().slice(0, 3) : null;
+      countryToIOC = {};
+      return countryToIOC;
+    }
+
+    async function resolveIOC() {
+      const map = await loadCountryToIOCMap();
+      const directCandidates = [code, iso2, state.raw?.country_code].filter(Boolean);
+      for (const v of directCandidates) {
+        const s = String(v).trim().toUpperCase();
+        if (isValidIOC(s)) return s;
+      }
+
+      const nameCandidates = [name, state.raw?.country_name, state.raw?.country_code, code, iso2].filter(Boolean);
+      for (const v of nameCandidates) {
+        const key = normalizeCountryKey(v);
+        if (key && Object.prototype.hasOwnProperty.call(map, key)) {
+          const ioc = String(map[key] || '').trim().toUpperCase();
+          if (isValidIOC(ioc)) return ioc;
+        }
+      }
+
+      for (const v of directCandidates) {
+        const s = String(v).trim();
+        if (s.length === 3) return s.toUpperCase();
+      }
+
+      return null;
     }
 
     function hasUsefulFields(obj) {
@@ -654,16 +697,11 @@
       const files = new Set();
       const add = (p) => { if (p) files.add(p); };
       const ioc = state.resolvedIOC;
+      const directCodes = [ioc, code, iso2].filter(Boolean).map(v => String(v).trim().toUpperCase()).filter(Boolean);
       const variants = new Set();
-      for (const t of [ioc, code, iso2, name].filter(Boolean)) {
-        const s = String(t).trim();
-        if (!s) continue;
-        variants.add(s);
-        variants.add(s.toUpperCase());
-        variants.add(s.toLowerCase());
-        variants.add(slugify(s));
-        variants.add(s.replace(/\s+/g, '_'));
-        variants.add(s.replace(/\s+/g, '-'));
+      for (const t of directCodes) {
+        if (!isValidIOC(t)) continue;
+        variants.add(t);
       }
       for (const v of variants) {
         add(`./${v}.json`);
@@ -676,16 +714,6 @@
         add(`generated/weekly_update/${v}.json`);
         add(`./generated/weekly_update/countries/${v}.json`);
         add(`generated/weekly_update/countries/${v}.json`);
-      }
-      if (ioc) {
-        add(`./${ioc}.json`);
-        add(`${ioc}.json`);
-        add(`./generated/weekly_update/${ioc}.json`);
-        add(`generated/weekly_update/${ioc}.json`);
-        add(`./generated/weekly_update/countries/${ioc}.json`);
-        add(`generated/weekly_update/countries/${ioc}.json`);
-        add(`./generated/${ioc}.json`);
-        add(`generated/${ioc}.json`);
       }
       add('./generated/weekly_update/index.json');
       add('generated/weekly_update/index.json');
