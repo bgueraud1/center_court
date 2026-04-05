@@ -170,6 +170,7 @@ def get_rule(tour: str, category: str) -> Optional[dict[str, Any]]:
         return CATEGORY_RULES[category]
     return None
 
+
 def supabase_request(
     method: str,
     supabase_url: str,
@@ -365,7 +366,7 @@ def build_payload(
         "generated_at": now_paris().isoformat(),
         "current_paris_date": now_paris().date().isoformat(),
         "window": {
-            "phase": phase,  # open / closed
+            "phase": phase,  # open / close / noop
             "is_open_today": phase == "open",
             "anchor_date": anchor_date.isoformat(),
             "open_date": anchor_date.isoformat(),
@@ -381,19 +382,11 @@ def build_payload(
 def should_run_auto(dt: datetime) -> str:
     """
     Auto mode:
-      - Sunday around 00:01 Paris -> open
-      - Sunday around 23:59 Paris -> close
-      - otherwise -> noop
+      - open only if the run happens on Sunday in Paris
+      - otherwise noop
     """
-    if dt.weekday() != 6:
-        return "noop"
-
-    if dt.hour == 0 and dt.minute <= 10:
+    if dt.weekday() == 6:
         return "open"
-
-    if dt.hour == 23 and dt.minute >= 50:
-        return "close"
-
     return "noop"
 
 
@@ -405,6 +398,7 @@ def clear_inscriptions(supabase_url: str, supabase_key: str, anchor_date: date) 
         "inscriptions",
         params={"window_start_date": f"eq.{anchor_date.isoformat()}"},
     )
+
 
 def fetch_applications(
     supabase_url: str,
@@ -557,7 +551,12 @@ def main() -> int:
 
     if args.anchor_date:
         anchor_date = date.fromisoformat(args.anchor_date)
-        phase = args.phase if args.phase in {"open", "close"} else "open"
+        # On conserve un override explicite si demandé,
+        # mais le mode auto ne force plus "open" à cause de --anchor-date.
+        if args.phase == "auto":
+            phase = should_run_auto(now_dt)
+        else:
+            phase = args.phase
     else:
         anchor_date = now_dt.date()
         if args.phase == "auto":
