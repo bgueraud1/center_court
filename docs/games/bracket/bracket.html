@@ -13,7 +13,6 @@
     :root{
       --bg:#07101f;
       --panel:#0c1629;
-      --panel2:#0a1324;
       --line:rgba(255,255,255,.08);
       --text:#e6eefc;
       --muted:#90a4c3;
@@ -25,7 +24,6 @@
       --green:#22c55e;
       --red:#ef4444;
     }
-
     *{box-sizing:border-box}
     html,body{
       margin:0;
@@ -39,7 +37,6 @@
     }
     a{color:inherit}
     button,input,select,textarea{font:inherit}
-
     .wrap{max-width:1600px;margin:0 auto;padding:20px}
     .card{
       background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.015));
@@ -94,33 +91,21 @@
     .btn.good{background:var(--good)}
     .btn.bad{background:var(--bad)}
     .btn[disabled]{opacity:.45;cursor:not-allowed;transform:none}
-    .grid{display:grid;gap:14px;align-items:start}
-    .layout-tabs{
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
-      margin-top:14px;
-    }
-    .tab-btn{
+    .split{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;justify-content:space-between}
+    .tournament-pill{display:inline-flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
+    .subnav{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+    .subnav button{
       border:1px solid var(--line);
       background:rgba(255,255,255,.03);
       color:#fff;
       padding:10px 14px;
       border-radius:999px;
-      cursor:pointer;
       font-weight:800;
+      cursor:pointer;
     }
-    .tab-btn.active{
+    .subnav button.active{
       background:rgba(79,140,255,.18);
       border-color:rgba(79,140,255,.45);
-      color:#dce7ff;
-    }
-    .tab-panel.hidden{display:none !important}
-    .tab-panel{margin-top:14px}
-    .rounds-wrap{
-      width:100%;
-      overflow:auto;
-      padding-bottom:6px;
     }
     .layout{
       display:grid;
@@ -206,10 +191,7 @@
     .slot-name{font-weight:750}
     .slot-country{font-size:12px;color:var(--muted);margin-left:8px}
     .slot.green .slot-country,
-    .slot.red .slot-country{
-      color:inherit;
-      opacity:.85;
-    }
+    .slot.red .slot-country{color:inherit;opacity:.85}
     .legend{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
     .legend .badge{font-size:12px}
     .footer-actions{
@@ -222,33 +204,6 @@
     .hidden{display:none !important}
     .login-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
     .small{font-size:12px;color:var(--muted)}
-    .split{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;justify-content:space-between}
-    .tournament-pill{
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-      margin-top:8px;
-      flex-wrap:wrap;
-    }
-    .subnav{
-      display:flex;
-      gap:8px;
-      flex-wrap:wrap;
-      margin-top:14px;
-    }
-    .subnav button{
-      border:1px solid var(--line);
-      background:rgba(255,255,255,.03);
-      color:#fff;
-      padding:10px 14px;
-      border-radius:999px;
-      font-weight:800;
-      cursor:pointer;
-    }
-    .subnav button.active{
-      background:rgba(79,140,255,.18);
-      border-color:rgba(79,140,255,.45);
-    }
     .current-readonly-note{
       border-left:3px solid rgba(79,140,255,.75);
       padding-left:12px;
@@ -377,41 +332,22 @@
 (() => {
   const API_URL = "/.netlify/functions/bracket";
   const HUB_URL = "/games/tennis_arena/index.html";
-  const INSCRIPTIONS_URL = "/games/bracket/inscriptions.html";
   const TEMP_JSON_BASE = "/bracket";
 
   const state = {
     authenticated: false,
-    loading: true,
     user: null,
-    bracketRow: null,
-    current: {
-      currentTournament: null,
-      allJson: null,
-      proposition: null,
-      parsedProposal: null,
-      hasPlayed: false
-    },
-    next: {
-      inscription: null,
-      hasRegistration: false,
-      proposition: null,
-      parsedProposal: null,
-      templateJson: null,
-      mode: null, // first_round | all | missing
-      editable: false,
-      locked: false,
-      tournament: null,
-      error: null
-    },
+    current: null,
+    next: null,
     activeTab: "current",
     submitting: false,
-    message: "",
-    error: ""
+    currentComparison: null,
+    nextSelectionMap: new Map()
   };
 
   const $ = (id) => document.getElementById(id);
   let uiBound = false;
+  let renderToken = 0;
 
   function escapeHtml(s){
     if(s === undefined || s === null) return "";
@@ -507,28 +443,6 @@
     return state.user?.user_world_rank ?? getSession()?.user_world_rank ?? null;
   }
 
-  function getCurrentTournamentLabel(){
-    const r = state.current.currentTournament || {};
-    const parts = [r.current_tournament_bracket_name, r.current_tournament_bracket_id].filter(Boolean);
-    return parts.join(" — ") || "Current tournament";
-  }
-
-  function getNextTournamentLabel(){
-    const n = state.next.tournament || {};
-    const parts = [n.tournament_name, n.tournament_id].filter(Boolean);
-    return parts.join(" — ") || "Next week tournament";
-  }
-
-  function getTournamentMetaFromTemplate(template){
-    if(!template) return "";
-    const parts = [];
-    if(template.event_id !== undefined && template.event_id !== null) parts.push(`Event ID: ${template.event_id}`);
-    if(template.event_year !== undefined && template.event_year !== null) parts.push(`Year: ${template.event_year}`);
-    if(template.mode) parts.push(`Mode: ${template.mode}`);
-    if(template.matches) parts.push(`${template.matches.length} match(es)`);
-    return parts.join(" • ");
-  }
-
   function getMatchNum(matchId){
     const m = String(matchId || "").match(/^(?:MS|LS)(\d+)$/i);
     return m ? Number(m[1]) : Number.POSITIVE_INFINITY;
@@ -539,382 +453,322 @@
     return m ? m[1].toUpperCase() : "MS";
   }
 
-  function sortMatchesAscending(matches){
-    return [...(matches || [])].sort((a, b) => {
-      const pa = getMatchPrefix(a.match_id);
-      const pb = getMatchPrefix(b.match_id);
-      if(pa !== pb) return pa.localeCompare(pb);
-      return getMatchNum(a.match_id) - getMatchNum(b.match_id);
-    });
+  function matchOrder(a, b){
+    const pa = getMatchPrefix(a.match_id);
+    const pb = getMatchPrefix(b.match_id);
+    if(pa !== pb) return pa.localeCompare(pb);
+    return getMatchNum(a.match_id) - getMatchNum(b.match_id);
   }
 
-  function buildEmptyMatch(matchId){
+  function isAllMode(json){
+    const matches = Array.isArray(json?.matches) ? json.matches : [];
+    return matches.some(m => String(m.match_id || "").toUpperCase() === "MS001" || String(m.match_id || "").toUpperCase() === "LS001");
+  }
+
+  function normalizeMatch(match){
     return {
-      match_id: matchId,
-      winner_player_name: null,
-      winner_player_id: null,
-      loser_player_name: null,
-      loser_player_id: null,
-      winner_country: null,
-      loser_wountry: null,
-      score_string: null
+      match_id: String(match?.match_id || ""),
+      winner_player_name: match?.winner_player_name ?? null,
+      winner_player_id: match?.winner_player_id ?? null,
+      loser_player_name: match?.loser_player_name ?? null,
+      loser_player_id: match?.loser_player_id ?? null,
+      winner_country: match?.winner_country ?? null,
+      loser_wountry: match?.loser_wountry ?? match?.loser_country ?? null,
+      score_string: match?.score_string ?? null
     };
   }
 
-  function guessNextRoundMatchId(childAId){
-    const prefix = getMatchPrefix(childAId);
-    const num = getMatchNum(childAId);
-    if(!Number.isFinite(num) || num <= 1) return `${prefix}001`;
-    const parent = Math.floor(num / 2);
-    return `${prefix}${String(parent).padStart(3, "0")}`;
-  }
-
-  function inferMatchTreeFromTemplate(templateJson){
-    const sourceMatches = sortMatchesAscending(templateJson?.matches || []);
-    if(!sourceMatches.length) return null;
-
-    const prefix = getMatchPrefix(sourceMatches[0].match_id);
-    const nums = sourceMatches.map(m => getMatchNum(m.match_id)).filter(n => Number.isFinite(n));
-    const maxNum = Math.max(...nums);
-
-    const rounds = [];
-    const lookup = new Map();
-    sourceMatches.forEach(m => lookup.set(String(m.match_id), clone(m)));
-
-    // Build a full tree from the highest known round down to the final.
-    // Example: 16 first-round matches -> 016..001 with rounds 16, 8, 4, 2, 1.
-    const roundSizes = [];
-    let currentSize = sourceMatches.length;
-    while(currentSize >= 1){
-      roundSizes.push(currentSize);
-      if(currentSize === 1) break;
-      currentSize = Math.floor(currentSize / 2);
-    }
-
-    // Determine starting IDs from the template if first round, otherwise use observed matches.
-    const firstRoundIds = sourceMatches.map(m => String(m.match_id));
-    const baseIds = firstRoundIds.length ? firstRoundIds : [];
-    const startNums = baseIds.map(getMatchNum).filter(n => Number.isFinite(n));
-    const highest = startNums.length ? Math.max(...startNums) : maxNum;
-    const lowest = startNums.length ? Math.min(...startNums) : 1;
-
-    let currentIds = [];
-    for(let n = lowest; n <= highest; n++){
-      currentIds.push(`${prefix}${String(n).padStart(3, "0")}`);
-    }
-
-    // If the file is mode=all, we still only need structure. We infer descendants by halving.
-    const maxDepth = roundSizes.length;
-    const roundsByDepth = [];
-
-    let leafIds = sortMatchesAscending(sourceMatches).map(m => String(m.match_id));
-    // In all mode, the list might already include parent matches. We want all matches grouped by round number,
-    // but since the file can contain all rounds, we infer the full tree from the highest numeric leaf match.
-    // The layout will use a complete hierarchy down to 001.
-    const rootNum = 1;
-    const largest = Math.max(...sourceMatches.map(m => getMatchNum(m.match_id)).filter(Number.isFinite));
-    const depthLeafCount = largest;
-
-    // Create round 1 from available source matches when they are the first-round matches.
-    // If the source is an all file, we still treat the first-round as the largest numbers.
-    const expectedFirstRound = [];
-    for(let n = largest; n >= 1; n--){
-      expectedFirstRound.push(`${prefix}${String(n).padStart(3, "0")}`);
-    }
-
-    // Determine whether the template is already first-round only or contains all matches.
-    const hasFinal = lookup.has(`${prefix}001`);
-    const isAllMode = hasFinal || sourceMatches.length !== largest;
-
-    // Start with the set of visible/source matches only for the first round if present.
-    // We choose the numerically largest contiguous block as the first round if possible.
-    let firstRoundCount = sourceMatches.length;
-    let firstRoundNumbers = sourceMatches.map(m => getMatchNum(m.match_id)).filter(Number.isFinite);
-    const maxFirst = Math.max(...firstRoundNumbers);
-    const minFirst = Math.min(...firstRoundNumbers);
-    const firstRoundSpan = (maxFirst - minFirst + 1);
-
-    let round0Ids = [];
-    if(firstRoundSpan === firstRoundCount && firstRoundNumbers.every(n => n >= minFirst && n <= maxFirst)){
-      round0Ids = [];
-      for(let n = maxFirst; n >= minFirst; n--) round0Ids.push(`${prefix}${String(n).padStart(3, "0")}`);
-      round0Ids.sort((a, b) => getMatchNum(a) - getMatchNum(b));
-    } else {
-      round0Ids = sourceMatches.map(m => String(m.match_id));
-    }
-
-    // Build full rounds from round0 up to final using halving.
-    let currentRoundIds = round0Ids.slice().sort((a, b) => getMatchNum(a) - getMatchNum(b));
-    const maxRoundIterations = 20;
-    for(let depth = 0; depth < maxRoundIterations && currentRoundIds.length; depth++){
-      const roundMatches = currentRoundIds.map(id => {
-        const base = lookup.get(id) || buildEmptyMatch(id);
-        return {
-          match_id: id,
-          winner_player_name: base.winner_player_name ?? null,
-          winner_player_id: base.winner_player_id ?? null,
-          loser_player_name: base.loser_player_name ?? null,
-          loser_player_id: base.loser_player_id ?? null,
-          winner_country: base.winner_country ?? null,
-          loser_wountry: base.loser_wountry ?? base.loser_country ?? null,
-          score_string: base.score_string ?? null
-        };
-      });
-      roundsByDepth.push(roundMatches);
-      if(currentRoundIds.length === 1) break;
-      const parents = [];
-      for(let i = 0; i < currentRoundIds.length; i += 2){
-        const left = currentRoundIds[i];
-        const right = currentRoundIds[i + 1];
-        if(!left || !right) continue;
-        const parentNum = Math.floor(getMatchNum(left) / 2);
-        parents.push(`${prefix}${String(parentNum).padStart(3, "0")}`);
-      }
-      currentRoundIds = parents;
-    }
-
-    return {
-      event_id: templateJson.event_id ?? null,
-      event_year: templateJson.event_year ?? null,
-      mode: templateJson.mode || (isAllMode ? "all" : "first_round"),
-      matches: sourceMatches,
-      rounds: roundsByDepth
-    };
-  }
-
-  function deepCloneBracketProposal(proposal){
-    return parseMaybeJson(proposal) || null;
-  }
-
-  function normalizeProposalJson(proposal){
-    const parsed = parseMaybeJson(proposal);
-    if(!parsed) return null;
+  function normalizeFlatJson(value){
+    const parsed = parseMaybeJson(value);
+    if(!parsed || !Array.isArray(parsed.matches)) return null;
     return {
       event_id: parsed.event_id ?? null,
       event_year: parsed.event_year ?? null,
-      matches: Array.isArray(parsed.matches) ? parsed.matches : []
+      matches: parsed.matches.map(normalizeMatch).sort(matchOrder)
     };
   }
 
-  function getWinnerFromMatch(match){
-    if(!match) return null;
-    return match.winner_player_id ? {
-      player_id: match.winner_player_id,
-      player_name: match.winner_player_name,
-      player_country: match.winner_country ?? null
-    } : null;
-  }
-
-  function getLoserFromMatch(match){
-    if(!match) return null;
-    return match.loser_player_id ? {
-      player_id: match.loser_player_id,
-      player_name: match.loser_player_name,
-      player_country: match.loser_wountry ?? match.loser_country ?? null
-    } : null;
-  }
-
-  function buildTreeFromMatches(sourceJson, selectedWinners = new Map()){
-    const matches = sortMatchesAscending(sourceJson?.matches || []);
-    if(!matches.length) return null;
-
-    const prefix = getMatchPrefix(matches[0].match_id);
-    const numberSet = new Set(matches.map(m => getMatchNum(m.match_id)).filter(Number.isFinite));
-    const largest = Math.max(...Array.from(numberSet));
-    const smallest = Math.min(...Array.from(numberSet));
-
-    // Build rounds from first round downward.
-    // The first round is the highest contiguous block of match ids.
-    const firstRound = [];
-    for(let n = smallest; n <= largest; n++){
-      const id = `${prefix}${String(n).padStart(3, "0")}`;
-      firstRound.push(id);
+  function buildSourceWinnerMap(flatJson){
+    const map = new Map();
+    const parsed = normalizeFlatJson(flatJson);
+    if(!parsed) return map;
+    for(const m of parsed.matches){
+      if(m.winner_player_id || m.winner_player_name){
+        map.set(String(m.match_id), {
+          player_id: m.winner_player_id,
+          player_name: m.winner_player_name,
+          player_country: m.winner_country ?? null
+        });
+      }
     }
-    firstRound.sort((a, b) => getMatchNum(a) - getMatchNum(b));
+    return map;
+  }
 
-    const byId = new Map();
-    matches.forEach(m => {
-      byId.set(String(m.match_id), {
-        match_id: String(m.match_id),
-        winner_player_name: m.winner_player_name ?? null,
-        winner_player_id: m.winner_player_id ?? null,
-        loser_player_name: m.loser_player_name ?? null,
-        loser_player_id: m.loser_player_id ?? null,
-        winner_country: m.winner_country ?? null,
-        loser_wountry: m.loser_wountry ?? m.loser_country ?? null,
-        score_string: m.score_string ?? null,
-        left_player: m.left_player ? clone(m.left_player) : null,
-        right_player: m.right_player ? clone(m.right_player) : null,
-        winner: m.winner ? clone(m.winner) : null
-      });
-    });
+  function buildParticipants(match){
+    return {
+      left: match ? {
+        player_id: match.winner_player_id || null,
+        player_name: match.winner_player_name || null,
+        player_country: match.winner_country || null
+      } : null,
+      right: match ? {
+        player_id: match.loser_player_id || null,
+        player_name: match.loser_player_name || null,
+        player_country: match.loser_wountry || null
+      } : null
+    };
+  }
 
-    // Infer rounds by repeatedly halving the match ids.
+  function isBye(player){
+    const name = String(player?.player_name || "").trim().toUpperCase();
+    const id = String(player?.player_id || "").trim();
+    return !player || !id || name === "BYE" || name === "QUALIFIER" || name === "LUCKY LOSER";
+  }
+
+
+  function buildBracketTree(flatJson, opts = {}){
+    const parsed = normalizeFlatJson(flatJson);
+    if(!parsed || !parsed.matches.length) return null;
+
+    const selectedWinners = opts.selectedWinners || new Map();
+    const useSourceWinners = Boolean(opts.useSourceWinners);
+    const sourceWinnerMap = useSourceWinners ? buildSourceWinnerMap(parsed) : new Map();
+
+    const ids = parsed.matches.map(m => m.match_id).sort((a,b) => getMatchNum(a) - getMatchNum(b));
+    const allMode = isAllMode(parsed);
+    const leafCount = allMode ? Math.ceil(ids.length / 2) : ids.length;
+    const leafIds = ids.slice(-leafCount).sort((a,b) => getMatchNum(a) - getMatchNum(b));
+    const sourceById = new Map(parsed.matches.map(m => [String(m.match_id), m]));
     const rounds = [];
-    let currentRound = firstRound.slice().sort((a, b) => getMatchNum(a) - getMatchNum(b));
-    const seen = new Set();
+
+    let currentIds = leafIds.slice();
     let safety = 0;
-    while(currentRound.length && safety < 20){
+
+    while(currentIds.length && safety < 30){
       safety++;
-      const roundMatches = currentRound.map(id => {
-        const base = byId.get(id) || {
+      const isLeafRound = rounds.length === 0;
+
+      const roundNodes = currentIds.map((id) => {
+        const base = sourceById.get(id) || normalizeMatch({ match_id: id });
+        const node = {
           match_id: id,
-          winner_player_name: null,
-          winner_player_id: null,
-          loser_player_name: null,
-          loser_player_id: null,
-          winner_country: null,
-          loser_wountry: null,
-          score_string: null,
           left_player: null,
           right_player: null,
-          winner: null
-        };
-        const winner = selectedWinners.get(id) || base.winner || getWinnerFromMatch(base);
-        const left = base.left_player || null;
-        const right = base.right_player || null;
-        return {
-          match_id: id,
-          winner_player_name: winner?.player_name ?? null,
-          winner_player_id: winner?.player_id ?? null,
+          winner: null,
+          winner_player_name: null,
+          winner_player_id: null,
+          winner_country: null,
           loser_player_name: base.loser_player_name ?? null,
           loser_player_id: base.loser_player_id ?? null,
-          winner_country: winner?.player_country ?? null,
           loser_wountry: base.loser_wountry ?? null,
-          score_string: base.score_string ?? null,
-          left_player: left,
-          right_player: right,
-          winner: winner,
+          score_string: base.score_string ?? null
         };
+
+        if(isLeafRound){
+          const participants = buildParticipants(base);
+          node.left_player = participants.left;
+          node.right_player = participants.right;
+        }
+
+        const chosen = selectedWinners.get(id) || sourceWinnerMap.get(id) || null;
+        const auto =
+          !chosen && node.left_player && !node.right_player && !isBye(node.left_player) ? node.left_player :
+          !chosen && node.right_player && !node.left_player && !isBye(node.right_player) ? node.right_player :
+          null;
+
+        const finalWinner = chosen || auto;
+        if(finalWinner){
+          node.winner = clone(finalWinner);
+          node.winner_player_name = finalWinner.player_name ?? null;
+          node.winner_player_id = finalWinner.player_id ?? null;
+          node.winner_country = finalWinner.player_country ?? null;
+        }
+
+        return node;
       });
-      rounds.push(roundMatches);
-      if(currentRound.length === 1) break;
-      const next = [];
-      for(let i = 0; i < currentRound.length; i += 2){
-        const left = currentRound[i];
-        const right = currentRound[i + 1];
-        if(!left || !right) continue;
-        const parentId = `${prefix}${String(Math.floor(getMatchNum(left) / 2)).padStart(3, "0")}`;
-        if(seen.has(parentId)) continue;
-        next.push(parentId);
+
+      rounds.push(roundNodes);
+      if(currentIds.length === 1) break;
+
+      const nextIds = [];
+      for(let i = 0; i < currentIds.length; i += 2){
+        const leftId = currentIds[i];
+        const rightId = currentIds[i + 1];
+        if(!leftId || !rightId) continue;
+        nextIds.push(`${getMatchPrefix(leftId)}${String(Math.floor(getMatchNum(leftId) / 2)).padStart(3, "0")}`);
       }
-      next.sort((a, b) => getMatchNum(a) - getMatchNum(b));
-      currentRound = next;
-      next.forEach(id => seen.add(id));
+      currentIds = nextIds.sort((a,b) => getMatchNum(a) - getMatchNum(b));
     }
 
-    return { rounds, prefix };
-  }
+    for(let roundIndex = 1; roundIndex < rounds.length; roundIndex++){
+      const prev = rounds[roundIndex - 1];
+      const curr = rounds[roundIndex];
+      for(let j = 0; j < curr.length; j++){
+        const parent = curr[j];
+        const leftChild = prev[j * 2] || null;
+        const rightChild = prev[j * 2 + 1] || null;
+        parent.left_player = leftChild && leftChild.winner ? clone(leftChild.winner) : parent.left_player;
+        parent.right_player = rightChild && rightChild.winner ? clone(rightChild.winner) : parent.right_player;
 
-  function makeRoundLabel(roundIndex, totalRounds, prefix){
-    const remaining = totalRounds - roundIndex;
-    if(remaining === 1) return `${prefix} Final`;
-    if(remaining === 2) return `${prefix} Semi-finals`;
-    if(remaining === 3) return `${prefix} Quarter-finals`;
-    if(roundIndex === 0) return `${prefix} First round`;
-    return `${prefix} Round ${roundIndex + 1}`;
-  }
+        const chosen = selectedWinners.get(parent.match_id) || sourceWinnerMap.get(parent.match_id) || null;
+        const auto =
+          !chosen && parent.left_player && !parent.right_player && !isBye(parent.left_player) ? parent.left_player :
+          !chosen && parent.right_player && !parent.left_player && !isBye(parent.right_player) ? parent.right_player :
+          null;
 
-  function playerLabel(player){
-    if(!player) return { name: "—", country: "" };
+        const finalWinner = chosen || auto;
+        if(finalWinner){
+          parent.winner = clone(finalWinner);
+          parent.winner_player_name = finalWinner.player_name ?? null;
+          parent.winner_player_id = finalWinner.player_id ?? null;
+          parent.winner_country = finalWinner.player_country ?? null;
+        }
+      }
+    }
+
     return {
-      name: player.player_name || player.name || "—",
-      country: player.player_country || player.country || ""
+      event_id: parsed.event_id ?? null,
+      event_year: parsed.event_year ?? null,
+      matches: parsed.matches,
+      rounds
     };
   }
 
-  function createSlotButton({ match, side, editable, compareMap, showComparison }){
+  function flattenTree(tree){
+    const rows = [];
+    for(const round of tree?.rounds || []){
+      for(const match of round){
+        rows.push({
+          match_id: match.match_id,
+          winner_player_name: match.winner_player_name ?? null,
+          winner_player_id: match.winner_player_id ?? null,
+          loser_player_name: match.loser_player_name ?? null,
+          loser_player_id: match.loser_player_id ?? null,
+          winner_country: match.winner_country ?? null,
+          loser_wountry: match.loser_wountry ?? null,
+          score_string: match.score_string ?? null
+        });
+      }
+    }
+    return rows;
+  }
+
+  function compareWinnerMaps(currentJson, allJson){
+    const map = new Map();
+    const current = normalizeFlatJson(currentJson);
+    const all = normalizeFlatJson(allJson);
+    if(!current || !all) return map;
+    const allById = new Map(all.matches.map(m => [String(m.match_id), m]));
+    for(const m of current.matches){
+      const ref = allById.get(String(m.match_id));
+      if(!ref) continue;
+      map.set(String(m.match_id), {
+        same: String(m.winner_player_id || "") === String(ref.winner_player_id || "") && String(m.winner_player_name || "") === String(ref.winner_player_name || "")
+      });
+    }
+    return map;
+  }
+
+  function labelForRound(index, total){
+    const rem = total - index;
+    if(rem === 1) return "Final";
+    if(rem === 2) return "Semi-finals";
+    if(rem === 3) return "Quarter-finals";
+    return `Round ${index + 1}`;
+  }
+
+  function createSlot(match, side, opts = {}){
+    const editable = Boolean(opts.editable);
+    const compare = opts.compare;
+    const onPick = opts.onPick;
+    const locked = Boolean(opts.locked);
+    const showComparison = Boolean(opts.showComparison);
+
     const player = side === "left" ? match.left_player : match.right_player;
-    const isWinner = match.winner && player && String(match.winner.player_id) === String(player.player_id);
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = `slot ${isWinner ? "selected" : ""}`;
+    btn.className = "slot";
 
-    const empty = !player;
-    if(empty){
+    if(!player){
       btn.classList.add("empty");
       btn.disabled = true;
       btn.innerHTML = `<span class="slot-name">—</span>`;
       return btn;
     }
 
-    const label = playerLabel(player);
-    const compare = compareMap ? compareMap.get(String(match.match_id)) : null;
+    const name = escapeHtml(player.player_name || "—");
+    const country = escapeHtml(player.player_country || "");
+    btn.innerHTML = `<span class="slot-name">${name}</span><span class="slot-country">${country}</span>`;
 
-    if(showComparison && compare && compare.player_id){
-      const same = String(compare.player_id) === String(player.player_id);
-      btn.classList.add(same ? "green" : "red");
+    const isSelectedWinner = match.winner && String(match.winner.player_id || "") === String(player.player_id || "");
+    if(isSelectedWinner) btn.classList.add("selected");
+
+    if(showComparison){
+      const c = compare?.get(String(match.match_id));
+      if(c) btn.classList.add(c.same ? "green" : "red");
     }
 
-    btn.innerHTML = `<span class="slot-name">${escapeHtml(label.name)}</span><span class="slot-country">${escapeHtml(label.country)}</span>`;
-
-    if(!editable){
+    if(editable && !locked && onPick && !isBye(player)){
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onPick(match.match_id, side);
+      });
+    } else {
       btn.disabled = true;
     }
+
     return btn;
   }
 
-  function renderRounds(container, sourceJson, options = {}){
-    const { editable = false, onPick = null, compareMap = null, showComparison = false, locked = false } = options;
+  function renderTree(container, flatJson, opts = {}){
     container.innerHTML = "";
-
-    const tree = buildTreeFromMatches(sourceJson);
-    if(!tree || !tree.rounds || !tree.rounds.length) return false;
+    const tree = buildBracketTree(flatJson, {
+      editable: Boolean(opts.editable),
+      selectedWinners: opts.selectedWinners || new Map(),
+      useSourceWinners: Boolean(opts.useSourceWinners)
+    });
+    if(!tree) return false;
 
     container.style.gridTemplateColumns = `repeat(${tree.rounds.length}, minmax(250px, 1fr))`;
 
-    tree.rounds.forEach((roundMatches, roundIndex) => {
-      const round = document.createElement("div");
-      round.className = "round";
+    tree.rounds.forEach((round, roundIndex) => {
+      const roundEl = document.createElement("div");
+      roundEl.className = "round";
 
       const title = document.createElement("div");
       title.className = "round-title";
-      title.textContent = makeRoundLabel(roundIndex, tree.rounds.length, tree.prefix);
-      round.appendChild(title);
+      title.textContent = labelForRound(roundIndex, tree.rounds.length);
+      roundEl.appendChild(title);
 
-      roundMatches.forEach((match) => {
+      round.forEach((match) => {
         const card = document.createElement("div");
         card.className = `match ${match.winner ? "winner-selected" : ""}`;
 
         const head = document.createElement("div");
         head.className = "match-head";
-
-        const id = document.createElement("div");
-        id.className = "match-id";
-        id.textContent = match.match_id;
-        head.appendChild(id);
-
-        const wt = document.createElement("div");
-        wt.className = `winner-tag ${match.winner ? "ok" : ""}`;
-        wt.textContent = match.winner ? `Winner: ${match.winner.player_name}` : "No winner";
-        head.appendChild(wt);
-
+        head.innerHTML = `
+          <div class="match-id">${escapeHtml(match.match_id)}</div>
+          <div class="winner-tag ${match.winner ? "ok" : ""}">${match.winner ? `Winner: ${escapeHtml(match.winner.player_name || "")}` : "No winner"}</div>
+        `;
         card.appendChild(head);
 
-        const left = createSlotButton({
-          match,
-          side: "left",
-          editable: editable && !locked,
-          compareMap,
-          showComparison
+        const left = createSlot(match, "left", {
+          editable: opts.editable,
+          locked: opts.locked,
+          onPick: opts.onPick,
+          compare: opts.compare,
+          showComparison: opts.showComparison
         });
-        left.addEventListener("click", (e) => {
-          e.stopPropagation();
-          if(editable && !locked && typeof onPick === "function") onPick(match.match_id, "left");
+        const right = createSlot(match, "right", {
+          editable: opts.editable,
+          locked: opts.locked,
+          onPick: opts.onPick,
+          compare: opts.compare,
+          showComparison: opts.showComparison
         });
-        card.appendChild(left);
 
-        const right = createSlotButton({
-          match,
-          side: "right",
-          editable: editable && !locked,
-          compareMap,
-          showComparison
-        });
-        right.addEventListener("click", (e) => {
-          e.stopPropagation();
-          if(editable && !locked && typeof onPick === "function") onPick(match.match_id, "right");
-        });
+        card.appendChild(left);
         card.appendChild(right);
 
         if(!match.left_player && !match.right_player){
@@ -924,731 +778,120 @@
 
         if(match.left_player && !match.right_player){
           right.classList.add("empty");
-          right.disabled = true;
           right.textContent = "Bye";
+          right.disabled = true;
         }
 
-        round.appendChild(card);
+        roundEl.appendChild(card);
       });
 
-      container.appendChild(round);
+      container.appendChild(roundEl);
     });
 
     return true;
   }
 
-  function compareCurrentProposalWithAll(currentProposal, allJson){
+  function makeEditableSelectionMapFromProposal(proposalJson){
     const map = new Map();
-    const current = normalizeProposalJson(currentProposal);
-    const all = normalizeProposalJson(allJson);
-    if(!current || !all) return map;
-
-    const allById = new Map((all.matches || []).map(m => [String(m.match_id), m]));
-    for(const match of current.matches || []){
-      const ref = allById.get(String(match.match_id));
-      if(!ref) continue;
-      const winner = ref.winner_player_id ? {
-        player_id: ref.winner_player_id,
-        player_name: ref.winner_player_name,
-        player_country: ref.winner_country ?? null
-      } : null;
-      map.set(String(match.match_id), winner);
-    }
-    return map;
-  }
-
-  function getStateLabelForStatus(status){
-    const s = String(status || "").toUpperCase();
-    if(s === "READY" || s === "LOCKED" || s === "REGISTERED") return "ok";
-    if(s === "NOT_REGISTERED") return "bad";
-    if(s === "BRACKET_NOT_READY") return "warn";
-    return "neutral";
-  }
-
-  function setTab(tab){
-    state.activeTab = tab;
-    document.querySelectorAll('#subnav button[data-tab]').forEach(btn => {
-      btn.classList.toggle('active', btn.getAttribute('data-tab') === tab);
-    });
-    const currentPanel = $('currentPanel');
-    const nextPanel = $('nextPanel');
-    currentPanel.classList.toggle('hidden', tab !== 'current');
-    nextPanel.classList.toggle('hidden', tab !== 'next');
-    $('viewTitle').textContent = tab === 'current' ? 'Current' : 'Next Week';
-    $('viewHelp').textContent = tab === 'current'
-      ? 'Read-only view of your current week.'
-      : (state.next.locked ? 'Your next-week proposal is saved and locked.' : 'Build your next-week bracket if available.');
-    $('viewBadge').textContent = tab === 'current'
-      ? (state.current.hasPlayed ? 'Read-only' : 'No current play')
-      : (state.next.locked ? 'Locked' : (state.next.editable ? 'Editable' : 'Unavailable'));
-  }
-
-  function renderCurrentTab(){
-    const empty = $('currentEmpty');
-    const wrap = $('currentWrap');
-    const layout = $('currentLayout');
-    empty.classList.add('hidden');
-    wrap.classList.add('hidden');
-    layout.innerHTML = '';
-
-    const proposal = normalizeProposalJson(state.current.proposition);
-    if(!proposal || !proposal.matches || !proposal.matches.length){
-      empty.textContent = 'You did not play this week, so there is nothing to display.';
-      empty.classList.remove('hidden');
-      return;
-    }
-
-    let compareMap = null;
-    let showComparison = false;
-    if(state.current.allJson){
-      compareMap = compareCurrentProposalWithAll(proposal, state.current.allJson);
-      showComparison = true;
-    }
-
-    const ok = renderRounds(layout, proposal, {
-      editable: false,
-      locked: true,
-      compareMap,
-      showComparison
-    });
-
-    if(!ok){
-      empty.textContent = 'Unable to render the current bracket.';
-      empty.classList.remove('hidden');
-      return;
-    }
-
-    wrap.classList.remove('hidden');
-  }
-
-  function createSelectedWinnersMap(parsedProposal){
-    const map = new Map();
-    const matches = parsedProposal?.matches || [];
-    matches.forEach(m => {
-      if(m && m.match_id && m.winner_player_id){
+    const parsed = normalizeFlatJson(proposalJson);
+    if(!parsed) return map;
+    for(const m of parsed.matches){
+      if(m.winner_player_id && m.winner_player_name){
         map.set(String(m.match_id), {
           player_id: m.winner_player_id,
           player_name: m.winner_player_name,
           player_country: m.winner_country ?? null
         });
       }
-    });
+    }
     return map;
   }
 
-  function findMatchById(sourceJson, matchId){
-    const matches = sourceJson?.matches || [];
-    return matches.find(m => String(m.match_id) === String(matchId)) || null;
-  }
-
-  function inferParentMatchId(matchId){
-    const prefix = getMatchPrefix(matchId);
-    const num = getMatchNum(matchId);
-    if(!Number.isFinite(num) || num <= 1) return `${prefix}001`;
-    return `${prefix}${String(Math.floor(num / 2)).padStart(3, '0')}`;
-  }
-
-  function ensureProposalTemplate(templateJson, existingProposal){
-    const template = normalizeProposalJson(templateJson);
-    if(!template) return null;
-
-    const existing = normalizeProposalJson(existingProposal);
-    const existingById = new Map((existing?.matches || []).map(m => [String(m.match_id), m]));
-
-    const tree = buildTreeFromMatches(template);
-    if(!tree) return null;
-
-    // Build editable state from the source matches, but keep only the winner/loser information,
-    // and recompute parent winners from the user's selections.
-    const allMatchIds = [];
-    tree.rounds.forEach(round => {
-      round.forEach(m => allMatchIds.push(String(m.match_id)));
-    });
-
-    const byId = new Map();
-    template.matches.forEach(m => byId.set(String(m.match_id), clone(m)));
-
-    const builtMatches = [];
-    const selected = new Map();
-
-    // Use a recursive approach: first-round matches are in the source template,
-    // then parent matches are created purely from winners.
-    const round0 = tree.rounds[0] || [];
-    const roundMatchesById = new Map();
-    round0.forEach(m => roundMatchesById.set(String(m.match_id), clone(byId.get(String(m.match_id)) || m)));
-
-    // Build a broader list of all matches ids from first round to final.
-    const prefix = round0.length ? getMatchPrefix(round0[0].match_id) : (template.matches[0] ? getMatchPrefix(template.matches[0].match_id) : 'MS');
-    const leafNums = round0.map(m => getMatchNum(m.match_id)).filter(Number.isFinite);
-    const maxLeaf = Math.max(...leafNums);
-    const minLeaf = Math.min(...leafNums);
-
-    const rounds = [];
-    let currentIds = [];
-    for(let n = minLeaf; n <= maxLeaf; n++) currentIds.push(`${prefix}${String(n).padStart(3, '0')}`);
-    currentIds.sort((a,b) => getMatchNum(a) - getMatchNum(b));
-
-    let safety = 0;
-    while(currentIds.length && safety < 20){
-      safety++;
-      const round = currentIds.map(id => {
-        const base = byId.get(id) || existingById.get(id) || buildEmptyMatch(id);
-        const winner = selected.get(id) || (base.winner_player_id ? {
-          player_id: base.winner_player_id,
-          player_name: base.winner_player_name,
-          player_country: base.winner_country ?? null
-        } : null);
-        return {
-          match_id: id,
-          left_player: base.left_player ? clone(base.left_player) : null,
-          right_player: base.right_player ? clone(base.right_player) : null,
-          winner,
-          winner_player_name: winner?.player_name ?? null,
-          winner_player_id: winner?.player_id ?? null,
-          loser_player_name: base.loser_player_name ?? null,
-          loser_player_id: base.loser_player_id ?? null,
-          winner_country: winner?.player_country ?? null,
-          loser_wountry: base.loser_wountry ?? null,
-          score_string: base.score_string ?? null
-        };
-      });
-      rounds.push(round);
-      if(currentIds.length === 1) break;
-      const parents = [];
-      for(let i = 0; i < currentIds.length; i += 2){
-        const leftId = currentIds[i];
-        const rightId = currentIds[i + 1];
-        if(!leftId || !rightId) continue;
-        parents.push(inferParentMatchId(leftId));
-      }
-      currentIds = parents;
-    }
-
-    return {
-      event_id: template.event_id ?? null,
-      event_year: template.event_year ?? null,
-      matches: template.matches,
-      rounds
-    };
-  }
-
-  function getEditableMatchState(templateJson, currentState, selectedWinners){
-    const template = normalizeProposalJson(templateJson);
-    if(!template) return null;
-
-    const tree = buildTreeFromMatches(template);
-    if(!tree) return null;
-
-    const byId = new Map(template.matches.map(m => [String(m.match_id), clone(m)]));
-    const prefix = tree.prefix || getMatchPrefix(template.matches[0]?.match_id || 'MS');
-    const maxLeaf = Math.max(...tree.rounds[0].map(m => getMatchNum(m.match_id)));
-    const minLeaf = Math.min(...tree.rounds[0].map(m => getMatchNum(m.match_id)));
-
-    // Create a mutable map for every match ID.
-    const stateMap = new Map();
-    const roundIds = [];
-    let currentIds = [];
-    for(let n = minLeaf; n <= maxLeaf; n++) currentIds.push(`${prefix}${String(n).padStart(3, '0')}`);
-    currentIds.sort((a,b) => getMatchNum(a) - getMatchNum(b));
-
-    let safety = 0;
-    while(currentIds.length && safety < 20){
-      safety++;
-      const nextIds = [];
-      currentIds.forEach(id => {
-        const source = byId.get(id) || buildEmptyMatch(id);
-        const selected = selectedWinners.get(id) || null;
-        stateMap.set(id, {
-          match_id: id,
-          left_player: source.left_player ? clone(source.left_player) : null,
-          right_player: source.right_player ? clone(source.right_player) : null,
-          winner: selected,
-          winner_player_name: selected?.player_name ?? null,
-          winner_player_id: selected?.player_id ?? null,
-          winner_country: selected?.player_country ?? null,
-          loser_player_name: source.loser_player_name ?? null,
-          loser_player_id: source.loser_player_id ?? null,
-          loser_wountry: source.loser_wountry ?? null,
-          score_string: source.score_string ?? null
-        });
-      });
-      if(currentIds.length === 1) break;
-      for(let i = 0; i < currentIds.length; i += 2){
-        const left = currentIds[i];
-        const right = currentIds[i + 1];
-        if(!left || !right) continue;
-        const parentId = inferParentMatchId(left);
-        const leftWinner = selectedWinners.get(left) || null;
-        const rightWinner = selectedWinners.get(right) || null;
-        const parentSource = byId.get(parentId) || buildEmptyMatch(parentId);
-        stateMap.set(parentId, {
-          match_id: parentId,
-          left_player: leftWinner ? clone(leftWinner) : null,
-          right_player: rightWinner ? clone(rightWinner) : null,
-          winner: selectedWinners.get(parentId) || null,
-          winner_player_name: (selectedWinners.get(parentId) || null)?.player_name ?? null,
-          winner_player_id: (selectedWinners.get(parentId) || null)?.player_id ?? null,
-          winner_country: (selectedWinners.get(parentId) || null)?.player_country ?? null,
-          loser_player_name: parentSource.loser_player_name ?? null,
-          loser_player_id: parentSource.loser_player_id ?? null,
-          loser_wountry: parentSource.loser_wountry ?? null,
-          score_string: parentSource.score_string ?? null
-        });
-        nextIds.push(parentId);
-      }
-      currentIds = nextIds.sort((a,b) => getMatchNum(a) - getMatchNum(b));
-    }
-
-    // Turn the map into deterministic rounds.
-    const rounds = [];
-    currentIds = [];
-    for(let n = minLeaf; n <= maxLeaf; n++) currentIds.push(`${prefix}${String(n).padStart(3, '0')}`);
-    currentIds.sort((a,b) => getMatchNum(a) - getMatchNum(b));
-
-    safety = 0;
-    while(currentIds.length && safety < 20){
-      safety++;
-      rounds.push(currentIds.map(id => stateMap.get(id) || buildEmptyMatch(id)));
-      if(currentIds.length === 1) break;
-      const next = [];
-      for(let i = 0; i < currentIds.length; i += 2){
-        const left = currentIds[i];
-        const right = currentIds[i + 1];
-        if(!left || !right) continue;
-        next.push(inferParentMatchId(left));
-      }
-      currentIds = next;
-    }
-
-    return { rounds, stateMap, prefix };
-  }
-
-  function propagateBracketFromSelection(templateJson, selectedWinnersMap){
-    const template = normalizeProposalJson(templateJson);
-    if(!template) return null;
-
-    const tree = buildTreeFromMatches(template);
-    if(!tree) return null;
-
-    const byId = new Map(template.matches.map(m => [String(m.match_id), clone(m)]));
-    const allIds = [];
-    tree.rounds.forEach(round => round.forEach(m => allIds.push(String(m.match_id))));
-
-    const prefix = tree.prefix || getMatchPrefix(allIds[0] || 'MS');
-    const leafIds = tree.rounds[0].map(m => String(m.match_id)).sort((a,b) => getMatchNum(a) - getMatchNum(b));
-
-    const currentState = new Map();
-    leafIds.forEach(id => {
-      const source = byId.get(id) || buildEmptyMatch(id);
-      currentState.set(id, {
-        match_id: id,
-        left_player: source.left_player ? clone(source.left_player) : null,
-        right_player: source.right_player ? clone(source.right_player) : null,
-        winner: selectedWinnersMap.get(id) || null,
-        winner_player_name: (selectedWinnersMap.get(id) || null)?.player_name ?? null,
-        winner_player_id: (selectedWinnersMap.get(id) || null)?.player_id ?? null,
-        winner_country: (selectedWinnersMap.get(id) || null)?.player_country ?? null,
-        loser_player_name: source.loser_player_name ?? null,
-        loser_player_id: source.loser_player_id ?? null,
-        loser_wountry: source.loser_wountry ?? null,
-        score_string: source.score_string ?? null
-      });
-    });
-
-    let currentIds = leafIds.slice();
-    let safety = 0;
-    while(currentIds.length && safety < 20){
-      safety++;
-      if(currentIds.length === 1) break;
-      const next = [];
-      for(let i = 0; i < currentIds.length; i += 2){
-        const leftId = currentIds[i];
-        const rightId = currentIds[i + 1];
-        if(!leftId || !rightId) continue;
-        const parentId = inferParentMatchId(leftId);
-        const leftWinner = selectedWinnersMap.get(leftId) || null;
-        const rightWinner = selectedWinnersMap.get(rightId) || null;
-        const parentSource = byId.get(parentId) || buildEmptyMatch(parentId);
-
-        currentState.set(parentId, {
-          match_id: parentId,
-          left_player: leftWinner ? clone(leftWinner) : null,
-          right_player: rightWinner ? clone(rightWinner) : null,
-          winner: selectedWinnersMap.get(parentId) || null,
-          winner_player_name: (selectedWinnersMap.get(parentId) || null)?.player_name ?? null,
-          winner_player_id: (selectedWinnersMap.get(parentId) || null)?.player_id ?? null,
-          winner_country: (selectedWinnersMap.get(parentId) || null)?.player_country ?? null,
-          loser_player_name: parentSource.loser_player_name ?? null,
-          loser_player_id: parentSource.loser_player_id ?? null,
-          loser_wountry: parentSource.loser_wountry ?? null,
-          score_string: parentSource.score_string ?? null
-        });
-        next.push(parentId);
-      }
-      currentIds = next.sort((a,b) => getMatchNum(a) - getMatchNum(b));
-    }
-
-    // Build JSON output in ascending match order: first round down to final.
-    const outputMatches = [];
-    const allMatchIds = Array.from(currentState.keys()).sort((a,b) => {
-      const pa = getMatchPrefix(a);
-      const pb = getMatchPrefix(b);
-      if(pa !== pb) return pa.localeCompare(pb);
-      return getMatchNum(a) - getMatchNum(b);
-    });
-
-    allMatchIds.forEach(id => {
-      const match = currentState.get(id) || byId.get(id) || buildEmptyMatch(id);
-      outputMatches.push({
-        match_id: id,
-        winner_player_name: match.winner_player_name ?? null,
-        winner_player_id: match.winner_player_id ?? null,
-        loser_player_name: match.loser_player_name ?? null,
-        loser_player_id: match.loser_player_id ?? null,
-        winner_country: match.winner_country ?? null,
-        loser_wountry: match.loser_wountry ?? null,
-        score_string: match.score_string ?? null
-      });
-    });
-
-    return {
-      event_id: template.event_id ?? null,
-      event_year: template.event_year ?? null,
-      matches: outputMatches
-    };
-  }
-
-  function validateProposal(proposal){
-    const parsed = normalizeProposalJson(proposal);
-    if(!parsed) return { ok:false, reason:"No proposal data." };
-    if(!Array.isArray(parsed.matches) || !parsed.matches.length) return { ok:false, reason:"The proposal contains no matches." };
-    const seen = new Set();
-    for(const m of parsed.matches){
-      if(!m || !m.match_id) return { ok:false, reason:"A match is missing its ID." };
-      if(seen.has(m.match_id)) return { ok:false, reason:`Duplicate match ID: ${m.match_id}` };
-      seen.add(m.match_id);
-      if(!m.winner_player_id || !m.winner_player_name) return { ok:false, reason:`Missing winner on ${m.match_id}.` };
-    }
-    return { ok:true };
-  }
-
-  function updateStatusBadges(){
-    const status = String(state.next.locked ? "LOCKED" : (state.next.editable ? "READY" : (state.next.hasRegistration ? "REGISTERED" : state.next.mode === "missing" ? "BRACKET_NOT_READY" : "NOT_REGISTERED"))).toUpperCase();
-    $('statusBadge').textContent = status;
-    $('statusBadge').className = `badge ${getStateLabelForStatus(status)}`;
-    $('currentStateBadge').textContent = state.current.hasPlayed ? 'Current available' : 'No current play';
-    $('nextStateBadge').textContent = state.next.locked ? 'Next week locked' : (state.next.editable ? 'Next week editable' : (state.next.mode === 'missing' ? 'Next week unavailable' : 'Next week read-only'));
-  }
-
-  function renderHeader(){
-    const session = getSession() || {};
-    $('authBadge').textContent = isConnected() ? 'Connected' : 'Not connected';
-    $('authBadge').className = `badge ${isConnected() ? 'ok' : 'bad'}`;
-    $('userBadge').textContent = `${getUserName() || session.pseudo || 'User'} • ${getUserTour() || '—'} • rank ${getUserRank() ?? '—'}`;
-    $('lockBadge').textContent = state.next.locked ? 'Locked' : 'Editable';
-    $('lockBadge').className = `badge ${state.next.locked ? 'ok' : 'warn'}`;
-
-    $('pageTitle').textContent = 'Bracket';
-    $('pageMeta').textContent = state.message || 'Current and next-week bracket views.';
-
-    const userRank = getUserRank();
-    const rankText = (userRank === null || userRank === undefined || userRank === '') ? 'Your ranking is not available.' : `Your ranking is ${userRank}.`;
-    $('infoMessage').innerHTML = state.next.locked
-      ? `<strong>Your next-week bracket is locked.</strong><span>You can only review it. ${rankText}</span>`
-      : `<strong>Current is read-only. Next Week can be editable if you are registered and the first-round file exists.</strong><span>${rankText}</span>`;
-  }
-
-  function renderCurrentSection(){
-    renderCurrentTab();
-  }
-
-  function renderNextSection(){
-    const empty = $('nextEmpty');
-    const wrap = $('nextWrap');
-    const layout = $('nextLayout');
-    const submitBtn = $('submitBtn');
-    empty.classList.add('hidden');
-    wrap.classList.add('hidden');
-    layout.innerHTML = '';
-
-    if(!state.next.hasRegistration){
-      empty.textContent = 'You are not registered for next week.';
-      empty.classList.remove('hidden');
-      submitBtn.classList.add('hidden');
-      $('validationText').textContent = '';
-      return;
-    }
-
-    if(state.next.locked && state.next.parsedProposal){
-      const ok = renderRounds(layout, state.next.parsedProposal, {
-        editable: false,
-        locked: true
-      });
-      if(!ok){
-        empty.textContent = 'Unable to render your saved next-week bracket.';
-        empty.classList.remove('hidden');
-      } else {
-        wrap.classList.remove('hidden');
-      }
-      submitBtn.classList.add('hidden');
-      $('validationText').textContent = 'This proposal has already been submitted and is locked.';
-      return;
-    }
-
-    if(state.next.mode === 'missing' || !state.next.templateJson){
-      empty.textContent = 'The next-week bracket is not available yet. Please come back later.';
-      empty.classList.remove('hidden');
-      submitBtn.classList.add('hidden');
-      $('validationText').textContent = '';
-      return;
-    }
-
-    const current = state.next.parsedProposal || null;
-    const template = state.next.templateJson;
-    const editableState = buildEditableStateForTemplate(template, current);
-
-    if(!editableState){
-      empty.textContent = 'Unable to prepare the bracket template.';
-      empty.classList.remove('hidden');
-      submitBtn.classList.add('hidden');
-      return;
-    }
-
-    const ok = renderRounds(layout, editableState, {
+  function buildProposalJsonFromSelection(templateJson, selectionMap){
+    const tree = buildBracketTree(templateJson, {
       editable: true,
-      locked: state.next.locked,
-      onPick: (matchId, side) => {
-        if(state.next.locked) return;
-        toggleWinnerForNextWeek(matchId, side);
-      }
+      selectedWinners: selectionMap,
+      useSourceWinners: false
     });
-
-    if(!ok){
-      empty.textContent = 'Unable to render the bracket.';
-      empty.classList.remove('hidden');
-      submitBtn.classList.add('hidden');
-      return;
-    }
-
-    wrap.classList.remove('hidden');
-    submitBtn.classList.toggle('hidden', state.next.locked || !canSubmitNextWeek());
-    $('validationText').textContent = canSubmitNextWeek()
-      ? 'Select winners through the bracket, then submit when the final winner is filled.'
-      : 'Continue until the final winner is selected.';
-  }
-
-  function canSubmitNextWeek(){
-    if(state.next.locked || !state.next.templateJson || !state.next.editable) return false;
-    const proposal = buildUserProposalJson();
-    const validation = validateProposal(proposal);
-    return validation.ok;
-  }
-
-  function buildEditableStateForTemplate(templateJson, existingProposal){
-    const template = normalizeProposalJson(templateJson);
-    if(!template) return null;
-
-    // Build from template structure, adding user selections from existingProposal if any.
-    const selectedWinners = createSelectedWinnersMap(existingProposal || { matches: [] });
-    const byId = new Map(template.matches.map(m => [String(m.match_id), clone(m)]));
-    const tree = buildTreeFromMatches(template);
     if(!tree) return null;
+    recomputePlayers(tree, selectionMap);
+    return {
+      event_id: tree.event_id ?? null,
+      event_year: tree.event_year ?? null,
+      matches: flattenTree(tree)
+    };
+  }
 
-    const prefix = tree.prefix || getMatchPrefix(template.matches[0]?.match_id || 'MS');
-    const leafIds = tree.rounds[0].map(m => String(m.match_id)).sort((a,b) => getMatchNum(a) - getMatchNum(b));
-
-    const stateMap = new Map();
-
-    // First round: use the template JSON as source.
-    leafIds.forEach(id => {
-      const source = byId.get(id) || buildEmptyMatch(id);
-      stateMap.set(id, {
-        match_id: id,
-        left_player: source.left_player ? clone(source.left_player) : null,
-        right_player: source.right_player ? clone(source.right_player) : null,
-        winner: selectedWinners.get(id) || null,
-        winner_player_name: (selectedWinners.get(id) || null)?.player_name ?? null,
-        winner_player_id: (selectedWinners.get(id) || null)?.player_id ?? null,
-        winner_country: (selectedWinners.get(id) || null)?.player_country ?? null,
-        loser_player_name: source.loser_player_name ?? null,
-        loser_player_id: source.loser_player_id ?? null,
-        loser_wountry: source.loser_wountry ?? null,
-        score_string: source.score_string ?? null
-      });
-    });
-
-    let currentIds = leafIds.slice();
-    let safety = 0;
-    while(currentIds.length && safety < 20){
-      safety++;
-      if(currentIds.length === 1) break;
-      const next = [];
-      for(let i = 0; i < currentIds.length; i += 2){
-        const leftId = currentIds[i];
-        const rightId = currentIds[i + 1];
-        if(!leftId || !rightId) continue;
-        const parentId = inferParentMatchId(leftId);
-        const leftWinner = stateMap.get(leftId)?.winner || null;
-        const rightWinner = stateMap.get(rightId)?.winner || null;
-        const source = byId.get(parentId) || buildEmptyMatch(parentId);
-        const existing = selectedWinners.get(parentId) || null;
-        stateMap.set(parentId, {
-          match_id: parentId,
-          left_player: leftWinner ? clone(leftWinner) : null,
-          right_player: rightWinner ? clone(rightWinner) : null,
-          winner: existing,
-          winner_player_name: existing?.player_name ?? null,
-          winner_player_id: existing?.player_id ?? null,
-          winner_country: existing?.player_country ?? null,
-          loser_player_name: source.loser_player_name ?? null,
-          loser_player_id: source.loser_player_id ?? null,
-          loser_wountry: source.loser_wountry ?? null,
-          score_string: source.score_string ?? null
-        });
-        next.push(parentId);
+  function recomputePlayers(tree, selectionMap){
+    for(const round of tree.rounds){
+      for(const match of round){
+        const chosen = selectionMap.get(String(match.match_id)) || null;
+        if(chosen){
+          match.winner = clone(chosen);
+          match.winner_player_name = chosen.player_name ?? null;
+          match.winner_player_id = chosen.player_id ?? null;
+          match.winner_country = chosen.player_country ?? null;
+        } else if(match.left_player && !match.right_player && !isBye(match.left_player)){
+          match.winner = clone(match.left_player);
+          match.winner_player_name = match.left_player.player_name ?? null;
+          match.winner_player_id = match.left_player.player_id ?? null;
+          match.winner_country = match.left_player.player_country ?? null;
+        } else if(match.right_player && !match.left_player && !isBye(match.right_player)){
+          match.winner = clone(match.right_player);
+          match.winner_player_name = match.right_player.player_name ?? null;
+          match.winner_player_id = match.right_player.player_id ?? null;
+          match.winner_country = match.right_player.player_country ?? null;
+        }
       }
-      currentIds = next.sort((a,b) => getMatchNum(a) - getMatchNum(b));
     }
 
-    // Convert map to an object that renderRounds can use.
-    const outputMatches = [];
-    const allIds = Array.from(stateMap.keys()).sort((a,b) => getMatchNum(a) - getMatchNum(b));
-    allIds.forEach(id => {
-      const m = stateMap.get(id) || buildEmptyMatch(id);
-      outputMatches.push({
-        match_id: id,
-        left_player: m.left_player ? clone(m.left_player) : null,
-        right_player: m.right_player ? clone(m.right_player) : null,
-        winner: m.winner ? clone(m.winner) : null,
-        winner_player_name: m.winner_player_name ?? null,
-        winner_player_id: m.winner_player_id ?? null,
-        winner_country: m.winner_country ?? null,
-        loser_player_name: m.loser_player_name ?? null,
-        loser_player_id: m.loser_player_id ?? null,
-        loser_wountry: m.loser_wountry ?? null,
-        score_string: m.score_string ?? null
-      });
-    });
+    for(let roundIndex = 1; roundIndex < tree.rounds.length; roundIndex++){
+      const prev = tree.rounds[roundIndex - 1];
+      const curr = tree.rounds[roundIndex];
+      for(let j = 0; j < curr.length; j++){
+        const match = curr[j];
+        match.left_player = prev[j * 2] && prev[j * 2].winner ? clone(prev[j * 2].winner) : match.left_player;
+        match.right_player = prev[j * 2 + 1] && prev[j * 2 + 1].winner ? clone(prev[j * 2 + 1].winner) : match.right_player;
 
-    return {
-      event_id: template.event_id ?? null,
-      event_year: template.event_year ?? null,
-      matches: outputMatches
-    };
+        const chosen = selectionMap.get(String(match.match_id)) || null;
+        if(chosen){
+          match.winner = clone(chosen);
+          match.winner_player_name = chosen.player_name ?? null;
+          match.winner_player_id = chosen.player_id ?? null;
+          match.winner_country = chosen.player_country ?? null;
+        } else if(match.left_player && !match.right_player && !isBye(match.left_player)){
+          match.winner = clone(match.left_player);
+          match.winner_player_name = match.left_player.player_name ?? null;
+          match.winner_player_id = match.left_player.player_id ?? null;
+          match.winner_country = match.left_player.player_country ?? null;
+        } else if(match.right_player && !match.left_player && !isBye(match.right_player)){
+          match.winner = clone(match.right_player);
+          match.winner_player_name = match.right_player.player_name ?? null;
+          match.winner_player_id = match.right_player.player_id ?? null;
+          match.winner_country = match.right_player.player_country ?? null;
+        }
+      }
+    }
   }
 
-  function applyWinnerToState(matchId, side){
-    if(state.next.locked) return;
-    const template = normalizeProposalJson(state.next.templateJson);
-    if(!template) return;
-
-    const currentProposal = buildUserProposalJson();
-    const selected = createSelectedWinnersMap(currentProposal || { matches: [] });
-    const allMatches = buildEditableStateForTemplate(template, currentProposal);
-    if(!allMatches) return;
-
-    const target = allMatches.matches.find(m => String(m.match_id) === String(matchId));
-    if(!target) return;
-
-    const chosen = side === 'left' ? target.left_player : target.right_player;
-    if(!chosen) return;
-
-    selected.set(String(matchId), {
-      player_id: chosen.player_id,
-      player_name: chosen.player_name,
-      player_country: chosen.player_country || null
-    });
-
-    // Recompute from the template and current choices.
-    state.next.parsedProposal = propagateBracketFromSelection(template, selected);
-    renderNextSection();
+  function hasCompleteProposal(tree){
+    if(!tree) return false;
+    const flat = flattenTree(tree);
+    return flat.length > 0 && flat.every(m => m.winner_player_id && m.winner_player_name);
   }
 
-  function toggleWinnerForNextWeek(matchId, side){
-    if(state.next.locked) return;
-    const proposal = buildUserProposalJson();
-    const selected = createSelectedWinnersMap(proposal || { matches: [] });
-    const template = normalizeProposalJson(state.next.templateJson);
-    if(!template) return;
-
-    const editable = buildEditableStateForTemplate(template, proposal);
-    if(!editable) return;
-
-    const match = editable.matches.find(m => String(m.match_id) === String(matchId));
-    if(!match) return;
-
-    const chosen = side === 'left' ? match.left_player : match.right_player;
-    if(!chosen) return;
-
-    selected.set(String(matchId), {
-      player_id: chosen.player_id,
-      player_name: chosen.player_name,
-      player_country: chosen.player_country || null
-    });
-
-    state.next.parsedProposal = propagateBracketFromSelection(template, selected);
-    renderNextSection();
+  function inferTemplateYear(next){
+    const date = next?.target_start_date || next?.window_start_date || null;
+    if(date) return Number(String(date).slice(0, 4)) || new Date().getFullYear();
+    return new Date().getFullYear();
   }
 
-  function buildUserProposalJson(){
-    const template = normalizeProposalJson(state.next.templateJson);
-    if(!template) return null;
-    const selected = createSelectedWinnersMap(state.next.parsedProposal || { matches: [] });
-    return propagateBracketFromSelection(template, selected);
-  }
+  async function loadTemplateForNextWeek(next){
+    if(!next || !next.hasRegistration || next.locked) return null;
 
-  function normalizeBracketResponse(data){
-    // Support several possible response shapes.
-    const user = data.user || data.profile || data.session_user || null;
-    const currentTournament = data.current || data.current_bracket || data.bracket || null;
-    const next = data.next || data.next_week || data.inscription || data.registration || null;
-
-    state.authenticated = Boolean(data.authenticated ?? !!user);
-    state.user = user;
-    state.bracketRow = data.bracket_row || data.row || null;
-
-    state.current.currentTournament = currentTournament || {
-      current_tournament_bracket_id: data.user_current_tournament_bracket_id ?? null,
-      current_tournament_bracket_name: data.user_current_tournament_bracket_name ?? null,
-      user_current_tournament_bracket_proposition: data.user_current_tournament_bracket_proposition ?? null,
-      current_tournament_bracket: data.current_tournament_bracket ?? null
-    };
-
-    state.current.proposition = state.current.currentTournament?.user_current_tournament_bracket_proposition ?? data.user_current_tournament_bracket_proposition ?? null;
-    state.current.parsedProposal = normalizeProposalJson(state.current.proposition);
-    state.current.allJson = parseMaybeJson(state.current.currentTournament?.current_tournament_bracket || data.current_tournament_bracket || null);
-    state.current.hasPlayed = Boolean(state.current.proposition);
-
-    state.next.inscription = next || data.next_inscription || null;
-    state.next.hasRegistration = Boolean(state.next.inscription || data.next_inscription || data.registered_next_week || data.in_next_inscriptions);
-
-    const ins = state.next.inscription || {};
-    state.next.tournament = {
-      tournament_id: ins.tournament_id ?? data.next_tournament_id ?? null,
-      tournament_name: ins.tournament_name ?? data.next_tournament_name ?? null,
-      tournament_category: ins.tournament_category ?? data.next_tournament_category ?? null,
-      tournament_num_players: ins.tournament_num_players ?? data.next_tournament_num_players ?? null,
-      tour: ins.tour ?? data.next_tour ?? getUserTour(),
-      target_start_date: ins.target_start_date ?? data.next_target_start_date ?? null,
-      window_start_date: ins.window_start_date ?? data.next_window_start_date ?? null
-    };
-
-    state.next.proposition = ins.user_proposition_next_week ?? data.user_proposition_next_week ?? null;
-    state.next.parsedProposal = normalizeProposalJson(state.next.proposition);
-    state.next.locked = Boolean(state.next.proposition);
-    state.next.editable = state.next.hasRegistration && !state.next.locked;
-
-    state.next.templateJson = null;
-    state.next.mode = null;
-  }
-
-  async function loadTemplateForNextWeek(){
-    if(!state.next.hasRegistration || state.next.locked) return;
-
-    const tour = String(state.next.tournament?.tour || getUserTour() || "").toLowerCase();
-    const tournamentId = state.next.tournament?.tournament_id || state.next.tournament?.current_tournament_bracket_id || null;
-    const date = state.next.tournament?.target_start_date || null;
-    const year = date ? String(new Date(date).getFullYear()) : String(new Date().getFullYear());
+    const tour = String(next.tour || getUserTour() || "").toLowerCase();
+    const tournamentId = String(next.tournament_id || "").trim();
+    const year = inferTemplateYear(next);
 
     const candidates = [];
     if(tournamentId){
@@ -1661,89 +904,237 @@
     for(const url of candidates){
       try{
         const data = await fetchJson(url);
-        if(data && data.matches && Array.isArray(data.matches)){
-          state.next.templateJson = {
+        if(data && Array.isArray(data.matches)){
+          return {
             event_id: data.event_id ?? tournamentId ?? null,
-            event_year: data.event_year ?? Number(year) ?? null,
-            mode: data.matches.some(m => String(m.match_id).toUpperCase() === 'MS001' || String(m.match_id).toUpperCase() === 'LS001') ? 'all' : 'first_round',
-            matches: data.matches
+            event_year: data.event_year ?? year,
+            mode: isAllMode(data) ? "all" : "first_round",
+            matches: data.matches.map(normalizeMatch).sort(matchOrder)
           };
-          state.next.mode = state.next.templateJson.mode;
-          state.next.editable = !state.next.locked;
-          return;
         }
-      }catch(err){
+      }catch(e){
         continue;
       }
     }
 
-    state.next.templateJson = null;
-    state.next.mode = 'missing';
-    state.next.editable = false;
+    return null;
+  }
+
+  function setVisible(id, show){
+    $(id).classList.toggle("hidden", !show);
+  }
+
+  function renderHeader(){
+    const s = getSession() || {};
+    $("authBadge").textContent = state.authenticated ? "Connected" : "Not connected";
+    $("authBadge").className = `badge ${state.authenticated ? "ok" : "bad"}`;
+
+    const status = state.next?.locked ? "LOCKED" : (state.next?.editable ? "READY" : (state.next?.hasRegistration ? "REGISTERED" : (state.next?.template_json ? "READY" : "NOT_REGISTERED")));
+    $("statusBadge").textContent = status;
+    $("statusBadge").className = `badge ${status === "LOCKED" || status === "READY" ? "ok" : (status === "NOT_REGISTERED" ? "bad" : "warn")}`;
+
+    $("userBadge").textContent = `${getUserName() || s.pseudo || "User"} • ${getUserTour() || "—"} • rank ${getUserRank() ?? "—"}`;
+    $("lockBadge").textContent = state.next?.locked ? "Locked" : "Editable";
+    $("lockBadge").className = `badge ${state.next?.locked ? "ok" : "warn"}`;
+
+    $("pageTitle").textContent = "Bracket";
+    $("pageMeta").textContent = state.current?.current_tournament_bracket_name || state.next?.tournament_name || "Current and next-week bracket views.";
+
+    const rank = getUserRank();
+    const rankText = (rank === null || rank === undefined || rank === "") ? "Your ranking is not available." : `Your ranking is ${rank}.`;
+    $("infoMessage").innerHTML = state.next?.locked
+      ? `<strong>Your next-week bracket is locked.</strong><span>You can only review it. ${rankText}</span>`
+      : `<strong>Current is read-only. Next Week can be editable if you are registered and the first-round file exists.</strong><span>${rankText}</span>`;
+  }
+
+  function setTab(tab){
+    state.activeTab = tab;
+    document.querySelectorAll('#subnav button[data-tab]').forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-tab') === tab);
+    });
+    $("currentPanel").classList.toggle("hidden", tab !== "current");
+    $("nextPanel").classList.toggle("hidden", tab !== "next");
+    $("viewTitle").textContent = tab === "current" ? "Current" : "Next Week";
+    $("viewHelp").textContent = tab === "current"
+      ? "Read-only view of your current week."
+      : (state.next?.locked ? "Your next-week proposal is saved and locked." : "Build your next-week bracket if available.");
+    $("viewBadge").textContent = tab === "current"
+      ? (state.current?.hasPlayed ? "Read-only" : "No current play")
+      : (state.next?.locked ? "Locked" : (state.next?.editable ? "Editable" : (state.next?.template_json ? "Ready" : "Unavailable")));
+  }
+
+  function renderCurrentTab(){
+    const empty = $("currentEmpty");
+    const wrap = $("currentWrap");
+    const layout = $("currentLayout");
+    empty.classList.add("hidden");
+    wrap.classList.add("hidden");
+    layout.innerHTML = "";
+
+    if(!state.current?.parsed_proposition_json){
+      empty.textContent = "You did not play this week, so there is nothing to display.";
+      empty.classList.remove("hidden");
+      return;
+    }
+
+    const ok = renderTree(layout, state.current.parsed_proposition_json, {
+      editable: false,
+      locked: true,
+      showComparison: Boolean(state.current.all_json),
+      compare: state.currentComparison,
+      useSourceWinners: true
+    });
+
+    if(!ok){
+      empty.textContent = "Unable to render the current bracket.";
+      empty.classList.remove("hidden");
+      return;
+    }
+
+    wrap.classList.remove("hidden");
+  }
+
+  function renderNextTab(){
+    const empty = $("nextEmpty");
+    const wrap = $("nextWrap");
+    const layout = $("nextLayout");
+    const submitBtn = $("submitBtn");
+    empty.classList.add("hidden");
+    wrap.classList.add("hidden");
+    layout.innerHTML = "";
+
+    if(!state.next?.hasRegistration){
+      empty.textContent = "You are not registered for next week.";
+      empty.classList.remove("hidden");
+      submitBtn.classList.add("hidden");
+      $("validationText").textContent = "";
+      return;
+    }
+
+    if(state.next?.locked && state.next?.parsed_proposal_json){
+      const ok = renderTree(layout, state.next.parsed_proposal_json, {
+        editable: false,
+        locked: true,
+        useSourceWinners: true
+      });
+      if(!ok){
+        empty.textContent = "Unable to render your saved next-week bracket.";
+        empty.classList.remove("hidden");
+      } else {
+        wrap.classList.remove("hidden");
+      }
+      submitBtn.classList.add("hidden");
+      $("validationText").textContent = "This proposal has already been submitted and is locked.";
+      return;
+    }
+
+    if(!state.next?.template_json){
+      empty.textContent = "The next-week bracket is not available yet. Please come back later.";
+      empty.classList.remove("hidden");
+      submitBtn.classList.add("hidden");
+      $("validationText").textContent = "";
+      return;
+    }
+
+    const editableTree = buildBracketTree(state.next.template_json, {
+      editable: true,
+      selectedWinners: state.nextSelectionMap,
+      useSourceWinners: false
+    });
+    if(!editableTree){
+      empty.textContent = "Unable to prepare the bracket template.";
+      empty.classList.remove("hidden");
+      submitBtn.classList.add("hidden");
+      return;
+    }
+
+    const ok = renderTree(layout, state.next.template_json, {
+      editable: true,
+      locked: state.next?.locked,
+      selectedWinners: state.nextSelectionMap,
+      useSourceWinners: false,
+      onPick: (matchId, side) => {
+        if(state.next?.locked) return;
+        const tree = buildBracketTree(state.next.template_json, {
+          editable: true,
+          selectedWinners: state.nextSelectionMap,
+          useSourceWinners: false
+        });
+        if(!tree) return;
+        const round = tree.rounds.flat();
+        const match = round.find(m => String(m.match_id) === String(matchId));
+        if(!match) return;
+        const chosen = side === "left" ? match.left_player : match.right_player;
+        if(!chosen || isBye(chosen)) return;
+        state.nextSelectionMap.set(String(matchId), {
+          player_id: chosen.player_id,
+          player_name: chosen.player_name,
+          player_country: chosen.player_country || null
+        });
+        renderNextTab();
+      }
+    });
+
+    if(!ok){
+      empty.textContent = "Unable to render the bracket.";
+      empty.classList.remove("hidden");
+      submitBtn.classList.add("hidden");
+      return;
+    }
+
+    wrap.classList.remove("hidden");
+    submitBtn.classList.toggle("hidden", state.next?.locked || !hasCompleteProposal(editableTree));
+    $("validationText").textContent = hasCompleteProposal(editableTree)
+      ? "Select winners through the bracket, then submit when the final winner is filled."
+      : "Continue until the final winner is selected.";
   }
 
   function renderAll(){
     renderHeader();
-    updateStatusBadges();
     setTab(state.activeTab);
-    renderCurrentSection();
-    renderNextSection();
 
-    $('infoCard').classList.toggle('hidden', !state.authenticated);
-    $('loginCard').classList.toggle('hidden', state.authenticated);
-    $('registerCard').classList.toggle('hidden', !(state.authenticated && state.next.hasRegistration === false));
-    $('waitingCard').classList.toggle('hidden', !(state.authenticated && state.next.hasRegistration && state.next.mode === 'missing'));
+    setVisible("loginCard", !state.authenticated);
+    setVisible("infoCard", state.authenticated);
+    setVisible("registerCard", Boolean(state.authenticated && state.next && !state.next.hasRegistration));
+    setVisible("waitingCard", Boolean(state.authenticated && state.next && state.next.hasRegistration && !state.next.template_json && !state.next.locked));
+    setVisible("rootCard", Boolean(state.authenticated && (state.current?.parsed_proposition_json || state.next?.hasRegistration || state.next?.locked || state.next?.template_json)));
 
-    const showRoot = state.authenticated && (state.current.hasPlayed || state.next.hasRegistration || state.next.locked || state.next.mode === 'missing');
-    $('rootCard').classList.toggle('hidden', !showRoot);
+    $("currentStateBadge").textContent = state.current?.hasPlayed ? "Current available" : "No current play";
+    $("nextStateBadge").textContent = state.next?.locked
+      ? "Next week locked"
+      : (state.next?.editable ? "Next week editable" : (state.next?.template_json ? "Next week ready" : (state.next?.hasRegistration ? "Next week unavailable" : "No next-week registration")));
 
-    const currentOk = state.current.hasPlayed ? 'Current available' : 'No current play';
-    const nextOk = state.next.locked ? 'Next week locked' : (state.next.editable ? 'Next week editable' : (state.next.mode === 'missing' ? 'Next week unavailable' : (state.next.hasRegistration ? 'Next week read-only' : 'No next-week registration')));
-    $('currentStateBadge').textContent = currentOk;
-    $('nextStateBadge').textContent = nextOk;
+    if(state.activeTab === "current"){
+      renderCurrentTab();
+    } else {
+      renderNextTab();
+    }
 
     if(!state.authenticated){
-      $('subtitle').textContent = 'You must be signed in to participate.';
+      $("subtitle").textContent = "You must be signed in to participate.";
       return;
     }
 
-    if(state.next.locked){
-      $('subtitle').textContent = 'Your next-week proposal is already saved and locked.';
-    } else if(state.next.hasRegistration && state.next.templateJson){
-      $('subtitle').textContent = 'Current and next-week bracket views are available.';
-    } else if(state.next.hasRegistration && state.next.mode === 'missing'){
-      $('subtitle').textContent = 'You are registered, but the next-week bracket is not ready yet.';
-    } else if(state.current.hasPlayed){
-      $('subtitle').textContent = 'Your current bracket is displayed read-only.';
+    if(state.next?.locked){
+      $("subtitle").textContent = "Your next-week proposal is already saved and locked.";
+    } else if(state.next?.hasRegistration && state.next?.template_json){
+      $("subtitle").textContent = "Current and next-week bracket views are available.";
+    } else if(state.next?.hasRegistration && !state.next?.template_json){
+      $("subtitle").textContent = "You are registered, but the next-week bracket is not ready yet.";
+    } else if(state.current?.hasPlayed){
+      $("subtitle").textContent = "Your current bracket is displayed read-only.";
     } else {
-      $('subtitle').textContent = 'No current bracket and no next-week registration available.';
+      $("subtitle").textContent = "No current bracket and no next-week registration available.";
     }
   }
 
   async function loadState(){
-    state.loading = true;
-    state.error = '';
-    state.message = '';
-    state.current = {
-      currentTournament: null,
-      allJson: null,
-      proposition: null,
-      parsedProposal: null,
-      hasPlayed: false
-    };
-    state.next = {
-      inscription: null,
-      hasRegistration: false,
-      proposition: null,
-      parsedProposal: null,
-      templateJson: null,
-      mode: null,
-      editable: false,
-      locked: false,
-      tournament: null,
-      error: null
-    };
-
+    const token = ++renderToken;
+    state.current = null;
+    state.next = null;
+    state.currentComparison = null;
+    state.nextSelectionMap = new Map();
+    state.authenticated = isConnected();
     renderAll();
 
     try{
@@ -1754,65 +1145,114 @@
         }
       });
 
-      normalizeBracketResponse(data);
-      state.message = data.message || '';
-      if(!state.user && isConnected()){
-        const s = getSession() || {};
-        state.user = {
-          user_name: s.pseudo || s.user_name || '',
-          user_tour: s.tour || '',
-          user_country: s.country || '',
-          user_world_rank: s.user_world_rank ?? null
+      if(token !== renderToken) return;
+
+      state.authenticated = Boolean(data.authenticated);
+
+      const current = data.current || data.bracket || null;
+      const next = data.next || data.registration || null;
+
+      state.user = data.user || null;
+
+      if(current){
+        state.current = {
+          ...current,
+          hasPlayed: Boolean(current.has_played ?? current.user_current_tournament_bracket_proposition ?? current.user_current_tournament_bracket_proposition_json),
+          parsed_proposition_json: normalizeFlatJson(current.user_current_tournament_bracket_proposition_json || current.user_current_tournament_bracket_proposition || current.current_tournament_bracket || null),
+          all_json: normalizeFlatJson(current.current_tournament_bracket || null)
+        };
+        state.currentComparison = compareWinnerMaps(
+          state.current.parsed_proposition_json || current.user_current_tournament_bracket_proposition_json || current.user_current_tournament_bracket_proposition,
+          current.current_tournament_bracket || null
+        );
+      }
+
+      if(next){
+        state.next = {
+          ...next,
+          hasRegistration: Boolean(next),
+          locked: Boolean(next.locked || next.user_proposition_next_week || next.user_proposition_next_week_json),
+          editable: Boolean(next.editable ?? (!next.user_proposition_next_week && next.template_json)),
+          template_json: next.template_json || null,
+          parsed_proposal_json: normalizeFlatJson(next.user_proposition_next_week_json || next.user_proposition_next_week || null)
+        };
+        if(state.next.parsed_proposal_json){
+          state.nextSelectionMap = makeEditableSelectionMapFromProposal(state.next.parsed_proposal_json);
+        }
+      } else {
+        state.next = {
+          hasRegistration: false,
+          locked: false,
+          editable: false,
+          template_json: null,
+          parsed_proposal_json: null
         };
       }
 
-      await loadTemplateForNextWeek();
+      if(state.next?.hasRegistration && !state.next?.locked && !state.next?.template_json){
+        const template = await loadTemplateForNextWeek(state.next);
+        if(token !== renderToken) return;
+        state.next.template_json = template;
+        state.next.editable = Boolean(state.next.hasRegistration && !state.next.locked && state.next.template_json);
+      }
 
-      state.current.parsedProposal = normalizeProposalJson(state.current.proposition);
-      state.next.parsedProposal = normalizeProposalJson(state.next.proposition);
-
+      state.current = state.current || null;
       renderAll();
-      $('errorCard').classList.add('hidden');
+      $("errorCard").classList.add("hidden");
     }catch(err){
-      state.loading = false;
-      state.error = err.message || 'Unknown error.';
-      $('errorCard').classList.remove('hidden');
-      $('errorText').textContent = state.error;
-      $('subtitle').textContent = 'Unable to load the bracket page.';
-      $('statusBadge').textContent = 'ERROR';
-      $('statusBadge').className = 'badge bad';
+      if(token !== renderToken) return;
+      $("errorCard").classList.remove("hidden");
+      $("errorText").textContent = err.message || "Unknown error.";
+      $("subtitle").textContent = "Unable to load the bracket page.";
+      $("statusBadge").textContent = "ERROR";
+      $("statusBadge").className = "badge bad";
       console.error(err);
     }
   }
 
   async function submitNextWeek(){
-    if(state.submitting || !state.next.editable || state.next.locked) return;
+    if(state.submitting || !state.next?.editable || state.next?.locked) return;
 
-    const proposal = buildUserProposalJson();
-    const validation = validateProposal(proposal);
-    if(!validation.ok){
-      alert(validation.reason || 'The bracket is incomplete.');
+    const tree = buildBracketTree(state.next.template_json, {
+      editable: true,
+      selectedWinners: state.nextSelectionMap,
+      useSourceWinners: false
+    });
+    if(!tree){
+      alert("Unable to build the bracket.");
+      return;
+    }
+    recomputePlayers(tree, state.nextSelectionMap);
+
+    if(!hasCompleteProposal(tree)){
+      alert("The bracket is not complete yet.");
       return;
     }
 
+    const proposal = {
+      event_id: tree.event_id ?? null,
+      event_year: tree.event_year ?? null,
+      matches: flattenTree(tree)
+    };
+
     state.submitting = true;
-    $('submitBtn').disabled = true;
+    $("submitBtn").disabled = true;
 
     try{
       const payload = {
-        action: 'save_next_week_proposition',
-        user_id: getSession()?.id || null,
-        tournament_id: state.next.tournament?.tournament_id || null,
-        target_start_date: state.next.tournament?.target_start_date || null,
-        user_proposition_next_week: JSON.stringify(proposal),
+        action: "save_next_week_proposition",
+        tournament_id: state.next?.tournament_id || null,
+        target_start_date: state.next?.target_start_date || null,
+        user_proposition_next_week_json: proposal,
         proposition_json: proposal,
+        user_proposition_next_week: JSON.stringify(proposal),
         client_ts: new Date().toISOString()
       };
 
       const data = await fetchJson(API_URL, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
           ...getAuthHeaders()
         },
         body: JSON.stringify(payload)
@@ -1820,15 +1260,15 @@
 
       state.submitting = false;
       state.next.locked = true;
-      state.next.proposition = data.user_proposition_next_week || payload.user_proposition_next_week;
-      state.next.parsedProposal = normalizeProposalJson(state.next.proposition);
-      state.message = data.message || 'Bracket saved successfully.';
+      state.next.editable = false;
+      state.next.parsed_proposal_json = normalizeFlatJson(data?.next?.user_proposition_next_week_json || data?.next?.user_proposition_next_week || proposal);
+      state.nextSelectionMap = makeEditableSelectionMapFromProposal(state.next.parsed_proposal_json || proposal);
       await loadState();
-      alert('Bracket submitted.');
+      alert("Bracket submitted.");
     }catch(err){
       state.submitting = false;
       renderAll();
-      alert(err.message || 'Submission failed.');
+      alert(err.message || "Submission failed.");
       console.error(err);
     }
   }
@@ -1836,30 +1276,30 @@
   function bindUi(){
     if(uiBound) return;
     uiBound = true;
-
-    $('loginBtn').addEventListener('click', openLogin);
-    $('registerBtn').addEventListener('click', openRegister);
-    $('submitBtn').addEventListener('click', submitNextWeek);
-
+    $("loginBtn").addEventListener("click", openLogin);
+    $("registerBtn").addEventListener("click", openRegister);
+    $("submitBtn").addEventListener("click", submitNextWeek);
     document.querySelectorAll('#subnav button[data-tab]').forEach(btn => {
-      btn.addEventListener('click', () => setTab(btn.getAttribute('data-tab')));
+      btn.addEventListener('click', () => {
+        setTab(btn.getAttribute('data-tab'));
+        renderAll();
+      });
     });
   }
 
   function attachAuthListeners(){
     const authApi = getAuthApi();
-    if(authApi && typeof authApi.onAuthChange === 'function'){
+    if(authApi && typeof authApi.onAuthChange === "function"){
       authApi.onAuthChange(() => loadState());
     } else {
-      window.addEventListener('ta:auth-changed', () => loadState());
-      window.addEventListener('storage', () => loadState());
+      window.addEventListener("ta:auth-changed", () => loadState());
+      window.addEventListener("storage", () => loadState());
     }
   }
 
-  document.addEventListener('DOMContentLoaded', async () => {
+  document.addEventListener("DOMContentLoaded", async () => {
     bindUi();
     attachAuthListeners();
-    renderAll();
     await loadState();
 
     setInterval(() => {
