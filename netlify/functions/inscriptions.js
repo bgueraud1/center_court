@@ -356,12 +356,20 @@ exports.handler = async (event) => {
         return json(400, { ok: false, error: "Registrations are closed today." });
       }
 
-      const tournamentId = String(body.tournament_id || "").trim();
-      const tournamentTour = String(body.tour || "").trim().toUpperCase();
-      const tournamentCategory = normalizeCategory(body.tournament_level || body.category);
-      const tournamentName = String(body.tournament_name || "").trim();
-      const tournamentNumPlayers = Number.parseInt(String(body.tournament_num_players || ""), 10) || null;
-      const tournamentStartDate = String(body.tournament_start_date || targetStartDate || "").trim();
+      const choice = Array.isArray(body.selections) && body.selections.length > 0
+        ? body.selections[0]
+        : null;
+          
+      if (!choice) {
+        return json(400, { ok: false, error: "No tournament selected." });
+      }
+      
+      const tournamentId = String(choice.tournament_id || "").trim();
+      const tournamentTour = String(choice.tour || "").trim().toUpperCase();
+      const tournamentCategory = normalizeCategory(choice.tournament_category || choice.category || choice.tournament_level);
+      const tournamentName = String(choice.tournament_name || "").trim();
+      const tournamentNumPlayers = Number.parseInt(String(choice.tournament_num_players || ""), 10) || null;
+      const tournamentStartDate = String(choice.tournament_start_date || targetStartDate || "").trim();
 
       const tournament = (openPayload.open_tournaments || []).find(
         (t) =>
