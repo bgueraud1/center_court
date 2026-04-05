@@ -195,9 +195,10 @@ def get_ranking_date_from_file(rankings_path: Path):
         for chunk in it:
             if 'date' not in chunk.columns:
                 continue
-            vals = chunk['date'].loc[chunk['date'].astype(bool)]
-            if not vals.empty:
-                dt = pd.to_datetime(vals.iloc[0], errors='coerce')
+            vals = chunk["date"].astype(str).str.strip()
+            vals = vals[vals != ""]
+            if len(vals) > 0:
+                dt = pd.to_datetime(vals.iat[0], errors="coerce")
                 if pd.notna(dt):
                     return pd.Timestamp(dt).normalize()
     except Exception:
@@ -336,7 +337,7 @@ def scan_rank_file(rankings_path: Path, build_maps: bool = False):
 
             if build_maps and rank is not None:
                 pid = str(row.get('player_id') or '').strip()
-                name_key = str(row.get('__name_key') or '').strip()
+                name_key = str(row.get('__name_key') or "").strip()
                 if pid:
                     pid_map[pid] = rank
                 if name_key:
@@ -487,7 +488,7 @@ def process_rankings_in_chunks(
 
         for _, row in chunk.iterrows():
             raw_pid = str(row.get('player_id') or '').strip()
-            name_key = str(row.get('__name_key') or '').strip()
+            name_key = str(row.get('__name_key') or "").strip()
             full_name = str(row.get('full_name') or '').strip()
 
             pid = resolve_player_id(raw_pid, name_key, name_to_pid_map)
@@ -553,7 +554,7 @@ def process_rankings_in_chunks(
 
             full_name = row.get('full_name') or ''
             raw_pid = str(row.get('player_id') or '').strip()
-            name_key = str(chunk.iloc[pos].get('__name_key') or '').strip()
+            name_key = str(row.get('__name_key') or "").strip()
             pid = resolve_player_id(raw_pid, name_key, name_to_pid_map)
             slug = slugify(full_name)
 
@@ -733,6 +734,10 @@ def main():
         args.compact
     )
 
+    if not out_rows:
+        print("ERROR: no rows were produced from the ranking file", file=sys.stderr)
+        sys.exit(5)
+
     outpath = Path(args.out)
     outpath.parent.mkdir(parents=True, exist_ok=True)
     print("Writing output JSON to", outpath)
@@ -742,45 +747,7 @@ def main():
     except Exception:
         ranking_date_val = pd.to_datetime(pd.Timestamp.utcnow().strftime("%Y-%m-%d"))
 
-    bd_list = [(r.get('birth_date') or '') for r in out_rows]
-    if bd_list:
-        parsed = pd.to_datetime(
-            pd.Series(bd_list).replace('', pd.NaT),
-            errors='coerce',
-            dayfirst=False
-        )
 
-        for idx, r in enumerate(out_rows):
-            if isinstance(r.get('age'), int):
-                continue
-
-            age_val = None
-            try:
-                pd_parsed = parsed.iloc[idx]
-            except Exception:
-                pd_parsed = pd.NaT
-
-            if pd.notna(pd_parsed):
-                days = (ranking_date_val - pd_parsed).days
-                if days >= 0:
-                    age_val = int(days // 365.25)
-            else:
-                bd_raw = (r.get('birth_date') or '').strip()
-                if bd_raw:
-                    try:
-                        alt = pd.to_datetime(bd_raw, errors='coerce', dayfirst=False)
-                        if pd.notna(alt):
-                            days = (ranking_date_val - alt).days
-                            if days >= 0:
-                                age_val = int(days // 365.25)
-                    except Exception:
-                        age_val = None
-
-            r['age'] = age_val if age_val is not None else None
-    else:
-        for r in out_rows:
-            if 'age' not in r:
-                r['age'] = None
 
     with outpath.open("w", encoding="utf-8") as fh:
         if args.compact:

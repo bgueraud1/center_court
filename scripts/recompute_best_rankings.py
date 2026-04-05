@@ -218,6 +218,7 @@ def main():
         sys.exit(0)
 
     ranks_df = pd.concat(frames, ignore_index=True)
+    ranks_df.columns = [c.strip() for c in ranks_df.columns]
     rank_col = detect_rank_col(ranks_df)
     id_type, id_col = detect_pid_or_name_col(ranks_df)
 
@@ -234,6 +235,9 @@ def main():
     ranks_df["__rank_num"] = pd.to_numeric(ranks_df[rank_col].astype(str).str.extract(r"(\d+)")[0], errors="coerce")
     valid_ranks = ranks_df.dropna(subset=["__rank_num"]).copy()
     valid_ranks["__rank_num"] = valid_ranks["__rank_num"].astype(int)
+    if valid_ranks.empty:
+        logging.warning("No valid ranking rows found after parsing rank column; nothing to recompute.")
+        sys.exit(0)
 
     if id_type == "id":
         group_key = id_col
@@ -293,6 +297,7 @@ def main():
             logging.error("Players CSV not found: %s", players_path)
             sys.exit(1)
         players_df = pd.read_csv(players_path, dtype=str).fillna("")
+        players_df.columns = [c.strip() for c in players_df.columns]
         # find id/name columns in players_df
         for c in ("player_id","player id","id","pid"):
             if c in players_df.columns:
@@ -312,6 +317,10 @@ def main():
         if player_rank_col is None:
             player_rank_col = "best_rank"
             players_df[player_rank_col] = ""
+
+        if players_df.empty:
+            ogging.warning("Players CSV is empty; nothing to update.")
+            ys.exit(0)
 
     updated_csv_rows = 0
     updated_html_files = 0

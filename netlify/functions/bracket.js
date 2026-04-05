@@ -205,7 +205,6 @@ async function resolveUser(ctx) {
     source: "headers"
   };
 
-  // First try by user_id, which is the ideal path.
   if (base.user_id) {
     const rows = await supabaseSelect(USERS_TABLE, {
       select: "id,pseudo,tour,country,league,league_id",
@@ -228,7 +227,6 @@ async function resolveUser(ctx) {
     }
   }
 
-  // Fallback to pseudo if the session only provided the username.
   if (base.user_name) {
     const rows = await supabaseSelect(USERS_TABLE, {
       select: "id,pseudo,tour,country,league,league_id",
@@ -250,7 +248,6 @@ async function resolveUser(ctx) {
       };
     }
 
-    // Last resort: accept the session user_name if it is all we have.
     return {
       ...base,
       user_id: base.user_id || null,
@@ -472,9 +469,6 @@ exports.handler = async (event) => {
 
       if (!next) {
         return jsonResponse(400, { ok: false, error: "You are not registered for next week." });
-      }
-      if (!next.template_json) {
-        return jsonResponse(400, { ok: false, error: "The next-week bracket is not available yet." });
       }
       if (next.locked) {
         return jsonResponse(400, { ok: false, error: "Your next-week proposal is already locked." });
