@@ -534,7 +534,9 @@
   }
 
   function isOpenPhase(){
-    return getPhase() === "open";
+    const w = state.windowInfo || {};
+    const phase = String(w.phase || "").toLowerCase().trim();
+    return phase === "open" || w.is_open_today === true;
   }
 
   function isClosedPhase(){
@@ -743,6 +745,16 @@
   function renderProfile(){
     const session = state.session || {};
     const profile = state.profile || {};
+
+    $("authBadge").textContent = state.authenticated ? "Signed in" : "Not signed in";
+
+    if (state.loading) {
+      $("windowBadge").textContent = "Checking…";
+      $("statusBadge").textContent = "Loading…";
+      $("subtitle").textContent = "Loading registration window…";
+      return;
+    }
+
     const openPhase = isOpenPhase();
     const closedPhase = isClosedPhase();
 
@@ -904,8 +916,8 @@
   }
 
   async function loadOpenWindow(){
-    const data = await fetchJson(OPEN_JSON_URL);
-    state.windowInfo = data.window || null;
+    const data = await fetchJson(`${OPEN_JSON_URL}?t=${Date.now()}`);
+    state.windowInfo = data.window || data || null;
     state.tournaments = Array.isArray(data.tournaments) ? data.tournaments : [];
 
     const userTour = getUserTour();
