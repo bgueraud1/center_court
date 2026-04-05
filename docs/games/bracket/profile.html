@@ -1,0 +1,784 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>User profile</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="/js/auth.js" defer></script>
+  <style>
+    :root{
+      --bg:#07101f;
+      --panel:#0c1629;
+      --panel-2:#0a1324;
+      --line:rgba(255,255,255,.08);
+      --text:#e6eefc;
+      --muted:#90a4c3;
+      --accent:#4f8cff;
+      --good:#22c55e;
+      --warn:#f59e0b;
+      --danger:#ef4444;
+      --chip:rgba(255,255,255,.05);
+      --shadow:0 20px 60px rgba(0,0,0,.35);
+    }
+    *{box-sizing:border-box}
+    html,body{
+      margin:0;
+      min-height:100%;
+      background:radial-gradient(900px 500px at 20% 0%, rgba(79,140,255,.12), transparent 55%),
+                 linear-gradient(180deg, var(--bg), #050a14);
+      color:var(--text);
+      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+    }
+    a{color:inherit;text-decoration:none}
+    button,input,select,textarea{font:inherit}
+    .wrap{max-width:1400px;margin:0 auto;padding:20px}
+    .card{
+      background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.015));
+      border:1px solid var(--line);
+      border-radius:20px;
+      box-shadow:var(--shadow);
+      padding:18px;
+      margin-bottom:16px;
+    }
+    .topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+    h1{margin:0;font-size:32px;line-height:1.1}
+    p{margin:8px 0 0;color:var(--muted);line-height:1.45}
+    .badges{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .badge{
+      padding:8px 12px;
+      border-radius:999px;
+      background:var(--chip);
+      border:1px solid var(--line);
+      font-weight:700;
+      font-size:13px;
+      white-space:nowrap;
+    }
+    .badge.ok{color:#c8f7d4}
+    .badge.warn{color:#ffe4b0}
+    .badge.bad{color:#ffd0d0}
+    .hero{
+      display:grid;
+      grid-template-columns:1.3fr .9fr;
+      gap:16px;
+      align-items:stretch;
+    }
+    .hero-card{
+      background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.02));
+      border:1px solid var(--line);
+      border-radius:20px;
+      overflow:hidden;
+    }
+    .hero-main{padding:20px}
+    .avatar{
+      width:70px;height:70px;border-radius:20px;
+      background:linear-gradient(135deg, rgba(79,140,255,.24), rgba(79,140,255,.08));
+      border:1px solid rgba(79,140,255,.34);
+      display:flex;align-items:center;justify-content:center;
+      font-weight:900;font-size:26px;color:#fff;
+      margin-bottom:16px;
+    }
+    .title-row{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap}
+    .title-row h2{margin:0;font-size:28px}
+    .subtitle{color:var(--muted);margin-top:8px;line-height:1.5}
+    .pill-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+    .pill{
+      padding:8px 11px;
+      border-radius:999px;
+      border:1px solid var(--line);
+      background:rgba(255,255,255,.04);
+      color:#dce7ff;
+      font-size:12px;
+      font-weight:700;
+    }
+    .hero-aside{padding:20px;display:grid;gap:10px;align-content:start}
+    .stat-grid{
+      display:grid;
+      grid-template-columns:repeat(4,1fr);
+      gap:12px;
+      margin-top:14px;
+    }
+    .stat{
+      padding:14px;
+      border-radius:18px;
+      border:1px solid var(--line);
+      background:rgba(255,255,255,.03);
+      min-height:98px;
+    }
+    .stat-label{font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+    .stat-value{margin-top:10px;font-size:20px;font-weight:900;line-height:1.1}
+    .stat-help{margin-top:6px;font-size:12px;color:var(--muted)}
+    .grid{
+      display:grid;
+      grid-template-columns:repeat(12, 1fr);
+      gap:16px;
+      align-items:start;
+    }
+    .panel{
+      grid-column:span 12;
+      background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.02));
+      border:1px solid var(--line);
+      border-radius:20px;
+      overflow:hidden;
+    }
+    .panel-head{
+      padding:18px 18px 14px;
+      border-bottom:1px solid var(--line);
+      display:flex;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+      align-items:flex-end;
+    }
+    .panel-title{font-size:18px;font-weight:800}
+    .panel-sub{font-size:13px;color:var(--muted);margin-top:6px}
+    .content{padding:16px}
+    .info-grid{
+      display:grid;
+      grid-template-columns:repeat(4,1fr);
+      gap:12px;
+    }
+    .info-card{
+      padding:14px;
+      border-radius:18px;
+      border:1px solid var(--line);
+      background:rgba(255,255,255,.03);
+    }
+    .info-label{font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+    .info-value{margin-top:8px;font-size:15px;font-weight:800;line-height:1.35}
+    .list{
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .win-item{
+      display:flex;
+      justify-content:space-between;
+      gap:12px;
+      align-items:center;
+      padding:14px;
+      border-radius:16px;
+      background:rgba(0,0,0,.16);
+      border:1px solid rgba(255,255,255,.05);
+    }
+    .win-item strong{font-size:15px}
+    .win-item span{color:var(--muted);font-size:12px}
+    .chip{
+      padding:7px 10px;
+      border-radius:999px;
+      background:rgba(34,197,94,.12);
+      border:1px solid rgba(34,197,94,.35);
+      color:#c8f7d4;
+      font-size:12px;
+      font-weight:800;
+      white-space:nowrap;
+    }
+    .empty{
+      padding:22px;
+      color:var(--muted);
+      border:1px dashed rgba(255,255,255,.14);
+      border-radius:16px;
+      background:rgba(255,255,255,.02);
+    }
+    .hidden{display:none !important}
+    .loading{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      color:var(--muted);
+      padding:18px;
+    }
+    .dot{
+      width:10px;height:10px;border-radius:50%;
+      background:var(--accent);
+      box-shadow:0 0 0 6px rgba(79,140,255,.12);
+      animation:pulse 1.2s infinite ease-in-out;
+    }
+    @keyframes pulse{
+      0%,100%{transform:scale(.85);opacity:.7}
+      50%{transform:scale(1);opacity:1}
+    }
+    .section-row{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      margin-bottom:12px;
+    }
+    .section-btn{
+      border:1px solid var(--line);
+      background:rgba(255,255,255,.03);
+      color:#fff;
+      padding:11px 14px;
+      border-radius:999px;
+      font-weight:800;
+      cursor:pointer;
+    }
+    .section-btn.active{
+      background:rgba(79,140,255,.18);
+      border-color:rgba(79,140,255,.5);
+    }
+    .json-box{
+      background:#08101e;
+      border:1px solid var(--line);
+      border-radius:16px;
+      padding:14px;
+      overflow:auto;
+      max-height:380px;
+      white-space:pre-wrap;
+      word-break:break-word;
+      color:#dce7ff;
+      font-size:12px;
+      line-height:1.55;
+    }
+    @media (max-width:1100px){
+      .hero{grid-template-columns:1fr}
+      .stat-grid,.info-grid{grid-template-columns:repeat(2,1fr)}
+    }
+    @media (max-width:700px){
+      .stat-grid,.info-grid{grid-template-columns:1fr}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="topbar">
+        <div>
+          <h1>Profile sheet</h1>
+          <p id="subtitle">Loading user profile…</p>
+        </div>
+        <div class="badges">
+          <span class="badge" id="authBadge">Verifying…</span>
+          <span class="badge" id="rankBadge">Rank —</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card hidden" id="errorCard">
+      <div class="badge bad">Unable to load the profile.</div>
+      <p id="errorText" style="margin-top:10px"></p>
+    </div>
+
+    <div class="card hidden" id="loginCard">
+      <div class="badge warn">Login required</div>
+      <p style="margin-top:10px">This profile is only displayed for a logged-in user.</p>
+      <div class="pill-row" style="margin-top:14px">
+        <button class="badge ok" id="loginBtn" type="button" style="cursor:pointer">Log in</button>
+        <button class="badge" id="registerBtn" type="button" style="cursor:pointer">Create an account</button>
+      </div>
+    </div>
+
+    <div id="loading" class="loading card"><span class="dot"></span><span>Loading information…</span></div>
+
+    <div id="root" class="hidden">
+      <div class="hero">
+        <div class="hero-card">
+          <div class="hero-main">
+            <div class="avatar" id="avatar">U</div>
+            <div class="title-row">
+              <h2 id="displayName">User</h2>
+              <span class="badge ok" id="leagueBadge">League</span>
+            </div>
+            <div class="subtitle" id="heroSubtitle"></div>
+            <div class="pill-row" id="pillRow"></div>
+            <div class="stat-grid">
+              <div class="stat">
+                <div class="stat-label">World ranking</div>
+                <div class="stat-value" id="worldRank">—</div>
+                <div class="stat-help">Field <strong>user_world_rank</strong></div>
+              </div>
+              <div class="stat">
+                <div class="stat-label">Points</div>
+                <div class="stat-value" id="rankPoints">—</div>
+                <div class="stat-help">Field <strong>user_rank_points</strong></div>
+              </div>
+              <div class="stat">
+                <div class="stat-label">Tournaments won</div>
+                <div class="stat-value" id="winsCount">—</div>
+                <div class="stat-help">Field <strong>user_tournaments_won</strong></div>
+              </div>
+              <div class="stat">
+                <div class="stat-label">League</div>
+                <div class="stat-value" id="leagueValue">—</div>
+                <div class="stat-help">Field <strong>league</strong></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="hero-card">
+          <div class="hero-main hero-aside">
+            <div class="stat">
+              <div class="stat-label">Country</div>
+              <div class="stat-value" id="countryValue">—</div>
+              <div class="stat-help">Field <strong>country</strong></div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">Tour</div>
+              <div class="stat-value" id="tourValue">—</div>
+              <div class="stat-help">Field <strong>tour</strong></div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">League ID</div>
+              <div class="stat-value" id="leagueIdValue">—</div>
+              <div class="stat-help">Field <strong>league_id</strong></div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">Account created</div>
+              <div class="stat-value" id="createdAtValue">—</div>
+              <div class="stat-help">Field <strong>created_at</strong></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:16px">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">User information</div>
+            <div class="panel-sub">Name, country, tour, and league from the users table.</div>
+          </div>
+          <div class="badges">
+            <span class="badge" id="userIdBadge">ID —</span>
+            <span class="badge" id="sourceBadge">Source —</span>
+          </div>
+        </div>
+        <div class="content">
+          <div class="info-grid">
+            <div class="info-card">
+              <div class="info-label">Name</div>
+              <div class="info-value" id="infoName">—</div>
+            </div>
+            <div class="info-card">
+              <div class="info-label">Country</div>
+              <div class="info-value" id="infoCountry">—</div>
+            </div>
+            <div class="info-card">
+              <div class="info-label">Tour</div>
+              <div class="info-value" id="infoTour">—</div>
+            </div>
+            <div class="info-card">
+              <div class="info-label">League</div>
+              <div class="info-value" id="infoLeague">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:16px">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">Tournaments won</div>
+            <div class="panel-sub">List inferred from the user's bracket rows.</div>
+          </div>
+          <div class="badges">
+            <span class="badge ok" id="winsBadge">0 win</span>
+          </div>
+        </div>
+        <div class="content">
+          <div id="winsList" class="list"></div>
+          <div id="winsEmpty" class="empty hidden">No won tournament was found in the available bracket data.</div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:16px">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">Bracket & performances</div>
+            <div class="panel-sub">Summary of the latest bracket row received for this user.</div>
+          </div>
+          <div class="section-row">
+            <button class="section-btn active" data-section="summary" type="button">Summary</button>
+            <button class="section-btn" data-section="bracket" type="button">Raw bracket</button>
+            <button class="section-btn" data-section="performances" type="button">Performances</button>
+          </div>
+        </div>
+        <div class="content">
+          <div id="summarySection">
+            <div class="info-grid">
+              <div class="info-card">
+                <div class="info-label">Latest tournament</div>
+                <div class="info-value" id="latestTournament">—</div>
+              </div>
+              <div class="info-card">
+                <div class="info-label">Current bracket</div>
+                <div class="info-value" id="currentBracketName">—</div>
+              </div>
+              <div class="info-card">
+                <div class="info-label">Last update</div>
+                <div class="info-value" id="updatedAtValue">—</div>
+              </div>
+              <div class="info-card">
+                <div class="info-label">Year performances</div>
+                <div class="info-value" id="perfCount">—</div>
+              </div>
+            </div>
+          </div>
+          <div id="bracketSection" class="hidden">
+            <div class="json-box" id="bracketJson">{}</div>
+          </div>
+          <div id="perfSection" class="hidden">
+            <div id="perfList" class="list"></div>
+            <div id="perfEmpty" class="empty hidden">No detailed performance was found.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const API_URL = "/.netlify/functions/profile";
+
+  const state = {
+    user: null,
+    bracketRows: [],
+    latestBracket: null,
+    wins: [],
+    performances: [],
+    section: "summary"
+  };
+
+  const $ = (id) => document.getElementById(id);
+
+  function escapeHtml(s){
+    if(s === undefined || s === null) return "";
+    return String(s).replace(/[&<>"']/g, m => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"
+    })[m]);
+  }
+
+  function formatDate(value){
+    if(!value) return "—";
+    const d = new Date(value);
+    if(Number.isNaN(d.getTime())) return String(value);
+    return new Intl.DateTimeFormat("fr-FR", {
+      dateStyle: "medium",
+      timeStyle: "short"
+    }).format(d);
+  }
+
+  function shortDate(value){
+    if(!value) return "—";
+    const d = new Date(value);
+    if(Number.isNaN(d.getTime())) return String(value);
+    return new Intl.DateTimeFormat("fr-FR", {
+      dateStyle: "long"
+    }).format(d);
+  }
+
+  function getAuthApi(){
+    return window.TA_AUTH || null;
+  }
+
+  function getSession(){
+    const api = getAuthApi();
+    if(api && typeof api.getSession === "function"){
+      try { return api.getSession(); } catch(e) {}
+    }
+    try{
+      const raw = localStorage.getItem("ta_session_v1");
+      return raw ? JSON.parse(raw) : null;
+    }catch(e){
+      return null;
+    }
+  }
+
+  function getAuthHeaders(){
+    const s = getSession();
+    const headers = {};
+    if(s){
+      if(s.id) headers["x-user-id"] = s.id;
+      if(s.pseudo) headers["x-user-name"] = s.pseudo;
+      if(s.tour) headers["x-user-tour"] = s.tour;
+      if(s.country) headers["x-user-country"] = s.country;
+      if(s.league) headers["x-user-league"] = s.league;
+      if(s.user_world_rank) headers["x-user-rank"] = s.user_world_rank;
+      if(s.access_token) headers["Authorization"] = `Bearer ${s.access_token}`;
+    }
+    return headers;
+  }
+
+  function openLogin(){
+    window.location.href = "/games/tennis_arena/index.html#login";
+  }
+
+  function openRegister(){
+    window.location.href = "/games/tennis_arena/index.html#signup";
+  }
+
+  async function fetchJson(url, options = {}){
+    const res = await fetch(url, { cache: "no-store", ...options });
+    const text = await res.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch(e) { data = null; }
+    if(!res.ok){
+      const msg = data && (data.error || data.message) ? (data.error || data.message) : `HTTP ${res.status}`;
+      const err = new Error(msg);
+      err.status = res.status;
+      err.data = data;
+      throw err;
+    }
+    return data;
+  }
+
+  function normalizeUser(user){
+    return {
+      id: user?.id ?? null,
+      pseudo: user?.pseudo ?? "—",
+      created_at: user?.created_at ?? null,
+      league: user?.league ?? "—",
+      country: user?.country ?? "—",
+      tour: user?.tour ?? "—",
+      league_id: user?.league_id ?? null
+    };
+  }
+
+  function normalizeBracket(row){
+    return {
+      id: row?.id ?? null,
+      user_id: row?.user_id ?? null,
+      user_name: row?.user_name ?? null,
+      user_tournaments_won: row?.user_tournaments_won ?? 0,
+      user_world_rank: row?.user_world_rank ?? null,
+      user_rank_points: row?.user_rank_points ?? null,
+      user_tour: row?.user_tour ?? null,
+      user_country: row?.user_country ?? null,
+      user_current_tournament_bracket_id: row?.user_current_tournament_bracket_id ?? null,
+      user_current_tournament_bracket_name: row?.user_current_tournament_bracket_name ?? null,
+      user_current_tournament_bracket_proposition: row?.user_current_tournament_bracket_proposition ?? null,
+      user_performances_this_year: row?.user_performances_this_year ?? null,
+      current_tournament_bracket_id: row?.current_tournament_bracket_id ?? null,
+      current_tournament_bracket_name: row?.current_tournament_bracket_name ?? null,
+      current_tournament_bracket: row?.current_tournament_bracket ?? null,
+      created_at: row?.created_at ?? null,
+      updated_at: row?.updated_at ?? null
+    };
+  }
+
+  function asArray(value){
+    if(Array.isArray(value)) return value;
+    if(!value) return [];
+    if(typeof value === "string"){
+      try{
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+      }catch(e){
+        return [];
+      }
+    }
+    return [];
+  }
+
+  function normalizePerformances(value){
+    const list = asArray(value);
+    return list.map((item, idx) => {
+      if(typeof item === "string"){
+        return { label: item, rank: idx + 1 };
+      }
+      if(item && typeof item === "object"){
+        return {
+          label: item.label ?? item.name ?? item.tournament_name ?? `Performance ${idx + 1}`,
+          value: item.value ?? item.result ?? item.score ?? null,
+          date: item.date ?? item.created_at ?? null
+        };
+      }
+      return { label: `Performance ${idx + 1}`, value: String(item) };
+    });
+  }
+
+  function extractWonTournaments(rows){
+    const seen = new Map();
+    for(const raw of rows || []){
+      const row = normalizeBracket(raw);
+      const winsCount = Number(row.user_tournaments_won);
+      const tournamentName = row.current_tournament_bracket_name || row.user_current_tournament_bracket_name || null;
+      if(Number.isFinite(winsCount) && winsCount > 0 && tournamentName){
+        const key = `${row.current_tournament_bracket_id || tournamentName}`;
+        if(!seen.has(key)){
+          seen.set(key, {
+            name: tournamentName,
+            id: row.current_tournament_bracket_id || row.user_current_tournament_bracket_id || null,
+            date: row.updated_at || row.created_at || null,
+            wins: winsCount
+          });
+        }
+      }
+    }
+    return Array.from(seen.values()).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+  }
+
+  function computeLatestBracket(rows){
+    const normalized = (rows || []).map(normalizeBracket);
+    if(!normalized.length) return null;
+    return normalized.sort((a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0))[0];
+  }
+
+  function renderSection(name){
+    state.section = name;
+    document.querySelectorAll(".section-btn").forEach(btn => {
+      btn.classList.toggle("active", btn.getAttribute("data-section") === name);
+    });
+    $("summarySection").classList.toggle("hidden", name !== "summary");
+    $("bracketSection").classList.toggle("hidden", name !== "bracket");
+    $("perfSection").classList.toggle("hidden", name !== "performances");
+  }
+
+  function renderWins(){
+    const list = $("winsList");
+    const empty = $("winsEmpty");
+    list.innerHTML = "";
+    if(!state.wins.length){
+      empty.classList.remove("hidden");
+      return;
+    }
+    empty.classList.add("hidden");
+    state.wins.forEach((win, idx) => {
+      const el = document.createElement("div");
+      el.className = "win-item";
+      el.innerHTML = `
+        <div>
+          <strong>${escapeHtml(win.name)}</strong><br>
+          <span>${win.id ? escapeHtml(String(win.id)) + " • " : ""}${escapeHtml(shortDate(win.date))}</span>
+        </div>
+        <div class="chip">Win #${idx + 1}</div>
+      `;
+      list.appendChild(el);
+    });
+  }
+
+  function renderPerformances(){
+    const list = $("perfList");
+    const empty = $("perfEmpty");
+    list.innerHTML = "";
+    if(!state.performances.length){
+      empty.classList.remove("hidden");
+      return;
+    }
+    empty.classList.add("hidden");
+    state.performances.forEach((perf, idx) => {
+      const el = document.createElement("div");
+      el.className = "win-item";
+      el.innerHTML = `
+        <div>
+          <strong>${escapeHtml(perf.label || `Performance ${idx + 1}`)}</strong><br>
+          <span>${perf.value !== null && perf.value !== undefined ? escapeHtml(String(perf.value)) : "—"}${perf.date ? " • " + escapeHtml(shortDate(perf.date)) : ""}</span>
+        </div>
+        <div class="chip">#${idx + 1}</div>
+      `;
+      list.appendChild(el);
+    });
+  }
+
+  function render(){
+    $("authBadge").textContent = state.user ? "Connected" : "Not connected";
+    $("authBadge").className = `badge ${state.user ? "ok" : "bad"}`;
+    $("loading").classList.add("hidden");
+    $("loginCard").classList.toggle("hidden", Boolean(state.user));
+    $("root").classList.toggle("hidden", !state.user);
+
+    if(!state.user){
+      $("subtitle").textContent = "You must be logged in to view this profile sheet.";
+      return;
+    }
+
+    const user = state.user || {};
+    const bracket = state.latestBracket || {};
+
+    $("displayName").textContent = user.pseudo || "User";
+    $("avatar").textContent = (user.pseudo || "U").trim().slice(0, 1).toUpperCase();
+    $("leagueBadge").textContent = user.league || "League";
+    $("heroSubtitle").textContent = `${user.country || "Country not provided"} • ${user.tour || "Tour not provided"} • ID ${user.id || "—"}`;
+    $("pillRow").innerHTML = `
+      <span class="pill">League ID: ${escapeHtml(user.league_id ?? "—")}</span>
+      <span class="pill">Created on ${escapeHtml(shortDate(user.created_at))}</span>
+      <span class="pill">Bracket ID: ${escapeHtml(bracket.id ?? "—")}</span>
+    `;
+
+    $("worldRank").textContent = bracket.user_world_rank ?? "—";
+    $("rankPoints").textContent = bracket.user_rank_points ?? "—";
+    $("winsCount").textContent = bracket.user_tournaments_won ?? "—";
+    $("leagueValue").textContent = user.league ?? "—";
+
+    $("countryValue").textContent = user.country ?? "—";
+    $("tourValue").textContent = user.tour ?? "—";
+    $("leagueIdValue").textContent = user.league_id ?? "—";
+    $("createdAtValue").textContent = shortDate(user.created_at);
+
+    $("infoName").textContent = user.pseudo ?? "—";
+    $("infoCountry").textContent = user.country ?? "—";
+    $("infoTour").textContent = user.tour ?? "—";
+    $("infoLeague").textContent = user.league ?? "—";
+
+    $("userIdBadge").textContent = `ID ${user.id ?? "—"}`;
+    $("sourceBadge").textContent = state.userSource || "Source users + bracket";
+    $("rankBadge").textContent = `Rank ${bracket.user_world_rank ?? "—"}`;
+    $("rankBadge").className = `badge ${Number.isFinite(Number(bracket.user_world_rank)) ? "ok" : "warn"}`;
+
+    $("winsBadge").textContent = `${state.wins.length} win${state.wins.length > 1 ? "s" : ""}`;
+    $("latestTournament").textContent = bracket.current_tournament_bracket_name || bracket.user_current_tournament_bracket_name || "—";
+    $("currentBracketName").textContent = bracket.current_tournament_bracket_name || "—";
+    $("updatedAtValue").textContent = formatDate(bracket.updated_at || bracket.created_at);
+    $("perfCount").textContent = Array.isArray(bracket.user_performances_this_year) ? bracket.user_performances_this_year.length : (bracket.user_performances_this_year ? "1" : "0");
+
+    $("bracketJson").textContent = JSON.stringify(bracket, null, 2);
+
+    $("subtitle").textContent = `Profile of ${user.pseudo || "the user"} loaded from users and bracket.`;
+    $("errorCard").classList.add("hidden");
+
+    renderWins();
+    state.performances = normalizePerformances(bracket.user_performances_this_year);
+    renderPerformances();
+    renderSection(state.section);
+  }
+
+  async function loadData(){
+    $("authBadge").textContent = getSession() ? "Connected" : "Verifying…";
+    $("authBadge").className = `badge ${getSession() ? "ok" : "warn"}`;
+    try{
+      const data = await fetchJson(API_URL, {
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        }
+      });
+
+      state.user = normalizeUser(data?.user);
+      state.userSource = data?.user_source || "users";
+      state.bracketRows = Array.isArray(data?.bracket_rows) ? data.bracket_rows.map(normalizeBracket) : [];
+      state.latestBracket = data?.latest_bracket ? normalizeBracket(data.latest_bracket) : computeLatestBracket(state.bracketRows);
+      state.wins = Array.isArray(data?.won_tournaments) ? data.won_tournaments : extractWonTournaments(state.bracketRows);
+      state.performances = normalizePerformances(state.latestBracket?.user_performances_this_year);
+
+      render();
+    }catch(err){
+      $("loading").classList.add("hidden");
+      $("errorCard").classList.remove("hidden");
+      $("errorText").textContent = err.message || "Unknown error.";
+      $("authBadge").textContent = "Error";
+      $("authBadge").className = "badge bad";
+      console.error(err);
+    }
+  }
+
+  function bindUi(){
+    document.querySelectorAll(".section-btn").forEach(btn => {
+      btn.addEventListener("click", () => renderSection(btn.getAttribute("data-section")));
+    });
+    const loginBtn = $("loginBtn");
+    const registerBtn = $("registerBtn");
+    if (loginBtn) loginBtn.addEventListener("click", openLogin);
+    if (registerBtn) registerBtn.addEventListener("click", openRegister);
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    bindUi();
+    loadData();
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-// netlify/functions/create-user.js
+// netlify/functions/register.js
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -16,14 +16,97 @@ function jsonResponse(status, body) {
   };
 }
 
+async function supabaseRequest(table, {
+  method = "GET",
+  query = {},
+  payload = null,
+  select = "*",
+  prefer = null
+} = {}) {
+  const url = new URL(`${SUPABASE_URL}/rest/v1/${table}`);
+
+  for (const [k, v] of Object.entries(query || {})) {
+    if (v !== undefined && v !== null && v !== "") {
+      url.searchParams.set(k, String(v));
+    }
+  }
+
+  if (select) {
+    url.searchParams.set("select", select);
+  }
+
+  const headers = {
+    apikey: SUPABASE_KEY,
+    Authorization: `Bearer ${SUPABASE_KEY}`,
+    Accept: "application/json"
+  };
+
+  if (method !== "GET") {
+    headers["Content-Type"] = "application/json";
+    headers["Prefer"] = prefer || "return=representation";
+  }
+
+  const res = await fetch(url.toString(), {
+    method,
+    headers,
+    body: method === "GET" ? undefined : JSON.stringify(payload)
+  });
+
+  const text = await res.text().catch(() => null);
+  let data;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+
+  if (!res.ok) {
+    const err = new Error(`Supabase ${method} ${table} failed: ${res.status}`);
+    err.status = res.status;
+    err.detail = data;
+    throw err;
+  }
+
+  return data;
+}
+
+async function supabaseSelect(table, query = {}) {
+  return await supabaseRequest(table, { method: "GET", query });
+}
+
+async function supabaseInsert(table, payload, select = "*") {
+  const data = await supabaseRequest(table, {
+    method: "POST",
+    payload: [payload],
+    select,
+    prefer: "return=representation"
+  });
+  return Array.isArray(data) ? data[0] : data;
+}
+
+async function getNextWorldRank() {
+  const rows = await supabaseSelect("bracket", {
+    select: "user_world_rank",
+    order: "user_world_rank.desc",
+    limit: "1"
+  });
+
+  const maxRank = Number(rows?.[0]?.user_world_rank || 0);
+  return Number.isFinite(maxRank) ? maxRank + 1 : 1;
+}
+
 module.exports.handler = async function(event) {
   if (!SUPABASE_URL || !SUPABASE_KEY) {
-    return jsonResponse(500, { error: "Server misconfigured", detail: "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY" });
+    return jsonResponse(500, {
+      error: "Server misconfigured",
+      detail: "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY"
+    });
   }
 
   if (event.httpMethod === "OPTIONS") {
     return { statusCode: 204, headers: CORS_HEADERS, body: "" };
   }
+
   if (event.httpMethod !== "POST") {
     return jsonResponse(405, { error: "Method Not Allowed" });
   }
@@ -31,7 +114,7 @@ module.exports.handler = async function(event) {
   let body;
   try {
     body = event.body ? JSON.parse(event.body) : {};
-  } catch (e) {
+  } catch {
     return jsonResponse(400, { error: "Invalid JSON" });
   }
 
@@ -44,85 +127,80 @@ module.exports.handler = async function(event) {
     return jsonResponse(400, { error: "Missing pseudo or password_hash" });
   }
 
-  if (!tour || (tour !== 'ATP' && tour !== 'WTA')) {
-    return jsonResponse(400, { error: "Invalid tour", detail: "tour must be 'ATP' or 'WTA'" });
+  if (!tour || (tour !== "ATP" && tour !== "WTA")) {
+    return jsonResponse(400, {
+      error: "Invalid tour",
+      detail: "tour must be 'ATP' or 'WTA'"
+    });
   }
+
   if (!country || country.length < 2) {
-    return jsonResponse(400, { error: "Invalid country", detail: "country must be provided" });
+    return jsonResponse(400, {
+      error: "Invalid country",
+      detail: "country must be provided"
+    });
   }
 
   try {
-    const q = new URL(`${SUPABASE_URL}/rest/v1/users`);
-    q.searchParams.set('select', 'id,pseudo');
-    q.searchParams.set('pseudo', `eq.${encodeURIComponent(pseudo)}`);
-
-    const r = await fetch(q.toString(), {
-      method: 'GET',
-      headers: {
-        'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
-        'Accept': 'application/json'
-      }
+    const existing = await supabaseSelect("users", {
+      select: "id,pseudo",
+      pseudo: `eq.${pseudo}`,
+      limit: "1"
     });
 
-    if (!r.ok) {
-      const txt = await r.text().catch(()=>null);
-      return jsonResponse(500, { error: "User lookup failed", status: r.status, detail: txt });
-    }
-
-    const arr = await r.json();
-    if (Array.isArray(arr) && arr.length > 0) {
+    if (Array.isArray(existing) && existing.length > 0) {
       return jsonResponse(409, { error: "User already exists", detail: { pseudo } });
     }
-  } catch (e) {
-    return jsonResponse(500, { error: "Server error", detail: String(e) });
+  } catch (err) {
+    return jsonResponse(500, {
+      error: "User lookup failed",
+      detail: String(err?.detail || err)
+    });
   }
 
   try {
     const league = "Future F15";
 
-    const insertObj = {
+    const insertedUser = await supabaseInsert("users", {
       pseudo,
       password_hash,
       league,
       tour,
       country,
       created_at: new Date().toISOString()
-    };
+    }, "id,pseudo,tour,country,league");
 
-    const url = `${SUPABASE_URL}/rest/v1/users?select=id,pseudo,tour,country,league`;
-    const r2 = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
-        'Content-Type': 'application/json',
-        'Prefer': 'return=representation'
-      },
-      body: JSON.stringify([insertObj])
-    });
+    const newWorldRank = await getNextWorldRank();
 
-    const text = await r2.text();
-    let data;
-    try { data = text ? JSON.parse(text) : null; } catch(e) { data = text; }
-
-    if (!r2.ok) {
-      return jsonResponse(500, { error: "Supabase insert failed", status: r2.status, detail: data });
-    }
-
-    const inserted = Array.isArray(data) ? data[0] : data;
+    await supabaseInsert("bracket", {
+      user_id: insertedUser.id,
+      user_name: insertedUser.pseudo,
+      user_tour: insertedUser.tour,
+      user_country: insertedUser.country,
+      user_world_rank: newWorldRank
+    }, "id,user_id,user_name,user_tour,user_country,user_world_rank");
 
     return jsonResponse(200, {
       ok: true,
-      user: inserted ? {
-        id: inserted.id,
-        pseudo: inserted.pseudo,
-        tour: inserted.tour,
-        country: inserted.country,
-        league: inserted.league
-      } : null
+      user: {
+        id: insertedUser.id,
+        pseudo: insertedUser.pseudo,
+        tour: insertedUser.tour,
+        country: insertedUser.country,
+        league: insertedUser.league
+      },
+      bracket: {
+        user_id: insertedUser.id,
+        user_name: insertedUser.pseudo,
+        user_tour: insertedUser.tour,
+        user_country: insertedUser.country,
+        user_world_rank: newWorldRank
+      }
     });
   } catch (err) {
-    return jsonResponse(500, { error: "Server error", detail: String(err) });
+    return jsonResponse(500, {
+      error: "Server error",
+      detail: String(err?.detail || err)
+    });
   }
 };

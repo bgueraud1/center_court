@@ -2,7 +2,7 @@ name: Update ATP/WTA bracket tournaments
 
 on:
   schedule:
-    - cron: "0 0,6,12,18 * * *"
+    - cron: "0 0,12 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -18,6 +18,7 @@ env:
   WTA_TOURNAMENTS_JSON: docs/wta_tournaments_2026.json
   ATP_YEAR: "2026"
   TARGETS_DIR: .tmp/bracket_targets
+  COMPLETED_DIR: .tmp/completed_tournaments
   LOCAL_TIMEZONE: Europe/Copenhagen
   ITF_BASE_URL: https://www.itftennis.com
   WTA_PLAYER_CSV: player_data_wta.csv
@@ -31,9 +32,18 @@ jobs:
       WTA_TOURNAMENTS_JSON: docs/wta_tournaments_2026.json
       ATP_YEAR: "2026"
       TARGETS_DIR: .tmp/bracket_targets
+      COMPLETED_DIR: .tmp/completed_tournaments
       LOCAL_TIMEZONE: Europe/Copenhagen
       ITF_BASE_URL: https://www.itftennis.com
       WTA_PLAYER_CSV: player_data_wta.csv
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      USERS_TABLE: users
+      NEXT_INSCRIPTIONS_TABLE: next_inscriptions
+      BRACKET_TABLE: bracket
+      RANKING_TABLE: bracket
+      ATP_TOURNAMENTS_PATH: docs/atp_tournaments_2026
+      WTA_TOURNAMENTS_PATH: docs/wta_tournaments_2026
 
     steps:
       - name: Checkout
@@ -416,17 +426,17 @@ jobs:
       - name: Run WTA ITF first-round scrapers
         run: |
           set -euo pipefail
-      
+
           if [ ! -s "$TARGETS_DIR/wta_itf_first_round_specs.tsv" ]; then
             echo "No WTA ITF first-round targets."
             exit 0
           fi
-      
+
           while IFS=$'\t' read -r tournament_id year num_players url; do
             [ -z "${tournament_id:-}" ] && continue
             output_path="$BRACKET_DIR/wta_${tournament_id}_${year}_temporary.json"
             echo "Running WTA ITF first-round: ${tournament_id} ${year} ${num_players} ${url}"
-      
+
             if ! python3 scripts/scraping_itf_wta.py \
               "$url" \
               --csv "$WTA_PLAYER_CSV" \
@@ -458,6 +468,144 @@ jobs:
               --verbose \
               --max-attempts 5
           done < "$TARGETS_DIR/wta_full_specs.tsv"
+
+      - name: Prepare completed tournament staging
+        id: detect_complete_jsons
+        run: |
+          set -euo pipefail
+          mkdir -p "$COMPLETED_DIR"
+
+          python3 - <<'PY'
+          import json
+          import os
+          import shutil
+          from pathlib import Path
+
+          def next_power_of_two(n: int) -> int:
+              n = int(n)
+              if n <= 1:
+                  return 1
+              return 1 << (n - 1).bit_length()
+
+          def read_json(path: Path):
+              if not path.exists():
+                  return None
+              try:
+                  return json.loads(path.read_text(encoding="utf-8"))
+              except Exception:
+                  return None
+
+          def count_matches(path: Path):
+              data = read_json(path)
+              if not isinstance(data, dict):
+                  return None
+              matches = data.get("matches")
+              if not isinstance(matches, list):
+                  return None
+              return len(matches)
+
+          workspace = Path(os.environ["GITHUB_WORKSPACE"])
+          bracket_dir = workspace / os.environ["BRACKET_DIR"]
+          atp_path = workspace / os.environ["ATP_TOURNAMENTS_JSON"]
+          wta_path = workspace / os.environ["WTA_TOURNAMENTS_JSON"]
+          completed_dir = workspace / os.environ["COMPLETED_DIR"]
+          atp_year = int(os.environ["ATP_YEAR"])
+
+          if completed_dir.exists():
+              for p in completed_dir.glob("*.json"):
+                  try:
+                      p.unlink()
+                  except Exception:
+                      pass
+          completed_dir.mkdir(parents=True, exist_ok=True)
+
+          staged = []
+
+          # ATP: file complet si le JSON contient exactement draw_size - 1 matchs
+          atp_data = read_json(atp_path) or {}
+          for group in atp_data.get("TournamentDates", []):
+              for t in group.get("Tournaments", []):
+                  try:
+                      tournament_id = int(t.get("Id") or 0)
+                      draw_size = int(t.get("SglDrawSize") or 0)
+                  except Exception:
+                      continue
+                  if tournament_id <= 0 or draw_size <= 0:
+                      continue
+
+                  expected = next_power_of_two(draw_size) - 1
+                  source = bracket_dir / f"atp_{tournament_id}_{atp_year}_temporary.json"
+                  got = count_matches(source)
+
+                  if got == expected:
+                      target = completed_dir / f"atp_{tournament_id}_{atp_year}.json"
+                      shutil.copyfile(source, target)
+                      staged.append({
+                          "tour": "ATP",
+                          "tournament_id": tournament_id,
+                          "year": atp_year,
+                          "source": str(source),
+                          "target": str(target),
+                          "expected_matches": expected,
+                          "found_matches": got,
+                      })
+
+          # WTA: file complet si le JSON contient exactement singlesDrawSize - 1 matchs
+          wta_data = read_json(wta_path) or {}
+          for t in wta_data.get("content", []):
+              try:
+                  tournament_group = t.get("tournamentGroup") or {}
+                  tournament_id = int(tournament_group.get("id") or 0)
+                  year = int(t.get("year") or 0)
+                  num_players = int(t.get("singlesDrawSize") or 0)
+              except Exception:
+                  continue
+              if tournament_id <= 0 or year <= 0 or num_players <= 0:
+                  continue
+
+              expected = max(0, num_players - 1)
+              source = bracket_dir / f"wta_{tournament_id}_{year}_temporary.json"
+              got = count_matches(source)
+
+              if got == expected:
+                  target = completed_dir / f"wta_{tournament_id}_{year}.json"
+                  shutil.copyfile(source, target)
+                  staged.append({
+                      "tour": "WTA",
+                      "tournament_id": tournament_id,
+                      "year": year,
+                      "source": str(source),
+                      "target": str(target),
+                      "expected_matches": expected,
+                      "found_matches": got,
+                  })
+
+          manifest_path = completed_dir / "completed_manifest.json"
+          manifest_path.write_text(json.dumps(staged, indent=2, ensure_ascii=False), encoding="utf-8")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as gh:
+              gh.write(f"count={len(staged)}\n")
+              gh.write(f"manifest={manifest_path}\n")
+              gh.write(f"completed_dir={str(completed_dir)}\n")
+
+          print(f"[postprocess] complete JSONs staged: {len(staged)}")
+          print(f"[postprocess] staging dir: {completed_dir}")
+          print(f"[postprocess] manifest: {manifest_path}")
+          PY
+
+      - name: Calculate bracket performances
+        if: steps.detect_complete_jsons.outputs.count != '0'
+        run: |
+          set -euo pipefail
+          python3 scripts/calc_bracket_points.py \
+            --input "$COMPLETED_DIR"
+
+      - name: Recalculate world ranking
+        if: steps.detect_complete_jsons.outputs.count != '0'
+        run: |
+          set -euo pipefail
+          python3 scripts/recalc_world_ranking.py \
+            --table "$BRACKET_TABLE"
 
       - name: Commit and push generated JSON files
         env:

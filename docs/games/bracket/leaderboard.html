@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Ranking</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="/js/auth.js" defer></script>
+  <style>
+    :root{
+      --bg:#07101f;
+      --panel:#0c1629;
+      --panel-2:#0a1324;
+      --line:rgba(255,255,255,.08);
+      --text:#e6eefc;
+      --muted:#90a4c3;
+      --accent:#4f8cff;
+      --good:#22c55e;
+      --warn:#f59e0b;
+      --chip:rgba(255,255,255,.05);
+      --shadow:0 20px 60px rgba(0,0,0,.35);
+    }
+    *{box-sizing:border-box}
+    html,body{
+      margin:0;
+      min-height:100%;
+      background:radial-gradient(900px 500px at 20% 0%, rgba(79,140,255,.12), transparent 55%),
+                 linear-gradient(180deg, var(--bg), #050a14);
+      color:var(--text);
+      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+    }
+    a{color:inherit;text-decoration:none}
+    button,input,select{font:inherit}
+    .wrap{max-width:1400px;margin:0 auto;padding:20px}
+    .card{
+      background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.015));
+      border:1px solid var(--line);
+      border-radius:20px;
+      box-shadow:var(--shadow);
+      padding:18px;
+      margin-bottom:16px;
+    }
+    .topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+    h1{margin:0;font-size:32px;line-height:1.1}
+    p{margin:8px 0 0;color:var(--muted);line-height:1.45}
+    .badges{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .badge{
+      padding:8px 12px;
+      border-radius:999px;
+      background:var(--chip);
+      border:1px solid var(--line);
+      font-weight:700;
+      font-size:13px;
+      white-space:nowrap;
+    }
+    .badge.ok{color:#c8f7d4}
+    .badge.warn{color:#ffe4b0}
+    .badge.bad{color:#ffd0d0}
+    .tabs{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+    .tab-btn{
+      border:1px solid var(--line);
+      background:rgba(255,255,255,.03);
+      color:#fff;
+      padding:11px 14px;
+      border-radius:999px;
+      font-weight:800;
+      cursor:pointer;
+      transition:transform .06s ease, background .12s ease, border-color .12s ease;
+    }
+    .tab-btn:hover{transform:translateY(-1px)}
+    .tab-btn.active{
+      background:rgba(79,140,255,.18);
+      border-color:rgba(79,140,255,.5);
+    }
+    .grid{
+      display:grid;
+      grid-template-columns:repeat(12, 1fr);
+      gap:16px;
+      align-items:start;
+    }
+    .panel{
+      grid-column:span 12;
+      background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.02));
+      border:1px solid var(--line);
+      border-radius:20px;
+      overflow:hidden;
+    }
+    .panel-head{
+      padding:18px 18px 14px;
+      border-bottom:1px solid var(--line);
+      display:flex;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+      align-items:flex-end;
+    }
+    .panel-title{font-size:18px;font-weight:800}
+    .panel-sub{font-size:13px;color:var(--muted);margin-top:6px}
+    .stats{display:flex;gap:8px;flex-wrap:wrap}
+    .stat{
+      padding:8px 10px;
+      border-radius:12px;
+      border:1px solid var(--line);
+      background:rgba(255,255,255,.03);
+      color:#dce7ff;
+      font-weight:700;
+      font-size:12px;
+    }
+    .list{
+      padding:10px 12px 16px;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+    .row{
+      display:grid;
+      grid-template-columns:72px 1.6fr .9fr .8fr auto;
+      gap:10px;
+      align-items:center;
+      padding:12px 14px;
+      border-radius:16px;
+      background:rgba(0,0,0,.15);
+      border:1px solid rgba(255,255,255,.05);
+    }
+    .row:hover{background:rgba(255,255,255,.04)}
+    .rank{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:54px;
+      height:42px;
+      border-radius:14px;
+      background:rgba(79,140,255,.14);
+      border:1px solid rgba(79,140,255,.35);
+      font-weight:800;
+      font-size:15px;
+    }
+    .name{
+      display:flex;
+      flex-direction:column;
+      gap:3px;
+      min-width:0;
+    }
+    .name strong{
+      font-size:15px;
+      font-weight:800;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .name span{font-size:12px;color:var(--muted)}
+    .meta{
+      color:#dce7ff;
+      font-weight:700;
+      font-size:13px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .chip{
+      justify-self:end;
+      padding:7px 10px;
+      border-radius:999px;
+      background:rgba(255,255,255,.04);
+      border:1px solid var(--line);
+      font-size:12px;
+      font-weight:700;
+      color:#dce7ff;
+    }
+    .chip.good{color:#c8f7d4;border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.10)}
+    .empty{
+      padding:22px;
+      color:var(--muted);
+      border:1px dashed rgba(255,255,255,.14);
+      border-radius:16px;
+      margin:14px 16px 16px;
+      background:rgba(255,255,255,.02);
+    }
+    .hidden{display:none !important}
+    .loading{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      color:var(--muted);
+      padding:18px;
+    }
+    .dot{
+      width:10px;height:10px;border-radius:50%;
+      background:var(--accent);
+      box-shadow:0 0 0 6px rgba(79,140,255,.12);
+      animation:pulse 1.2s infinite ease-in-out;
+    }
+    @keyframes pulse{
+      0%,100%{transform:scale(.85);opacity:.7}
+      50%{transform:scale(1);opacity:1}
+    }
+    @media (max-width:900px){
+      .row{
+        grid-template-columns:62px 1fr;
+        gap:8px 12px;
+      }
+      .meta,.chip{justify-self:start}
+      .meta{grid-column:2}
+      .chip{grid-column:2}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="topbar">
+        <div>
+          <h1>World ranking</h1>
+          <p>Ordered view of ATP and WTA players, based on the <strong>user_world_rank</strong> column in the bracket table.</p>
+          <div class="tabs" id="tabs">
+            <button class="tab-btn active" data-tab="atp" type="button">ATP</button>
+            <button class="tab-btn" data-tab="wta" type="button">WTA</button>
+          </div>
+        </div>
+        <div class="badges">
+          <span class="badge" id="authBadge">Loading…</span>
+          <span class="badge" id="countBadge">0 players</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card hidden" id="errorCard">
+      <div class="badge bad">Unable to load the ranking.</div>
+      <p id="errorText" style="margin-top:10px"></p>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title" id="panelTitle">ATP</div>
+          <div class="panel-sub" id="panelSub">Ranking ordered from highest to lowest.</div>
+        </div>
+        <div class="stats">
+          <div class="stat" id="topStat">Top 0</div>
+          <div class="stat" id="sourceStat">Table: bracket</div>
+        </div>
+      </div>
+      <div id="loading" class="loading"><span class="dot"></span><span>Loading ranking…</span></div>
+      <div id="list" class="list hidden"></div>
+      <div id="empty" class="empty hidden">No ranking data available.</div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const API_URL = "/.netlify/functions/world_ranking";
+
+  const state = {
+    activeTab: "atp",
+    data: { atp: [], wta: [] },
+    loading: true
+  };
+
+  const $ = (id) => document.getElementById(id);
+
+  function escapeHtml(s){
+    if(s === undefined || s === null) return "";
+    return String(s).replace(/[&<>"']/g, m => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"
+    })[m]);
+  }
+
+  function getAuthApi(){
+    return window.TA_AUTH || null;
+  }
+
+  function getSession(){
+    const api = getAuthApi();
+    if(api && typeof api.getSession === "function"){
+      try { return api.getSession(); } catch(e) {}
+    }
+    try{
+      const raw = localStorage.getItem("ta_session_v1");
+      return raw ? JSON.parse(raw) : null;
+    }catch(e){
+      return null;
+    }
+  }
+
+  function getAuthHeaders(){
+    const s = getSession();
+    const headers = {};
+    if(s){
+      if(s.id) headers["x-user-id"] = s.id;
+      if(s.pseudo) headers["x-user-name"] = s.pseudo;
+      if(s.tour) headers["x-user-tour"] = s.tour;
+      if(s.country) headers["x-user-country"] = s.country;
+      if(s.league) headers["x-user-league"] = s.league;
+      if(s.user_world_rank) headers["x-user-rank"] = s.user_world_rank;
+      if(s.access_token) headers["Authorization"] = `Bearer ${s.access_token}`;
+    }
+    return headers;
+  }
+
+  async function fetchJson(url, options = {}){
+    const res = await fetch(url, { cache: "no-store", ...options });
+    const text = await res.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch(e) { data = null; }
+    if(!res.ok){
+      const msg = data && (data.error || data.message) ? (data.error || data.message) : `HTTP ${res.status}`;
+      const err = new Error(msg);
+      err.status = res.status;
+      err.data = data;
+      throw err;
+    }
+    return data;
+  }
+
+  function normalizeRow(row){
+    return {
+      id: row?.id ?? null,
+      user_id: row?.user_id ?? null,
+      user_name: row?.user_name ?? row?.pseudo ?? "—",
+      user_tour: String(row?.user_tour ?? row?.tour ?? "").toUpperCase() || "—",
+      user_country: row?.user_country ?? row?.country ?? null,
+      user_world_rank: Number(row?.user_world_rank ?? row?.world_ranking ?? row?.world_rank ?? NaN),
+      user_rank_points: Number(row?.user_rank_points ?? row?.rank_points ?? NaN),
+      user_tournaments_won: row?.user_tournaments_won ?? row?.tournaments_won ?? 0,
+      current_tournament_bracket_name: row?.current_tournament_bracket_name ?? null,
+      updated_at: row?.updated_at ?? null
+    };
+  }
+
+  function formatRank(rank){
+    const n = Number(rank);
+    return Number.isFinite(n) ? String(n) : "—";
+  }
+
+  function sortByRank(a, b){
+    const ra = Number(a.user_world_rank);
+    const rb = Number(b.user_world_rank);
+    const aOk = Number.isFinite(ra);
+    const bOk = Number.isFinite(rb);
+    if(aOk && bOk) return ra - rb;
+    if(aOk) return -1;
+    if(bOk) return 1;
+    return String(a.user_name || "").localeCompare(String(b.user_name || ""));
+  }
+
+  function splitRows(rows){
+    const seen = new Map();
+    for(const raw of rows || []){
+      const row = normalizeRow(raw);
+      const key = row.user_id || `${row.user_name}|${row.user_tour}`;
+      if(!seen.has(key)){
+        seen.set(key, row);
+      }
+    }
+    return Array.from(seen.values()).filter(r => Number.isFinite(Number(r.user_world_rank))).sort(sortByRank);
+  }
+
+  function renderTab(){
+    const rows = state.data[state.activeTab] || [];
+    $("panelTitle").textContent = state.activeTab.toUpperCase();
+    $("panelSub").textContent = state.activeTab === "atp"
+      ? "ATP ranking sorted by user_world_rank."
+      : "WTA ranking sorted by user_world_rank.";
+    $("topStat").textContent = rows.length ? `Top ${Math.min(rows.length, 10)}` : "Top 0";
+    $("countBadge").textContent = `${rows.length} player${rows.length > 1 ? "s" : ""}`;
+
+    const list = $("list");
+    const empty = $("empty");
+    list.innerHTML = "";
+
+    if(!rows.length){
+      list.classList.add("hidden");
+      empty.classList.remove("hidden");
+      $("loading").classList.add("hidden");
+      return;
+    }
+
+    empty.classList.add("hidden");
+    list.classList.remove("hidden");
+    $("loading").classList.add("hidden");
+
+    rows.forEach((row, idx) => {
+      const item = document.createElement("div");
+      item.className = "row";
+
+      const rank = document.createElement("div");
+      rank.className = "rank";
+      rank.textContent = formatRank(row.user_world_rank);
+
+      const name = document.createElement("div");
+      name.className = "name";
+      name.innerHTML = `
+        <strong>${escapeHtml(row.user_name)}</strong>
+        <span>${escapeHtml(row.user_country || "Country not provided")} • ${escapeHtml(row.user_tour)}</span>
+      `;
+
+      const points = document.createElement("div");
+      points.className = "meta";
+      points.textContent = Number.isFinite(row.user_rank_points) ? `${row.user_rank_points} pts` : "Points not provided";
+
+      const tournament = document.createElement("div");
+      tournament.className = "meta";
+      tournament.textContent = row.current_tournament_bracket_name || "—";
+
+      const chip = document.createElement("div");
+      chip.className = "chip" + (idx < 10 ? " good" : "");
+      chip.textContent = idx < 10 ? "Top 10" : `#${idx + 1}`;
+
+      item.appendChild(rank);
+      item.appendChild(name);
+      item.appendChild(points);
+      item.appendChild(tournament);
+      item.appendChild(chip);
+      list.appendChild(item);
+    });
+  }
+
+  function setTab(tab){
+    state.activeTab = tab;
+    document.querySelectorAll("#tabs .tab-btn").forEach(btn => {
+      btn.classList.toggle("active", btn.getAttribute("data-tab") === tab);
+    });
+    renderTab();
+  }
+
+  async function loadData(){
+    $("authBadge").textContent = getSession() ? "Connected" : "Public view";
+    $("authBadge").className = `badge ${getSession() ? "ok" : "warn"}`;
+    try{
+      const data = await fetchJson(API_URL, {
+        headers: {
+          "Content-Type": "application/json",
+          ...getAuthHeaders()
+        }
+      });
+
+      const atp = splitRows(data?.atp || []);
+      const wta = splitRows(data?.wta || []);
+      state.data = { atp, wta };
+      $("loading").classList.add("hidden");
+      $("errorCard").classList.add("hidden");
+      renderTab();
+    }catch(err){
+      $("loading").classList.add("hidden");
+      $("errorCard").classList.remove("hidden");
+      $("errorText").textContent = err.message || "Unknown error.";
+      $("authBadge").textContent = "Error";
+      $("authBadge").className = "badge bad";
+      console.error(err);
+    }
+  }
+
+  function bindUi(){
+    document.querySelectorAll("#tabs .tab-btn").forEach(btn => {
+      btn.addEventListener("click", () => setTab(btn.getAttribute("data-tab")));
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    bindUi();
+    loadData();
+  });
+})();
+</script>
+</body>
+</html>
