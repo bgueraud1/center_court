@@ -51,7 +51,6 @@ function readOpenPayload() {
   return normalizeOpenPayload(raw);
 }
 
-
 function readBody(event) {
   if (!event.body) return {};
   try {
@@ -356,75 +355,96 @@ exports.handler = async (event) => {
         return json(400, { ok: false, error: "Registrations are closed today." });
       }
 
-      const choice = Array.isArray(body.selections) && body.selections.length > 0
-        ? body.selections[0]
-        : null;
-          
-      if (!choice) {
+      const selections = Array.isArray(body.selections) ? body.selections : [];
+      if (!selections.length) {
         return json(400, { ok: false, error: "No tournament selected." });
-      }
-      
-      const tournamentId = String(choice.tournament_id || "").trim();
-      const tournamentTour = String(choice.tour || "").trim().toUpperCase();
-      const tournamentCategory = normalizeCategory(choice.tournament_category || choice.category || choice.tournament_level);
-      const tournamentName = String(choice.tournament_name || "").trim();
-      const tournamentNumPlayers = Number.parseInt(String(choice.tournament_num_players || ""), 10) || null;
-      const tournamentStartDate = String(choice.tournament_start_date || targetStartDate || "").trim();
-
-      const tournament = (openPayload.open_tournaments || []).find(
-        (t) =>
-          String(t.tournament_id) === tournamentId &&
-          String(t.tour || "").toUpperCase() === tournamentTour
-      );
-
-      if (!tournament) {
-        return json(400, { ok: false, error: "This tournament is not open for registration." });
       }
 
       const allWeekRows = weekStart ? await loadWeekInscriptionRows(weekStart) : [];
-      const existingForUser = allWeekRows.find((r) => String(r.user_id) === String(user.user_id));
-      if (existingForUser) {
-        return json(400, {
-          ok: false,
-          error: "You are already registered for one tournament this week.",
-          already_registered: existingForUser,
-        });
-      }
 
-      const countForTournament = allWeekRows.filter(
-        (r) => String(r.tournament_id) === tournamentId && String(r.tour || "").toUpperCase() === tournamentTour
-      ).length;
+      // Optionnel : empêcher un doublon exact de tournoi pour le même user/semaine
+      const existingByUserAndTournament = (tournamentId, tour) =>
+        allWeekRows.find(
+          (r) =>
+            String(r.user_id) === String(user.user_id) &&
+            String(r.tournament_id) === String(tournamentId) &&
+            String(r.tour || "").toUpperCase() === String(tour || "").toUpperCase()
+        );
 
-      if (countForTournament >= (Number(tournament.draw_size) || 0)) {
-        return json(400, { ok: false, error: "Tournament is full." });
-      }
+      const insertedRows = [];
 
-      const rank = Number.isFinite(user.user_world_rank) ? user.user_world_rank : null;
-      if (tournamentTour === "ATP") {
-        const rule = isAtpRestricted(tournament.category, rank);
-        if (!rule.ok) {
-          return json(403, { ok: false, error: rule.reason });
+      for (const choice of selections) {
+        const tournamentId = String(choice.tournament_id || "").trim();
+        const tournamentTour = String(choice.tour || "").trim().toUpperCase();
+        const tournamentCategory = normalizeCategory(
+          choice.tournament_category || choice.category || choice.tournament_level
+        );
+        const tournamentName = String(choice.tournament_name || "").trim();
+        const tournamentNumPlayers = Number.parseInt(String(choice.tournament_num_players || ""), 10) || null;
+        const tournamentStartDate = String(choice.tournament_start_date || targetStartDate || "").trim();
+        const preferenceRank = Number.parseInt(String(choice.preference_rank || ""), 10) || null;
+
+        if (!tournamentId || !tournamentTour) {
+          return json(400, { ok: false, error: "Invalid tournament selection." });
         }
+
+        const tournament = (openPayload.open_tournaments || []).find(
+          (t) =>
+            String(t.tournament_id) === tournamentId &&
+            String(t.tour || "").toUpperCase() === tournamentTour
+        );
+
+        if (!tournament) {
+          return json(400, {
+            ok: false,
+            error: `This tournament is not open for registration: ${tournamentTour} ${tournamentId}.`,
+          });
+        }
+
+        const rank = Number.isFinite(user.user_world_rank) ? user.user_world_rank : null;
+        if (tournamentTour === "ATP") {
+          const rule = isAtpRestricted(tournament.category, rank);
+          if (!rule.ok) {
+            return json(403, { ok: false, error: rule.reason });
+          }
+        }
+
+        const countForTournament = allWeekRows.filter(
+          (r) => String(r.tournament_id) === tournamentId && String(r.tour || "").toUpperCase() === tournamentTour
+        ).length;
+
+        if (countForTournament >= (Number(tournament.draw_size) || 0)) {
+          return json(400, { ok: false, error: `Tournament is full: ${tournamentTour} ${tournamentId}.` });
+        }
+
+        // Évite de doubler la même préférence pour le même user/tournoi/semaine
+        if (existingByUserAndTournament(tournamentId, tournamentTour)) {
+          continue;
+        }
+
+        const insertPayload = {
+          tournament_name: tournamentName || tournament.tournament_name,
+          tournament_id: tournamentId,
+          tournament_num_players: tournamentNumPlayers || tournament.draw_size || null,
+          user_id: user.user_id,
+          user_name: user.user_name || ctx.user_name || null,
+          user_world_rank: rank,
+          registration_week_start: weekStart,
+          window_start_date: weekStart,
+          tournament_start_date: tournamentStartDate,
+          tour: tournamentTour,
+          tournament_level: tournamentCategory,
+          tournament_category: tournamentCategory,
+          preference_rank: preferenceRank,
+        };
+
+        const inserted = await supabaseInsert(INSCRIPTIONS_TABLE, insertPayload);
+        insertedRows.push(Array.isArray(inserted) ? (inserted[0] || null) : inserted);
       }
-
-      const insertPayload = {
-        tournament_name: tournamentName || tournament.tournament_name,
-        tournament_id: tournamentId,
-        tournament_num_players: tournamentNumPlayers || tournament.draw_size || null,
-        user_id: user.user_id,
-        user_name: user.user_name || ctx.user_name || null,
-        user_world_rank: rank,
-        registration_week_start: weekStart,
-        tournament_start_date: tournamentStartDate,
-        tour: tournamentTour,
-        tournament_level: tournamentCategory,
-      };
-
-      const inserted = await supabaseInsert(INSCRIPTIONS_TABLE, insertPayload);
 
       return json(200, {
         ok: true,
-        inserted: Array.isArray(inserted) ? (inserted[0] || null) : inserted,
+        inserted: insertedRows,
       });
     }
 
