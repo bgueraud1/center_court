@@ -22,24 +22,51 @@ function json(statusCode, body) {
   };
 }
 
+function normalizeOpenPayload(raw) {
+  const window = raw?.window || raw?.registration_window || {};
+  const tournaments = Array.isArray(raw?.tournaments)
+    ? raw.tournaments
+    : Array.isArray(raw?.open_tournaments)
+      ? raw.open_tournaments
+      : [];
+
+  return {
+    ...raw,
+    registration_window: {
+      is_open_today: Boolean(window.is_open_today),
+      open_date: window.open_date ?? null,
+      close_date: window.close_date ?? null,
+      target_start_date: window.target_start_date ?? window.window_start_date ?? null,
+      window_start_date: window.window_start_date ?? null,
+      window_end_date: window.window_end_date ?? null,
+      count: Number.isFinite(Number(window.count)) ? Number(window.count) : 0,
+    },
+    open_tournaments: tournaments,
+  };
+}
+
 function readOpenPayload() {
   if (!fs.existsSync(OPEN_JSON_PATH)) {
-    return {
+    return normalizeOpenPayload({
       version: 1,
       timezone: "Europe/Paris",
       generated_at: null,
       current_paris_date: null,
-      registration_window: {
+      window: {
         is_open_today: false,
         open_date: null,
         close_date: null,
         target_start_date: null,
+        window_start_date: null,
+        window_end_date: null,
         count: 0,
       },
-      open_tournaments: [],
-    };
+      tournaments: [],
+    });
   }
-  return JSON.parse(fs.readFileSync(OPEN_JSON_PATH, "utf-8"));
+
+  const raw = JSON.parse(fs.readFileSync(OPEN_JSON_PATH, "utf-8"));
+  return normalizeOpenPayload(raw);
 }
 
 function readBody(event) {
