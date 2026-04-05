@@ -4,7 +4,7 @@ const path = require("path");
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const OPEN_JSON_PATH = path.join(process.cwd(), "bracket/open_inscriptions.json");
+const OPEN_JSON_PATH = path.resolve(__dirname, "../../docs/bracket/open_inscriptions.json");
 
 // Adjust if your DB names differ
 const USERS_TABLE = process.env.USERS_TABLE || "users";
@@ -46,28 +46,11 @@ function normalizeOpenPayload(raw) {
 }
 
 function readOpenPayload() {
-  if (!fs.existsSync(OPEN_JSON_PATH)) {
-    return normalizeOpenPayload({
-      version: 1,
-      timezone: "Europe/Paris",
-      generated_at: null,
-      current_paris_date: null,
-      window: {
-        is_open_today: false,
-        open_date: null,
-        close_date: null,
-        target_start_date: null,
-        window_start_date: null,
-        window_end_date: null,
-        count: 0,
-      },
-      tournaments: [],
-    });
-  }
-
-  const raw = JSON.parse(fs.readFileSync(OPEN_JSON_PATH, "utf-8"));
+  const rawText = fs.readFileSync(OPEN_JSON_PATH, "utf-8");
+  const raw = JSON.parse(rawText);
   return normalizeOpenPayload(raw);
 }
+
 
 function readBody(event) {
   if (!event.body) return {};
