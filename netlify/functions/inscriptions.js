@@ -4,7 +4,7 @@ const path = require("path");
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const OPEN_JSON_PATH = path.join(process.cwd(), "docs/bracket/open_inscriptions.json");
+const OPEN_JSON_PATH = path.join(process.cwd(), "bracket/open_inscriptions.json");
 
 // Adjust if your DB names differ
 const USERS_TABLE = process.env.USERS_TABLE || "users";
