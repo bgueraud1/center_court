@@ -474,13 +474,14 @@
 /* ---------------------------
   CONFIG / KEYS
 ---------------------------- */
-const SELECTED_PLAYERS_JSON = '/selected_players.json';
+const SELECTED_PLAYERS_JSON = '/tools/selected_players.json';
 const PLAYERS_CATALOG_JSON = '/tools/players_catalog.json';
 const GEOCODES_JSON = '/tools/geocodes_combined.json';
 const H2H_BY_PLAYER_BASE = '/data/h2h_by_player/';
 const LB_QUEUE_KEY = 'lb_score_queue_guess6_v1';
 const GAME_ID = 'guess_player_h2h';
 const AUTH_HUB_URL = '/games/tennis_arena/index.html';
+const LOCAL_PREFIX = 'guess_the_player_h2h_state_v1';
 
 /* ---------------------------
   STATE
@@ -503,6 +504,8 @@ let h2hByPlayerCache = {};
 let composedH2HCache = {};
 let preloadedCount = 0;
 let assetsReady = false;
+let roundFinished = false;
+let finalResult = null;
 
 /* ---------------------------
   DOM refs
@@ -566,6 +569,207 @@ function setGuessEnabled(enabled){
   if(!enabled){
     suggestionsList.style.display = 'none';
   }
+}
+
+function todayParisStr(){
+  try{
+    return new Intl.DateTimeFormat('sv-SE', {
+      timeZone: 'Europe/Paris',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(new Date());
+  } catch(e){
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+function playerKey(session){
+  const s = session || getSession();
+  if(!s) return 'anon';
+  return String(s.id || s.user_id || s.pseudo || s.username || 'anon');
+}
+
+function currentModeKey(){
+  return `${currentTour}_h2h_${currentLevel}`;
+}
+
+function localStateKey(mode = currentModeKey(), session = getSession()){
+  return `${LOCAL_PREFIX}:${todayParisStr()}:${playerKey(session)}:${mode}`;
+}
+
+function localLastModeKey(session = getSession()){
+  return `${LOCAL_PREFIX}:${todayParisStr()}:${playerKey(session)}:last_mode`;
+}
+
+function cloneGuessForState(item){
+  if(!item) return null;
+  return {
+    player_id: item.player_id || item.playerId || null,
+    full_name: String(item.full_name || '').trim(),
+    source: String(item.source || '').toUpperCase() || null
+  };
+}
+
+function normalizeStoredGuess(item){
+  if(!item) return null;
+  if(typeof item === 'string'){
+    return { player_id: null, full_name: item, source: null };
+  }
+  return {
+    player_id: item.player_id || item.playerId || null,
+    full_name: String(item.full_name || item.name || '').trim(),
+    source: String(item.source || '').toUpperCase() || null
+  };
+}
+
+function normalizeStoredTarget(item){
+  if(!item) return null;
+  return {
+    player_id: item.player_id || item.playerId || null,
+    full_name: String(item.full_name || item.name || '').trim(),
+    source: String(item.source || '').toUpperCase() || null
+  };
+}
+
+function saveState(){
+  try{
+    const mode = currentModeKey();
+    const payload = {
+      date: todayParisStr(),
+      mode,
+      currentTour,
+      currentLevel,
+      target: cloneGuessForState(target),
+      remaining,
+      score,
+      gameStarted,
+      gameBlockedDueToExisting,
+      roundFinished,
+      finalResult,
+      guesses: Array.isArray(guesses) ? guesses.map(cloneGuessForState).filter(Boolean) : [],
+      guessedNames: Array.from(guessedNames || []),
+      ts: new Date().toISOString()
+    };
+    localStorage.setItem(localStateKey(mode), JSON.stringify(payload));
+    localStorage.setItem(localLastModeKey(), mode);
+  } catch(e){}
+}
+
+function loadState(mode = currentModeKey()){
+  try{
+    const raw = localStorage.getItem(localStateKey(mode));
+    if(!raw) return null;
+    const j = JSON.parse(raw);
+    if(!j || typeof j !== 'object') return null;
+    return j;
+  } catch(e){
+    return null;
+  }
+}
+
+function loadLastState(){
+  try{
+    const mode = localStorage.getItem(localLastModeKey());
+    if(mode){
+      const st = loadState(mode);
+      if(st) return st;
+    }
+  } catch(e){}
+  return loadState();
+}
+
+function clearState(mode = currentModeKey()){
+  try{
+    localStorage.removeItem(localStateKey(mode));
+  } catch(e){}
+}
+
+function syncModeUI(){
+  const btnATP = document.getElementById('btnATP');
+  const btnWTA = document.getElementById('btnWTA');
+  const sEasy = document.getElementById('sEasy');
+  const sMedium = document.getElementById('sMedium');
+  const sHard = document.getElementById('sHard');
+
+  if(btnATP) btnATP.classList.toggle('active', currentTour === 'ATP');
+  if(btnWTA) btnWTA.classList.toggle('active', currentTour === 'WTA');
+
+  if(sEasy) sEasy.classList.toggle('active', currentLevel === 'easy');
+  if(sMedium) sMedium.classList.toggle('active', currentLevel === 'medium');
+  if(sHard) sHard.classList.toggle('active', currentLevel === 'hard');
+
+  if(levelLabelEl) levelLabelEl.textContent = currentLevel.charAt(0).toUpperCase() + currentLevel.slice(1);
+  if(tourLabelEl) tourLabelEl.textContent = currentTour;
+}
+
+async function restoreState(st){
+  if(!st) return false;
+  if(st.date !== todayParisStr()) return false;
+
+  currentTour = String(st.currentTour || currentTour || 'ATP').toUpperCase();
+  currentLevel = String(st.currentLevel || currentLevel || 'easy').toLowerCase();
+  syncModeUI();
+
+  target = normalizeStoredTarget(st.target) || target;
+  remaining = Number.isFinite(Number(st.remaining)) ? Number(st.remaining) : 15;
+  score = Number.isFinite(Number(st.score)) ? Number(st.score) : 0;
+  gameStarted = !!st.gameStarted;
+  gameBlockedDueToExisting = !!st.gameBlockedDueToExisting;
+  roundFinished = !!st.roundFinished;
+  finalResult = st.finalResult || null;
+
+  const restoredGuesses = Array.isArray(st.guesses) ? st.guesses.map(normalizeStoredGuess).filter(Boolean) : [];
+  guesses = restoredGuesses;
+  guessedNames = new Set(
+    Array.isArray(st.guessedNames) && st.guessedNames.length
+      ? st.guessedNames.map(x => String(x || '').trim()).filter(Boolean)
+      : guesses.map(g => String(g.full_name || '').trim()).filter(Boolean)
+  );
+
+  remainingEl.textContent = remaining;
+  scoreEl.textContent = score;
+  preloadStatusEl.textContent = roundFinished
+    ? 'Restored saved final result.'
+    : (gameStarted ? 'Restored saved progress.' : 'Saved state restored.');
+  clearGuessesTable();
+  ensureOutputSkeleton();
+
+  const targetPid = target && (target.player_id || target.playerId)
+    ? String(target.player_id || target.playerId)
+    : null;
+
+  const ids = new Set();
+  if(targetPid) ids.add(targetPid);
+  for(const g of guesses){
+    const gid = g && (g.player_id || g.playerId) ? String(g.player_id || g.playerId) : null;
+    if(gid) ids.add(gid);
+  }
+
+  for(const id of ids){
+    await loadPerPlayerH2H(String(id)).catch(() => null);
+  }
+
+  for(let i = 0; i < guesses.length; i++){
+    const guess = guesses[i];
+    appendGuessRowSimple(guess, i + 1);
+    const guessPid = guess && (guess.player_id || guess.playerId) ? String(guess.player_id || guess.playerId) : null;
+    const h2h = (targetPid && guessPid) ? composeH2H(targetPid, guessPid) : null;
+    updateTablesWithGuess(guess, h2h);
+  }
+
+  setGuessEnabled(isConnected() && !gameBlockedDueToExisting && !roundFinished && gameStarted);
+
+  if(roundFinished && finalResult){
+    renderResultModal(!!finalResult.won, Number(finalResult.points || 0), false);
+  } else {
+    const targetLabel = target && (target.full_name || target.name) ? target.full_name || target.name : '—';
+    if(gameStarted){
+      preloadStatusEl.textContent = `Round in progress — target loaded (${targetLabel}).`;
+    }
+  }
+
+  return true;
 }
 
 function updateTopStatus(){
@@ -1074,13 +1278,12 @@ function clearGuessesTable(){
   document.querySelector('#guessesTable tbody').innerHTML = '';
 }
 
-function appendGuessRowSimple(guess){
+function appendGuessRowSimple(guess, idxOverride = guesses.length){
   const tbody = document.querySelector('#guessesTable tbody');
   const tr = document.createElement('tr');
 
-  const idx = guesses.length;
   const tdIndex = document.createElement('td');
-  tdIndex.textContent = idx;
+  tdIndex.textContent = idxOverride;
 
   const tdName = document.createElement('td');
   tdName.textContent = guess.full_name || '';
@@ -1191,16 +1394,18 @@ function startRound(){
   }
 
   gameBlockedDueToExisting = false;
+  roundFinished = false;
+  finalResult = null;
   remaining = 15;
   guesses = [];
   guessedNames.clear();
 
+  syncModeUI();
   remainingEl.textContent = remaining;
   scoreEl.textContent = score;
-  levelLabelEl.textContent = currentLevel.charAt(0).toUpperCase() + currentLevel.slice(1);
-  tourLabelEl.textContent = currentTour;
   clearGuessesTable();
   setGuessEnabled(true);
+  saveState();
 
   let picked = null;
 
@@ -1225,6 +1430,7 @@ function startRound(){
 
   target = picked;
   gameStarted = true;
+  saveState();
 
   const tid = target && (
     target.player_id ||
@@ -1243,6 +1449,7 @@ function startRound(){
     await loadSelectedPlayerFiles(6);
     ensureOutputSkeleton();
     preloadStatusEl.textContent = 'Round started — make up to 15 guesses. Good luck!';
+    saveState();
   })();
 }
 
@@ -1459,7 +1666,7 @@ async function flushScoreQueue(){
 
 async function submitScoreToLeaderboard(points, meta = {}, extra = {}){
   const session = getSession();
-  const displayName = extra.displayName || extra.pseudo || displayNameFromSession(session) || null;
+  const displayName = extra.displayName || extra.pseudo || getDisplayName(session) || null;
   const modeString = currentModeKey();
   const options = {
     mode: modeString,
@@ -1513,9 +1720,8 @@ async function ensureModeCheckedAndStart(){
     return;
   }
 
-  const mode = `${currentTour}_h2h_${currentLevel}`;
-  levelLabelEl.textContent = currentLevel.charAt(0).toUpperCase() + currentLevel.slice(1);
-  tourLabelEl.textContent = currentTour;
+  const mode = currentModeKey();
+  syncModeUI();
   preloadStatusEl.textContent = 'Checking if you already played this variant today...';
 
   gameBlockedDueToExisting = false;
@@ -1524,6 +1730,14 @@ async function ensureModeCheckedAndStart(){
   suggestionsList.style.display = 'none';
 
   try {
+    const saved = loadState(mode);
+    if(saved && saved.date === todayParisStr()){
+      const restored = await restoreState(saved);
+      if(restored){
+        return;
+      }
+    }
+
     const check = await checkUserPlayedToday(mode);
     if(check && check.exists){
       showAlreadyPlayedModal(check, mode);
@@ -1533,6 +1747,11 @@ async function ensureModeCheckedAndStart(){
     startRound();
   } catch(e){
     console.warn('ensureModeCheckedAndStart initial check error', e);
+    const saved = loadState(mode);
+    if(saved && saved.date === todayParisStr()){
+      const restored = await restoreState(saved);
+      if(restored) return;
+    }
     startRound();
   }
 }
@@ -1540,7 +1759,7 @@ async function ensureModeCheckedAndStart(){
 /* ---------------------------
   revealRound (submit result)
 ---------------------------- */
-async function revealRound(won, points){
+function renderResultModal(won, points){
   const modal = document.getElementById('modal');
   const title = document.getElementById('modalTitle');
   const text = document.getElementById('modalText');
@@ -1573,6 +1792,20 @@ async function revealRound(won, points){
     modal.classList.remove('show');
     setTimeout(() => modal.setAttribute('aria-hidden','true'), 120);
   };
+}
+
+async function revealRound(won, points, options = {}){
+  const submit = options.submit !== false;
+
+  roundFinished = true;
+  finalResult = { won: !!won, points: Number(points || 0) };
+  gameStarted = false;
+  setGuessEnabled(false);
+  saveState();
+
+  renderResultModal(won, points);
+
+  if(!submit) return;
 
   const meta = {
     won: !!won,
@@ -1647,6 +1880,7 @@ async function handleGuessSubmission(name){
 
   const h2h = (targetPid && guessPid) ? composeH2H(targetPid, guessPid) : null;
   updateTablesWithGuess(guess, h2h);
+  saveState();
 
   const sameId = (guessPid && targetPid && String(guessPid) === String(targetPid));
   const sameName = (!guessPid && !targetPid && norm(guess.full_name || '') === norm(target.full_name || ''));
@@ -1655,12 +1889,14 @@ async function handleGuessSubmission(name){
     const points = Math.max(10, 100 - (guesses.length - 1) * 10);
     score += points;
     scoreEl.textContent = score;
+    saveState();
     await revealRound(true, points);
     setTimeout(() => ensureModeCheckedAndStart(), 900);
     return;
   }
 
   if(remaining <= 0 || guesses.length >= 15){
+    saveState();
     await revealRound(false, 0);
     setTimeout(() => ensureModeCheckedAndStart(), 900);
   }
@@ -1780,6 +2016,21 @@ function bindControls(){
   });
 }
 
+async function restoreLastSavedStateIfAny(){
+  const session = getSession();
+  if(!session || !session.pseudo) return false;
+
+  const saved = loadLastState();
+  if(saved && saved.date === todayParisStr()){
+    currentTour = String(saved.currentTour || currentTour || 'ATP').toUpperCase();
+    currentLevel = String(saved.currentLevel || currentLevel || 'easy').toLowerCase();
+    syncModeUI();
+    return await restoreState(saved);
+  }
+
+  return false;
+}
+
 async function init(){
   guessInput = document.getElementById('guessInput');
   suggestionsList = document.getElementById('suggestionsList');
@@ -1814,7 +2065,10 @@ async function init(){
 
   const session = getSession();
   if(session && session.pseudo){
-    await ensureModeCheckedAndStart();
+    const restored = await restoreLastSavedStateIfAny();
+    if(!restored){
+      await ensureModeCheckedAndStart();
+    }
   } else {
     applyAuthGate();
   }
@@ -1824,16 +2078,22 @@ async function init(){
     authApi.onAuthChange(async () => {
       renderAuthBox();
       if(isConnected()){
-        await ensureModeCheckedAndStart();
+        const restored = await restoreLastSavedStateIfAny();
+        if(!restored){
+          await ensureModeCheckedAndStart();
+        }
       } else {
         applyAuthGate();
       }
     });
   } else {
-    window.addEventListener('storage', () => {
+    window.addEventListener('storage', async () => {
       renderAuthBox();
       if(isConnected()){
-        ensureModeCheckedAndStart();
+        const restored = await restoreLastSavedStateIfAny();
+        if(!restored){
+          await ensureModeCheckedAndStart();
+        }
       } else {
         applyAuthGate();
       }

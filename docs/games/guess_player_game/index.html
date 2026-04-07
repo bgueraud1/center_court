@@ -621,6 +621,14 @@ let dailyList = [];
 
 let gameStarted = false;
 let guessedNames = new Set();
+let pendingAdvanceTimer = null;
+let roundResultVisible = false;
+let roundAdvanceAt = null;
+let lastRoundWon = null;
+let lastRoundPoints = 0;
+
+const LOCAL_PREFIX = 'guess_the_player_state_v2';
+const AUTO_ADVANCE_DELAY_MS = 1200;
 
 /* ---------------------------
    Utilities
@@ -676,6 +684,237 @@ function showToast(msg, t=2000){
   setTimeout(() => { el.style.display = 'none'; }, t);
 }
 
+function todayParisStr(){
+  try{
+    return new Intl.DateTimeFormat('sv-SE', {
+      timeZone:'Europe/Paris',
+      year:'numeric',
+      month:'2-digit',
+      day:'2-digit'
+    }).format(new Date());
+  }catch(e){
+    return new Date().toISOString().slice(0,10);
+  }
+}
+
+function getAuthApi(){
+  return window.TA_AUTH || null;
+}
+
+function getSession(){
+  const api = getAuthApi();
+  if(api && typeof api.getSession === 'function'){
+    return api.getSession();
+  }
+  return null;
+}
+
+function getDisplayName(session){
+  if(!session) return '';
+  return String(session.pseudo || session.username || session.name || '').trim();
+}
+
+function isConnected(){
+  return !!getDisplayName(getSession());
+}
+
+function playerKey(session){
+  const s = session || getSession();
+  if(!s) return 'anon';
+  return String(s.id || s.user_id || getDisplayName(s) || 'anon');
+}
+
+function localStateKey(){
+  return `${LOCAL_PREFIX}:${todayParisStr()}:${playerKey()}`;
+}
+
+function clearAutoAdvanceTimer(){
+  if(pendingAdvanceTimer){
+    clearTimeout(pendingAdvanceTimer);
+    pendingAdvanceTimer = null;
+  }
+}
+
+function scheduleAutoAdvance(delayMs = AUTO_ADVANCE_DELAY_MS){
+  clearAutoAdvanceTimer();
+  const wait = Math.max(0, Number(delayMs) || 0);
+  roundAdvanceAt = Date.now() + wait;
+  pendingAdvanceTimer = setTimeout(() => {
+    pendingAdvanceTimer = null;
+    roundAdvanceAt = null;
+    startGame();
+  }, wait);
+}
+
+function syncModeControls(){
+  const btnATP = document.getElementById('btnATP');
+  const btnWTA = document.getElementById('btnWTA');
+  if(btnATP) btnATP.classList.toggle('active', currentTour === 'ATP');
+  if(btnWTA) btnWTA.classList.toggle('active', currentTour === 'WTA');
+
+  document.querySelectorAll('.seg-btn').forEach(btn => {
+    btn.classList.toggle('active', Number(btn.dataset.top) === Number(levelTopN));
+  });
+
+  const cotdBtn = document.getElementById('cotdToggle');
+  if(cotdBtn) cotdBtn.textContent = cotdEnabled ? 'ON' : 'OFF';
+}
+
+function updateGameMeta(){
+  const remainingEl = document.getElementById('remaining');
+  const scoreEl = document.getElementById('score');
+  const levelEl = document.getElementById('levelLabel');
+  const tourEl = document.getElementById('tourLabel');
+  if(remainingEl) remainingEl.textContent = remaining;
+  if(scoreEl) scoreEl.textContent = score;
+  if(levelEl) levelEl.textContent = `Top ${levelTopN}`;
+  if(tourEl) tourEl.textContent = currentTour;
+  syncModeControls();
+  updateSelectedCountryDisplay();
+}
+
+function serializeState(){
+  const safeGuesses = Array.isArray(guesses)
+    ? guesses.map(g => ({
+        player: g && g.player ? g.player : null,
+        comparison: g && g.comparison ? g.comparison : null
+      }))
+    : [];
+
+  return {
+    date: todayParisStr(),
+    currentTour,
+    levelTopN,
+    cotdEnabled,
+    score,
+    remaining,
+    guesses: safeGuesses,
+    target,
+    gameStarted,
+    roundResultVisible,
+    lastRoundWon,
+    lastRoundPoints,
+    roundAdvanceAt,
+    fixedCountry,
+    currentFlagUrl,
+    inputValue: guessInput ? guessInput.value : '',
+    ts: new Date().toISOString()
+  };
+}
+
+function saveState(){
+  try{
+    localStorage.setItem(localStateKey(), JSON.stringify(serializeState()));
+  }catch(e){}
+}
+
+function clearState(){
+  try{
+    localStorage.removeItem(localStateKey());
+  }catch(e){}
+}
+
+function loadState(){
+  try{
+    const raw = localStorage.getItem(localStateKey());
+    if(!raw) return null;
+    const j = JSON.parse(raw);
+    if(!j || typeof j !== 'object') return null;
+    return j;
+  }catch(e){
+    return null;
+  }
+}
+
+function renderGuessesTable(){
+  clearGuessesTable();
+  if(!Array.isArray(guesses) || !guesses.length) return;
+  guesses.forEach((entry, idx) => {
+    if(entry && entry.player && entry.comparison){
+      appendGuessRow(entry.player, entry.comparison, idx + 1);
+    }
+  });
+}
+
+function restoreRoundModalFromState(st){
+  if(!target) return;
+  const won = typeof st.lastRoundWon === 'boolean' ? st.lastRoundWon : Number(st.lastRoundPoints || 0) > 0;
+  const points = Number(st.lastRoundPoints || 0);
+  showRoundResultModal(won, points);
+  const dueAt = Number(st.roundAdvanceAt || 0);
+  const wait = dueAt ? Math.max(0, dueAt - Date.now()) : AUTO_ADVANCE_DELAY_MS;
+  if(wait > 0 || st.roundResultVisible){
+    scheduleAutoAdvance(wait || AUTO_ADVANCE_DELAY_MS);
+    saveState();
+  }
+}
+
+function restoreFromState(st){
+  if(!st || st.date !== todayParisStr()) return false;
+
+  currentTour = String(st.currentTour || currentTour || 'ATP').toUpperCase();
+  levelTopN = Number(st.levelTopN || levelTopN || 20);
+  cotdEnabled = !!st.cotdEnabled;
+
+  score = Number(st.score || 0);
+  remaining = Number.isFinite(Number(st.remaining)) ? Number(st.remaining) : MAX_TRIES;
+  guesses = Array.isArray(st.guesses)
+    ? st.guesses.map(g => ({
+        player: g && (g.player || g.guessPlayer || null),
+        comparison: g && g.comparison ? g.comparison : null
+      })).filter(g => g.player && g.comparison)
+    : [];
+
+  target = st.target || null;
+  if(!target) return false;
+  gameStarted = st.gameStarted !== false;
+  roundResultVisible = !!st.roundResultVisible;
+  lastRoundWon = typeof st.lastRoundWon === 'boolean' ? st.lastRoundWon : null;
+  lastRoundPoints = Number(st.lastRoundPoints || 0);
+  roundAdvanceAt = st.roundAdvanceAt || null;
+  fixedCountry = st.fixedCountry || (target && target.represented_country) || fixedCountry;
+  currentFlagUrl = st.currentFlagUrl || null;
+
+  guessedNames = new Set(guesses.map(g => (g.player && g.player.full_name ? String(g.player.full_name).trim() : '')).filter(Boolean));
+
+  updateGameMeta();
+  applyTourTheme();
+  renderCotdBanner();
+  renderCountryText();
+  renderGuessesTable();
+
+  const inputValue = document.getElementById('guessInput');
+  if(inputValue){
+    inputValue.value = String(st.inputValue || '');
+  }
+
+  if(target){
+    updateSelectedCountryDisplay();
+  }
+
+  if(roundResultVisible){
+    restoreRoundModalFromState(st);
+  } else {
+    clearAutoAdvanceTimer();
+    const modal = document.getElementById('modal');
+    if(modal){
+      modal.classList.remove('show');
+      modal.setAttribute('aria-hidden', 'true');
+    }
+  }
+
+  saveState();
+  return true;
+}
+
+function restoreSavedGameIfAny(){
+  const saved = loadState();
+  if(saved && restoreFromState(saved)){
+    return true;
+  }
+  return false;
+}
+
 /* scoring */
 function scoreForGuessNumber(guessNumber){
   if(guessNumber <= 1) return 100;
@@ -694,23 +933,6 @@ function scoreForGuessNumber(guessNumber){
 /* ---------------------------
    Auth helpers (shared state from /js/auth.js)
 ---------------------------- */
-function getAuthApi(){
-  return window.TA_AUTH || null;
-}
-
-function getSession(){
-  const api = getAuthApi();
-  if(api && typeof api.getSession === 'function'){
-    return api.getSession();
-  }
-  return null;
-}
-
-function getDisplayName(session){
-  if(!session) return '';
-  return String(session.pseudo || session.username || '').trim();
-}
-
 function closeExistingDropdown(){
   const existing = document.querySelector('.user-dropdown');
   if(existing) existing.remove();
@@ -930,6 +1152,7 @@ function showSuggestions(list){
     li.addEventListener('click', () => {
       guessInput.value = pl.full_name;
       suggestionsList.style.display = 'none';
+      saveState();
       guessInput.focus();
     });
 
@@ -984,7 +1207,7 @@ function setSuggestionHighlight(idx){
   }
 }
 
-guessInput.addEventListener('input', () => { updateSuggestions(); });
+guessInput.addEventListener('input', () => { updateSuggestions(); saveState(); });
 guessInput.addEventListener('focus', () => { updateSuggestions(); });
 
 document.addEventListener('click', (e) => {
@@ -1172,10 +1395,10 @@ function clearGuessesTable(){
   document.querySelector('#guessesTable tbody').innerHTML = '';
 }
 
-function appendGuessRow(guessPlayer, comparison){
+function appendGuessRow(guessPlayer, comparison, indexOverride = null){
   const tbody = document.querySelector('#guessesTable tbody');
   const tr = document.createElement('tr');
-  const idx = guesses.length;
+  const idx = indexOverride ?? guesses.length;
   if(comparison.nameMatch) tr.classList.add('good');
 
   const tdIndex = document.createElement('td');
@@ -1254,10 +1477,11 @@ function handleGuess(name){
 
   const comparison = comparePlayers(guessPlayer, target);
   guesses.push({player: guessPlayer, comparison});
-  appendGuessRow(guessPlayer, comparison);
+  appendGuessRow(guessPlayer, comparison, guesses.length);
 
   guessInput.value = '';
   suggestionsList.style.display = 'none';
+  saveState();
 
   if(comparison.nameMatch){
     const points = scoreForGuessNumber(guesses.length);
@@ -1275,7 +1499,7 @@ function handleGuess(name){
 }
 
 /* reveal */
-function revealAnswer(won, gainedPoints){
+function showRoundResultModal(won, gainedPoints){
   const modal = document.getElementById('modal');
   const title = document.getElementById('modalTitle');
   const text = document.getElementById('modalText');
@@ -1310,6 +1534,15 @@ function revealAnswer(won, gainedPoints){
     modal.classList.remove('show');
     modal.setAttribute('aria-hidden','true');
   };
+}
+
+function revealAnswer(won, gainedPoints){
+  lastRoundWon = !!won;
+  lastRoundPoints = Number(gainedPoints || 0);
+  roundResultVisible = true;
+  showRoundResultModal(lastRoundWon, lastRoundPoints);
+  scheduleAutoAdvance(AUTO_ADVANCE_DELAY_MS);
+  saveState();
 }
 
 /* ---------------------------
@@ -1496,6 +1729,12 @@ function pickRandomTargetFromPool(tour, topN, fixedByCountry = null){
 }
 
 function startGame(){
+  clearAutoAdvanceTimer();
+  roundResultVisible = false;
+  roundAdvanceAt = null;
+  lastRoundWon = null;
+  lastRoundPoints = 0;
+
   remaining = MAX_TRIES;
   guesses = [];
   guessedNames.clear();
@@ -1504,6 +1743,7 @@ function startGame(){
   document.getElementById('score').textContent = score;
   document.getElementById('levelLabel').textContent = `Top ${levelTopN}`;
   document.getElementById('tourLabel').textContent = currentTour;
+  syncModeControls();
 
   let usedDailyCandidate = false;
 
@@ -1536,6 +1776,7 @@ function startGame(){
   renderCotdBanner();
   renderCountryText();
   clearGuessesTable();
+  saveState();
 }
 
 /* ---------------------------
@@ -1543,7 +1784,8 @@ function startGame(){
 ---------------------------- */
 function updateAuthUIAndMaybeRestart(){
   renderAuthBox();
-  if(gameStarted){
+  const restored = restoreSavedGameIfAny();
+  if(!restored && gameStarted){
     updateSelectedCountryDisplay();
   }
 }
@@ -1622,7 +1864,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       modal.setAttribute('aria-hidden','true');
     });
 
-    startGame();
+    if(!restoreSavedGameIfAny()){
+      startGame();
+    }
 
     const authApi = getAuthApi();
     if(authApi && typeof authApi.onAuthChange === 'function'){
@@ -1637,6 +1881,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateAuthUIAndMaybeRestart();
       });
     }
+
+    window.addEventListener('beforeunload', () => {
+      saveState();
+    });
   } catch(err){
     console && console.error && console.error(err);
     showToast('Initialization error');

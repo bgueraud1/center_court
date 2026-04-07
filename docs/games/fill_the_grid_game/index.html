@@ -183,7 +183,112 @@
     return !!(s && s.pseudo);
   }
 
-  function renderLbBox(){
+  
+
+function todayParisStr(){
+  try{
+    return new Intl.DateTimeFormat('sv-SE', {
+      timeZone:'Europe/Paris',
+      year:'numeric',
+      month:'2-digit',
+      day:'2-digit'
+    }).format(new Date());
+  }catch(e){
+    return new Date().toISOString().slice(0,10);
+  }
+}
+
+function playerKey(session){
+  const s = session || getSession();
+  if(!s) return 'anon';
+  return String(s.id || s.user_id || s.pseudo || s.username || 'anon');
+}
+
+function localStateKey(){
+  return `${LOCAL_PREFIX}:${todayParisStr()}:${playerKey()}:${mode}`;
+}
+
+function syncScoreChip(){
+  try{
+    if(scoreEl) scoreEl.textContent = String(computeScore());
+  }catch(e){}
+}
+
+function saveState(){
+  try{
+    const payload = {
+      date: todayParisStr(),
+      mode,
+      gameOver: !!gameOver,
+      controlsDisabled: !!controlsDisabled,
+      gameBlockedDueToExisting: !!gameBlockedDueToExisting,
+      cellState,
+      score: (() => {
+        try { return computeScore(); } catch(e) { return 0; }
+      })(),
+      ts: new Date().toISOString()
+    };
+    localStorage.setItem(localStateKey(), JSON.stringify(payload));
+  }catch(e){}
+}
+
+function clearState(){
+  try{
+    localStorage.removeItem(localStateKey());
+  }catch(e){}
+}
+
+function loadState(){
+  try{
+    const raw = localStorage.getItem(localStateKey());
+    if(!raw) return null;
+    const j = JSON.parse(raw);
+    if(!j || typeof j !== 'object') return null;
+    return j;
+  }catch(e){
+    return null;
+  }
+}
+
+function restoreState(){
+  const st = loadState();
+  if(!st) return false;
+  if(st.date !== todayParisStr()) return false;
+  if(String(st.mode || '') !== String(mode)) return false;
+  if(!gridData || !Array.isArray(gridData.rows) || !Array.isArray(gridData.cols)) return false;
+
+  const source = st.cellState && typeof st.cellState === 'object' ? st.cellState : {};
+  cellState = {};
+  initCellState();
+
+  for(const [key, val] of Object.entries(source)){
+    const match = key.match(/^(\d+)-(\d+)$/);
+    if(!match) continue;
+    const r = Number(match[1]);
+    const c = Number(match[2]);
+    if(!Number.isInteger(r) || !Number.isInteger(c)) continue;
+    if(r < 0 || c < 0) continue;
+    if(r >= gridData.rows.length || c >= gridData.cols.length) continue;
+    cellState[key] = {
+      locked: !!(val && val.locked),
+      id: val && val.id !== undefined && val.id !== null ? String(val.id) : null,
+      name: val && val.name !== undefined && val.name !== null ? String(val.name) : null
+    };
+  }
+
+  gameOver = !!st.gameOver;
+  renderBoard();
+  syncScoreChip();
+
+  if(gameOver){
+    setControlsDisabled(true);
+  } else {
+    setControlsDisabled(false);
+  }
+
+  return true;
+}
+function renderLbBox(){
     const placeholder = document.getElementById('lbBoxPlaceholder');
     if (!placeholder) return;
 
@@ -291,6 +396,7 @@
   };
 
   const GAME_ID = 'gill_the_grid'; // keep your current id to avoid breaking existing leaderboard history
+  const LOCAL_PREFIX = 'fill_the_grid_state_v1';
 
   const COUNTRY_NAMES = {
     'RUS':'Russia','FRA':'France','ESP':'Spain','GBR':'United Kingdom','USA':'United States',
@@ -430,6 +536,8 @@
       gameOver = false;
       initCellState();
       renderBoard();
+      syncScoreChip();
+      saveState();
       console.info('[GRID] loaded', path);
     } catch (e){
       console.error('Failed loading grid JSON', e);
@@ -648,6 +756,8 @@
       closeModal();
       if (checkAllFillableFilled()){
         gameOver = true;
+        syncScoreChip();
+        saveState();
         const score = computeScore();
         showScore(score);
       }
@@ -681,6 +791,8 @@
     ok.style.color='var(--good-text)';
     ok.textContent='✔';
     node.appendChild(ok);
+    syncScoreChip();
+    saveState();
   }
 
   function checkAllFillableFilled(){
@@ -711,6 +823,8 @@
       }
     }
     gameOver = true;
+    syncScoreChip();
+    saveState();
     const score = computeScore();
     showScore(score);
   }
@@ -750,9 +864,13 @@
     return points;
   }
 
-  function showScore(s){
+  function showScore(s, submit = true){
     scoreValue.textContent = s;
     scoreOverlay.style.display = 'block';
+    syncScoreChip();
+    saveState();
+
+    if(!submit) return;
 
     const displayName = getDisplayName();
 
@@ -767,9 +885,12 @@
 
   function onReset(){
     if (controlsDisabled || gameBlockedDueToExisting){ showToast('Check ongoing — reset unavailable'); return; }
+    clearState();
     gameOver = false;
     initCellState();
     renderBoard();
+    syncScoreChip();
+    saveState();
   }
 
   const LB_QUEUE_KEY_FILLGRID = 'lb_score_queue_fillgrid_v1';
@@ -1021,25 +1142,41 @@
     _ensureCheckRunning = true;
     try {
       const check = await checkUserPlayedToday(modeString);
+      await loadGrid(mode);
+      const restored = restoreState();
+
       if(check && check.exists){
-        showAlreadyPlayedModal(check, modeString);
-        _ensureCheckRunning = false;
-        if(_ensureRecheckRequested){
-          _ensureRecheckRequested = false;
-          setTimeout(()=> ensureModeCheckedAndStart(), 50);
+        gameBlockedDueToExisting = true;
+        updateControlsDisabledUI();
+        document.getElementById('infoLine').textContent = restored
+          ? 'Progress restored. This variant is already completed today.'
+          : 'This variant has already been completed today.';
+        if(!restored){
+          showAlreadyPlayedModal(check, modeString);
         }
-        return;
       } else {
-        await loadGrid(mode);
-        setControlsDisabled(false);
-        document.getElementById('infoLine').textContent = 'Game ready.';
-        _ensureCheckRunning = false;
+        gameBlockedDueToExisting = false;
+        updateControlsDisabledUI();
+        if(restored){
+          document.getElementById('infoLine').textContent = gameOver ? 'Game restored.' : 'Progress restored.';
+        } else {
+          document.getElementById('infoLine').textContent = 'Game ready.';
+          saveState();
+        }
       }
+
+      _ensureCheckRunning = false;
     } catch(e){
       console.warn('ensureModeCheckedAndStart error', e);
       await loadGrid(mode);
+      const restored = restoreState();
+      if(restored){
+        document.getElementById('infoLine').textContent = gameOver ? 'Game restored.' : 'Progress restored.';
+      } else {
+        document.getElementById('infoLine').textContent = 'Game ready.';
+        saveState();
+      }
       setControlsDisabled(false);
-      document.getElementById('infoLine').textContent = 'Game ready.';
       _ensureCheckRunning = false;
     }
 
@@ -1146,6 +1283,12 @@
           }
         });
       }
+
+      setInterval(() => {
+        if (isConnected() && !gameBlockedDueToExisting){
+          saveState();
+        }
+      }, 4000);
 
       console.info('[INIT] done');
     } catch (err) {
