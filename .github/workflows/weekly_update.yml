@@ -79,7 +79,6 @@ jobs:
           echo "On branch: $(git branch --show-current)"
           git status --porcelain || true
 
-      # Run main.py with explicit RANKINGS_DIR absolute path (workspace)
       - name: Run main.py (update CSV)
         working-directory: ${{ github.workspace }}
         env:
@@ -100,9 +99,6 @@ jobs:
           newest=$(find wta_rankings -type f -name 'data_*.csv' -printf '%T@ %p\n' | sort -n | tail -n1 | cut -d' ' -f2-)
           [ -n "$newest" ] && echo "Newest: $newest" && head -n 5 "$newest" || echo "No data_*.csv found in wta_rankings"
 
-      # (Optional) run ATP scraper similarly if you need it; omitted here for brevity or keep your existing ATP section
-
-      # Recompute best rankings etc.
       - name: Recompute best rankings (WTA)
         run: |
           python3 scripts/recompute_best_rankings.py --rankings-dir wta_rankings --csv player_data_wta.csv
@@ -207,9 +203,6 @@ jobs:
           python scripts/generate_stats_leaderboards.py --players-dir ./docs/players_atp --out-dir ./docs/leaderboards --players-csv ./player_data_atp.csv
           python scripts/generate_stats_leaderboards_wta.py --players-dir ./docs/players --out-dir ./docs/leaderboards_wta --players-csv ./player_data_wta.csv
 
-      # ---------------------------
-      # Commit only newly created/untracked ranking CSVs + docs & CSVs
-      # ---------------------------
       - name: Commit ranking CSVs & docs (safe, selective)
         env:
           GIT_AUTHOR_NAME: "github-actions[bot]"
@@ -277,7 +270,7 @@ jobs:
           git status --porcelain
 
           if [ -n "$(git diff --cached --name-only)" ]; then
-            git commit -m "chore(automated): weekly update player DB + rebuild docs" || { echo "commit failed"; exit 1; }
+            git commit -m "chore(automated): weekly update player DB + rebuild docs [skip ci]" || { echo "commit failed"; exit 1; }
           else
             echo "No generated changes to commit"
           fi
@@ -317,7 +310,6 @@ jobs:
           git remote set-url origin "https://x-access-token:${AUTH}@github.com/${{ github.repository }}" || true
           git fetch origin main --quiet || true
 
-          # Push the tmp branch that already contains the commit(s)
           git push --set-upstream origin "${TMP_BRANCH}" --force-with-lease || git push --set-upstream origin "${TMP_BRANCH}"
 
           MAX_RETRIES=4
@@ -343,12 +335,15 @@ jobs:
               git merge --ff-only origin/main || git merge --no-edit origin/main || true
             fi
 
-            if git merge --no-edit --no-ff "${TMP_BRANCH}"; then
+            if git merge --no-ff --no-edit "${TMP_BRANCH}"; then
               echo "Merge of ${TMP_BRANCH} into main succeeded locally."
             else
               echo "Merge reported issues; attempting ours strategy."
-              git merge --strategy-option=ours --no-edit "${TMP_BRANCH}" || true
+              git merge --abort || true
+              git merge -s ours -m "chore(automated): weekly update player DB + rebuild docs [skip ci]" "${TMP_BRANCH}" || true
             fi
+
+            git commit --amend -m "chore(automated): weekly update player DB + rebuild docs [skip ci]" || true
 
             echo "Attempting to push main to origin (attempt ${attempt})..."
             if git push origin HEAD:main; then
@@ -369,15 +364,3 @@ jobs:
 
           echo "Done. Remote refs:"
           git ls-remote --heads origin main "${TMP_BRANCH}" || true
-
-      - name: Trigger Netlify deploy via build hook
-        if: ${{ success() }}
-        env:
-          NETLIFY_BUILD_HOOK: ${{ secrets.NETLIFY_BUILD_HOOK }}
-        run: |
-          if [ -z "$NETLIFY_BUILD_HOOK" ]; then
-            echo "No NETLIFY_BUILD_HOOK set — skipping deploy trigger"
-            exit 0
-          fi
-          curl -s -X POST "$NETLIFY_BUILD_HOOK" -o /tmp/netlify_hook_resp.txt -w "\nHTTP_STATUS:%{http_code}\n"
-          cat /tmp/netlify_hook_resp.txt || true

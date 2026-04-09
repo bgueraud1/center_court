@@ -231,9 +231,6 @@ jobs:
           wta_itf_first_specs = []
           wta_full_specs = []
 
-          # -----------------------
-          # ATP
-          # -----------------------
           atp_data = json.loads(atp_path.read_text(encoding="utf-8"))
           for group in atp_data.get("TournamentDates", []):
               for t in group.get("Tournaments", []):
@@ -271,9 +268,6 @@ jobs:
                       if current_count is None or current_count < expected_full:
                           atp_score_specs.append(f"{tournament_id}:{year}:{draw_size}:{slug}")
 
-          # -----------------------
-          # WTA
-          # -----------------------
           wta_data = json.loads(wta_path.read_text(encoding="utf-8"))
           for t in wta_data.get("content", []):
               tournament_group = t.get("tournamentGroup") or {}
@@ -521,7 +515,6 @@ jobs:
 
           staged = []
 
-          # ATP: file complet si le JSON contient exactement draw_size - 1 matchs
           atp_data = read_json(atp_path) or {}
           for group in atp_data.get("TournamentDates", []):
               for t in group.get("Tournaments", []):
@@ -550,7 +543,6 @@ jobs:
                           "found_matches": got,
                       })
 
-          # WTA: file complet si le JSON contient exactement singlesDrawSize - 1 matchs
           wta_data = read_json(wta_path) or {}
           for t in wta_data.get("content", []):
               try:
@@ -640,7 +632,7 @@ jobs:
             exit 0
           fi
 
-          git commit -m "ci(brackets): update ATP/WTA tournament JSONs"
+          git commit -m "ci(brackets): update ATP/WTA tournament JSONs [skip ci]"
 
           echo "Pushing temporary branch..."
           git push --set-upstream origin "${TMP_BRANCH}" --force-with-lease || \
@@ -668,6 +660,8 @@ jobs:
               echo "Merge conflict or non-fast-forward; trying a safe merge strategy."
               git merge --strategy-option=ours --no-edit "${TMP_BRANCH}" || true
             fi
+
+            git commit --amend -m "ci(brackets): update ATP/WTA tournament JSONs [skip ci]" || true
 
             if [ -n "$(git diff --cached --name-only --diff-filter=D || true)" ]; then
               echo "Unstaging deletions to avoid removing remote files."

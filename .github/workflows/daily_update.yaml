@@ -6,6 +6,7 @@ permissions:
 on:
   schedule:
     # Deux crons UTC pour couvrir l'alternance CET/CEST.
+    # Le garde-fou horaire ci-dessous tolère un léger retard du runner.
     - cron: '30 22 * * *'  # ~00:30 Europe/Paris
     - cron: '30 23 * * *'  # ~00:30 Europe/Paris
   workflow_dispatch: {}
@@ -82,7 +83,7 @@ jobs:
           echo "--- now calling check_and_dispatch_update_tournament.py ---"
           python3 scripts/check_and_dispatch_update_tournament.py
 
-      - name: Decide whether to proceed (Europe/Paris hour in [00:00..00:59])
+      - name: Decide whether to proceed (Europe/Paris window)
         id: check_time
         run: |
           python - <<'PY'
@@ -97,7 +98,7 @@ jobs:
               now = datetime.now(timezone.utc)
 
           print("Europe/Paris now:", now.isoformat())
-          proceed = (now.hour == 0)
+          proceed = (now.hour == 0 and now.minute < 55)
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
               fh.write(f"proceed={str(proceed).lower()}\n")

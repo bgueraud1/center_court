@@ -1,14 +1,12 @@
 ﻿name: Build and publish maps
 
-# build_and_publish.yaml (en haut)
 on:
   push:
     branches: [ main ]
     paths-ignore:
       - 'docs/**'
+  workflow_dispatch:
 
-
-# permit CI to write back to repo (needed for git push)
 permissions:
   contents: write
 
@@ -21,21 +19,19 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
-          # persist the token in the checked-out repo so subsequent git push uses it
           persist-credentials: true
 
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
+
       - name: Install dependencies (filter known-bad entries)
         run: |
           python -m pip install --upgrade pip
-          # prefer requirements-build.txt if present, fallback to requirements.txt
           if [ -f requirements-build.txt ]; then
             pip install -r requirements-build.txt
           elif [ -f requirements.txt ]; then
-            # create a filtered requirements file to avoid installing a bogus package named 'time'
             grep -v -E '^\s*(time)\s*$' requirements.txt > /tmp/reqs_filtered.txt || true
             if [ -s /tmp/reqs_filtered.txt ]; then
               pip install -r /tmp/reqs_filtered.txt
@@ -46,9 +42,7 @@ jobs:
             echo "No requirements file found; skipping pip install"
           fi
 
-
       - name: Run build script
-        # Set SKIP_GEOCODE=1 to avoid network geocoding in CI (recommended)
         env:
           SKIP_GEOCODE: "1"
         run: |
@@ -66,25 +60,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # If docs are in .gitignore, use -f, otherwise plain add is OK.
-          # Replace the next line by `git add docs` if you removed docs from .gitignore.
           git add -f docs || true
 
-          # show staged changes for debugging
           git status --porcelain
-          git commit -m "chore: build docs (CI)" || echo "No changes to commit"
+          git commit -m "chore: build docs (CI) [skip ci]" || echo "No changes to commit"
           git push origin HEAD:main
-
-      - name: Trigger Netlify deploy via build hook
-        if: ${{ success() }}
-        env:
-          NETLIFY_BUILD_HOOK: ${{ secrets.NETLIFY_BUILD_HOOK }}
-        run: |
-          if [ -z "$NETLIFY_BUILD_HOOK" ]; then
-            echo "No NETLIFY_BUILD_HOOK set — skipping deploy trigger"
-            exit 0
-          fi
-          echo "Calling Netlify build hook..."
-          curl -s -X POST "$NETLIFY_BUILD_HOOK" -o /tmp/netlify_hook_resp.txt -w "\nHTTP_STATUS:%{http_code}\n"
-          echo "Netlify response:"
-          cat /tmp/netlify_hook_resp.txt || true

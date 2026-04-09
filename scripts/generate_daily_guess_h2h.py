@@ -6,6 +6,8 @@ Version corrigée :
 - les CSV ATP/WTA sont passés en arguments
 - le dossier de sortie et le fichier JSON de sortie sont aussi configurables
 - lecture CSV un peu plus robuste
+- seed basé sur Europe/Paris pour rester cohérent avec le workflow
+- écriture JSON atomique pour éviter les fichiers partiellement écrits
 """
 import csv
 import os
@@ -13,9 +15,19 @@ import json
 import random
 import argparse
 from datetime import datetime, timezone
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 import re
 
 BORN_AFTER_YEAR = 1985  # garder > 1985
+
+
+def get_local_now():
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("Europe/Paris"))
+    except Exception:
+        return datetime.now(timezone.utc)
 
 
 def normalize_colname(h):
@@ -212,6 +224,19 @@ def compact_player_object(record):
     return rec
 
 
+def write_json_atomic(path, payload):
+    out_path = Path(path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    data = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+
+    with NamedTemporaryFile("w", delete=False, dir=str(out_path.parent), encoding="utf-8") as tmp:
+        tmp.write(data)
+        tmp_path = Path(tmp.name)
+
+    tmp_path.replace(out_path)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--atp", required=True, help="Chemin vers player_data_atp.csv")
@@ -223,12 +248,13 @@ def main():
 
     born_after_year = args.born_after_year
 
-    seed_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    seed_int = int(datetime.now(timezone.utc).strftime("%Y%m%d"))
+    local_now = get_local_now()
+    seed_date = local_now.strftime("%Y-%m-%d")
+    seed_int = int(local_now.strftime("%Y%m%d"))
     rnd = random.Random(seed_int)
 
-    out_dir = args.out_dir
-    out_json = args.out_json or os.path.join(out_dir, "selected_players.json")
+    out_dir = Path(args.out_dir)
+    out_json = Path(args.out_json) if args.out_json else out_dir / "selected_players.json"
 
     atp_rows = read_csv_rows(args.atp)
     wta_rows = read_csv_rows(args.wta)
@@ -266,11 +292,14 @@ def main():
     else:
         print("[WARN] Aucun joueur ATP retenu.")
 
+    if len(wta_filtered) == 0:
+        print("[WARN] Aucun joueur WTA retenu.")
+
     atp_selected = choose_three_with_levels(atp_filtered, rnd)
     wta_selected = choose_three_with_levels(wta_filtered, rnd)
 
     out = {
-        "generated_at": datetime.now(timezone.utc).isoformat() + "Z",
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "seed_date": seed_date,
         "notes": f"Players born after {born_after_year}, best rank <= 20. Selection deterministic by seed {seed_int}.",
         "atp": [],
@@ -289,9 +318,7 @@ def main():
             "player": compact_player_object(item["player"])
         })
 
-    os.makedirs(out_dir, exist_ok=True)
-    with open(out_json, "w", encoding="utf-8") as f:
-        json.dump(out, f, ensure_ascii=False, indent=2)
+    write_json_atomic(out_json, out)
 
     print(f"[OK] Wrote {out_json} — ATP:{len(out['atp'])} WTA:{len(out['wta'])}")
 
