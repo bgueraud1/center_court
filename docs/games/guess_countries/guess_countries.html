@@ -221,9 +221,37 @@
 ========================================================= */
 const GAME_ID = 'daily_country_guess';
 const MAX_DAILY_POINTS = 100;
-const PLAYERS_JSON_URLS = ['/tools/daily_country_guess.json', '/docs/tools/daily_country_guess.json'];
-const COUNTRY_MAP_URLS = ['/tools/country_to_ioc.json', '/docs/tools/country_to_ioc.json'];
-const WORLD_BORDERS_URLS = ['/tools/geojsons_borders/world_borders.json', '/docs/tools/geojsons_borders/world_borders.json', '/docs/Tools/geojsons_borders/world_borders.json'];
+const PLAYERS_JSON_URLS = [
+  '/tools/daily_country_guess.json',
+  './tools/daily_country_guess.json',
+  '../tools/daily_country_guess.json',
+  '../../tools/daily_country_guess.json',
+  '/docs/tools/daily_country_guess.json',
+  './docs/tools/daily_country_guess.json',
+  '../docs/tools/daily_country_guess.json',
+  '../../docs/tools/daily_country_guess.json'
+];
+const COUNTRY_MAP_URLS = [
+  '/tools/country_to_ioc.json',
+  './tools/country_to_ioc.json',
+  '../tools/country_to_ioc.json',
+  '../../tools/country_to_ioc.json',
+  '/docs/tools/country_to_ioc.json',
+  './docs/tools/country_to_ioc.json',
+  '../docs/tools/country_to_ioc.json',
+  '../../docs/tools/country_to_ioc.json'
+];
+const WORLD_BORDERS_URLS = [
+  '/tools/geojsons_borders/world_borders.json',
+  './tools/geojsons_borders/world_borders.json',
+  '../tools/geojsons_borders/world_borders.json',
+  '../../tools/geojsons_borders/world_borders.json',
+  '/docs/tools/geojsons_borders/world_borders.json',
+  './docs/tools/geojsons_borders/world_borders.json',
+  '../docs/tools/geojsons_borders/world_borders.json',
+  '../../docs/tools/geojsons_borders/world_borders.json',
+  '/docs/Tools/geojsons_borders/world_borders.json'
+];
 const AUTH_HUB_URL = '/games/tennis_arena/index.html';
 const LB_QUEUE_KEY = 'lb_score_queue_daily_country_guess_v1';
 const STATE_PREFIX = 'daily_country_guess_state_v1';
@@ -597,7 +625,15 @@ function buildRoundPayload(target){
 
 function setCurrentTarget(){
   if(!dailyData) return;
-  const raw = dailyData[currentTour.toLowerCase()] || dailyData[currentTour.toUpperCase()] || dailyData[currentTour] || null;
+
+  const modeKey = currentTour.toLowerCase();
+  let raw = dailyData[modeKey] || dailyData[currentTour.toUpperCase()] || dailyData[currentTour] || null;
+  if(Array.isArray(raw)) raw = raw[0] || null;
+  if(!raw && dailyData.data && typeof dailyData.data === 'object'){
+    raw = dailyData.data[modeKey] || dailyData.data[currentTour.toUpperCase()] || dailyData.data[currentTour] || null;
+    if(Array.isArray(raw)) raw = raw[0] || null;
+  }
+
   if(!raw){
     currentTarget = null;
     targetCountries = new Set();
@@ -606,14 +642,14 @@ function setCurrentTarget(){
     return;
   }
 
-  const tournaments = sortTournaments(raw.tournaments || []);
+  const tournaments = sortTournaments(raw.tournaments || raw.matches || raw.events || []);
   const countries = Array.isArray(raw.countries) && raw.countries.length
     ? raw.countries.map(normalizeIoc)
     : distinctCountriesFromTournaments(tournaments);
 
   currentTarget = {
-    player_id: raw.player_id || '',
-    player_name: raw.player_name || '',
+    player_id: raw.player_id || raw.playerId || raw.id || '',
+    player_name: raw.player_name || raw.playerName || raw.name || raw.full_name || '',
     countries,
     countries_count: countries.length,
     tournaments
@@ -1301,9 +1337,15 @@ function gateAndMaybeStart(){
 async function loadDailyData(){
   const j = await fetchFirstJson(PLAYERS_JSON_URLS);
   if(!j) return false;
+
   dailyData = j;
-  dailyData.atp = dailyData.atp || dailyData.ATP || [];
-  dailyData.wta = dailyData.wta || dailyData.WTA || [];
+  const source = (dailyData && typeof dailyData === 'object')
+    ? (dailyData.data && typeof dailyData.data === 'object' ? dailyData.data : dailyData)
+    : {};
+
+  dailyData.atp = source.atp || source.ATP || source.atp_data || source.ATP_data || dailyData.atp || dailyData.ATP || null;
+  dailyData.wta = source.wta || source.WTA || source.wta_data || source.WTA_data || dailyData.wta || dailyData.WTA || null;
+
   return true;
 }
 
@@ -1334,7 +1376,10 @@ function bindControls(){
 }
 
 async function startApp(){
-  if(!assetsReady) return;
+  if(!assetsReady){
+    preloadStatusEl.textContent = 'Waiting for all JSON assets to load.';
+    return;
+  }
   if(!applyAuthGate()) return;
 
   updateStats();
@@ -1382,21 +1427,19 @@ async function init(){
   bindControls();
   renderAuthBox();
 
-  const okData = await loadDailyData();
-  const okMap = await loadWorldBorders();
-  const okCountries = await loadCountryMap();
+  const [okData, okMap, okCountries] = await Promise.all([
+    loadDailyData(),
+    loadWorldBorders(),
+    loadCountryMap()
+  ]);
   assetsReady = !!(okData && okMap && okCountries);
 
-  if(!okData){
-    preloadStatusEl.textContent = 'daily_country_guess.json missing or malformed.';
-    helpTextEl.textContent = 'The daily file could not be loaded.';
-    return;
-  }
-  if(!okCountries){
-    preloadStatusEl.textContent = 'country_to_ioc.json missing or malformed.';
-  }
-  if(!okMap){
-    preloadStatusEl.textContent = 'World borders file missing.';
+  const issues = [];
+  if(!okData) issues.push('daily_country_guess.json');
+  if(!okCountries) issues.push('country_to_ioc.json');
+  if(!okMap) issues.push('world_borders.json');
+  if(issues.length){
+    preloadStatusEl.textContent = `Missing or unreadable: ${issues.join(', ')}.`;
   }
 
   btnATP.classList.toggle('active', currentTour === 'ATP');

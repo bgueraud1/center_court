@@ -834,6 +834,7 @@
               <div class="review-grid" id="reviewGrid"></div>
             </div>
 
+            <div class="side-note" id="helpText" style="display:none"></div>
             <div class="side-note" id="preloadStatus">Idle.</div>
           </div>
         </section>
@@ -879,6 +880,11 @@ const DAILY_WINNERS_URLS = [
   '/docs/tools/daily_selected_winners.json'
 ];
 
+const PLAYERS_CATALOG_URLS = [
+  '/tools/players_catalog.json',
+  '/docs/tools/players_catalog.json'
+];
+
 const WORLD_BORDERS_URLS = [
   '/tools/geojsons_borders/world_borders.json',
   '/docs/tools/geojsons_borders/world_borders.json',
@@ -893,6 +899,7 @@ const STATE_PREFIX = 'daily_winners_qcm_state_v1';
    STATE
 ========================================================= */
 let dailyData = null;
+let playersCatalog = null;
 let worldBorders = null;
 let rounds = [];
 let currentRoundIndex = 0;
@@ -1969,6 +1976,13 @@ async function loadDailyWinners(){
   return true;
 }
 
+async function loadPlayersCatalog(){
+  const j = await fetchFirstJson(PLAYERS_CATALOG_URLS);
+  if(!j) return false;
+  playersCatalog = j;
+  return true;
+}
+
 async function loadWorldBorders(){
   const j = await fetchFirstJson(WORLD_BORDERS_URLS);
   if(!j) return false;
@@ -2376,17 +2390,22 @@ async function init(){
   bindControlButtons();
 
   const okDaily = await loadDailyWinners();
+  const okCatalog = await loadPlayersCatalog();
   const okBorders = await loadWorldBorders();
 
   if(!okDaily){
     preloadStatusEl.textContent = 'daily_selected_winners.json not found or malformed.';
+    document.getElementById('helpText').textContent = 'Le fichier des vainqueurs du jour est introuvable.';
     questionTitleEl.textContent = 'The daily data could not be loaded.';
     questionSubtitleEl.textContent = 'Refresh the page or check the source file.';
     setGuessEnabled(false);
     return;
   }
+  if(!okCatalog){
+    preloadStatusEl.textContent = 'players_catalog.json not found or malformed.';
+  }
   if(!okBorders){
-    preloadStatusEl.textContent = 'World borders file not found; the map will still work.';
+    preloadStatusEl.textContent = 'World borders file not found, map will still work without borders.';
   }
 
   const saved = todayStateStorage();

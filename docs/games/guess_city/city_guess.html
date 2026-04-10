@@ -750,12 +750,16 @@
 const GAME_ID = 'daily_city_guess';
 const DAILY_JSON_URLS = [
   '/tools/daily_city_guess.json',
-  '/docs/tools/daily_city_guess.json'
+  '/docs/tools/daily_city_guess.json',
+  '/daily_city_guess.json',
+  '/docs/daily_city_guess.json'
 ];
 const BORDERS_URLS = [
   '/tools/geojsons_borders/world_borders.json',
   '/docs/tools/geojsons_borders/world_borders.json',
-  '/docs/Tools/geojsons_borders/world_borders.json'
+  '/docs/Tools/geojsons_borders/world_borders.json',
+  '/geojsons_borders/world_borders.json',
+  '/docs/geojsons_borders/world_borders.json'
 ];
 const LB_QUEUE_KEY = 'lb_score_queue_daily_city_guess_v1';
 const LOCAL_PREFIX = 'daily_city_guess_state_v1';
@@ -955,6 +959,20 @@ function sourceColor(source){
 
 function currentModeName(){
   return 'daily_city_guess';
+}
+
+/* =========================================
+   DATA LOAD
+========================================= */
+async function fetchFirstJson(urls){
+  for(const url of urls){
+    try{
+      const r = await fetch(url, { cache:'no-cache' });
+      if(!r.ok) continue;
+      return await r.json();
+    }catch(e){}
+  }
+  return null;
 }
 
 function saveState(){
@@ -1841,6 +1859,7 @@ async function loadAssets(){
   borderGeoJSON = await fetchFirstJson(BORDERS_URLS);
 
   if(!dailyData || !Array.isArray(dailyData.rounds)){
+    console.warn('daily_city_guess: unable to load daily JSON from any known URL', DAILY_JSON_URLS);
     return false;
   }
 
@@ -1857,7 +1876,12 @@ async function loadAssets(){
   })).filter(r => Array.isArray(r.geocode) && r.geocode.length >= 2 && Number.isFinite(r.geocode[0]) && Number.isFinite(r.geocode[1]) && r.tourney_name);
 
   if(!rounds.length){
+    console.warn('daily_city_guess: daily JSON loaded but no valid rounds were found.');
     return false;
+  }
+
+  if(!borderGeoJSON){
+    console.warn('daily_city_guess: world borders JSON not found; game will still run with a default map view.');
   }
 
   assetsReady = true;
