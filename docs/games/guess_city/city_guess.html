@@ -509,7 +509,7 @@
   .modal{
     position:fixed;
     inset:0;
-    background:rgba(2,6,23,0.76);
+    background:rgba(2,6,23,0.48);
     display:flex;
     align-items:center;
     justify-content:center;
@@ -645,7 +645,7 @@
                 <div id="sourcePillHolder"></div>
               </div>
               <div class="hint-box" id="roundHint">
-                Click on the map where you think the tournament is located.
+                Click on the map to place a guess, then validate it with the button or the Space bar.
               </div>
             </div>
 
@@ -682,6 +682,7 @@
             </div>
 
             <div class="actions">
+              <button class="primary" id="validateGuessBtn" type="button" disabled>Validate guess</button>
               <button class="secondary" id="resetLocalBtn" type="button">Reset local progress</button>
             </div>
 
@@ -695,11 +696,11 @@
         <div class="panel map-shell">
           <div class="map-toolbar">
             <div class="current" id="mapTitle">Map</div>
-            <div class="note" id="mapNote">Map is zoomable, boundaries only display.</div>
+            <div class="note" id="mapNote">Map is zoomable. Place a guess, then validate it.</div>
           </div>
           <div id="map"></div>
           <div class="map-footer" id="mapFooter">
-            Click once per round. After your click, the correct position will be revealed and the round will be locked.
+            Click once to place your guess, then validate it. After validation, the correct position, your guess, and the dashed line will stay visible until you move on.
           </div>
         </div>
       </div>
@@ -741,6 +742,7 @@
     </div>
   </div>
 
+
 <script>
 /* =========================================
    CONFIG
@@ -761,12 +763,22 @@ const MAX_TOTAL = 100;
 const MAX_ROUND = 20;
 const MAX_DISTANCE_FULL = 20;
 const MAX_DISTANCE_ZERO = 5000;
+
 const MAP_BOUNDS_STYLE = {
   color:'rgba(255,255,255,0.16)',
   weight:1,
   fillColor:'rgba(255,255,255,0.02)',
   fillOpacity:0.05
 };
+
+const PREVIEW_STYLE = {
+  color:'#f59e0b',
+  radius:7,
+  weight:2,
+  fillColor:'#f59e0b',
+  fillOpacity:0.95
+};
+
 const CLICK_STYLE = {
   color:'#ef4444',
   radius:7,
@@ -774,6 +786,7 @@ const CLICK_STYLE = {
   fillColor:'#ef4444',
   fillOpacity:0.95
 };
+
 const TARGET_STYLE_ATP = {
   color:'#2b6cb0',
   radius:7,
@@ -781,6 +794,7 @@ const TARGET_STYLE_ATP = {
   fillColor:'#2b6cb0',
   fillOpacity:0.95
 };
+
 const TARGET_STYLE_WTA = {
   color:'#9b59b6',
   radius:7,
@@ -796,6 +810,7 @@ let dailyData = null;
 let borderGeoJSON = null;
 let map = null;
 let borderLayer = null;
+let previewLayer = null;
 let clickLayer = null;
 let targetLayer = null;
 let lineLayer = null;
@@ -806,14 +821,13 @@ let totalScore = 0;
 let currentRoundScore = 0;
 let currentDistance = null;
 let currentTarget = null;
-let currentClick = null;
+
+let pendingGuess = null;
 let roundLocked = false;
 let awaitingAdvance = false;
 let gameBlocked = false;
 let assetsReady = false;
 let loading = true;
-let firstRenderDone = false;
-let playingKeyCache = '';
 
 /* =========================================
    DOM
@@ -824,7 +838,7 @@ let gameStateLabel, clueValue, sourcePillHolder, roundHint, roundList;
 let statRound, statTotal, progressFill, progressText;
 let distanceValue, pointsValue, mapTitle, mapNote, mapFooter;
 let modal, modalTitle, modalText, modalTournament, modalDistance, modalPoints, modalTotal, modalExtra, closeModalBtn, nextRoundBtn;
-let resetLocalBtn;
+let validateGuessBtn, resetLocalBtn;
 
 /* =========================================
    UTIL
@@ -895,68 +909,6 @@ function localStateKey(){
   return `${LOCAL_PREFIX}:${todayParisStr()}:${playerKey()}`;
 }
 
-function saveState(){
-  try{
-    const computedTotal = roundScoreTotalFromResults(rounds);
-    const payload = {
-      date: todayParisStr(),
-      currentIndex,
-      totalScore: computedTotal,
-      currentRoundScore,
-      currentDistance,
-      currentTarget,
-      currentClick,
-      roundLocked,
-      awaitingAdvance,
-      gameBlocked,
-      rounds,
-      ts: new Date().toISOString()
-    };
-    localStorage.setItem(localStateKey(), JSON.stringify(payload));
-  }catch(e){}
-  updateHeaderNumbers();
-}
-
-function clearState(){
-  try{
-    localStorage.removeItem(localStateKey());
-  }catch(e){}
-}
-
-function loadState(){
-  try{
-    const raw = localStorage.getItem(localStateKey());
-    if(!raw) return null;
-    const j = JSON.parse(raw);
-    if(!j || typeof j !== 'object') return null;
-    return j;
-  }catch(e){
-    return null;
-  }
-}
-
-function showModal(show=true){
-  modal.classList.toggle('show', show);
-  modal.setAttribute('aria-hidden', show ? 'false' : 'true');
-}
-
-function closeModal(){
-  showModal(false);
-}
-
-function setButtonsEnabled(on){
-  nextRoundBtn.disabled = !on;
-  closeModalBtn.disabled = false;
-}
-
-function canPlay(){
-  return isConnected() && assetsReady && !gameBlocked;
-}
-
-function roundLabel(){
-  return `${Math.min(currentIndex + 1, rounds.length)}/${rounds.length || 5}`;
-}
-
 function clamp(v, min, max){
   return Math.max(min, Math.min(max, v));
 }
@@ -1005,51 +957,567 @@ function currentModeName(){
   return 'daily_city_guess';
 }
 
-/* =========================================
-   DATA LOAD
-========================================= */
-async function fetchFirstJson(urls){
-  for(const url of urls){
+function saveState(){
+  try{
+    const payload = {
+      date: todayParisStr(),
+      currentIndex,
+      totalScore,
+      currentRoundScore,
+      currentDistance,
+      currentTarget,
+      pendingGuess,
+      roundLocked,
+      awaitingAdvance,
+      gameBlocked,
+      rounds,
+      ts: new Date().toISOString()
+    };
+    localStorage.setItem(localStateKey(), JSON.stringify(payload));
+  }catch(e){}
+  updateHeaderNumbers();
+}
+
+function clearState(){
+  try{
+    localStorage.removeItem(localStateKey());
+  }catch(e){}
+}
+
+function loadState(){
+  try{
+    const raw = localStorage.getItem(localStateKey());
+    if(!raw) return null;
+    const j = JSON.parse(raw);
+    if(!j || typeof j !== 'object') return null;
+    return j;
+  }catch(e){
+    return null;
+  }
+}
+
+function showModal(show=true){
+  modal.classList.toggle('show', show);
+  modal.setAttribute('aria-hidden', show ? 'false' : 'true');
+}
+
+function closeModal(){
+  showModal(false);
+}
+
+function canPlay(){
+  return isConnected() && assetsReady && !gameBlocked;
+}
+
+function updateActionButtons(){
+  const canValidate = canPlay() && !!pendingGuess && !roundLocked && !awaitingAdvance;
+  validateGuessBtn.disabled = !canValidate;
+  validateGuessBtn.textContent = pendingGuess ? 'Validate guess' : 'Validate guess';
+}
+
+function updateHeaderNumbers(){
+  const completed = rounds.filter(r => r.points !== undefined).length;
+  chipRound.textContent = `${Math.min(currentIndex + 1, rounds.length)}/${rounds.length}`;
+  chipRoundScore.textContent = `${currentRoundScore}/${MAX_ROUND}`;
+  chipTotal.textContent = `${totalScore}/${MAX_TOTAL}`;
+  chipRemaining.textContent = `${Math.max(0, rounds.length - completed)}`;
+  statRound.textContent = `${Math.min(currentIndex + 1, rounds.length)} / ${rounds.length}`;
+  statTotal.textContent = `${totalScore} / ${MAX_TOTAL}`;
+  progressFill.style.width = `${Math.min(100, (rounds.length ? (completed / rounds.length) * 100 : 0))}%`;
+  progressText.textContent = `${completed} / ${rounds.length} rounds completed`;
+  gameStateLabel.textContent = gameBlocked ? 'Already played today' : (awaitingAdvance ? 'Round complete' : (pendingGuess ? 'Guess placed' : 'In progress'));
+  mapTitle.textContent = `Round ${Math.min(currentIndex + 1, rounds.length)} / ${rounds.length}`;
+  updateActionButtons();
+}
+
+function renderSourcePill(source){
+  sourcePillHolder.innerHTML = '';
+  const pill = document.createElement('div');
+  pill.className = `source-pill ${sourceClass(source)}`;
+  pill.textContent = source || 'ATP';
+  sourcePillHolder.appendChild(pill);
+}
+
+function renderRoundHeader(){
+  const r = rounds[currentIndex];
+  clueValue.textContent = r ? r.tourney_name : '—';
+  renderSourcePill(r ? r.source : 'ATP');
+  roundHint.innerHTML = `
+    Click on the map to place a guess, then validate it with the button or the Space bar.
+    The displayed tourney_name is the only clue.
+  `;
+  mapNote.textContent = 'Map is zoomable. Place a guess, then validate it.';
+}
+
+function renderRoundList(){
+  roundList.innerHTML = '';
+  rounds.forEach((r, idx) => {
+    const item = document.createElement('div');
+    item.className = 'round-item' + (idx === currentIndex && !gameBlocked ? ' active' : '');
+
+    const left = document.createElement('div');
+    left.className = 'left';
+
+    const name = document.createElement('div');
+    name.className = 'name';
+    name.textContent = `${idx + 1}. ${r.tourney_name || '—'}`;
+
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = `${r.source || 'ATP'} • ${r.level || '—'} • ${r.surface || '—'}${r.year ? ` • ${r.year}` : ''}`;
+
+    left.appendChild(name);
+    left.appendChild(meta);
+
+    const right = document.createElement('div');
+    right.className = 'right';
+    if(r.points !== undefined){
+      right.innerHTML = `${r.points} / 20<div class="small">${fmtKm(r.distance_km)}</div>`;
+    } else if(idx === currentIndex && pendingGuess && !awaitingAdvance){
+      right.innerHTML = `Guess placed<div class="small">Validate it</div>`;
+    } else if(idx === currentIndex && awaitingAdvance){
+      right.innerHTML = `Locked<div class="small">Round complete</div>`;
+    } else {
+      right.innerHTML = `Pending<div class="small">No guess yet</div>`;
+    }
+
+    item.appendChild(left);
+    item.appendChild(right);
+    roundList.appendChild(item);
+  });
+}
+
+function updateRoundUI(){
+  const completed = rounds.filter(r => r.points !== undefined).length;
+  statTotal.textContent = `${totalScore} / ${MAX_TOTAL}`;
+  progressFill.style.width = `${Math.min(100, (rounds.length ? (completed / rounds.length) * 100 : 0))}%`;
+  progressText.textContent = `${completed} / ${rounds.length} rounds completed`;
+  distanceValue.textContent = currentDistance === null ? '—' : fmtKm(currentDistance);
+  pointsValue.textContent = `${currentRoundScore}`;
+  renderRoundList();
+  updateHeaderNumbers();
+}
+
+function renderMapFooterForRound(){
+  if(gameBlocked){
+    mapFooter.textContent = 'This daily game has already been played on this account today.';
+    return;
+  }
+  if(awaitingAdvance){
+    mapFooter.textContent = 'Round validated. Review the reveal, then press the button or Space to continue.';
+    return;
+  }
+  if(pendingGuess){
+    mapFooter.textContent = 'Guess placed. Validate it with the button or press Space.';
+    return;
+  }
+  if(currentTarget){
+    mapFooter.textContent = `Round ${currentIndex + 1}: click on the map where ${currentTarget.tourney_name} is located.`;
+    return;
+  }
+  mapFooter.textContent = 'Connect to play.';
+}
+
+function clearRoundOverlays(){
+  if(previewLayer){ try{ map.removeLayer(previewLayer); }catch(e){} previewLayer = null; }
+  if(clickLayer){ try{ map.removeLayer(clickLayer); }catch(e){} clickLayer = null; }
+  if(targetLayer){ try{ map.removeLayer(targetLayer); }catch(e){} targetLayer = null; }
+  if(lineLayer){ try{ map.removeLayer(lineLayer); }catch(e){} lineLayer = null; }
+}
+
+function destroyMap(){
+  try{
+    if(map){
+      map.off();
+      map.remove();
+    }
+  }catch(e){}
+  map = null;
+  borderLayer = null;
+  previewLayer = null;
+  clickLayer = null;
+  targetLayer = null;
+  lineLayer = null;
+}
+
+function popupHtml(kind, km, pts){
+  return `
+    <div class="map-popup">
+      <div class="big">${kind}</div>
+      ${km !== null ? `<div class="small">${fmtKm(km)}</div>` : ''}
+      ${pts !== null ? `<div class="small">${pts} / 20</div>` : ''}
+    </div>
+  `;
+}
+
+function initMap(){
+  destroyMap();
+
+  map = L.map('map', {
+    zoomControl:true,
+    attributionControl:false,
+    scrollWheelZoom:true,
+    doubleClickZoom:true,
+    boxZoom:true,
+    keyboard:true,
+    dragging:true,
+    touchZoom:true,
+    tap:true,
+    worldCopyJump:false
+  });
+
+  if(borderGeoJSON && borderGeoJSON.features){
+    borderLayer = L.geoJSON(borderGeoJSON, { style: MAP_BOUNDS_STYLE }).addTo(map);
     try{
-      const r = await fetch(url, { cache:'no-cache' });
-      if(!r.ok) continue;
-      return await r.json();
+      map.fitBounds(borderLayer.getBounds().pad(0.08));
+    }catch(e){
+      map.setView([20, 0], 2);
+    }
+  } else {
+    map.setView([20,0], 2);
+  }
+
+  map.on('click', onMapClick);
+  setTimeout(() => { try{ map.invalidateSize(); }catch(e){} }, 100);
+}
+
+function renderPendingGuess(){
+  if(!map || !pendingGuess) return;
+  if(previewLayer){ try{ map.removeLayer(previewLayer); }catch(e){} previewLayer = null; }
+  previewLayer = L.layerGroup().addTo(map);
+  L.circleMarker(pendingGuess, PREVIEW_STYLE)
+    .bindPopup(popupHtml('Guess placed', null, null))
+    .addTo(previewLayer);
+}
+
+function revealAnswer(){
+  clearRoundOverlays();
+
+  const clickLatLng = currentClick;
+  const targetLatLng = currentTarget && Array.isArray(currentTarget.geocode)
+    ? [Number(currentTarget.geocode[0]), Number(currentTarget.geocode[1])]
+    : null;
+  const source = currentTarget ? currentTarget.source : 'ATP';
+
+  if(clickLatLng){
+    clickLayer = L.layerGroup().addTo(map);
+    L.circleMarker(clickLatLng, CLICK_STYLE)
+      .bindPopup(popupHtml('Your guess', currentDistance, currentRoundScore))
+      .addTo(clickLayer);
+  }
+
+  if(targetLatLng){
+    const ts = sourceClass(source) === 'wta' ? TARGET_STYLE_WTA : TARGET_STYLE_ATP;
+    targetLayer = L.layerGroup().addTo(map);
+    L.circleMarker(targetLatLng, ts)
+      .bindPopup(popupHtml('Correct answer', 0, MAX_ROUND))
+      .addTo(targetLayer);
+
+    if(clickLatLng){
+      lineLayer = L.polyline([clickLatLng, targetLatLng], {
+        color: sourceColor(source),
+        weight: 2,
+        opacity: 0.85,
+        dashArray: '6 8'
+      }).addTo(map);
+    }
+  }
+}
+
+function onMapClick(e){
+  if(!canPlay()) return;
+  if(roundLocked || awaitingAdvance) return;
+  if(!currentTarget) return;
+
+  pendingGuess = [e.latlng.lat, e.latlng.lng];
+  renderPendingGuess();
+  renderRoundList();
+  renderMapFooterForRound();
+  saveState();
+  updateHeaderNumbers();
+}
+
+function validateCurrentGuess(){
+  if(!canPlay()) return;
+  if(roundLocked || awaitingAdvance) return;
+  if(!currentTarget || !pendingGuess) return;
+
+  currentClick = [Number(pendingGuess[0]), Number(pendingGuess[1])];
+  const targetLat = Number(currentTarget.geocode[0]);
+  const targetLng = Number(currentTarget.geocode[1]);
+  currentDistance = haversineKm(currentClick[0], currentClick[1], targetLat, targetLng);
+  currentRoundScore = scoreForDistance(currentDistance);
+
+  roundLocked = true;
+  awaitingAdvance = true;
+
+  const roundObj = {
+    round_index: currentIndex + 1,
+    source: currentTarget.source,
+    tourney_id: currentTarget.tourney_id,
+    year: currentTarget.year,
+    tourney_name: currentTarget.tourney_name,
+    city: currentTarget.city,
+    geocode: currentTarget.geocode,
+    level: currentTarget.level,
+    surface: currentTarget.surface,
+    click: currentClick,
+    distance_km: currentDistance,
+    points: currentRoundScore
+  };
+
+  rounds[currentIndex].click = currentClick;
+  rounds[currentIndex].distance_km = currentDistance;
+  rounds[currentIndex].points = currentRoundScore;
+  rounds[currentIndex].result = roundObj;
+
+  pendingGuess = null;
+  clearRoundOverlays();
+  revealAnswer();
+  totalScore = roundScoreTotalFromResults(rounds);
+  updateRoundUI();
+  renderMapFooterForRound();
+  saveState();
+  openRoundModal(roundObj);
+}
+
+function openRoundModal(roundObj){
+  const isLast = currentIndex >= rounds.length - 1;
+  modalTitle.textContent = currentRoundScore > 0 ? 'Nice guess!' : 'Round over';
+  modalText.textContent = currentRoundScore > 0
+    ? `You scored ${currentRoundScore} points on this round.`
+    : 'No points on this round.';
+  modalTournament.textContent = roundObj.tourney_name || '—';
+  modalDistance.textContent = fmtKm(roundObj.distance_km);
+  modalPoints.textContent = `${currentRoundScore} / 20`;
+  modalTotal.textContent = `${totalScore} / 100`;
+  modalExtra.innerHTML = `
+    <div style="color:var(--muted)">
+      The tournament clue was <strong style="color:#fff">${esc(roundObj.tourney_name || '—')}</strong>.
+      ${roundObj.source ? ` Source: <strong style="color:#fff">${esc(roundObj.source)}</strong>.` : ''}
+      ${roundObj.level ? ` Level: <strong style="color:#fff">${esc(roundObj.level)}</strong>.` : ''}
+      <div style="margin-top:8px">Press <strong style="color:#fff">Space</strong> or click <strong style="color:#fff">${isLast ? 'Finish' : 'Next round'}</strong> to continue.</div>
+    </div>
+  `;
+  nextRoundBtn.style.display = 'inline-flex';
+  nextRoundBtn.textContent = isLast ? 'Finish' : 'Next round';
+  nextRoundBtn.disabled = false;
+  showModal(true);
+  updateHeaderNumbers();
+}
+
+function openFinalModal(submittedOk = false){
+  modalTitle.textContent = 'Game completed';
+  modalText.textContent = submittedOk
+    ? `Your score has been submitted: ${totalScore} / ${MAX_TOTAL}.`
+    : `Your final score is ${totalScore} / ${MAX_TOTAL}.`;
+  modalTournament.textContent = 'All rounds completed';
+  modalDistance.textContent = '—';
+  modalPoints.textContent = `${totalScore} / 100`;
+  modalTotal.textContent = `${totalScore} / 100`;
+  modalExtra.innerHTML = `
+    <div style="color:var(--muted)">
+      You have completed all ${rounds.length} rounds for today.
+      ${submittedOk ? 'The score was sent to the leaderboard.' : 'The score will be queued if the leaderboard is unavailable.'}
+    </div>
+  `;
+  nextRoundBtn.style.display = 'none';
+  showModal(true);
+}
+
+function setCurrentRound(i){
+  currentIndex = i;
+  currentTarget = rounds[currentIndex] || null;
+  pendingGuess = null;
+  currentClick = null;
+  currentDistance = null;
+  currentRoundScore = 0;
+  roundLocked = false;
+  awaitingAdvance = false;
+  clearRoundOverlays();
+  renderRoundHeader();
+  renderRoundList();
+  updateRoundUI();
+  renderMapFooterForRound();
+  saveState();
+
+  distanceValue.textContent = '—';
+  pointsValue.textContent = '0';
+  if(map && currentTarget){
+    try{
+      map.invalidateSize();
     }catch(e){}
   }
-  return null;
 }
 
-async function loadAssets(){
-  dailyData = await fetchFirstJson(DAILY_JSON_URLS);
-  borderGeoJSON = await fetchFirstJson(BORDERS_URLS);
+async function trySubmitEntry(entry){
+  const gameId = entry.gameId || GAME_ID;
+  const points = Number(entry.points) || 0;
+  const options = entry.options || {};
+  const pseudo = options.displayName || options.pseudo || displayName(getSession()) || null;
+  const mode = options.mode || currentModeName();
+  const meta = options.meta || null;
 
-  if(!dailyData || !Array.isArray(dailyData.rounds)){
-    return false;
+  if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+    try{
+      const res = await window.LEADERBOARD.submitScore(gameId, points, options);
+      if(res && (res.ok === true || res.success === true || res.status === 'ok')){
+        return true;
+      }
+      if(res && res.ok === false && res.error && String(res.error).toLowerCase().includes('already_submitted')){
+        return true;
+      }
+    }catch(e){}
   }
 
-  rounds = dailyData.rounds.slice(0, 5).map((r, idx) => ({
-    round_index: idx + 1,
-    source: String(r.source || '').toUpperCase(),
-    tourney_id: String(r.tourney_id || ''),
-    year: r.year ?? null,
-    tourney_name: String(r.tourney_name || '').trim(),
-    city: String(r.city || '').trim(),
-    geocode: Array.isArray(r.geocode) ? r.geocode.slice(0,2).map(Number) : null,
-    level: r.level || '',
-    surface: r.surface || ''
-  })).filter(r => Array.isArray(r.geocode) && r.geocode.length >= 2 && Number.isFinite(r.geocode[0]) && Number.isFinite(r.geocode[1]) && r.tourney_name);
+  const payload = {
+    game_id: gameId,
+    points,
+    pseudo,
+    mode,
+    meta: typeof meta === 'string' ? meta : (meta ? JSON.stringify(meta) : null),
+    ts: new Date().toISOString()
+  };
 
-  if(!rounds.length){
+  try{
+    const resp = await fetch('/.netlify/functions/submit-score', {
+      method:'POST',
+      credentials:'same-origin',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const txt = await resp.text().catch(() => '');
+    let parsed = null;
+    try{ parsed = txt ? JSON.parse(txt) : null; }catch(e){ parsed = txt; }
+
+    if(resp.ok) return true;
+
+    if(
+      resp.status === 409 ||
+      (parsed && parsed.detail && (parsed.detail.code === 23505 || String(parsed.detail.code) === '23505')) ||
+      (parsed && parsed.error && String(parsed.error).toLowerCase().includes('duplicate'))
+    ){
+      return true;
+    }
+    return false;
+  }catch(e){
     return false;
   }
-
-  assetsReady = true;
-  return true;
 }
 
-/* =========================================
-   AUTH UI
-========================================= */
+function readQueue(){
+  try{ return JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]'); }catch(e){ return []; }
+}
+function writeQueue(q){
+  try{ localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q)); }catch(e){}
+}
+function pushQueue(entry){
+  const q = readQueue();
+  q.push(Object.assign({ ts:new Date().toISOString() }, entry));
+  writeQueue(q);
+}
+function popQueue(){
+  const q = readQueue();
+  q.shift();
+  writeQueue(q);
+}
+function waitForLeaderboard(timeout=4000, interval=200){
+  return new Promise(resolve => {
+    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+      resolve(true);
+      return;
+    }
+    const start = Date.now();
+    const t = setInterval(() => {
+      if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
+        clearInterval(t);
+        resolve(true);
+      } else if(Date.now() - start > timeout){
+        clearInterval(t);
+        resolve(false);
+      }
+    }, interval);
+  });
+}
+async function flushQueue(){
+  const ready = await waitForLeaderboard(4000);
+  if(!ready) return;
+  for(let i=0;i<20;i++){
+    const q = readQueue();
+    if(!q.length) break;
+    const ok = await trySubmitEntry(q[0]);
+    if(ok) popQueue();
+    else break;
+  }
+}
+async function submitFinalScore(){
+  if(rounds.length === 0) return false;
+  const session = getSession();
+  const display = displayName(session) || null;
+  const meta = {
+    date_paris: todayParisStr(),
+    rounds: rounds.length,
+    results: rounds.map((r, idx) => ({
+      round_index: idx + 1,
+      source: r.source,
+      tourney_id: r.tourney_id,
+      tourney_name: r.tourney_name,
+      click: r.click || null,
+      target: r.geocode || null,
+      distance_km: r.distance_km ?? null,
+      points: r.points ?? 0
+    })),
+    display_name: display
+  };
+
+  const entry = {
+    gameId: GAME_ID,
+    points: totalScore,
+    options: {
+      mode: currentModeName(),
+      displayName: display,
+      meta: JSON.stringify(meta)
+    }
+  };
+
+  const ready = await waitForLeaderboard(3000);
+  if(ready){
+    const ok = await trySubmitEntry(entry);
+    if(ok){
+      setTimeout(flushQueue, 250);
+      return true;
+    }
+  }
+
+  pushQueue(entry);
+  setTimeout(flushQueue, 1000);
+  return false;
+}
+
+async function checkAlreadyPlayedToday(){
+  const session = getSession();
+  if(!session) return { exists:false, rows:[] };
+
+  const userId = session.id || session.user_id || null;
+  const pseudo = displayName(session) || null;
+  const dateStr = todayParisStr();
+  let qs = `?game_id=${encodeURIComponent(GAME_ID)}&date=${encodeURIComponent(dateStr)}&check_existing=1&mode=${encodeURIComponent(currentModeName())}`;
+  if(userId) qs += `&user_id=${encodeURIComponent(userId)}`;
+  if(pseudo) qs += `&pseudo=${encodeURIComponent(pseudo)}`;
+
+  try{
+    const resp = await fetch(`/.netlify/functions/leaderboard${qs}`, { credentials:'same-origin' });
+    if(!resp.ok) return { exists:false, rows:[] };
+    const j = await resp.json();
+    if(j && j.ok && j.exists) return { exists:true, rows:j.rows || [] };
+    return { exists:false, rows:j.rows || [] };
+  }catch(e){
+    console.warn('checkAlreadyPlayedToday error', e);
+    return { exists:false, rows:[] };
+  }
+}
+
 function renderAuthBox(){
   authPlaceholder.innerHTML = '';
   const session = getSession();
@@ -1131,515 +1599,10 @@ function toggleDropdown(anchor){
   setTimeout(() => document.addEventListener('click', close), 20);
 }
 
-/* =========================================
-   LEADERBOARD HELPERS
-========================================= */
-function readQueue(){
-  try{ return JSON.parse(localStorage.getItem(LB_QUEUE_KEY) || '[]'); }catch(e){ return []; }
-}
-function writeQueue(q){
-  try{ localStorage.setItem(LB_QUEUE_KEY, JSON.stringify(q)); }catch(e){}
-}
-function pushQueue(entry){
-  const q = readQueue();
-  q.push(Object.assign({ ts:new Date().toISOString() }, entry));
-  writeQueue(q);
-}
-function popQueue(){
-  const q = readQueue();
-  q.shift();
-  writeQueue(q);
-}
-function waitForLeaderboard(timeout=4000, interval=200){
-  return new Promise(resolve => {
-    if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
-      resolve(true);
-      return;
-    }
-    const start = Date.now();
-    const t = setInterval(() => {
-      if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
-        clearInterval(t);
-        resolve(true);
-      } else if(Date.now() - start > timeout){
-        clearInterval(t);
-        resolve(false);
-      }
-    }, interval);
-  });
-}
-async function trySubmitEntry(entry){
-  const gameId = entry.gameId || GAME_ID;
-  const points = Number(entry.points) || 0;
-  const options = entry.options || {};
-  const pseudo = options.displayName || options.pseudo || displayName(getSession()) || null;
-  const mode = options.mode || currentModeName();
-  const meta = options.meta || null;
-
-  if(window.LEADERBOARD && typeof window.LEADERBOARD.submitScore === 'function'){
-    try{
-      const res = await window.LEADERBOARD.submitScore(gameId, points, options);
-      if(res && (res.ok === true || res.success === true || res.status === 'ok')){
-        return true;
-      }
-      if(res && res.ok === false && res.error && String(res.error).toLowerCase().includes('already_submitted')){
-        return true;
-      }
-    }catch(e){}
+function revealPendingGuessFromState(){
+  if(pendingGuess && !awaitingAdvance && !roundLocked){
+    renderPendingGuess();
   }
-
-  const payload = {
-    game_id: gameId,
-    points,
-    pseudo,
-    mode,
-    meta: typeof meta === 'string' ? meta : (meta ? JSON.stringify(meta) : null),
-    ts: new Date().toISOString()
-  };
-
-  try{
-    const resp = await fetch('/.netlify/functions/submit-score', {
-      method:'POST',
-      credentials:'same-origin',
-      headers:{ 'Content-Type':'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    const txt = await resp.text().catch(() => '');
-    let parsed = null;
-    try{ parsed = txt ? JSON.parse(txt) : null; }catch(e){ parsed = txt; }
-
-    if(resp.ok) return true;
-
-    if(
-      resp.status === 409 ||
-      (parsed && parsed.detail && (parsed.detail.code === 23505 || String(parsed.detail.code) === '23505')) ||
-      (parsed && parsed.error && String(parsed.error).toLowerCase().includes('duplicate'))
-    ){
-      return true;
-    }
-    return false;
-  }catch(e){
-    return false;
-  }
-}
-async function flushQueue(){
-  const ready = await waitForLeaderboard(4000);
-  if(!ready) return;
-  for(let i=0;i<20;i++){
-    const q = readQueue();
-    if(!q.length) break;
-    const ok = await trySubmitEntry(q[0]);
-    if(ok) popQueue();
-    else break;
-  }
-}
-async function submitFinalScore(){
-  if(rounds.length === 0) return false;
-  const session = getSession();
-  const display = displayName(session) || null;
-  const meta = {
-    date_paris: todayParisStr(),
-    rounds: rounds.length,
-    results: rounds.map((r, idx) => {
-      const res = r.result || null;
-      return {
-        round_index: idx + 1,
-        source: r.source,
-        tourney_id: r.tourney_id,
-        tourney_name: r.tourney_name,
-        click: r.click || null,
-        target: r.geocode || null,
-        distance_km: r.distance_km ?? null,
-        points: r.points ?? 0
-      };
-    }),
-    display_name: display
-  };
-
-  const entry = {
-    gameId: GAME_ID,
-    points: totalScore,
-    options: {
-      mode: currentModeName(),
-      displayName: display,
-      meta: JSON.stringify(meta)
-    }
-  };
-
-  const ready = await waitForLeaderboard(3000);
-  if(ready){
-    const ok = await trySubmitEntry(entry);
-    if(ok){
-      setTimeout(flushQueue, 250);
-      return true;
-    }
-  }
-
-  pushQueue(entry);
-  setTimeout(flushQueue, 1000);
-  return false;
-}
-
-/* =========================================
-   SERVER DUPLICATE CHECK
-========================================= */
-async function checkAlreadyPlayedToday(){
-  const session = getSession();
-  if(!session) return { exists:false, rows:[] };
-
-  const userId = session.id || session.user_id || null;
-  const pseudo = displayName(session) || null;
-  const dateStr = todayParisStr();
-  let qs = `?game_id=${encodeURIComponent(GAME_ID)}&date=${encodeURIComponent(dateStr)}&check_existing=1&mode=${encodeURIComponent(currentModeName())}`;
-  if(userId) qs += `&user_id=${encodeURIComponent(userId)}`;
-  if(pseudo) qs += `&pseudo=${encodeURIComponent(pseudo)}`;
-
-  try{
-    const resp = await fetch(`/.netlify/functions/leaderboard${qs}`, { credentials:'same-origin' });
-    if(!resp.ok) return { exists:false, rows:[] };
-    const j = await resp.json();
-    if(j && j.ok && j.exists) return { exists:true, rows:j.rows || [] };
-    return { exists:false, rows:j.rows || [] };
-  }catch(e){
-    console.warn('checkAlreadyPlayedToday error', e);
-    return { exists:false, rows:[] };
-  }
-}
-
-/* =========================================
-   MAP
-========================================= */
-function destroyMap(){
-  try{
-    if(map){
-      map.off();
-      map.remove();
-    }
-  }catch(e){}
-  map = null;
-  borderLayer = null;
-  clickLayer = null;
-  targetLayer = null;
-  lineLayer = null;
-}
-
-function popupHtml(kind, km, pts){
-  return `
-    <div class="map-popup">
-      <div class="big">${kind}</div>
-      ${km !== null ? `<div class="small">${fmtKm(km)}</div>` : ''}
-      ${pts !== null ? `<div class="small">${pts} / 20</div>` : ''}
-    </div>
-  `;
-}
-
-function initMap(){
-  destroyMap();
-
-  map = L.map('map', {
-    zoomControl:true,
-    attributionControl:false,
-    scrollWheelZoom:true,
-    doubleClickZoom:true,
-    boxZoom:true,
-    keyboard:true,
-    dragging:true,
-    touchZoom:true,
-    tap:true,
-    worldCopyJump:false
-  });
-
-  if(borderGeoJSON && borderGeoJSON.features){
-    borderLayer = L.geoJSON(borderGeoJSON, { style: MAP_BOUNDS_STYLE }).addTo(map);
-    try{
-      map.fitBounds(borderLayer.getBounds().pad(0.08));
-    }catch(e){
-      map.setView([20, 0], 2);
-    }
-  } else {
-    map.setView([20,0], 2);
-  }
-
-  map.on('click', onMapClick);
-  setTimeout(() => { try{ map.invalidateSize(); }catch(e){} }, 100);
-}
-
-function clearRoundOverlays(){
-  if(clickLayer){ try{ map.removeLayer(clickLayer); }catch(e){} clickLayer = null; }
-  if(targetLayer){ try{ map.removeLayer(targetLayer); }catch(e){} targetLayer = null; }
-  if(lineLayer){ try{ map.removeLayer(lineLayer); }catch(e){} lineLayer = null; }
-}
-
-function revealAnswer(){
-  clearRoundOverlays();
-
-  const clickLatLng = currentClick;
-  const targetLatLng = currentTarget && Array.isArray(currentTarget.geocode) ? [Number(currentTarget.geocode[0]), Number(currentTarget.geocode[1])] : null;
-  const source = currentTarget ? currentTarget.source : 'ATP';
-
-  if(clickLatLng){
-    clickLayer = L.layerGroup().addTo(map);
-    L.circleMarker(clickLatLng, CLICK_STYLE).bindPopup(popupHtml('Your guess', currentDistance, currentRoundScore)).addTo(clickLayer);
-  }
-
-  if(targetLatLng){
-    const ts = sourceClass(source) === 'wta' ? TARGET_STYLE_WTA : TARGET_STYLE_ATP;
-    targetLayer = L.layerGroup().addTo(map);
-    L.circleMarker(targetLatLng, ts).bindPopup(popupHtml('Correct answer', 0, MAX_ROUND)).addTo(targetLayer);
-
-    if(clickLatLng){
-      lineLayer = L.polyline([clickLatLng, targetLatLng], {
-        color: sourceColor(source),
-        weight: 2,
-        opacity: 0.75,
-        dashArray: '6 8'
-      }).addTo(map);
-    }
-  }
-}
-
-function onMapClick(e){
-  if(!canPlay()) return;
-  if(roundLocked || awaitingAdvance) return;
-  if(!currentTarget) return;
-
-  currentClick = [e.latlng.lat, e.latlng.lng];
-  const targetLat = Number(currentTarget.geocode[0]);
-  const targetLng = Number(currentTarget.geocode[1]);
-  currentDistance = haversineKm(e.latlng.lat, e.latlng.lng, targetLat, targetLng);
-  currentRoundScore = scoreForDistance(currentDistance);
-  roundLocked = true;
-  awaitingAdvance = true;
-
-  const roundObj = {
-    round_index: currentIndex + 1,
-    source: currentTarget.source,
-    tourney_id: currentTarget.tourney_id,
-    year: currentTarget.year,
-    tourney_name: currentTarget.tourney_name,
-    city: currentTarget.city,
-    geocode: currentTarget.geocode,
-    level: currentTarget.level,
-    surface: currentTarget.surface,
-    click: currentClick,
-    distance_km: currentDistance,
-    points: currentRoundScore
-  };
-
-  rounds[currentIndex].click = currentClick;
-  rounds[currentIndex].distance_km = currentDistance;
-  rounds[currentIndex].points = currentRoundScore;
-  rounds[currentIndex].result = roundObj;
-
-  currentIndexDisplayRefresh();
-  saveState();
-  revealAnswer();
-  renderRoundList();
-  updateHeaderNumbers();
-  openRoundModal(roundObj);
-}
-
-function currentIndexDisplayRefresh(){
-  chipRound.textContent = `${Math.min(currentIndex + 1, rounds.length)}/${rounds.length}`;
-  statRound.textContent = `${Math.min(currentIndex + 1, rounds.length)} / ${rounds.length}`;
-}
-
-function openRoundModal(roundObj){
-  const isLast = currentIndex >= rounds.length - 1;
-  modalTitle.textContent = currentRoundScore > 0 ? 'Nice guess!' : 'Round over';
-  modalText.textContent = currentRoundScore > 0
-    ? `You scored ${currentRoundScore} points on this round.`
-    : 'No points on this round.';
-  modalTournament.textContent = roundObj.tourney_name || '—';
-  modalDistance.textContent = fmtKm(roundObj.distance_km);
-  modalPoints.textContent = `${currentRoundScore} / 20`;
-  modalTotal.textContent = `${totalScore + currentRoundScore} / 100`;
-  modalExtra.innerHTML = `
-    <div style="color:var(--muted)">
-      The tournament clue was <strong style="color:#fff">${esc(roundObj.tourney_name || '—')}</strong>.
-      ${roundObj.source ? `Source: <strong style="color:#fff">${esc(roundObj.source)}</strong>.` : ''}
-      ${roundObj.level ? ` Level: <strong style="color:#fff">${esc(roundObj.level)}</strong>.` : ''}
-    </div>
-  `;
-  nextRoundBtn.style.display = 'inline-flex';
-  nextRoundBtn.textContent = isLast ? 'Finish' : 'Next round';
-  nextRoundBtn.disabled = false;
-  showModal(true);
-}
-
-function openFinalModal(submittedOk = false){
-  modalTitle.textContent = submittedOk ? 'Game completed' : 'Game completed';
-  modalText.textContent = submittedOk
-    ? `Your score has been submitted: ${totalScore} / ${MAX_TOTAL}.`
-    : `Your final score is ${totalScore} / ${MAX_TOTAL}.`;
-  modalTournament.textContent = 'All rounds completed';
-  modalDistance.textContent = '—';
-  modalPoints.textContent = `${totalScore} / 100`;
-  modalTotal.textContent = `${totalScore} / 100`;
-  modalExtra.innerHTML = `
-    <div style="color:var(--muted)">
-      You have completed all ${rounds.length} rounds for today.
-      ${submittedOk ? 'The score was sent to the leaderboard.' : 'The score will be queued if the leaderboard is unavailable.'}
-    </div>
-  `;
-  nextRoundBtn.style.display = 'none';
-  showModal(true);
-}
-
-/* =========================================
-   RENDER
-========================================= */
-function updateHeaderNumbers(){
-  chipRound.textContent = `${Math.min(currentIndex + 1, rounds.length)}/${rounds.length}`;
-  chipRoundScore.textContent = `${currentRoundScore}/${MAX_ROUND}`;
-  chipTotal.textContent = `${totalScore}/${MAX_TOTAL}`;
-  chipRemaining.textContent = `${Math.max(0, rounds.length - rounds.filter(r => r.points !== undefined).length)}`;
-  statRound.textContent = `${Math.min(currentIndex + 1, rounds.length)} / ${rounds.length}`;
-  statTotal.textContent = `${totalScore} / ${MAX_TOTAL}`;
-  progressFill.style.width = `${Math.min(100, (rounds.length ? (totalScore / MAX_TOTAL) * 100 : 0))}%`;
-  progressText.textContent = `${rounds.filter(r => r.points !== undefined).length} / ${rounds.length} rounds completed`;
-  gameStateLabel.textContent = gameBlocked ? 'Already played today' : (awaitingAdvance ? 'Round complete' : 'In progress');
-  mapTitle.textContent = `Round ${Math.min(currentIndex + 1, rounds.length)} / ${rounds.length}`;
-}
-
-function renderSourcePill(source){
-  sourcePillHolder.innerHTML = '';
-  const pill = document.createElement('div');
-  pill.className = `source-pill ${sourceClass(source)}`;
-  pill.textContent = source || 'ATP';
-  sourcePillHolder.appendChild(pill);
-}
-
-function renderRoundHeader(){
-  const r = rounds[currentIndex];
-  clueValue.textContent = r ? r.tourney_name : '—';
-  renderSourcePill(r ? r.source : 'ATP');
-  roundHint.innerHTML = `
-    Click on the map to place your guess.
-    The displayed tourney_name is the only clue.
-  `;
-  mapNote.textContent = 'Map is zoomable. Click where you think the tournament is located.';
-}
-
-function renderRoundList(){
-  roundList.innerHTML = '';
-  rounds.forEach((r, idx) => {
-    const item = document.createElement('div');
-    item.className = 'round-item' + (idx === currentIndex && !gameBlocked ? ' active' : '');
-
-    const left = document.createElement('div');
-    left.className = 'left';
-
-    const name = document.createElement('div');
-    name.className = 'name';
-    name.textContent = `${idx + 1}. ${r.tourney_name || '—'}`;
-
-    const meta = document.createElement('div');
-    meta.className = 'meta';
-    meta.textContent = `${r.source || 'ATP'} • ${r.level || '—'} • ${r.surface || '—'}${r.year ? ` • ${r.year}` : ''}`;
-
-    left.appendChild(name);
-    left.appendChild(meta);
-
-    const right = document.createElement('div');
-    right.className = 'right';
-    if(r.points !== undefined){
-      right.innerHTML = `${r.points} / 20<div class="small">${fmtKm(r.distance_km)}</div>`;
-    } else {
-      right.innerHTML = `Pending<div class="small">No guess yet</div>`;
-    }
-
-    item.appendChild(left);
-    item.appendChild(right);
-    roundList.appendChild(item);
-  });
-}
-
-function updateRoundUI(){
-  currentIndexDisplayRefresh();
-  updateHeaderNumbers();
-  renderRoundHeader();
-  renderRoundList();
-  if(currentTarget){
-    mapTitle.textContent = `Round ${currentIndex + 1} / ${rounds.length}`;
-  }
-  if(currentTarget){
-    const clue = currentTarget.tourney_name || '—';
-    clueValue.textContent = clue;
-  }
-  distanceValue.textContent = currentDistance === null ? '—' : fmtKm(currentDistance);
-  pointsValue.textContent = `${currentRoundScore}`;
-  progressText.textContent = `${rounds.filter(r => r.points !== undefined).length} / ${rounds.length} rounds completed`;
-}
-
-function updateMapTitle(){
-  const r = rounds[currentIndex];
-  mapTitle.textContent = r ? `Round ${currentIndex + 1} / ${rounds.length}` : 'Map';
-  mapNote.textContent = 'Map is zoomable. Click to choose the tournament city.';
-}
-
-/* =========================================
-   ROUND FLOW
-========================================= */
-function setCurrentRound(i){
-  currentIndex = i;
-  currentTarget = rounds[currentIndex] || null;
-  currentClick = null;
-  currentDistance = null;
-  currentRoundScore = 0;
-  roundLocked = false;
-  awaitingAdvance = false;
-  clearRoundOverlays();
-  renderRoundHeader();
-  updateMapTitle();
-  updateRoundUI();
-  saveState();
-
-  if(map && currentTarget){
-    mapFooter.textContent = `Round ${currentIndex + 1}: click on the map where ${currentTarget.tourney_name} is located.`;
-  }
-  distanceValue.textContent = '—';
-  pointsValue.textContent = '0';
-}
-
-async function advanceRound(){
-  closeModal();
-
-  if(!awaitingAdvance) return;
-
-  // Append round result into the stored completed list
-  totalScore = roundScoreTotalFromResults(rounds.filter(r => r.points !== undefined));
-  awaitingAdvance = false;
-  roundLocked = false;
-
-  if(currentIndex >= rounds.length - 1){
-    // final round has been played
-    totalScore = roundScoreTotalFromResults(rounds);
-    statTotal.textContent = `${totalScore} / ${MAX_TOTAL}`;
-    chipTotal.textContent = `${totalScore}/${MAX_TOTAL}`;
-    updateHeaderNumbers();
-    renderRoundList();
-
-    const submitted = await submitFinalScore();
-    gameBlocked = true;
-    saveState();
-    openFinalModal(submitted);
-    nextRoundBtn.style.display = 'none';
-    return;
-  }
-
-  currentIndex += 1;
-  setCurrentRound(currentIndex);
-  totalScore = roundScoreTotalFromResults(rounds.filter(r => r.points !== undefined));
-  updateHeaderNumbers();
-  renderRoundList();
-  saveState();
-
-  if(map && currentTarget){
-    mapFooter.textContent = `Round ${currentIndex + 1}: click on the map where ${currentTarget.tourney_name} is located.`;
-  }
-  closeModal();
 }
 
 function restoreFromState(st){
@@ -1647,7 +1610,6 @@ function restoreFromState(st){
   if(st.date !== todayParisStr()) return false;
 
   if(Array.isArray(st.rounds) && st.rounds.length){
-    // Restore round data
     rounds = st.rounds.map((r, idx) => ({
       round_index: idx + 1,
       source: String(r.source || '').toUpperCase(),
@@ -1666,35 +1628,32 @@ function restoreFromState(st){
   }
 
   currentIndex = clamp(Number(st.currentIndex || 0), 0, Math.max(0, rounds.length - 1));
-  totalScore = roundScoreTotalFromResults(rounds);
+  totalScore = Number(st.totalScore || roundScoreTotalFromResults(rounds));
   currentRoundScore = Number(st.currentRoundScore || 0);
   currentDistance = st.currentDistance ?? null;
   currentTarget = st.currentTarget || rounds[currentIndex] || null;
-  currentClick = st.currentClick || null;
+  pendingGuess = Array.isArray(st.pendingGuess) ? st.pendingGuess.slice(0,2).map(Number) : null;
   roundLocked = !!st.roundLocked;
   awaitingAdvance = !!st.awaitingAdvance;
   gameBlocked = !!st.gameBlocked;
 
-  updateHeaderNumbers();
+  renderRoundHeader();
   renderRoundList();
-  if(currentTarget){
-    renderRoundHeader();
-  }
+  updateRoundUI();
+  renderMapFooterForRound();
+  updateActionButtons();
 
   if(map && currentTarget){
-    if(currentTarget.geocode && currentTarget.geocode.length >= 2){
-      const tgt = [Number(currentTarget.geocode[0]), Number(currentTarget.geocode[1])];
-      if(borderLayer){
-        try{
-          map.fitBounds(borderLayer.getBounds().pad(0.08));
-        }catch(e){}
-      }
-      if(currentClick && Array.isArray(currentClick)){
-        currentClick = [Number(currentClick[0]), Number(currentClick[1])];
-      }
-      if(st.awaitingAdvance || st.roundLocked){
-        revealAnswer();
-      }
+    if(borderLayer){
+      try{
+        map.fitBounds(borderLayer.getBounds().pad(0.08));
+      }catch(e){}
+    }
+    if(pendingGuess && !awaitingAdvance && !roundLocked){
+      revealPendingGuessFromState();
+    }
+    if(st.awaitingAdvance || st.roundLocked){
+      revealAnswer();
     }
   }
 
@@ -1712,6 +1671,8 @@ function restoreFromState(st){
     gameStateLabel.textContent = 'Already played today';
   } else if(st.awaitingAdvance){
     gameStateLabel.textContent = 'Round complete';
+  } else if(st.pendingGuess){
+    gameStateLabel.textContent = 'Guess placed';
   } else {
     gameStateLabel.textContent = 'In progress';
   }
@@ -1719,11 +1680,42 @@ function restoreFromState(st){
   return true;
 }
 
+async function advanceRound(){
+  if(!awaitingAdvance) return;
+
+  closeModal();
+
+  if(currentIndex >= rounds.length - 1){
+    totalScore = roundScoreTotalFromResults(rounds);
+    awaitingAdvance = false;
+    roundLocked = false;
+    gameBlocked = true;
+    saveState();
+
+    const submitted = await submitFinalScore();
+    openFinalModal(submitted);
+    nextRoundBtn.style.display = 'none';
+    validateGuessBtn.disabled = true;
+    return;
+  }
+
+  currentIndex += 1;
+  setCurrentRound(currentIndex);
+  totalScore = roundScoreTotalFromResults(rounds);
+  saveState();
+  renderRoundList();
+  updateRoundUI();
+  renderMapFooterForRound();
+  closeModal();
+}
+
 async function startFreshIfAllowed(){
   if(!isConnected()){
     gameStateLabel.textContent = 'Connect to play';
     clueValue.textContent = '—';
     mapFooter.textContent = 'Connect to play.';
+    validateGuessBtn.disabled = true;
+    nextRoundBtn.disabled = true;
     return;
   }
 
@@ -1741,7 +1733,8 @@ async function startFreshIfAllowed(){
     modalExtra.innerHTML = '';
     nextRoundBtn.style.display = 'none';
     showModal(true);
-    setButtonsEnabled(false);
+    validateGuessBtn.disabled = true;
+    nextRoundBtn.disabled = true;
     clueValue.textContent = 'Locked for today';
     mapFooter.textContent = 'This daily game has already been played on this account today.';
     return;
@@ -1753,33 +1746,28 @@ async function startFreshIfAllowed(){
       gameBlocked = true;
       renderAuthBox();
       restoreFromState(saved);
-      setButtonsEnabled(false);
+      validateGuessBtn.disabled = true;
+      nextRoundBtn.disabled = true;
       return;
     }
     restoreFromState(saved);
     if(saved.awaitingAdvance && saved.currentTarget){
-      // Keep modal open and next button available
       showModal(true);
-      setButtonsEnabled(true);
       nextRoundBtn.style.display = 'inline-flex';
       nextRoundBtn.textContent = (currentIndex >= rounds.length - 1) ? 'Finish' : 'Next round';
       return;
     }
-    if(saved.currentIndex !== undefined && saved.currentIndex < rounds.length){
-      setCurrentRound(Number(saved.currentIndex || 0));
-      if(map) updateMapTitle();
-      setButtonsEnabled(true);
-      return;
-    }
+    validateGuessBtn.disabled = !pendingGuess;
+    return;
   }
 
-  // Fresh game
   gameBlocked = false;
   totalScore = 0;
   currentIndex = 0;
   currentRoundScore = 0;
   currentDistance = null;
-  currentClick = null;
+  currentTarget = rounds[0] || null;
+  pendingGuess = null;
   roundLocked = false;
   awaitingAdvance = false;
 
@@ -1794,26 +1782,49 @@ async function startFreshIfAllowed(){
   renderRoundList();
   updateHeaderNumbers();
   saveState();
-  setButtonsEnabled(true);
+  validateGuessBtn.disabled = true;
+  nextRoundBtn.disabled = false;
   mapFooter.textContent = `Round 1: click on the map where ${currentTarget.tourney_name} is located.`;
 }
 
-/* =========================================
-   INIT
-========================================= */
 function bindUI(){
   closeModalBtn.addEventListener('click', () => {
     closeModal();
   });
+
   nextRoundBtn.addEventListener('click', async () => {
     nextRoundBtn.disabled = true;
     await advanceRound();
     nextRoundBtn.disabled = false;
   });
+
+  validateGuessBtn.addEventListener('click', () => {
+    validateCurrentGuess();
+  });
+
   resetLocalBtn.addEventListener('click', () => {
     clearState();
     toast('Local progress cleared.');
     window.location.reload();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if(e.code !== 'Space') return;
+    const active = document.activeElement;
+    const typing = active && ['INPUT','TEXTAREA','SELECT'].includes(active.tagName);
+    if(typing) return;
+
+    if(awaitingAdvance && !nextRoundBtn.disabled){
+      e.preventDefault();
+      advanceRound();
+      return;
+    }
+
+    if(pendingGuess && !roundLocked && !awaitingAdvance){
+      e.preventDefault();
+      validateCurrentGuess();
+      return;
+    }
   });
 
   document.addEventListener('click', (e) => {
@@ -1823,6 +1834,34 @@ function bindUI(){
       dd.remove();
     }
   });
+}
+
+async function loadAssets(){
+  dailyData = await fetchFirstJson(DAILY_JSON_URLS);
+  borderGeoJSON = await fetchFirstJson(BORDERS_URLS);
+
+  if(!dailyData || !Array.isArray(dailyData.rounds)){
+    return false;
+  }
+
+  rounds = dailyData.rounds.slice(0, 5).map((r, idx) => ({
+    round_index: idx + 1,
+    source: String(r.source || '').toUpperCase(),
+    tourney_id: String(r.tourney_id || ''),
+    year: r.year ?? null,
+    tourney_name: String(r.tourney_name || '').trim(),
+    city: String(r.city || '').trim(),
+    geocode: Array.isArray(r.geocode) ? r.geocode.slice(0,2).map(Number) : null,
+    level: r.level || '',
+    surface: r.surface || ''
+  })).filter(r => Array.isArray(r.geocode) && r.geocode.length >= 2 && Number.isFinite(r.geocode[0]) && Number.isFinite(r.geocode[1]) && r.tourney_name);
+
+  if(!rounds.length){
+    return false;
+  }
+
+  assetsReady = true;
+  return true;
 }
 
 async function init(){
@@ -1857,6 +1896,7 @@ async function init(){
   modalExtra = document.getElementById('modalExtra');
   closeModalBtn = document.getElementById('closeModalBtn');
   nextRoundBtn = document.getElementById('nextRoundBtn');
+  validateGuessBtn = document.getElementById('validateGuessBtn');
   resetLocalBtn = document.getElementById('resetLocalBtn');
 
   bindUI();
@@ -1869,6 +1909,8 @@ async function init(){
     clueValue.textContent = '—';
     mapFooter.textContent = 'The daily_city_guess.json file is missing or invalid.';
     toast('daily_city_guess.json missing or invalid', 4000);
+    validateGuessBtn.disabled = true;
+    nextRoundBtn.disabled = true;
     return;
   }
 
@@ -1885,7 +1927,8 @@ async function init(){
     gameStateLabel.textContent = 'Connect to play';
     clueValue.textContent = '—';
     mapFooter.textContent = 'Connect to play.';
-    setButtonsEnabled(false);
+    validateGuessBtn.disabled = true;
+    nextRoundBtn.disabled = true;
   }
 
   const authApi = getAuthApi();
@@ -1896,7 +1939,8 @@ async function init(){
         await startFreshIfAllowed();
       } else {
         gameBlocked = false;
-        setButtonsEnabled(false);
+        validateGuessBtn.disabled = true;
+        nextRoundBtn.disabled = true;
         gameStateLabel.textContent = 'Connect to play';
         clueValue.textContent = '—';
         mapFooter.textContent = 'Connect to play.';
@@ -1908,7 +1952,8 @@ async function init(){
       if(isConnected()){
         await startFreshIfAllowed();
       } else {
-        setButtonsEnabled(false);
+        validateGuessBtn.disabled = true;
+        nextRoundBtn.disabled = true;
       }
     });
   }
@@ -1923,5 +1968,6 @@ async function init(){
 
 document.addEventListener('DOMContentLoaded', init);
 </script>
+
 </body>
 </html>

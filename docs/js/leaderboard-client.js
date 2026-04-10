@@ -1,14 +1,7 @@
 /* /js/leaderboard-client.js
    Leaderboard client that fetches data from a server-side GET endpoint.
-   It does NOT read Supabase directly from the browser.
-
-   Expected endpoint response (flexible):
-   - { ok: true, users: [...], scores: [...] }
-   - { ok: true, data: { users: [...], scores: [...] } }
-   - { ok: true, leaderboard: [...] }   // aggregated server-side, optional fallback
-
-   The script is tolerant to missing UI elements, but it works best with the HTML
-   structure previously generated for the leaderboard page.
+   It prefers raw data: { ok:true, users:[...], scores:[...] }.
+   It can also fallback to { ok:true, leaderboard:[...] }.
 */
 (() => {
   'use strict';
@@ -51,14 +44,16 @@
 
   let users = [];
   let scores = [];
+  let serverLeaderboard = [];
   let selectedTour = DEFAULT_TOUR;
   let selectedGame = 'all';
   let selectedPeriod = DEFAULT_PERIOD;
-  let selectedScope = DEFAULT_SCOPE; // kept for compatibility / future extension
+  let selectedScope = DEFAULT_SCOPE;
   let gameList = [];
   let loading = false;
 
   const usersById = new Map();
+  const usersByPseudo = new Map();
 
   function fmt(n) {
     const num = Number(n || 0);
@@ -170,7 +165,7 @@
       id: String(u.id || u.user_id || ''),
       user_id: String(u.user_id || u.id || ''),
       pseudo: String(u.pseudo || u.username || u.name || ''),
-      league: String(u.league || ''),
+      league: String(u.league || '—'),
       league_id: u.league_id !== undefined && u.league_id !== null ? String(u.league_id) : '',
       tour: String(u.tour || '').toUpperCase(),
       country: String(u.country || '')
@@ -180,7 +175,7 @@
   function normalizeScores(rawScores) {
     return (Array.isArray(rawScores) ? rawScores : []).map(s => ({
       id: String(s.id || ''),
-      user_id: String(s.user_id || ''),
+      user_id: s.user_id === null || s.user_id === undefined ? '' : String(s.user_id),
       pseudo: String(s.pseudo || ''),
       game_id: String(s.game_id || ''),
       points: Number(s.points || 0),
@@ -195,11 +190,10 @@
   function extractArraysFromPayload(payload) {
     if (!payload) return { users: [], scores: [], leaderboard: [] };
 
-    // nested response support
     const root = payload.data && typeof payload.data === 'object' ? payload.data : payload;
-
     const usersCandidates = [root.users, root.user_rows, root.userList, root.players, root.profiles];
-    const scoresCandidates = [root.scores, root.score_rows, root.rows, root.entries, root.leaderboard];
+    const scoresCandidates = [root.scores, root.score_rows, root.rows, root.entries];
+    const leaderboardCandidates = [root.leaderboard, root.board, root.results];
 
     let usersRaw = [];
     for (const candidate of usersCandidates) {
@@ -211,14 +205,12 @@
       if (Array.isArray(candidate)) { scoresRaw = candidate; break; }
     }
 
-    // If the endpoint only returns a leaderboard array, it may already be aggregated.
-    const leaderboardRaw = Array.isArray(root.leaderboard) ? root.leaderboard : [];
+    let leaderboardRaw = [];
+    for (const candidate of leaderboardCandidates) {
+      if (Array.isArray(candidate)) { leaderboardRaw = candidate; break; }
+    }
 
-    return {
-      users: usersRaw,
-      scores: scoresRaw,
-      leaderboard: leaderboardRaw
-    };
+    return { users: usersRaw, scores: scoresRaw, leaderboard: leaderboardRaw };
   }
 
   function uniqueGamesFromScores(rows) {
@@ -228,8 +220,7 @@
       if (!g) continue;
       set.add(g);
     }
-    // Nice ordering for the known games, then the rest alphabetically.
-    const preferred = ['guess_player', 'guess_player_h2h', 'gill_the_grid'];
+    const preferred = ['guess_player', 'guess_player_h2h', 'gill_the_grid', 'daily_winners_map', 'daily_city_guess', 'daily_country_guess'];
     const rest = Array.from(set).filter(g => !preferred.includes(g)).sort((a, b) => a.localeCompare(b));
     return preferred.filter(g => set.has(g)).concat(rest);
   }
@@ -245,24 +236,56 @@
 
   function rebuildUsersIndex() {
     usersById.clear();
+    usersByPseudo.clear();
+
     for (const u of users) {
       const key = String(u.user_id || u.id || '');
       if (key) usersById.set(key, u);
+
+      const pseudoKey = String(u.pseudo || '').trim().toLowerCase();
+      if (pseudoKey && !usersByPseudo.has(pseudoKey)) usersByPseudo.set(pseudoKey, u);
     }
+  }
+
+  function inferTourFromRow(row) {
+    const fromUser = String(row?.tour || '').toUpperCase();
+    if (fromUser === 'ATP' || fromUser === 'WTA') return fromUser;
+
+    const mode = String(row?.mode || '').toUpperCase();
+    if (mode.startsWith('ATP')) return 'ATP';
+    if (mode.startsWith('WTA')) return 'WTA';
+    return '';
+  }
+
+  function resolveUserForScore(row) {
+    if (!row) return null;
+
+    const byId = row.user_id ? usersById.get(String(row.user_id)) : null;
+    if (byId) return byId;
+
+    const pseudoKey = String(row.pseudo || '').trim().toLowerCase();
+    if (pseudoKey && usersByPseudo.has(pseudoKey)) return usersByPseudo.get(pseudoKey);
+
+    return null;
   }
 
   function filterScores() {
     const cutoff = periodCutoff(selectedPeriod);
+
     return scores.filter(row => {
-      if (!row.user_id) return false;
-      const user = usersById.get(String(row.user_id));
-      if (!user) return false;
-      if (selectedTour && String(user.tour || '').toUpperCase() !== selectedTour) return false;
+      const user = resolveUserForScore(row);
+      const inferredTour = user?.tour || inferTourFromRow(row);
+
+      if (selectedTour && inferredTour && inferredTour !== selectedTour) return false;
+      if (selectedTour && !inferredTour && user && String(user.tour || '').toUpperCase() !== selectedTour) return false;
+
       if (selectedGame !== 'all' && String(row.game_id || '') !== selectedGame) return false;
+
       if (cutoff) {
         const d = parseRowDate(row);
         if (!d || d < cutoff) return false;
       }
+
       return true;
     });
   }
@@ -271,17 +294,17 @@
     const map = new Map();
 
     for (const row of filteredScores) {
-      const user = usersById.get(String(row.user_id));
-      if (!user) continue;
+      const user = resolveUserForScore(row);
+      const key = user?.user_id || user?.id || row.user_id || `pseudo:${String(row.pseudo || '').trim().toLowerCase()}`;
+      if (!key) continue;
 
-      const key = String(user.user_id || user.id || row.user_id);
       if (!map.has(key)) {
         map.set(key, {
-          user_id: key,
-          pseudo: user.pseudo || row.pseudo || key,
-          league: user.league || '—',
-          league_id: user.league_id || '',
-          tour: user.tour || '',
+          user_id: String(user?.user_id || user?.id || row.user_id || ''),
+          pseudo: user?.pseudo || row.pseudo || key,
+          league: user?.league || '—',
+          league_id: user?.league_id || '',
+          tour: user?.tour || inferTourFromRow(row) || '',
           total: 0,
           scores: 0,
           lastDate: null
@@ -291,6 +314,7 @@
       const entry = map.get(key);
       entry.total += Number(row.points || 0);
       entry.scores += 1;
+
       const d = parseRowDate(row);
       if (d && (!entry.lastDate || d > entry.lastDate)) entry.lastDate = d;
     }
@@ -300,7 +324,7 @@
       .map((entry, idx) => ({ rank: idx + 1, ...entry }));
   }
 
-  function renderTable(rows) {
+  function renderRows(rows) {
     if (!els.tbody) return;
 
     if (!rows.length) {
@@ -312,7 +336,7 @@
       const trClass = String(r.tour || '').toUpperCase() === 'WTA' ? 'wta' : 'atp';
       return `
         <tr class="${trClass}">
-          <td class="rank">${r.rank}</td>
+          <td class="rank">${fmt(r.rank)}</td>
           <td><span class="pseudo">${escapeHtml(r.pseudo || '—')}</span></td>
           <td class="league">${escapeHtml(r.league || '—')}</td>
           <td class="tour">${escapeHtml(r.tour || '—')}</td>
@@ -332,7 +356,7 @@
 
     if (els.titleView) els.titleView.textContent = `${selectedTour} — ${selectedGame === 'all' ? 'Tous les jeux' : selectedGame}`;
     if (els.subtitleView) {
-      els.subtitleView.textContent = `Période : ${periodLabel(selectedPeriod)} · League affichée depuis la table users`;
+      els.subtitleView.textContent = `Période : ${periodLabel(selectedPeriod)} · League lue depuis la table users`;
     }
     if (els.statusView) els.statusView.textContent = `${rows.length ? 'OK' : 'Vide'} · ${filteredScoresCount} score(s) pris en compte`;
   }
@@ -345,42 +369,30 @@
     const rows = aggregateLeaderboard(filteredScores);
 
     updateMeta(rows, filteredScores.length);
-    renderTable(rows);
+    renderRows(rows);
 
     if (els.gameSelect) {
       els.gameSelect.value = selectedGame;
     }
   }
 
-  function normalizeFetchResult(payload) {
-    const extracted = extractArraysFromPayload(payload);
-
-    // If server already sends an aggregated leaderboard, keep it as optional fallback.
-    if (extracted.leaderboard.length && !extracted.users.length && !extracted.scores.length) {
-      const leaderboard = extracted.leaderboard.map((r, i) => ({
-        rank: i + 1,
-        user_id: String(r.user_id || r.id || ''),
-        pseudo: String(r.pseudo || r.user_name || r.name || '—'),
-        league: String(r.league || '—'),
-        league_id: r.league_id !== undefined && r.league_id !== null ? String(r.league_id) : '',
-        tour: String(r.tour || '').toUpperCase(),
-        total: Number(r.total || r.points || 0),
-        scores: Number(r.scores || r.count || 0)
-      }));
-      return { users: [], scores: [], leaderboard };
-    }
-
-    return {
-      users: normalizeUsers(extracted.users),
-      scores: normalizeScores(extracted.scores),
-      leaderboard: []
-    };
+  function normalizeLeaderboardRows(rawLeaderboard) {
+    return (Array.isArray(rawLeaderboard) ? rawLeaderboard : []).map((r, i) => ({
+      rank: i + 1,
+      user_id: String(r.user_id || r.id || ''),
+      pseudo: String(r.pseudo || r.user_name || r.name || '—'),
+      league: String(r.league || '—'),
+      league_id: r.league_id !== undefined && r.league_id !== null ? String(r.league_id) : '',
+      tour: String(r.tour || inferTourFromRow(r) || selectedTour || '').toUpperCase(),
+      total: Number(r.total || r.points || 0),
+      scores: Number(r.scores || r.count || r.nb_scores || 0),
+      game_id: r.game_id !== undefined && r.game_id !== null ? String(r.game_id) : ''
+    }));
   }
 
   async function fetchFromEndpoint(endpoint) {
     const url = new URL(endpoint, window.location.origin);
 
-    // Optional query hints for the server; harmless if ignored.
     url.searchParams.set('tour', selectedTour);
     url.searchParams.set('period', selectedPeriod);
     url.searchParams.set('scope', selectedScope);
@@ -400,6 +412,7 @@
 
     const text = await resp.text().catch(() => '');
     let data = null;
+
     try {
       data = text ? JSON.parse(text) : null;
     } catch (e) {
@@ -439,55 +452,42 @@
         throw lastError || new Error('No leaderboard endpoint available');
       }
 
-      const normalized = normalizeFetchResult(payload);
-      users = normalized.users;
-      scores = normalized.scores;
+      const extracted = extractArraysFromPayload(payload);
+      users = normalizeUsers(extracted.users);
+      scores = normalizeScores(extracted.scores);
+      serverLeaderboard = normalizeLeaderboardRows(extracted.leaderboard);
 
       rebuildUsersIndex();
       gameList = uniqueGamesFromScores(scores);
       buildGameSelectOptions();
 
-      // If the server already returned a fully aggregated leaderboard, use it directly.
-      if (normalized.leaderboard.length) {
-        const lb = normalized.leaderboard
-          .filter(r => (selectedTour ? String(r.tour || '').toUpperCase() === selectedTour : true))
-          .filter(r => selectedGame === 'all' ? true : String(r.game_id || '') === selectedGame);
-
-        if (els.tbody) {
-          if (!lb.length) {
-            els.tbody.innerHTML = `<tr><td colspan="6" class="empty">Aucune donnée pour ce filtre.</td></tr>`;
-          } else {
-            els.tbody.innerHTML = lb.map(r => {
-              const trClass = String(r.tour || '').toUpperCase() === 'WTA' ? 'wta' : 'atp';
-              return `
-                <tr class="${trClass}">
-                  <td class="rank">${r.rank}</td>
-                  <td><span class="pseudo">${escapeHtml(r.pseudo || '—')}</span></td>
-                  <td class="league">${escapeHtml(r.league || '—')}</td>
-                  <td class="tour">${escapeHtml(r.tour || '—')}</td>
-                  <td class="total">${fmt(r.total)}</td>
-                  <td class="small">${fmt(r.scores)}</td>
-                </tr>
-              `;
-            }).join('');
-          }
-        }
-
-        updateSessionChip();
-        setActiveButtons();
-        if (els.chipTour) els.chipTour.textContent = selectedTour;
-        if (els.chipGame) els.chipGame.textContent = selectedGame === 'all' ? 'Tous les jeux' : selectedGame;
-        if (els.chipPeriod) els.chipPeriod.textContent = periodLabel(selectedPeriod);
-        if (els.chipPlayers) els.chipPlayers.textContent = fmt(lb.length);
-        if (els.chipScores) els.chipScores.textContent = fmt(lb.length);
-        if (els.titleView) els.titleView.textContent = `${selectedTour} — ${selectedGame === 'all' ? 'Tous les jeux' : selectedGame}`;
-        if (els.subtitleView) els.subtitleView.textContent = `Période : ${periodLabel(selectedPeriod)} · Résultat déjà agrégé côté serveur`;
-        if (els.statusView) els.statusView.textContent = `${lb.length ? 'OK' : 'Vide'} · données agrégées`;
-      } else {
+      if (scores.length) {
         render();
+        showToast(`Données chargées : ${users.length} utilisateur(s), ${scores.length} score(s)`, 1800);
+        return;
       }
 
-      showToast(`Données chargées : ${users.length} utilisateur(s), ${scores.length} score(s)`, 1800);
+      if (serverLeaderboard.length) {
+        const filtered = serverLeaderboard.filter(r => {
+          if (selectedTour && String(r.tour || '').toUpperCase() !== selectedTour) return false;
+          if (selectedGame !== 'all' && String(r.game_id || '') !== selectedGame) return false;
+          return true;
+        });
+
+        renderRows(filtered);
+        updateMeta(filtered, filtered.reduce((acc, r) => acc + Number(r.scores || 0), 0));
+
+        if (els.subtitleView) {
+          els.subtitleView.textContent = 'Résultat déjà agrégé côté serveur · pour les filtres semaine/52w, renvoyer users + scores';
+        }
+        if (els.statusView) els.statusView.textContent = `${filtered.length ? 'OK' : 'Vide'} · données agrégées`;
+        showToast(`Données chargées : ${filtered.length} ligne(s) agrégée(s)`, 1800);
+        return;
+      }
+
+      renderRows([]);
+      updateMeta([], 0);
+      showToast('Aucune donnée reçue', 1800);
     } catch (err) {
       console.error(err);
       if (els.titleView) els.titleView.textContent = 'Erreur de chargement';

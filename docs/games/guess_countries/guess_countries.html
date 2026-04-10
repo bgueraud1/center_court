@@ -100,6 +100,7 @@
   .modal-actions{margin-top:18px;display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;}
   .good{color:#d9ffe4;background:rgba(22,163,74,0.15);border-color:rgba(22,163,74,0.35)!important;}
   .bad{color:#ffdcdc;background:rgba(239,68,68,0.15);border-color:rgba(239,68,68,0.35)!important;}
+  .missing{color:#eef2ff;background:rgba(99,102,241,0.15);border-color:rgba(99,102,241,0.35)!important;}
   .good-fill{fillColor:rgba(22,163,74,0.75)!important;}
   .bad-fill{fillColor:rgba(239,68,68,0.75)!important;}
   .small-muted{color:var(--muted);font-size:.9rem;}
@@ -118,7 +119,8 @@
           <h1 class="title">Daily Country Guess</h1>
           <div class="subtitle">
             Click all the countries where today’s player has won a tournament.
-            You have a number of clicks equal to the number of different countries to find.
+            You have <strong>150%</strong> of the number of countries to find as guesses.
+            If you solve it earlier, the round ends immediately.
             Each correct answer earns <strong>50 / n</strong> points in ATP or WTA mode.
           </div>
         </div>
@@ -239,6 +241,7 @@ let currentTarget = null;
 let targetCountries = new Set();
 let allTargetCountryList = [];
 let foundCountries = new Set();
+let missingCountries = new Set();
 let wrongCountries = new Set();
 let clickedCountries = new Set();
 let attemptsLeft = 0;
@@ -253,6 +256,7 @@ let assetsReady = false;
 let currentMap = null;
 let geoLayer = null;
 let countryLayersByCode = new Map();
+let countryNameByCode = new Map();
 let polygonByCode = new Map();
 
 /* =========================================================
@@ -335,6 +339,37 @@ function formatPoints(n){
   const num = Number(n) || 0;
   const rounded = Math.round(num * 100) / 100;
   return (Math.abs(rounded - Math.round(rounded)) < 1e-9) ? String(Math.round(rounded)) : rounded.toFixed(2);
+}
+
+function getAttemptQuota(countryCount){
+  const n = Math.max(0, Number(countryCount) || 0);
+  return n > 0 ? Math.ceil(n * 1.5) : 0;
+}
+
+function getTourAccentColor(tour = currentTour){
+  return String(tour).toUpperCase() === 'WTA' ? 'rgba(155,89,182,0.75)' : 'rgba(43,108,176,0.75)';
+}
+
+function getTourAccentBorderColor(tour = currentTour){
+  return String(tour).toUpperCase() === 'WTA' ? 'rgba(155,89,182,0.95)' : 'rgba(43,108,176,0.95)';
+}
+
+function countryNameFromCode(code){
+  const up = normalizeIoc(code);
+  return countryNameByCode.get(up) || up || '—';
+}
+
+function buildMissingCountriesHtml(list){
+  if(!list.length) return `<div style="margin-top:10px;color:var(--muted)">No countries were missed. Nice!</div>`;
+  const badgeClass = currentTour === 'WTA' ? 'wta' : 'atp';
+  return `
+    <div style="margin-top:10px;text-align:left">
+      <div style="font-weight:800;color:#fff;margin-bottom:8px">Countries missed</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        ${list.map(c => `<span class="inline-badge ${badgeClass}">${escapeHtml(countryNameFromCode(c))}</span>`).join('')}
+      </div>
+    </div>
+  `;
 }
 
 function modeLabel(modeKey){
@@ -657,25 +692,33 @@ function setLayerStyleForCode(code, kind){
   const layers = countryLayersByCode.get(code) || [];
   for(const layer of layers){
     try{
+      const isMissing = kind === 'missing';
+      const isGood = kind === 'good';
+      const color = isGood ? 'rgba(22,163,74,0.95)' : (isMissing ? getTourAccentBorderColor() : 'rgba(239,68,68,0.95)');
+      const fillColor = isGood ? 'rgba(22,163,74,0.70)' : (isMissing ? getTourAccentColor() : 'rgba(239,68,68,0.70)');
       layer.setStyle({
-        color: kind === 'good' ? 'rgba(22,163,74,0.95)' : 'rgba(239,68,68,0.95)',
+        color,
         weight: 1.5,
-        fillColor: kind === 'good' ? 'rgba(22,163,74,0.70)' : 'rgba(239,68,68,0.70)',
+        fillColor,
         fillOpacity: 0.70,
         opacity: 0.95
       });
-      if(kind === 'good' && layer.bringToFront) layer.bringToFront();
+      if((isGood || isMissing) && layer.bringToFront) layer.bringToFront();
     } catch(e){}
   }
 }
 
 function resetLayerHighlights(){
   for(const [code, layers] of countryLayersByCode.entries()){
-    const kind = foundCountries.has(code) ? 'good' : (wrongCountries.has(code) ? 'bad' : 'neutral');
+    const kind = foundCountries.has(code)
+      ? 'good'
+      : (missingCountries.has(code) ? 'missing' : (wrongCountries.has(code) ? 'bad' : 'neutral'));
     for(const layer of layers){
       try{
         if(kind === 'good'){
           layer.setStyle({ color:'rgba(22,163,74,0.95)', weight:1.5, fillColor:'rgba(22,163,74,0.70)', fillOpacity:0.70, opacity:0.95 });
+        } else if(kind === 'missing'){
+          layer.setStyle({ color:getTourAccentBorderColor(), weight:1.5, fillColor:getTourAccentColor(), fillOpacity:0.70, opacity:0.95 });
         } else if(kind === 'bad'){
           layer.setStyle({ color:'rgba(239,68,68,0.95)', weight:1.5, fillColor:'rgba(239,68,68,0.70)', fillOpacity:0.70, opacity:0.95 });
         } else {
@@ -713,6 +756,7 @@ function createMap(){
   currentMap.getContainer().style.cursor = 'crosshair';
 
   countryLayersByCode = new Map();
+  countryNameByCode = new Map();
   polygonByCode = new Map();
 
   if(worldBorders && worldBorders.features){
@@ -725,6 +769,11 @@ function createMap(){
 
         if(!countryLayersByCode.has(code)) countryLayersByCode.set(code, []);
         countryLayersByCode.get(code).push(layer);
+
+        if(!countryNameByCode.has(code)){
+          const label = props.name_long || props.name || props.admin || props.brk_name || props.sovereignt || code;
+          countryNameByCode.set(code, String(label || code));
+        }
 
         layer.on('click', () => handleCountryClick(code, layer, props));
 
@@ -943,7 +992,7 @@ function renderModePills(){
 }
 
 function renderAttempts(){
-  return;
+  if(remainingCountEl) remainingCountEl.textContent = String(attemptsLeft);
 }
 
 function showAlreadyPlayedModal(check, mode){
@@ -983,12 +1032,23 @@ function revealRound(won, points){
   title.textContent = won ? 'You won!' : 'Round over';
   text.textContent = `You earned ${formatPoints(points)} points.`;
 
+  const missed = allTargetCountryList.filter(c => !foundCountries.has(normalizeIoc(c)));
+  const badgeClass = currentTour === 'WTA' ? 'wta' : 'atp';
+
   details.innerHTML = `
     <div style="text-align:left;color:var(--muted)">
       <div style="font-weight:800;color:#fff;margin-bottom:6px">${escapeHtml(targetPlayerName(currentTarget))}</div>
       <div>Tour: <strong>${escapeHtml(currentTour)}</strong></div>
       <div>Countries found: <strong>${foundCountries.size} / ${targetCountries.size}</strong></div>
       <div>Points per correct country: <strong>${formatPoints(pointsPerCorrect)}</strong></div>
+      ${missed.length ? `
+        <div style="margin-top:12px;font-weight:800;color:#fff">Missed countries</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
+          ${missed.map(c => `<span class="inline-badge ${badgeClass}">${escapeHtml(countryNameFromCode(c))}</span>`).join('')}
+        </div>
+      ` : `
+        <div style="margin-top:12px;color:#a7f3d0;font-weight:700">All countries were found.</div>
+      `}
     </div>
   `;
 
@@ -1007,7 +1067,16 @@ async function finalizeRound(won){
   completedThisMode = true;
   roundStarted = false;
   setGuessEnabled(false);
-  saveState({ completed: true, submitted: submittedThisMode, score: currentRoundScore });
+
+  missingCountries = new Set(allTargetCountryList.map(normalizeIoc).filter(c => !foundCountries.has(c)));
+  if(missingCountries.size){
+    for(const code of missingCountries){
+      if(!wrongCountries.has(code)) setLayerStyleForCode(code, 'missing');
+    }
+  }
+  resetLayerHighlights();
+
+  saveState({ completed: true, submitted: submittedThisMode, score: currentRoundScore, missingCountries: Array.from(missingCountries) });
   revealRound(won, currentRoundScore);
 
   const meta = {
@@ -1017,6 +1086,7 @@ async function finalizeRound(won){
     target_name: targetPlayerName(currentTarget),
     countries_count: targetCountries.size,
     found_count: foundCountries.size,
+    missing_count: missingCountries.size,
     attempts_left: attemptsLeft,
     score: currentRoundScore,
     mode: currentModeKey()
@@ -1024,7 +1094,7 @@ async function finalizeRound(won){
 
   const ok = await submitScoreToLeaderboard(currentRoundScore, meta);
   submittedThisMode = !!ok || true;
-  saveState({ completed: true, submitted: true, score: currentRoundScore });
+  saveState({ completed: true, submitted: true, score: currentRoundScore, missingCountries: Array.from(missingCountries) });
   updateStats();
   renderModePills();
 }
@@ -1038,6 +1108,7 @@ function saveState(extra = {}){
     target_countries: allTargetCountryList.slice(),
     foundCountries: Array.from(foundCountries),
     wrongCountries: Array.from(wrongCountries),
+    missingCountries: Array.from(missingCountries),
     clickedCountries: Array.from(clickedCountries),
     attemptsLeft,
     score: currentRoundScore,
@@ -1055,9 +1126,10 @@ function saveState(extra = {}){
 
 function clearRoundState(){
   foundCountries = new Set();
+  missingCountries = new Set();
   wrongCountries = new Set();
   clickedCountries = new Set();
-  attemptsLeft = targetCountries.size;
+  attemptsLeft = getAttemptQuota(targetCountries.size);
   currentRoundScore = 0;
   completedThisMode = false;
   submittedThisMode = false;
@@ -1071,13 +1143,17 @@ function restoreStateFromStorage(){
 
   restoringState = true;
   foundCountries = new Set(safeArray(st.foundCountries).map(normalizeIoc));
+  missingCountries = new Set(safeArray(st.missingCountries).map(normalizeIoc));
   wrongCountries = new Set(safeArray(st.wrongCountries).map(normalizeIoc));
   clickedCountries = new Set(safeArray(st.clickedCountries).map(normalizeIoc));
-  attemptsLeft = Number.isFinite(Number(st.attemptsLeft)) ? Number(st.attemptsLeft) : targetCountries.size;
+  attemptsLeft = Number.isFinite(Number(st.attemptsLeft)) ? Number(st.attemptsLeft) : getAttemptQuota(targetCountries.size);
   currentRoundScore = Number(st.score || 0);
   completedThisMode = !!st.completed;
   submittedThisMode = !!st.submitted;
   pointsPerCorrect = Number(st.pointsPerCorrect || pointsPerCorrect || 0);
+  if(!missingCountries.size && completedThisMode){
+    missingCountries = new Set(allTargetCountryList.map(normalizeIoc).filter(c => !foundCountries.has(c)));
+  }
   renderAttempts();
   resetLayerHighlights();
   updateStats();
@@ -1158,9 +1234,10 @@ async function startMode(mode, checkLeaderboard=true){
   const existing = readStoredState(currentModeKey());
   if(existing && existing.date === todayStr() && existing.completed && existing.submitted){
     foundCountries = new Set(safeArray(existing.foundCountries).map(normalizeIoc));
+    missingCountries = new Set(safeArray(existing.missingCountries).map(normalizeIoc));
     wrongCountries = new Set(safeArray(existing.wrongCountries).map(normalizeIoc));
     clickedCountries = new Set(safeArray(existing.clickedCountries).map(normalizeIoc));
-    attemptsLeft = Number(existing.attemptsLeft || 0);
+    attemptsLeft = Number.isFinite(Number(existing.attemptsLeft)) ? Number(existing.attemptsLeft) : getAttemptQuota(targetCountries.size);
     currentRoundScore = Number(existing.score || 0);
     completedThisMode = true;
     submittedThisMode = true;
