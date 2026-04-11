@@ -1481,21 +1481,6 @@ PLAYER_SCORE_WEIGHTS = {
 }
 
 
-# À placer près de PLAYER_SCORE_WEIGHTS
-LOW_VOLUME_PENALTIES_MATCHES = [
-    (2, 40.0),   # 1 ou 2 matchs
-    (5, 25.0),   # 3 ou 4 matchs
-    (8, 12.0),   # 5 à 7 matchs
-    (10, 5.0),   # 8 ou 9 matchs
-]
-
-LOW_VOLUME_PENALTIES_TOURNAMENTS = [
-    (1, 18.0),   # 0 ou 1 tournoi
-    (2, 10.0),   # 2 tournois
-    (3, 4.0),    # 3 tournois
-]
-
-
 def _normalize_series(values: List[float]) -> List[float]:
     if not values:
         return []
@@ -1507,21 +1492,6 @@ def _normalize_series(values: List[float]) -> List[float]:
 
 
 
-
-def low_volume_penalty(matches: int, unique_tournaments: int) -> float:
-    penalty = 0.0
-
-    for threshold, value in LOW_VOLUME_PENALTIES_MATCHES:
-        if matches < threshold:
-            penalty += value
-            break
-
-    for threshold, value in LOW_VOLUME_PENALTIES_TOURNAMENTS:
-        if unique_tournaments < threshold:
-            penalty += value
-            break
-
-    return penalty
 
 def summarize_players(participations: List[Participation], ranking_map: Dict[str, Dict[str, Any]], period: str) -> Dict[str, PlayerSummary]:
     summaries: Dict[str, PlayerSummary] = {}
@@ -1648,7 +1618,6 @@ def summarize_players(participations: List[Participation], ranking_map: Dict[str
             + PLAYER_SCORE_WEIGHTS["significant_losses"] * (significant_losses_score * -1.0)
             + PLAYER_SCORE_WEIGHTS["rank_progress"] * rank_progress
             + PLAYER_SCORE_WEIGHTS["volume"] * volume_score
-            - low_volume_penalty(s.matches, s.unique_tournaments)
         )
         s.performance_index_raw = raw
         raw_scores.append((pid, raw))
@@ -1761,11 +1730,44 @@ def player_summary_to_dict(summary: PlayerSummary) -> Dict[str, Any]:
         "stats_means": stats_means,
     }
 
+def significant_participation_to_dict(p: Participation) -> Dict[str, Any]:
+    return {
+        "player_id": p.player_id,
+        "player_name": p.player_name,
+        "player_rank": p.player_rank,
+        "opponent_id": p.opponent_id,
+        "opponent_name": p.opponent_name,
+        "opponent_rank": p.opponent_rank,
+        "country_code": p.country_code,
+        "country_name": p.country_name,
+        "circuit": p.circuit,
+        "match_key": p.match_key,
+        "match_date": p.match_date.isoformat() if p.match_date else None,
+        "event_id": p.event_id,
+        "event_key": p.event_key,
+        "event_year": p.event_year,
+        "tourney_name": p.tourney_name,
+        "level": p.level_canonical,
+        "round_raw": p.round_raw,
+        "round_code": p.round_code,
+        "round_label": p.round_label,
+        "surface": p.surface,
+        "draw_size": p.draw_size,
+        "is_winner": p.is_winner,
+        "significant_win": p.significant_win,
+        "significant_loss": p.significant_loss,
+        "very_significant_win": p.very_significant_win,
+        "very_significant_loss": p.very_significant_loss,
+        "event_country_code": p.event_country_code,
+        "event_country_name": p.event_country_name,
+        "points_earned": p.points_earned,
+    }
 
 def build_country_payload(
     country_code: str,
     country_name: str,
     by_circuit_period: Dict[str, Dict[str, List[PlayerSummary]]],
+    participations_by_circuit_period: Optional[Dict[str, Dict[str, List[Participation]]]] = None,
 ) -> Dict[str, Any]:
     payload: Dict[str, Any] = {
         "country_code": country_code,
@@ -1775,10 +1777,29 @@ def build_country_payload(
         "indices": {},
         "meta": {},
     }
+
     for period in ["weekly", "current_year"]:
         payload[period] = {}
         for circuit in ["ATP", "WTA"]:
             players = by_circuit_period.get(period, {}).get(circuit, [])
+
+            participations: List[Participation] = []
+            if participations_by_circuit_period is not None:
+                participations = [
+                    p
+                    for p in participations_by_circuit_period.get(period, {}).get(circuit, [])
+                    if normalize_country(p.country_code) == normalize_country(country_code)
+                ]
+                participations.sort(
+                    key=lambda p: (
+                        p.match_date.isoformat() if p.match_date else "",
+                        p.tourney_name,
+                        p.round_order,
+                        p.player_name,
+                        p.match_key,
+                    )
+                )
+
             if not players:
                 payload[period][circuit] = {
                     "matches": 0,
@@ -1787,16 +1808,21 @@ def build_country_payload(
                     "top_players_by_matches": [],
                     "top_players_by_points": [],
                     "new_players": [],
-                    "significant_wins": [],
-                    "significant_losses": [],
+                    "significant_wins": [significant_participation_to_dict(p) for p in participations if p.significant_win],
+                    "significant_losses": [significant_participation_to_dict(p) for p in participations if p.significant_loss],
                     "tournaments_won": [],
                     "ranked_players": [],
                     "stats": {},
                 }
                 continue
+
             players_sorted = sorted(players, key=lambda s: (-s.matches, s.player_name))
             top_by_points = sorted(players, key=lambda s: (-s.points_earned, s.player_name))
-            ranked_players = [player_summary_to_dict(s) for s in sorted(players, key=lambda s: (s.ranking if s.ranking is not None else 10**9, s.player_name))]
+            ranked_players = [
+                player_summary_to_dict(s)
+                for s in sorted(players, key=lambda s: (s.ranking if s.ranking is not None else 10**9, s.player_name))
+            ]
+
             payload[period][circuit] = {
                 "matches": sum(s.matches for s in players),
                 "players_count": len(players),
@@ -1818,26 +1844,8 @@ def build_country_payload(
                     for s in players
                     if (s.ever_ranked is False and s.ranked_last_week is False and s.ranked_last_year is False and s.ranked_beginning_year is False)
                 ],
-                "significant_wins": [
-                    {
-                        "player_id": s.player_id,
-                        "player_name": s.player_name,
-                        "ranking": s.ranking,
-                        "opponent_rank": s.avg_opponent_rank,
-                    }
-                    for s in players
-                    if s.significant_wins > 0
-                ],
-                "significant_losses": [
-                    {
-                        "player_id": s.player_id,
-                        "player_name": s.player_name,
-                        "ranking": s.ranking,
-                        "opponent_rank": s.avg_opponent_rank,
-                    }
-                    for s in players
-                    if s.significant_losses > 0
-                ],
+                "significant_wins": [significant_participation_to_dict(p) for p in participations if p.significant_win],
+                "significant_losses": [significant_participation_to_dict(p) for p in participations if p.significant_loss],
                 "tournaments_won": [
                     {
                         "player_id": s.player_id,
@@ -1850,7 +1858,7 @@ def build_country_payload(
                 "ranked_players": ranked_players,
                 "stats": combine_stats(players),
             }
-    # Combined helpers for the country.
+
     all_weekly_players = [p for circuit in by_circuit_period.get("weekly", {}).values() for p in circuit]
     all_year_players = [p for circuit in by_circuit_period.get("current_year", {}).values() for p in circuit]
     payload["meta"] = {
@@ -1884,9 +1892,18 @@ def compute_per_period(
         country_name_map.setdefault(cc, summary.country_name or cc)
 
     # Match-level tournament wins are already embedded in player summaries. Country winner list can be derived here.
+        participations_by_circuit: Dict[str, List[Participation]] = defaultdict(list)
+    for p in participations:
+        participations_by_circuit[p.circuit].append(p)
+
     country_payloads: Dict[str, Dict[str, Any]] = {}
     for cc, per_circuit in country_map.items():
-        country_payloads[cc] = build_country_payload(cc, country_name_map.get(cc, cc), {period: per_circuit})
+        country_payloads[cc] = build_country_payload(
+            cc,
+            country_name_map.get(cc, cc),
+            {period: per_circuit},
+            {period: participations_by_circuit},
+        )
     return player_summaries, country_map, country_payloads
 
 
@@ -1967,11 +1984,21 @@ def serialise_country(
     weekly_map: Dict[str, Dict[str, List[PlayerSummary]]],
     year_map: Dict[str, Dict[str, List[PlayerSummary]]],
     ranks: Dict[str, Dict[str, Any]],
+    weekly_participations: Optional[Dict[str, Dict[str, List[Participation]]]] = None,
+    year_participations: Optional[Dict[str, Dict[str, List[Participation]]]] = None,
 ) -> Dict[str, Any]:
-    payload = build_country_payload(country_code, country_name, {
-        "weekly": weekly_map.get(country_code, {}),
-        "current_year": year_map.get(country_code, {}),
-    })
+    payload = build_country_payload(
+        country_code,
+        country_name,
+        {
+            "weekly": weekly_map.get(country_code, {}),
+            "current_year": year_map.get(country_code, {}),
+        },
+        {
+            "weekly": weekly_participations.get(country_code, {}) if weekly_participations else {},
+            "current_year": year_participations.get(country_code, {}) if year_participations else {},
+        },
+    )
     rank_info = ranks.get(country_code, {})
     payload["indices"] = {
         "year_mass": rank_info.get("mass"),

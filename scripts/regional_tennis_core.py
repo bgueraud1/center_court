@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from zoneinfo import ZoneInfo
 
-import tennis_performance as tp
+import tennis_performance_regional as tp
 
 PARIS_TZ = ZoneInfo('Europe/Paris')
 
@@ -589,6 +589,10 @@ def build_region_payload(root_dir: Path, region: RegionConfig) -> Dict[str, Any]
                     'ATP': [s for s in yearly_by_country.get(cc, {}).values() if s.circuit == 'ATP'],
                     'WTA': [s for s in yearly_by_country.get(cc, {}).values() if s.circuit == 'WTA'],
                 },
+            },
+            {
+                'weekly': weekly_parts,
+                'current_year': yearly_parts,
             },
         )
         country_payloads[cc] = payload
