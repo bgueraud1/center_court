@@ -229,35 +229,40 @@
     const map = new Map();
     for (const user of users || []) {
       if (!user) continue;
-      if (user.id) map.set(`id:${user.id}`, user);
-      if (user.pseudo) map.set(`pseudo:${String(user.pseudo).trim().toLowerCase()}`, user);
+      const id = user.id ? String(user.id).trim() : "";
+      const pseudo = user.pseudo ? String(user.pseudo).trim().toLowerCase() : "";
+      if (id) map.set(`id:${id}`, user);
+      if (pseudo) map.set(`pseudo:${pseudo}`, user);
     }
     return map;
   }
 
   function resolveUserForScore(row, userIndex) {
     if (!row) return null;
+
     if (row.user_id) {
-      const byId = userIndex.get(`id:${row.user_id}`);
+      const byId = userIndex.get(`id:${String(row.user_id).trim()}`);
       if (byId) return byId;
     }
+
     if (row.pseudo) {
       const byPseudo = userIndex.get(`pseudo:${String(row.pseudo).trim().toLowerCase()}`);
       if (byPseudo) return byPseudo;
     }
+
     return null;
   }
 
-  function resolveRowTour(row, user) {
-    const meta = parseJsonMaybeDeep(row?.meta);
+  function canonicalPlayerTour(user, score) {
+    const fromUser = normalizeTour(user?.tour);
+    if (fromUser) return fromUser;
+
+    const meta = parseJsonMaybeDeep(score?.meta);
     const fromMeta = normalizeTour(meta?.tour);
     if (fromMeta) return fromMeta;
 
-    const fromMode = normalizeTour(row?.mode);
+    const fromMode = normalizeTour(score?.mode);
     if (fromMode) return fromMode;
-
-    const fromUser = normalizeTour(user?.tour);
-    if (fromUser) return fromUser;
 
     return null;
   }
@@ -274,55 +279,64 @@
     return `row:${row?.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
   }
 
-  function computeLeaderboard(scores, users, tour, game, period) {
+  function matchesFilters(score, user, activeTour, activeGame, activePeriod) {
+    const tour = canonicalPlayerTour(user, score);
+    if (!tour) return false;
+    if (tour !== activeTour) return false;
+
+    if (activeGame !== "all" && String(score.game_id || "") !== String(activeGame)) {
+      return false;
+    }
+
+    const cutoff = getPeriodCutoff(activePeriod);
+    if (cutoff) {
+      const d = getRowDate(score);
+      if (!d || d < cutoff) return false;
+    }
+
+    return true;
+  }
+
+  function computeLeaderboard(scores, users, activeTour, activeGame, activePeriod) {
     const userIndex = buildUserIndex(users);
-    const cutoff = getPeriodCutoff(period);
-    const rows = [];
+    const groups = new Map();
 
     for (const score of scores || []) {
       const user = resolveUserForScore(score, userIndex);
-      const rowTour = resolveRowTour(score, user);
+      if (!user) continue;
 
-      if (tour && rowTour !== tour) continue;
-      if (game !== "all" && String(score.game_id || "") !== String(game)) continue;
+      const playerTour = canonicalPlayerTour(user, score);
+      if (!playerTour || playerTour !== activeTour) continue;
 
-      const d = getRowDate(score);
-      if (cutoff && d && d < cutoff) continue;
-      if (cutoff && !d) continue;
+      if (activeGame !== "all" && String(score.game_id || "") !== String(activeGame)) continue;
 
-      rows.push({
-        score,
-        user,
-        tour: rowTour || "—",
-        key: scoreIdentity(score)
-      });
-    }
+      const cutoff = getPeriodCutoff(activePeriod);
+      if (cutoff) {
+        const d = getRowDate(score);
+        if (!d || d < cutoff) continue;
+      }
 
-    const groups = new Map();
+      const key = `id:${user.id || String(user.pseudo || "").trim().toLowerCase()}`;
 
-    for (const item of rows) {
-      const { score, user, tour: rowTour } = item;
-      const userKey = user?.id ? `id:${user.id}` : item.key;
-
-      if (!groups.has(userKey)) {
-        groups.set(userKey, {
-          user_id: user?.id || score.user_id || null,
-          pseudo: user?.pseudo || score.pseudo || "Unknown",
-          country: user?.country || "—",
-          league: user?.league || "—",
-          tour: user?.tour || rowTour || "—",
+      if (!groups.has(key)) {
+        groups.set(key, {
+          user_id: user.id || null,
+          pseudo: user.pseudo || "Unknown",
+          country: user.country || "—",
+          league: user.league || "—",
+          tour: playerTour,
           points: 0,
           scores: 0
         });
       }
 
-      const entry = groups.get(userKey);
+      const entry = groups.get(key);
       entry.points += rowPoints(score);
       entry.scores += 1;
 
-      if ((!entry.country || entry.country === "—") && user?.country) entry.country = user.country;
-      if ((!entry.league || entry.league === "—") && user?.league) entry.league = user.league;
-      if ((!entry.tour || entry.tour === "—") && rowTour) entry.tour = rowTour;
+      if ((!entry.country || entry.country === "—") && user.country) entry.country = user.country;
+      if ((!entry.league || entry.league === "—") && user.league) entry.league = user.league;
+      entry.tour = playerTour;
     }
 
     return Array.from(groups.values())
@@ -331,24 +345,20 @@
         if (b.scores !== a.scores) return b.scores - a.scores;
         return String(a.pseudo || "").localeCompare(String(b.pseudo || ""));
       })
-      .map((entry, index) => ({ rank: index + 1, ...entry }));
+      .map((entry, index) => ({
+        rank: index + 1,
+        ...entry
+      }));
   }
 
-  function countMatchingScores(scores, users, tour, game, period) {
+  function countMatchingScores(scores, users, activeTour, activeGame, activePeriod) {
     const userIndex = buildUserIndex(users);
-    const cutoff = getPeriodCutoff(period);
     let count = 0;
 
     for (const score of scores || []) {
       const user = resolveUserForScore(score, userIndex);
-      const rowTour = resolveRowTour(score, user);
-      if (tour && rowTour !== tour) continue;
-      if (game !== "all" && String(score.game_id || "") !== String(game)) continue;
-
-      const d = getRowDate(score);
-      if (cutoff && d && d < cutoff) continue;
-      if (cutoff && !d) continue;
-
+      if (!user) continue;
+      if (!matchesFilters(score, user, activeTour, activeGame, activePeriod)) continue;
       count += 1;
     }
 
@@ -470,11 +480,13 @@
       }
 
       if (!res.ok) {
-        const body = (typeof text === "string" ? text.trim() : "");
-        const hint = body.startsWith("<!DOCTYPE") || body.startsWith("<html")
-          ? `The endpoint returned HTML, not JSON. Check that the function exists at ${ENDPOINT}.`
-          : (data && (data.error || data.message)) ? (data.error || data.message) : `HTTP ${res.status}`;
-        throw new Error(hint);
+        const trimmed = (text || "").trim();
+        const htmlError = trimmed.startsWith("<!DOCTYPE") || trimmed.startsWith("<html");
+        throw new Error(
+          htmlError
+            ? `The endpoint returned HTML instead of JSON. Check that ${ENDPOINT} exists and is deployed.`
+            : (data && (data.error || data.message)) ? (data.error || data.message) : `HTTP ${res.status}`
+        );
       }
 
       if (!data || !data.ok) {

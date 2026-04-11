@@ -223,6 +223,7 @@
       gap:12px;
     }
     .rankCard {
+      position:relative;
       padding:14px 14px 12px;
       min-height:98px;
       display:flex;
@@ -232,6 +233,32 @@
       transition: transform .16s ease, border-color .16s ease, background .16s ease;
       background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02));
     }
+    .rankCardTop {
+      display:flex;
+      justify-content:space-between;
+      gap:12px;
+      align-items:flex-start;
+      padding-right:28px;
+    }
+    .infoBtn {
+      position:absolute;
+      top:12px;
+      right:12px;
+      width:24px;
+      height:24px;
+      display:inline-grid;
+      place-items:center;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.18);
+      background: rgba(255,255,255,.06);
+      color: var(--text);
+      font-size:12px;
+      font-weight:800;
+      line-height:1;
+      cursor:pointer;
+      box-shadow: 0 0 0 1px rgba(0,0,0,.15) inset;
+    }
+    .infoBtn:hover { background: rgba(255,255,255,.12); }
     .rankCard:hover {
       transform: translateY(-2px);
       border-color: rgba(74,163,255,.34);
@@ -263,7 +290,33 @@
       font-size: 11px;
       margin-top: 8px;
     }
-    .rankModalOverlay {
+    .playersHeaderActions {
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+    .sortToggle {
+      border:1px solid var(--line);
+      background: rgba(255,255,255,.03);
+      color:var(--text);
+      border-radius:999px;
+      padding:8px 12px;
+      font-size:12px;
+      font-weight:700;
+      cursor:pointer;
+      transition: .18s ease;
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+    }
+    .sortToggle:hover { transform: translateY(-1px); background: rgba(255,255,255,.06); }
+    .sortToggle.active {
+      background: linear-gradient(135deg, rgba(74,163,255,.22), rgba(31,111,235,.22));
+      border-color: rgba(74,163,255,.35);
+      box-shadow: 0 0 0 1px rgba(74,163,255,.18) inset;
+    }
+    .rankModalOverlay, .infoModalOverlay {
       position: fixed;
       inset: 0;
       display: none;
@@ -274,7 +327,8 @@
       backdrop-filter: blur(10px);
       z-index: 120;
     }
-    .rankModalOverlay.open { display:flex; }
+    .infoModalOverlay { z-index: 130; }
+    .rankModalOverlay.open, .infoModalOverlay.open { display:flex; }
     .rankModal {
       width: min(980px, 100%);
       max-height: min(88vh, 920px);
@@ -348,6 +402,30 @@
       font-variant-numeric: tabular-nums;
       color: var(--muted);
     }
+    #playersTable tr.playerRow { cursor:pointer; }
+    #playersTable tr.playerRow:hover { background: rgba(255,255,255,.05); }
+    #playersTable tr.playerRow td:first-child .muted { color: var(--muted); }
+    details.evoDetails {
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:18px;
+      background: rgba(255,255,255,.03);
+      overflow:hidden;
+    }
+    details.evoDetails + details.evoDetails { margin-top:12px; }
+    details.evoDetails > summary {
+      list-style:none;
+      cursor:pointer;
+      padding:14px 16px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:12px;
+      user-select:none;
+    }
+    details.evoDetails > summary::-webkit-details-marker { display:none; }
+    details.evoDetails > summary:hover { background: rgba(255,255,255,.03); }
+    .evoSummaryMeta { color: var(--muted); font-size:12px; }
+    .evoDetailsBody { padding: 0 14px 14px; }
     .flagEmoji {
       width: 20px;
       display:inline-grid;
@@ -355,6 +433,48 @@
       font-size: 16px;
       line-height: 1;
     }
+    .infoModal {
+      width: min(620px, 100%);
+      max-height: min(72vh, 680px);
+      border: 1px solid rgba(255,255,255,.10);
+      border-radius: 22px;
+      background: linear-gradient(180deg, rgba(10,10,18,.98), rgba(18,18,30,.96));
+      box-shadow: var(--shadow);
+      overflow:hidden;
+      display:flex;
+      flex-direction:column;
+    }
+    .infoModalHeader {
+      padding: 16px 18px 14px;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      background: linear-gradient(135deg, rgba(74,163,255,.10), rgba(194,107,255,.10));
+      display:flex;
+      justify-content:space-between;
+      gap:14px;
+      align-items:flex-start;
+    }
+    .infoModalHeader h3 { margin:0; font-size:18px; }
+    .infoModalHeader .meta { color: var(--muted); font-size:12px; margin-top:4px; }
+    .infoModalClose {
+      border:1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.04);
+      color: var(--text);
+      border-radius: 999px;
+      width: 38px;
+      height: 38px;
+      cursor: pointer;
+      font-size: 20px;
+      line-height: 1;
+      flex: 0 0 auto;
+    }
+    .infoModalBody {
+      padding: 16px 18px 18px;
+      overflow:auto;
+      color: var(--text);
+      line-height: 1.65;
+      font-size: 14px;
+    }
+    .infoModalBody p { margin: 0 0 12px; color: var(--muted); }
     .pill.compact { padding:8px 11px; font-size:12px; }
     .matchMeta .rankInfo { color: var(--muted); }
     .matchTitle { display:flex; flex-wrap:wrap; gap:6px; align-items:baseline; }
@@ -556,7 +676,10 @@
           <section class="card" style="margin-bottom:14px;">
             <div class="sectionHeader">
               <h2>Ranked players</h2>
-              <div class="meta">Players with a ranking, ordered by rank</div>
+              <div class="playersHeaderActions">
+                <button class="sortToggle" id="playersSortToggle" type="button">Sort by performance index</button>
+                <div class="meta" id="playersTableMeta">Players with a ranking, ordered by rank</div>
+              </div>
             </div>
             <div class="sectionBody">
               <div class="tableWrap">
@@ -583,23 +706,6 @@
             </div>
             <div class="sectionBody" id="rankStats"></div>
           </section>
-
-          <div class="matchGrid" style="margin-bottom:14px;">
-            <section class="card">
-              <div class="sectionHeader">
-                <h2>Very Significant Wins</h2>
-                <div class="meta">Clean match cards</div>
-              </div>
-              <div class="sectionBody scrollY" id="verySignificantWins"></div>
-            </section>
-            <section class="card">
-              <div class="sectionHeader">
-                <h2>Very Significant Losses</h2>
-                <div class="meta">Clean match cards</div>
-              </div>
-              <div class="sectionBody scrollY" id="verySignificantLosses"></div>
-            </section>
-          </div>
 
           <div class="matchGrid" style="margin-bottom:14px;">
             <section class="card">
@@ -683,6 +789,19 @@
     </div>
   </div>
 
+  <div id="infoModal" class="infoModalOverlay" aria-hidden="true">
+    <div class="infoModal" role="dialog" aria-modal="true" aria-labelledby="infoModalTitle">
+      <div class="infoModalHeader">
+        <div>
+          <h3 id="infoModalTitle">How it is computed:</h3>
+          <div class="meta" id="infoModalMeta">Placeholder methodology text.</div>
+        </div>
+        <button class="infoModalClose" id="infoModalClose" type="button" aria-label="Close info modal">×</button>
+      </div>
+      <div class="infoModalBody" id="infoModalBody"></div>
+    </div>
+  </div>
+
   <script>
     const slugify = (s) => (s || '')
       .toString()
@@ -709,6 +828,9 @@
       rootNode: null,
       countryRankings: null,
       countryNameMap: null,
+      performanceRankings: null,
+      playersSort: 'rank',
+      infoModal: null,
     };
 
     const el = (id) => document.getElementById(id);
@@ -922,6 +1044,31 @@
       }
       state.countryRankings = { countries: [] };
       return state.countryRankings;
+    }
+
+    function normalizePerformanceRankingRows(json) {
+      const arr = Array.isArray(json) ? json : (json?.players || json?.rankings || json?.data || []);
+      return Array.isArray(arr) ? arr : [];
+    }
+
+    async function loadPerformanceRankings() {
+      if (state.performanceRankings) return state.performanceRankings;
+      const result = { ATP: [], WTA: [] };
+      const fileMap = {
+        ATP: ['./docs/tools/atp_ranking_performance.json', 'docs/tools/atp_ranking_performance.json', './tools/atp_ranking_performance.json', 'tools/atp_ranking_performance.json'],
+        WTA: ['./docs/tools/wta_ranking_performance.json', 'docs/tools/wta_ranking_performance.json', './tools/wta_ranking_performance.json', 'tools/wta_ranking_performance.json'],
+      };
+      for (const circuit of Object.keys(fileMap)) {
+        for (const path of fileMap[circuit]) {
+          try {
+            const json = await tryFetchJson(path);
+            result[circuit] = normalizePerformanceRankingRows(json);
+            break;
+          } catch (_) {}
+        }
+      }
+      state.performanceRankings = result;
+      return result;
     }
 
     function countryFlagEmoji(ioc) {
@@ -1144,6 +1291,7 @@
 
     function renderMatchList(containerId, items, type) {
       const container = el(containerId);
+      if (!container) return;
       if (!Array.isArray(items) || !items.length) {
         container.innerHTML = `<div class="empty">No data to display here.</div>`;
         return;
@@ -1269,6 +1417,95 @@
       modal.setAttribute('aria-hidden', 'true');
     }
 
+    function normalizeText(v) {
+      return String(v || '')
+        .toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '');
+    }
+
+    function getPerformanceDataset(circuit) {
+      return normalizePerformanceRankingRows(state.performanceRankings?.[String(circuit || state.circuit || 'ATP').toUpperCase()] || []);
+    }
+
+    function buildPlayerPerformanceList(circuit) {
+      const rows = getPerformanceDataset(circuit).map(item => {
+        const rank = Number(item?.performance_index_rank);
+        const value = Number(item?.performance_index);
+        return {
+          id: item?.id ?? '',
+          name: item?.player_name || item?.name || '—',
+          rank: Number.isFinite(rank) ? rank : null,
+          value: Number.isFinite(value) ? value : null,
+        };
+      }).filter(row => row.rank !== null || row.value !== null || row.name !== '—');
+      rows.sort((a, b) => {
+        const ar = a.rank ?? 999999;
+        const br = b.rank ?? 999999;
+        return ar - br || a.name.localeCompare(b.name);
+      });
+      rows.forEach((row, idx) => { row.computedRank = idx + 1; });
+      return rows;
+    }
+
+    function openInfoModal(metric) {
+      const modal = el('infoModal');
+      const title = el('infoModalTitle');
+      const meta = el('infoModalMeta');
+      const body = el('infoModalBody');
+      if (!modal || !title || !meta || !body) return;
+      title.textContent = 'How it is computed:';
+      meta.textContent = metric.label;
+      body.innerHTML = `
+        <p>This is a temporary placeholder for the methodology text of <strong>${metric.label}</strong>.</p>
+        <p>Replace this paragraph with your final explanation later on.</p>
+        <p>Example placeholder: this value is derived from a combination of volume, quality, and consistency indicators.</p>
+      `;
+      modal.classList.add('open');
+      modal.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeInfoModal() {
+      const modal = el('infoModal');
+      if (!modal) return;
+      modal.classList.remove('open');
+      modal.setAttribute('aria-hidden', 'true');
+    }
+
+    function openPlayerPerformanceModal(item) {
+      const circuit = String(state.circuit || 'ATP').toUpperCase();
+      const modal = el('rankingModal');
+      const list = el('rankModalList');
+      const title = el('rankModalTitle');
+      const meta = el('rankModalMeta');
+      if (!modal || !list || !title || !meta) return;
+
+      const rows = buildPlayerPerformanceList(circuit);
+      const targetId = String(item?.id || '').trim();
+      const targetName = normalizeText(playerName(item));
+      const currentRow = rows.find(row => (targetId && String(row.id) === targetId) || normalizeText(row.name) === targetName);
+      const currentRank = currentRow?.rank ?? currentRow?.computedRank ?? '—';
+      const currentValue = currentRow?.value;
+
+      title.textContent = `${circuit} performance index ranking`;
+      meta.textContent = `Player: ${playerName(item)} · Rank ${currentRank} · Value ${currentValue === null || currentValue === undefined ? '—' : numberFmt(currentValue)}`;
+
+      list.innerHTML = rows.map(row => `
+        <div class="rankRow ${currentRow && row.name === currentRow.name && String(row.id) === String(currentRow.id) ? 'current' : ''}" data-player-id="${String(row.id || '').replace(/"/g, '&quot;')}">
+          <div class="rankNo">#${row.rank ?? row.computedRank}</div>
+          <div class="countryName"><span>${row.name}</span></div>
+          <div class="countryValue">${row.value === null || row.value === undefined ? '—' : numberFmt(row.value)}</div>
+        </div>
+      `).join('');
+
+      modal.classList.add('open');
+      modal.setAttribute('aria-hidden', 'false');
+      requestAnimationFrame(() => {
+        const currentEl = list.querySelector('.rankRow.current');
+        if (currentEl) currentEl.scrollIntoView({ block: 'center' });
+      });
+    }
+
     function renderCountryRankings() {
       const panel = el('rankingsPanel');
       const current = getCurrentIndices();
@@ -1285,7 +1522,10 @@
         const rank = currentRow?.computedRank ?? currentRow?.rank ?? '—';
         return `
           <div class="card rankCard" data-rank-id="${metric.id}">
-            <div class="rankLabel">${metric.label}</div>
+            <button class="infoBtn" type="button" data-info-rank-id="${metric.id}" aria-label="Explain how ${metric.label} is computed">?</button>
+            <div class="rankCardTop">
+              <div class="rankLabel">${metric.label}</div>
+            </div>
             <div>
               <div class="rankBig">#${rank}</div>
               <div class="rankSmall">${formatRankingValue(metric, value)}</div>
@@ -1299,6 +1539,13 @@
         card.addEventListener('click', () => {
           const metric = metrics.find(m => m.id === card.dataset.rankId);
           if (metric) openRankingModal(metric);
+        });
+      });
+      panel.querySelectorAll('[data-info-rank-id]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const metric = metrics.find(m => m.id === btn.dataset.infoRankId);
+          if (metric) openInfoModal(metric);
         });
       });
     }
@@ -1465,12 +1712,31 @@
 
     function renderPlayersTable() {
       const block = getActiveBlock();
+      const sortBtn = el('playersSortToggle');
+      const tableMeta = el('playersTableMeta');
       const players = extractPlayers(block).filter(p => Number.isFinite(Number(playerRank(p))));
+      if (sortBtn) {
+        const isPerf = state.playersSort === 'performance';
+        sortBtn.textContent = isPerf ? 'Sorted by performance index' : 'Sort by performance index';
+        sortBtn.classList.toggle('active', isPerf);
+      }
+      if (tableMeta) {
+        tableMeta.textContent = state.playersSort === 'performance'
+          ? 'Players sorted from highest to lowest performance index'
+          : 'Players with a ranking, ordered by rank';
+      }
       if (!players.length) {
         el('playersTable').innerHTML = `<tr><td colspan="5" class="muted">No ranked players detected in this block.</td></tr>`;
         return;
       }
       const ranked = players.slice().sort((a, b) => {
+        if (state.playersSort === 'performance') {
+          const pa = Number(a?.performance_index ?? a?.performance_index_raw ?? -Infinity);
+          const pb = Number(b?.performance_index ?? b?.performance_index_raw ?? -Infinity);
+          const aa = Number.isFinite(pa) ? pa : -Infinity;
+          const bb = Number.isFinite(pb) ? pb : -Infinity;
+          if (bb !== aa) return bb - aa;
+        }
         const ra = Number(playerRank(a));
         const rb = Number(playerRank(b));
         const aa = Number.isFinite(ra) ? ra : 99999;
@@ -1481,8 +1747,9 @@
         const points = playerPoints(item);
         const bestPerf = `${playerTournament(item)} · ${highestRound(item)}`;
         const perfIndex = item?.performance_index ?? item?.performance_index_raw;
+        const playerId = item?.id ? String(item.id).replace(/"/g, '&quot;') : '';
         return `
-          <tr>
+          <tr class="playerRow" data-player-id="${playerId}">
             <td>
               <div style="font-weight:700">${playerName(item)}</div>
               <div class="muted">${item?.country_code || item?.country_name || item?.country || ''}</div>
@@ -1497,6 +1764,13 @@
           </tr>
         `;
       }).join('');
+
+      el('playersTable').querySelectorAll('tr.playerRow').forEach((rowEl, idx) => {
+        rowEl.addEventListener('click', () => {
+          const item = ranked[idx];
+          if (item) openPlayerPerformanceModal(item);
+        });
+      });
     }
 
     function evolutionItemHTML(item, direction) {
@@ -1538,23 +1812,23 @@
       const drop = [];
       const sigRise = data?.significant?.rise || [];
       const sigDrop = data?.significant?.drop || [];
-      const veryRise = data?.very_significant?.rise || [];
-      const veryDrop = data?.very_significant?.drop || [];
 
-      rise.push(...sigRise, ...veryRise);
-      drop.push(...sigDrop, ...veryDrop);
+      rise.push(...sigRise);
+      drop.push(...sigDrop);
 
       return `
-        <div class="evoBucket">
-          <div class="evoHead">
-            <h3>${label}</h3>
-            <div class="meta">${rise.length} rises · ${drop.length} drops</div>
+        <details class="evoDetails">
+          <summary>
+            <span>${label}</span>
+            <span class="evoSummaryMeta">${rise.length} rises · ${drop.length} drops</span>
+          </summary>
+          <div class="evoDetailsBody">
+            <div class="evoCols">
+              ${evolutionColumnHTML('Rises', rise, 'rise')}
+              ${evolutionColumnHTML('Drops', drop, 'drop')}
+            </div>
           </div>
-          <div class="evoCols">
-            ${evolutionColumnHTML('Rises', rise, 'rise')}
-            ${evolutionColumnHTML('Drops', drop, 'drop')}
-          </div>
-        </div>
+        </details>
       `;
     }
 
@@ -1761,8 +2035,6 @@
       renderGameStats();
       renderPlayersTable();
       renderRankStats();
-      renderMatchList('verySignificantWins', state.activeBlock?.very_significant_wins || [], 'win');
-      renderMatchList('verySignificantLosses', state.activeBlock?.very_significant_losses || [], 'loss');
       renderMatchList('significantWins', state.activeBlock?.significant_wins || [], 'win');
       renderMatchList('significantLosses', state.activeBlock?.significant_losses || [], 'loss');
       renderMaps();
@@ -1777,17 +2049,35 @@
     document.querySelectorAll('[data-period]').forEach(btn => {
       btn.addEventListener('click', () => { state.period = btn.dataset.period; renderAll(); });
     });
+    const playersSortToggle = el('playersSortToggle');
+    if (playersSortToggle) {
+      playersSortToggle.addEventListener('click', () => {
+        state.playersSort = state.playersSort === 'performance' ? 'rank' : 'performance';
+        renderPlayersTable();
+      });
+    }
 
     const rankingModal = el('rankingModal');
     const rankingModalClose = el('rankModalClose');
+    const infoModal = el('infoModal');
+    const infoModalClose = el('infoModalClose');
     if (rankingModal) {
       rankingModal.addEventListener('click', (e) => {
         if (e.target === rankingModal) closeRankingModal();
       });
     }
+    if (infoModal) {
+      infoModal.addEventListener('click', (e) => {
+        if (e.target === infoModal) closeInfoModal();
+      });
+    }
     if (rankingModalClose) rankingModalClose.addEventListener('click', closeRankingModal);
+    if (infoModalClose) infoModalClose.addEventListener('click', closeInfoModal);
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') closeRankingModal();
+      if (e.key === 'Escape') {
+        closeRankingModal();
+        closeInfoModal();
+      }
     });
 
     window.addEventListener('resize', () => {
@@ -1803,6 +2093,7 @@
         state.resolvedIOC = resolved;
         await loadCountryNameMap();
         await loadCountryRankings();
+        await loadPerformanceRankings();
         const raw = await loadCountryData();
         state.raw = raw;
         renderAll();
