@@ -17,13 +17,6 @@ function jsonResponse(status, body) {
   };
 }
 
-function parseJsonMaybe(value) {
-  if (!value) return null;
-  if (typeof value === "object") return value;
-  if (typeof value !== "string") return null;
-  try { return JSON.parse(value); } catch { return null; }
-}
-
 async function supabaseRequest(table, { method = "GET", query = {} } = {}) {
   if (!SUPABASE_URL || !SUPABASE_KEY) {
     throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
@@ -60,10 +53,7 @@ async function supabaseSelectAll(table, query = {}) {
   while (true) {
     const batch = await supabaseRequest(table, {
       method: "GET",
-      query: Object.assign({}, query, {
-        limit: pageSize,
-        offset
-      })
+      query: Object.assign({}, query, { limit: pageSize, offset })
     });
 
     if (!Array.isArray(batch)) return [];
@@ -130,7 +120,7 @@ exports.handler = async (event) => {
       users: usersRows.map(normalizeUser)
     });
   } catch (err) {
-    console.error("[leaderboard] fatal", err);
+    console.error("[leaderboard_user] fatal", err);
     return jsonResponse(500, {
       ok: false,
       error: err && err.message ? err.message : "Unexpected error."

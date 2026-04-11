@@ -247,7 +247,18 @@ class PlayerSummary:
 # Generic helpers.
 # ---------------------------------------------------------------------------
 
+def _country_from_location(location: str, country_ioc: Dict[str, str]) -> Tuple[str, str]:
+    loc = clean_str(location)
+    if not loc:
+        return "", ""
+    parts = [p.strip() for p in loc.split(",") if p.strip()]
+    if not parts:
+        return "", ""
+    country_name = parts[-1]
+    country_code = country_ioc.get(normalize_name_key(country_name), normalize_country(country_name))
+    return country_code, country_name
 
+    
 def now_paris() -> datetime:
     return datetime.now(tz=PARIS_TZ)
 
@@ -363,6 +374,105 @@ def weighted_average(values: Sequence[Optional[float]], weights: Sequence[float]
 # ---------------------------------------------------------------------------
 
 
+def _looks_like_expected_level(circuit: str, level: Any) -> bool:
+    s = clean_str(level).lower()
+    if not s:
+        return False
+
+    if circuit == "ATP":
+        return any(
+            token in s
+            for token in (
+                "grand slam",
+                "atp finals",
+                "atp 1000",
+                "masters 1000",
+                "m1000",
+                "atp 500",
+                "atp 250",
+                "challenger",
+                "future",
+                "m25",
+                "m15",
+            )
+        )
+
+    return any(
+        token in s
+        for token in (
+            "grand slam",
+            "wta finals",
+            "wta 1000",
+            "premier 5",
+            "wta 500",
+            "wta 250",
+            "wta 125",
+            "itf",
+            "w100",
+            "w75",
+            "w50",
+            "w35",
+            "w15",
+        )
+    )
+
+
+def _next_power_of_two(n: Optional[int]) -> Optional[int]:
+    if n is None or n <= 0:
+        return None
+    p = 1
+    while p < n:
+        p *= 2
+    return p
+
+
+def round_label_for_tournament(round_raw: Any, draw_size: Optional[int]) -> str:
+    s = clean_str(round_raw).upper()
+    if not s:
+        return "UNK"
+
+    if s in {"RR"}:
+        return "RR"
+    if s in {"F", "FINAL"}:
+        return "F"
+    if s in {"SF", "SEMI", "SEMIFINAL", "SEMIFINALS", "S"}:
+        return "SF"
+    if s in {"QF", "Q", "QUARTERFINAL", "QUARTERFINALS"}:
+        return "QF"
+    if s in {"R16", "R32", "R64", "R128"}:
+        return s
+
+    raw_num = parse_int(s)
+    bracket = _next_power_of_two(draw_size)
+    if raw_num is None or bracket is None:
+        return "UNK"
+
+    total_rounds = int(math.log2(bracket))
+    r_count = max(total_rounds - 3, 0)
+
+    if raw_num <= r_count:
+        return f"R{bracket // (2 ** (raw_num - 1))}"
+    if raw_num == r_count + 1:
+        return "QF"
+    if raw_num == r_count + 2:
+        return "SF"
+    if raw_num == r_count + 3:
+        return "F"
+    return "UNK"
+
+
+def round_order_for_tournament(round_raw: Any, draw_size: Optional[int]) -> int:
+    label = round_label_for_tournament(round_raw, draw_size)
+    return {
+        "F": 1,
+        "SF": 2,
+        "QF": 3,
+        "R16": 4,
+        "R32": 5,
+        "R64": 6,
+        "R128": 7,
+        "RR": 8,
+    }.get(label, 999)
 
 
 def round_order(round_raw: Any) -> int:
@@ -396,7 +506,10 @@ def _contains_any(text: str, patterns: Sequence[str]) -> bool:
 
 def canonical_level(circuit: str, level_raw: Any, tourney_name: Any, draw_size: Any, tournament_meta: Optional[Dict[str, Any]] = None) -> str:
     meta = tournament_meta or {}
-    level = clean_str(meta.get("level") or meta.get("Type") or level_raw).strip()
+    meta_level = clean_str(meta.get("level") or meta.get("Type")).strip()
+    level = clean_str(level_raw).strip()
+    if not _looks_like_expected_level(circuit, level):
+        level = meta_level or level
     name = clean_str(
         meta.get("Name")
         or meta.get("title")
@@ -424,25 +537,25 @@ def canonical_level(circuit: str, level_raw: Any, tourney_name: Any, draw_size: 
         if any(x in level_l for x in ["250", "atp 250"]):
             return "ATP 250 (48)" if (draw or 0) >= 48 else "ATP 250 (32)"
         if any(x in level_l for x in ["challenger", "ch"]):
-            if re.search(r"(ch175|175)", name_l):
+            if re.search(r"\b(ch175|175)\b", name_l):
                 return "Challenger 175"
-            if re.search(r"(ch125|125)", name_l):
+            if re.search(r"\b(ch125|125)\b", name_l):
                 return "Challenger 125"
-            if re.search(r"(ch100|100)", name_l):
+            if re.search(r"\b(ch100|100)\b", name_l):
                 return "Challenger 100"
-            if re.search(r"(ch75|75)", name_l):
+            if re.search(r"\b(ch75|75)\b", name_l):
                 return "Challenger 75"
-            if re.search(r"(ch50|50)", name_l):
+            if re.search(r"\b(ch50|50)\b", name_l):
                 return "Challenger 50"
             return "Challenger 100"
         if any(x in level_l for x in ["future", "fu", "m25", "m15"]):
-            if re.search(r"m25", name_l):
+            if re.search(r"\bm25\b", name_l):
                 return "Future M25"
-            if re.search(r"m15", name_l):
+            if re.search(r"\bm15\b", name_l):
                 return "Future M15"
-            if re.search(r"25", name_l):
+            if re.search(r"\b25\b", name_l):
                 return "Future M25"
-            if re.search(r"15", name_l):
+            if re.search(r"\b15\b", name_l):
                 return "Future M15"
             return "Future M25"
     else:
@@ -459,49 +572,49 @@ def canonical_level(circuit: str, level_raw: Any, tourney_name: Any, draw_size: 
         if any(x in level_l for x in ["125", "wta 125"]):
             return "WTA 125 (32)"
         if any(x in level_l for x in ["itf", "wtt", "w100", "w75", "w50", "w35", "w15"]):
-            if re.search(r"w100", name_l):
+            if re.search(r"\bw100\b", name_l):
                 return "W100 (48)" if (draw or 0) >= 48 else "W100 (32)"
-            if re.search(r"w75", name_l):
+            if re.search(r"\bw75\b", name_l):
                 return "W75 (48)" if (draw or 0) >= 48 else "W75 (32)"
-            if re.search(r"w50", name_l):
+            if re.search(r"\bw50\b", name_l):
                 return "W50 (48)" if (draw or 0) >= 48 else "W50 (32)"
-            if re.search(r"w35", name_l):
+            if re.search(r"\bw35\b", name_l):
                 return "W35 (48)" if (draw or 0) >= 48 else "W35 (32)"
-            if re.search(r"w15", name_l):
+            if re.search(r"\bw15\b", name_l):
                 return "W15 (32)"
 
     # Try the tournament name if level is not explicit.
     if circuit == "ATP":
-        if re.search(r"1000", name_l):
+        if re.search(r"\b1000\b", name_l):
             return "ATP 1000 (96)" if (draw or 0) >= 96 else "ATP 1000 (56)"
-        if re.search(r"500", name_l):
+        if re.search(r"\b500\b", name_l):
             return "ATP 500 (48)" if (draw or 0) >= 48 else "ATP 500 (32)"
-        if re.search(r"250", name_l):
+        if re.search(r"\b250\b", name_l):
             return "ATP 250 (48)" if (draw or 0) >= 48 else "ATP 250 (32)"
-        if re.search(r"175", name_l):
+        if re.search(r"\b175\b", name_l):
             return "Challenger 175"
-        if re.search(r"125", name_l):
+        if re.search(r"\b125\b", name_l):
             return "Challenger 125"
-        if re.search(r"100", name_l):
+        if re.search(r"\b100\b", name_l):
             return "Challenger 100"
-        if re.search(r"75", name_l):
+        if re.search(r"\b75\b", name_l):
             return "Challenger 75"
-        if re.search(r"50", name_l):
+        if re.search(r"\b50\b", name_l):
             return "Challenger 50"
-        if re.search(r"m25", name_l):
+        if re.search(r"\bm25\b", name_l):
             return "Future M25"
-        if re.search(r"m15", name_l):
+        if re.search(r"\bm15\b", name_l):
             return "Future M15"
     else:
-        if re.search(r"w100", name_l):
+        if re.search(r"\bw100\b", name_l):
             return "W100 (48)" if (draw or 0) >= 48 else "W100 (32)"
-        if re.search(r"w75", name_l):
+        if re.search(r"\bw75\b", name_l):
             return "W75 (48)" if (draw or 0) >= 48 else "W75 (32)"
-        if re.search(r"w50", name_l):
+        if re.search(r"\bw50\b", name_l):
             return "W50 (48)" if (draw or 0) >= 48 else "W50 (32)"
-        if re.search(r"w35", name_l):
+        if re.search(r"\bw35\b", name_l):
             return "W35 (48)" if (draw or 0) >= 48 else "W35 (32)"
-        if re.search(r"w15", name_l):
+        if re.search(r"\bw15\b", name_l):
             return "W15 (32)"
 
     return level if level else "Unknown"
@@ -509,12 +622,38 @@ def canonical_level(circuit: str, level_raw: Any, tourney_name: Any, draw_size: 
 
 
 
-def points_for_level_round(circuit: str, level_canonical: str, round_value: str, won_final: bool = False) -> int:
+def _tournament_stage_label(round_value: Any, draw_size: Optional[int] = None, round_label_hint: Optional[str] = None) -> str:
+    hint = clean_str(round_label_hint).upper()
+    if hint in {"F", "SF", "QF", "R16", "R32", "R64", "R128", "RR"}:
+        return hint
+
+    s = clean_str(round_value).upper()
+    if s in {"F", "SF", "QF", "R16", "R32", "R64", "R128", "RR"}:
+        return s
+
+    raw_num = parse_int(s)
+    if raw_num is not None:
+        label = round_label_for_tournament(raw_num, draw_size)
+        if label != "UNK":
+            return label
+        return _round_label_from_number(raw_num)
+
+    return hint or round_label(round_value)
+
+
+def points_for_level_round(
+    circuit: str,
+    level_canonical: str,
+    round_value: Any,
+    won_final: bool = False,
+    draw_size: Optional[int] = None,
+    round_label_hint: Optional[str] = None,
+) -> int:
     table = POINTS_BY_LEVEL.get(level_canonical)
     if not table:
         return 0
 
-    stage_label = round_label(round_value)
+    stage_label = _tournament_stage_label(round_value, draw_size=draw_size, round_label_hint=round_label_hint)
 
     # Finals / round-robin events require a bit of special handling.
     if level_canonical in {"ATP Finals", "WTA Finals"}:
@@ -539,14 +678,7 @@ def points_for_level_round(circuit: str, level_canonical: str, round_value: str,
     if stage_label in {"SF", "QF", "R16", "R32", "R64", "R128"} and stage_label in table:
         return table[stage_label]
 
-    # Fallback for unexpected labels.
-    number = _round_number_from_code(round_value)
-    if number is not None:
-        fallback_label = _round_label_from_number(number)
-        if fallback_label in table:
-            return table[fallback_label]
-
-    return 0
+    return table.get(stage_label, 0)
 
 
 def significance_threshold(rank: Optional[int], thresholds: Sequence[Tuple[int, int]]) -> Optional[int]:
@@ -624,6 +756,15 @@ def load_ranking_json(path: Path) -> Dict[str, Dict[str, Any]]:
 def normalize_name_key(value: Any) -> str:
     s = clean_str(value).lower()
     return re.sub(r"[^a-z0-9]+", "", s)
+
+
+def _normalize_event_id_key(value: Any) -> str:
+    s = clean_str(value)
+    if not s:
+        return ""
+    if s.isdigit():
+        return str(int(s))
+    return s
 
 
 def _load_json_file(path: Path) -> Any:
@@ -733,26 +874,21 @@ def find_tournament_metadata(index: Optional[Dict[str, Dict[str, Any]]], event_i
     if not index:
         return None
     by_event = index.get("by_event_id", {})
-    by_name = index.get("by_name", {})
     event_key = clean_str(event_id)
-    if event_key and event_key in by_event:
-        return by_event[event_key]
+    if event_key:
+        if event_key in by_event:
+            return by_event[event_key]
+        normalized_event_key = _normalize_event_id_key(event_key)
+        if normalized_event_key and normalized_event_key in by_event:
+            return by_event[normalized_event_key]
+        return None
+
+    by_name = index.get("by_name", {})
     name_key = normalize_name_key(tourney_name)
     if name_key and name_key in by_name:
         return by_name[name_key]
     return None
 
-
-def _country_from_location(location: str, country_ioc: Dict[str, str]) -> Tuple[str, str]:
-    loc = clean_str(location)
-    if not loc:
-        return "", ""
-    parts = [p.strip() for p in loc.split(",") if p.strip()]
-    if not parts:
-        return "", ""
-    country_name = parts[-1]
-    country_code = country_ioc.get(normalize_name_key(country_name), normalize_country(country_name))
-    return country_code, country_name
 
 
 # ---------------------------------------------------------------------------
@@ -1083,11 +1219,11 @@ def normalize_match_row(
         event_country_code, event_country_name = derive_event_country(row)
 
     round_raw = clean_str(find_first(row, ["round"]))
-    round_code = clean_str(find_first(row, ["match_id", "round_code", "match_code"]))
+    round_code = clean_str(find_first(row, ["round_code", "match_code"]))
     if not round_code:
         round_code = round_raw
-    round_order_value = _round_order_from_value(round_code or round_raw)
-    round_label_value = round_label(round_code or round_raw)
+    round_label_value = round_label_for_tournament(round_raw, draw_size)
+    round_order_value = round_order_for_tournament(round_raw, draw_size)
 
     surface = clean_str(find_first(row, ["surface"]))
     level_canonical = canonical_level(circuit, level_raw, tourney_name, draw_size, tournament_meta=tournament_meta)
@@ -1242,8 +1378,17 @@ def make_participation(
 
     level = match["level_canonical"]
     round_code = clean_str(match.get("round_code") or match.get("round_raw"))
-    won_final = bool(side == "winner" and is_final_match_code(round_code))
-    points = points_for_level_round(match["circuit"], level, round_code, won_final=won_final)
+    round_label_value = clean_str(match.get("round_label") or match.get("round_raw"))
+    round_stage = _tournament_stage_label(match.get("round_raw"), draw_size=match.get("draw_size"), round_label_hint=round_label_value)
+    won_final = bool(side == "winner" and round_stage == "F")
+    points = points_for_level_round(
+        match["circuit"],
+        level,
+        round_stage,
+        won_final=won_final,
+        draw_size=match.get("draw_size"),
+        round_label_hint=round_label_value,
+    )
 
     stats = player["stats"].copy()
     significant_win = False
@@ -1401,13 +1546,24 @@ def summarize_players(participations: List[Participation], ranking_map: Dict[str
             "level": p.level_canonical,
             "round": p.round_raw,
             "round_code": p.round_code,
+            "round_label": p.round_label,
+            "draw_size": p.draw_size,
+            "points_earned": p.points_earned,
             "is_winner": p.is_winner,
             "best_round_order": candidate_order,
             "best_round_label": candidate_label,
             "match_key": p.match_key,
             "match_date": p.match_date.isoformat() if p.match_date else None,
         }
-        if current is None or candidate_order < current[0]:
+        current_points = parse_int(current[2].get("points_earned")) if current is not None else None
+        if (
+            current is None
+            or candidate_order < current[0]
+            or (
+                candidate_order == current[0]
+                and (current_points is None or p.points_earned > current_points)
+            )
+        ):
             tournament_best[key] = (candidate_order, candidate_label, candidate_meta)
 
     for pid, s in summaries.items():
@@ -1419,12 +1575,7 @@ def summarize_players(participations: List[Participation], ranking_map: Dict[str
         s.unique_tournaments = len(player_tournaments)
         tournament_points: List[int] = []
         for meta in player_tournaments:
-            points = points_for_level_round(
-                s.circuit,
-                meta.get("level", ""),
-                meta.get("round_code") or meta.get("round") or "",
-                won_final=bool(meta.get("is_winner") and is_final_match_code(meta.get("round_code") or meta.get("round"))),
-            )
+            points = parse_int(meta.get("points_earned")) or 0
             tournament_points.append(points)
         s.level_points = tournament_points
         s.points_earned = sum(tournament_points)

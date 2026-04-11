@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const ENDPOINT = "/.netlify/functions/leaderboard_user";
+  const ENDPOINT = window.LEADERBOARD_CONFIG?.endpoint || "/.netlify/functions/leaderboard_user";
   const TIME_ZONE = "Europe/Paris";
 
   const state = {
@@ -155,9 +155,7 @@
       localDate.getUTCFullYear(),
       localDate.getUTCMonth() + 1,
       localDate.getUTCDate(),
-      0,
-      0,
-      0,
+      0, 0, 0,
       timeZone
     );
   }
@@ -229,29 +227,24 @@
 
   function buildUserIndex(users) {
     const map = new Map();
-
     for (const user of users || []) {
       if (!user) continue;
       if (user.id) map.set(`id:${user.id}`, user);
       if (user.pseudo) map.set(`pseudo:${String(user.pseudo).trim().toLowerCase()}`, user);
     }
-
     return map;
   }
 
   function resolveUserForScore(row, userIndex) {
     if (!row) return null;
-
     if (row.user_id) {
       const byId = userIndex.get(`id:${row.user_id}`);
       if (byId) return byId;
     }
-
     if (row.pseudo) {
       const byPseudo = userIndex.get(`pseudo:${String(row.pseudo).trim().toLowerCase()}`);
       if (byPseudo) return byPseudo;
     }
-
     return null;
   }
 
@@ -338,10 +331,7 @@
         if (b.scores !== a.scores) return b.scores - a.scores;
         return String(a.pseudo || "").localeCompare(String(b.pseudo || ""));
       })
-      .map((entry, index) => ({
-        rank: index + 1,
-        ...entry
-      }));
+      .map((entry, index) => ({ rank: index + 1, ...entry }));
   }
 
   function countMatchingScores(scores, users, tour, game, period) {
@@ -470,10 +460,25 @@
       $("statusView").textContent = "Reading Supabase tables…";
 
       const res = await fetch(ENDPOINT, { cache: "no-store" });
-      const data = await res.json();
+      const text = await res.text();
 
-      if (!res.ok || !data || !data.ok) {
-        throw new Error((data && (data.error || data.message)) || `HTTP ${res.status}`);
+      let data = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        data = null;
+      }
+
+      if (!res.ok) {
+        const body = (typeof text === "string" ? text.trim() : "");
+        const hint = body.startsWith("<!DOCTYPE") || body.startsWith("<html")
+          ? `The endpoint returned HTML, not JSON. Check that the function exists at ${ENDPOINT}.`
+          : (data && (data.error || data.message)) ? (data.error || data.message) : `HTTP ${res.status}`;
+        throw new Error(hint);
+      }
+
+      if (!data || !data.ok) {
+        throw new Error((data && (data.error || data.message)) || "Invalid response from leaderboard function.");
       }
 
       state.scores = asArray(data.scores);
