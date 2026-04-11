@@ -1,13 +1,8 @@
 (() => {
   "use strict";
 
-  const CONFIG = window.LEADERBOARD_CONFIG || {};
-  const SUPABASE_URL = (CONFIG.supabaseUrl || window.SUPABASE_URL || "").replace(/\/$/, "");
-  const SUPABASE_ANON_KEY = CONFIG.supabaseAnonKey || window.SUPABASE_ANON_KEY || "";
-  const USERS_TABLE = CONFIG.usersTable || "users";
-  const SCORES_TABLE = CONFIG.scoresTable || "scores";
-  const TIME_ZONE = CONFIG.timeZone || "Europe/Paris";
-  const PAGE_SIZE = 1000;
+  const ENDPOINT = "/.netlify/functions/leaderboard_user";
+  const TIME_ZONE = "Europe/Paris";
 
   const state = {
     loading: true,
@@ -18,7 +13,8 @@
     scores: [],
     users: [],
     gameOptions: [],
-    leaderboard: []
+    leaderboard: [],
+    filteredScoreCount: 0
   };
 
   const $ = (id) => document.getElementById(id);
@@ -32,6 +28,29 @@
       "\"": "&quot;",
       "'": "&#39;"
     })[m]);
+  }
+
+  function parseJsonMaybeDeep(value, depth = 4) {
+    let current = value;
+    for (let i = 0; i < depth; i++) {
+      if (current === null || current === undefined) return current;
+      if (typeof current === "object") return current;
+      if (typeof current !== "string") return current;
+
+      const trimmed = current.trim();
+      if (!trimmed) return null;
+
+      try {
+        current = JSON.parse(trimmed);
+      } catch {
+        return current;
+      }
+    }
+    return current;
+  }
+
+  function asArray(value) {
+    return Array.isArray(value) ? value : [];
   }
 
   function normalizeTour(value) {
@@ -56,30 +75,6 @@
       .join(" ");
   }
 
-  function asArray(value) {
-    if (Array.isArray(value)) return value;
-    return [];
-  }
-
-  function parseJsonMaybeDeep(value, depth = 4) {
-    let current = value;
-    for (let i = 0; i < depth; i++) {
-      if (current === null || current === undefined) return current;
-      if (typeof current === "object") return current;
-      if (typeof current !== "string") return current;
-
-      const trimmed = current.trim();
-      if (!trimmed) return null;
-
-      try {
-        current = JSON.parse(trimmed);
-      } catch {
-        return current;
-      }
-    }
-    return current;
-  }
-
   function parseDate(value) {
     if (!value) return null;
     const d = new Date(value);
@@ -94,26 +89,6 @@
       if (d2) return d2;
     }
     return null;
-  }
-
-  function getTimeZoneParts(date, timeZone = TIME_ZONE) {
-    const dtf = new Intl.DateTimeFormat("en-GB", {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      weekday: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: false
-    });
-
-    const parts = {};
-    for (const p of dtf.formatToParts(date)) {
-      if (p.type !== "literal") parts[p.type] = p.value;
-    }
-    return parts;
   }
 
   function getTimeZoneOffsetMs(date, timeZone = TIME_ZONE) {
@@ -152,7 +127,19 @@
   }
 
   function startOfWeekMonday(date = new Date(), timeZone = TIME_ZONE) {
-    const parts = getTimeZoneParts(date, timeZone);
+    const dtf = new Intl.DateTimeFormat("en-GB", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      weekday: "short"
+    });
+
+    const parts = {};
+    for (const p of dtf.formatToParts(date)) {
+      if (p.type !== "literal") parts[p.type] = p.value;
+    }
+
     const weekdayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
     const dow = weekdayMap[String(parts.weekday || "").slice(0, 3)] ?? 0;
 
@@ -182,29 +169,10 @@
     return null;
   }
 
-  function formatDate(value) {
-    const d = parseDate(value);
-    if (!d) return "—";
-    return new Intl.DateTimeFormat("en-GB", {
-      dateStyle: "medium",
-      timeStyle: "short",
-      timeZone: TIME_ZONE
-    }).format(d);
-  }
-
-  function formatCountry(value) {
-    if (!value) return "—";
-    const code = countryCodeFromName(String(value));
-    const flag = code ? codeToFlag(code) : "";
-    return flag ? `${flag} ${value}` : value;
-  }
-
   function codeToFlag(code) {
     const clean = String(code || "").trim().toUpperCase();
     if (!/^[A-Z]{2}$/.test(clean)) return "";
-    return String.fromCodePoint(
-      ...clean.split("").map((c) => 127397 + c.charCodeAt(0))
-    );
+    return String.fromCodePoint(...clean.split("").map((c) => 127397 + c.charCodeAt(0)));
   }
 
   function countryCodeFromName(name) {
@@ -252,28 +220,11 @@
     return "";
   }
 
-  function resolveRowTour(row, user) {
-    const meta = parseJsonMaybeDeep(row?.meta);
-    const fromMeta = normalizeTour(meta?.tour);
-    if (fromMeta) return fromMeta;
-
-    const fromMode = normalizeTour(row?.mode);
-    if (fromMode) return fromMode;
-
-    const fromUser = normalizeTour(user?.tour);
-    if (fromUser) return fromUser;
-
-    if (row?.game_id && typeof row.game_id === "string") {
-      const guessed = normalizeTour(row.game_id);
-      if (guessed) return guessed;
-    }
-
-    return null;
-  }
-
-  function rowPoints(row) {
-    const n = Number(row?.points);
-    return Number.isFinite(n) ? n : 0;
+  function formatCountry(value) {
+    if (!value) return "—";
+    const code = countryCodeFromName(String(value));
+    const flag = code ? codeToFlag(code) : "";
+    return flag ? `${flag} ${value}` : value;
   }
 
   function buildUserIndex(users) {
@@ -281,11 +232,8 @@
 
     for (const user of users || []) {
       if (!user) continue;
-      const id = user.id ? String(user.id) : "";
-      const pseudo = user.pseudo ? String(user.pseudo).trim().toLowerCase() : "";
-
-      if (id) map.set(`id:${id}`, user);
-      if (pseudo) map.set(`pseudo:${pseudo}`, user);
+      if (user.id) map.set(`id:${user.id}`, user);
+      if (user.pseudo) map.set(`pseudo:${String(user.pseudo).trim().toLowerCase()}`, user);
     }
 
     return map;
@@ -307,18 +255,30 @@
     return null;
   }
 
+  function resolveRowTour(row, user) {
+    const meta = parseJsonMaybeDeep(row?.meta);
+    const fromMeta = normalizeTour(meta?.tour);
+    if (fromMeta) return fromMeta;
+
+    const fromMode = normalizeTour(row?.mode);
+    if (fromMode) return fromMode;
+
+    const fromUser = normalizeTour(user?.tour);
+    if (fromUser) return fromUser;
+
+    return null;
+  }
+
+  function rowPoints(row) {
+    const n = Number(row?.points);
+    return Number.isFinite(n) ? n : 0;
+  }
+
   function scoreIdentity(row) {
     if (row?.user_id) return `id:${row.user_id}`;
     if (row?.pseudo) return `pseudo:${String(row.pseudo).trim().toLowerCase()}`;
     if (row?.anon_id) return `anon:${row.anon_id}`;
-    return `row:${row?.id || cryptoRandomId()}`;
-  }
-
-  function cryptoRandomId() {
-    if (window.crypto && typeof window.crypto.randomUUID === "function") {
-      return window.crypto.randomUUID();
-    }
-    return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    return `row:${row?.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
   }
 
   function computeLeaderboard(scores, users, tour, game, period) {
@@ -329,8 +289,8 @@
     for (const score of scores || []) {
       const user = resolveUserForScore(score, userIndex);
       const rowTour = resolveRowTour(score, user);
-      if (tour && rowTour !== tour) continue;
 
+      if (tour && rowTour !== tour) continue;
       if (game !== "all" && String(score.game_id || "") !== String(game)) continue;
 
       const d = getRowDate(score);
@@ -384,66 +344,25 @@
       }));
   }
 
-  function fetchJson(url, options = {}) {
-    return fetch(url, {
-      cache: "no-store",
-      ...options
-    }).then(async (res) => {
-      const text = await res.text();
-      let data = null;
-      try {
-        data = text ? JSON.parse(text) : null;
-      } catch {
-        data = text;
-      }
+  function countMatchingScores(scores, users, tour, game, period) {
+    const userIndex = buildUserIndex(users);
+    const cutoff = getPeriodCutoff(period);
+    let count = 0;
 
-      if (!res.ok) {
-        const message = data && (data.error || data.message)
-          ? (data.error || data.message)
-          : `HTTP ${res.status}`;
-        const err = new Error(message);
-        err.status = res.status;
-        err.data = data;
-        throw err;
-      }
+    for (const score of scores || []) {
+      const user = resolveUserForScore(score, userIndex);
+      const rowTour = resolveRowTour(score, user);
+      if (tour && rowTour !== tour) continue;
+      if (game !== "all" && String(score.game_id || "") !== String(game)) continue;
 
-      return data;
-    });
-  }
+      const d = getRowDate(score);
+      if (cutoff && d && d < cutoff) continue;
+      if (cutoff && !d) continue;
 
-  async function fetchAllRows(table, select, order = "created_at.desc") {
-    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-      throw new Error("Missing SUPABASE_URL or SUPABASE_ANON_KEY.");
+      count += 1;
     }
 
-    const headers = {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      Accept: "application/json"
-    };
-
-    const all = [];
-    let offset = 0;
-
-    while (true) {
-      const url = new URL(`${SUPABASE_URL}/rest/v1/${table}`);
-      url.searchParams.set("select", select);
-      if (order) url.searchParams.set("order", order);
-      url.searchParams.set("limit", String(PAGE_SIZE));
-      url.searchParams.set("offset", String(offset));
-
-      const batch = await fetchJson(url.toString(), { headers });
-      if (!Array.isArray(batch)) {
-        throw new Error(`Unexpected response while reading table "${table}".`);
-      }
-
-      all.push(...batch);
-
-      if (batch.length < PAGE_SIZE) break;
-      offset += PAGE_SIZE;
-    }
-
-    return all;
+    return count;
   }
 
   function renderGameOptions(scores) {
@@ -472,6 +391,19 @@
     }
   }
 
+  function setStatus(text) {
+    $("statusLabel").textContent = text;
+  }
+
+  function updateButtons() {
+    $("btnATP").classList.toggle("active", state.activeTour === "ATP");
+    $("btnWTA").classList.toggle("active", state.activeTour === "WTA");
+    $("btnWeek").classList.toggle("active", state.activePeriod === "week");
+    $("btn52w").classList.toggle("active", state.activePeriod === "52w");
+    $("btnAll").classList.toggle("active", state.activePeriod === "all");
+    $("gameSelect").value = state.activeGame;
+  }
+
   function renderLeaderboard() {
     const body = $("tbl").querySelector("tbody");
     body.innerHTML = "";
@@ -479,20 +411,12 @@
     const rows = state.leaderboard;
 
     $("chipTour").textContent = state.activeTour;
-    $("chipGame").textContent = state.activeGame === "all"
-      ? "All games"
-      : prettyLabel(state.activeGame);
-    $("chipPeriod").textContent = state.activePeriod === "week"
-      ? "Week"
-      : state.activePeriod === "52w"
-        ? "52 weeks"
-        : "All time";
+    $("chipGame").textContent = state.activeGame === "all" ? "All games" : prettyLabel(state.activeGame);
+    $("chipPeriod").textContent = state.activePeriod === "week" ? "Week" : state.activePeriod === "52w" ? "52 weeks" : "All time";
 
     $("titleView").textContent = `${state.activeTour} leaderboard`;
     $("subtitleView").textContent = `${$("chipPeriod").textContent} · ${$("chipGame").textContent} · Week starts on Monday at 00:00 (${TIME_ZONE})`;
-    $("statusView").textContent = state.loading
-      ? "Loading…"
-      : `${rows.length} player${rows.length > 1 ? "s" : ""} ranked`;
+    $("statusView").textContent = state.loading ? "Loading…" : `${rows.length} player${rows.length > 1 ? "s" : ""} ranked`;
 
     $("chipPlayers").textContent = String(rows.length);
     $("chipScores").textContent = String(state.filteredScoreCount || 0);
@@ -505,7 +429,6 @@
     for (const row of rows) {
       const tr = document.createElement("tr");
       tr.className = state.activeTour === "ATP" ? "atp" : "wta";
-
       tr.innerHTML = `
         <td class="rank">${row.rank}</td>
         <td class="pseudo">${escapeHtml(row.pseudo)}</td>
@@ -515,7 +438,6 @@
         <td class="total">${escapeHtml(String(row.points))}</td>
         <td class="small">${escapeHtml(String(row.scores))}</td>
       `;
-
       body.appendChild(tr);
     }
   }
@@ -541,78 +463,33 @@
     renderLeaderboard();
   }
 
-  function countMatchingScores(scores, users, tour, game, period) {
-    const userIndex = buildUserIndex(users);
-    const cutoff = getPeriodCutoff(period);
-    let count = 0;
-
-    for (const score of scores || []) {
-      const user = resolveUserForScore(score, userIndex);
-      const rowTour = resolveRowTour(score, user);
-      if (tour && rowTour !== tour) continue;
-      if (game !== "all" && String(score.game_id || "") !== String(game)) continue;
-
-      const d = getRowDate(score);
-      if (cutoff && d && d < cutoff) continue;
-      if (cutoff && !d) continue;
-
-      count += 1;
-    }
-
-    return count;
-  }
-
-  function updateButtons() {
-    $("btnATP").classList.toggle("active", state.activeTour === "ATP");
-    $("btnWTA").classList.toggle("active", state.activeTour === "WTA");
-    $("btnWeek").classList.toggle("active", state.activePeriod === "week");
-    $("btn52w").classList.toggle("active", state.activePeriod === "52w");
-    $("btnAll").classList.toggle("active", state.activePeriod === "all");
-    $("gameSelect").value = state.activeGame;
-  }
-
-  function setStatus(text, kind = "info") {
-    $("statusLabel").textContent = text;
-    const chip = $("statusChip");
-    chip.style.borderColor =
-      kind === "error" ? "rgba(239,68,68,.35)" :
-      kind === "success" ? "rgba(34,197,94,.35)" :
-      "var(--card-border)";
-  }
-
   async function loadData() {
     try {
       state.loading = true;
-      setStatus("Loading…", "info");
+      setStatus("Loading…");
       $("statusView").textContent = "Reading Supabase tables…";
 
-      const [scores, users] = await Promise.all([
-        fetchAllRows(
-          SCORES_TABLE,
-          "id,user_id,pseudo,game_id,points,meta,created_at,mode,created_day,anon_id",
-          "created_at.desc"
-        ),
-        fetchAllRows(
-          USERS_TABLE,
-          "id,pseudo,country,league,tour,league_id,created_at",
-          "created_at.asc"
-        )
-      ]);
+      const res = await fetch(ENDPOINT, { cache: "no-store" });
+      const data = await res.json();
 
-      state.scores = asArray(scores);
-      state.users = asArray(users);
+      if (!res.ok || !data || !data.ok) {
+        throw new Error((data && (data.error || data.message)) || `HTTP ${res.status}`);
+      }
+
+      state.scores = asArray(data.scores);
+      state.users = asArray(data.users);
 
       renderGameOptions(state.scores);
       state.loading = false;
       state.error = null;
-      setStatus(`Loaded · ${state.scores.length} scores`, "success");
 
+      setStatus(`Loaded · ${state.scores.length} scores`);
       refresh();
     } catch (err) {
       console.error(err);
       state.loading = false;
       state.error = err;
-      setStatus("Error", "error");
+      setStatus("Error");
 
       const body = $("tbl").querySelector("tbody");
       body.innerHTML = `<tr><td colspan="7" class="error">${escapeHtml(err.message || "Unable to load leaderboard.")}</td></tr>`;
@@ -656,18 +533,6 @@
 
   document.addEventListener("DOMContentLoaded", () => {
     bindUi();
-
-    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-      state.loading = false;
-      setStatus("Missing config", "error");
-      const body = $("tbl").querySelector("tbody");
-      body.innerHTML = `<tr><td colspan="7" class="error">Missing Supabase configuration.</td></tr>`;
-      $("titleView").textContent = "Configuration error";
-      $("subtitleView").textContent = "Set SUPABASE_URL and SUPABASE_ANON_KEY.";
-      $("statusView").textContent = "Missing config";
-      return;
-    }
-
     loadData();
   });
 })();
