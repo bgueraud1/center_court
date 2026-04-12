@@ -6,6 +6,40 @@
   const LOGIN_URL = CONFIG.usersLoginUrl || "/games/tennis_arena/index.html#login";
   const REGISTER_URL = CONFIG.usersRegisterUrl || "/games/tennis_arena/index.html#signup";
 
+  const TAG_SUGGESTIONS = [
+    "ATP", "ATP Cup", "ATP Sweden", "ATP250", "ATP500", "Adrian Mannarino", "Africa", "Albania",
+    "Aljaz Bedene", "Amanda Anisimova", "Anastasia Sevastova", "Andy Murray", "Anna Kournikova",
+    "Antalya", "Argentina", "Asia", "Auckland", "Australia", "Australian Open", "Austria", "Balkans",
+    "Basel", "Belarus", "Belgium", "Big Three", "Big Three US Open", "BigThree", "Bob Bryan",
+    "Botic van de Zandschulp", "Bulgaria", "Båstad", "Canada", "Caribbean", "Casper Ruud",
+    "Cecchinato", "Central Asia", "Challenger", "Chile", "China", "Clay", "Cordoba Open", "Country",
+    "Croatia", "Cyprus", "Czech Republic", "Daria Kasatkina", "Daria Saville", "Davis Cup",
+    "Denis Istomin", "Diana Shnaider", "Djokovic", "Doha", "Dominic Thiem", "Dominican Republic",
+    "Dubai", "Ecuador", "Elena Vesnina", "Elise Mertens", "Emma Raducanu", "Equipment", "Estonia",
+    "Federer", "Flushing Meadows", "France", "Garbine Muguruza", "Germany", "Grand Slam", "Grass",
+    "Greece", "Groth", "Guido Pella", "Guinness", "Hall of Fame", "Halle", "Hopman Cup", "ITF",
+    "Ilie Năstase", "In 2014", "India", "Indian Wells", "Indian-Wells", "Italy", "Iva Jovic",
+    "Ivory Coast", "Janowicz", "Japan", "Joao Sousa", "Junior", "Kaia Kanepi", "Kazakhstan",
+    "Kei Nishikori", "Kenya", "Kitzbühel", "Latvia", "Linz", "London", "Madrid", "Madrid Open",
+    "Majorca", "Manacor", "Margarita Gasparyan", "Maria Sharapova", "Marian Vajda", "Marseille",
+    "Martin Kližan", "Master 1000", "Master1000", "Masters1000", "Miami", "Milos Raonic",
+    "Mirra Andreeva", "Mischa Zverev", "Monica Seles", "Montreal/Toronto", "Nadal", "Netherlands",
+    "New York", "New Zealand", "Newport", "Norway", "Novak Djokovic", "Olympic Games", "Olympics",
+    "Open 13", "Pedro Sousa", "Poland", "Portugal", "Qatar", "Queen's Club", "Rafaael Nadal",
+    "Rafael Nadal", "Roger Federer", "Rogers Cup", "Roland Garros", "Roland-Garros", "Romania",
+    "Rosol", "Russia", "Saudi Arabia", "Serbia", "Serena Williams", "Simona Halep", "Slovakia",
+    "Slovenia", "South Africa", "South America", "South east Asia", "Spain", "Stakhovsky",
+    "Stanislas Wawrinka", "Stefanos Tsitsipas", "Sunshine Double", "SunshineDouble", "Sweden",
+    "Swiss Indoors", "Switzerland", "Tajikistan", "Taïwan", "Thailand", "Tim Van Rijthoven",
+    "Tokyo", "Tournament", "Turkey", "UK", "US Open", "USA", "Ukraine", "Umag", "UnitedKingdom",
+    "Venus Williams", "Victor Estrella Burgos", "Victorian era", "WTA", "WTA125", "Wayne Ferreira",
+    "Wimbledon", "Zimbabwe", "birthplace", "carpet", "city", "clay", "coach", "double",
+    "doubles", "exhibition", "extra-tennis", "fastest serve", "gold", "grass", "hard", "history",
+    "indoor", "left-hander", "migration", "mixed doubles", "mixed teams", "name", "names",
+    "national teams", "play", "qualifier", "quarter-final", "ranking", "record", "second round",
+    "semi-final", "serbia", "serve", "spelling", "surface", "terminology", "title", "upset"
+  ];
+
   const QUESTIONS_TEMPLATES = {
     open: {
       question_type: "open",
@@ -39,8 +73,7 @@
   const state = {
     cards: [],
     focusedTagsInput: null,
-    submitting: false,
-    session: null
+    submitting: false
   };
 
   const $ = (id) => document.getElementById(id);
@@ -138,8 +171,6 @@
 
     placeholder.innerHTML = "";
     const session = getSession();
-    state.session = session;
-
     const name = displayName(session);
 
     if (name) {
@@ -238,17 +269,15 @@
   function questionSummary(card) {
     const type = card.querySelector("[data-field='question_type']")?.value || "open";
     const body = normalizeText(card.querySelector("[data-field='question_corps']")?.value);
-    const label =
-      type === "qcm" ? "QCM" :
-      type === "tf" ? "True / False" :
-      "Open";
-
+    const label = type === "qcm" ? "QCM" : type === "tf" ? "True / False" : "Open";
     return body ? `${label}: ${body.slice(0, 64)}${body.length > 64 ? "…" : ""}` : `${label} question`;
   }
 
   function updateCardTitle(cardEl) {
     const title = cardEl.querySelector("[data-card-title]");
+    const idLabel = cardEl.querySelector("[data-card-id]");
     if (title) title.textContent = questionSummary(cardEl);
+    if (idLabel) idLabel.textContent = cardEl.querySelector("[data-field='id']").value;
   }
 
   function updateVisibility(cardEl) {
@@ -314,12 +343,9 @@
       </div>
 
       <div class="question-card-body">
-        <div class="grid-2">
-          <div class="field">
-            <label>Question ID</label>
-            <input type="text" data-field="id" value="${escapeHtml(cardId)}" />
-          </div>
+        <input type="hidden" data-field="id" value="${escapeHtml(cardId)}" />
 
+        <div class="grid-2">
           <div class="field">
             <label>Question type</label>
             <select data-field="question_type">
@@ -328,14 +354,7 @@
               <option value="tf">True / False</option>
             </select>
           </div>
-        </div>
 
-        <div class="field">
-          <label>Question text</label>
-          <textarea data-field="question_corps" placeholder="Write the question exactly as it should appear to players."></textarea>
-        </div>
-
-        <div class="grid-2">
           <div class="field">
             <label>Difficulty</label>
             <select data-field="difficulty">
@@ -345,15 +364,20 @@
               <option value="4">4 — Very hard</option>
             </select>
           </div>
+        </div>
 
-          <div class="field">
-            <label>Tags</label>
-            <input type="text" data-field="tags" placeholder="ATP, WTA, Grand Slam, player name, country..." />
-            <div class="help">
-              Each question must include <strong>ATP</strong>, <strong>WTA</strong>, or both. Other tags can be added freely.
-            </div>
-            <div class="tag-preview" data-tags-preview></div>
+        <div class="field">
+          <label>Question text</label>
+          <textarea data-field="question_corps" placeholder="Write the question exactly as it should appear to players."></textarea>
+        </div>
+
+        <div class="field">
+          <label>Tags</label>
+          <input type="text" data-field="tags" list="tagSuggestions" placeholder="ATP, WTA, Grand Slam, player name, country..." />
+          <div class="help">
+            Include <strong>ATP</strong>, <strong>WTA</strong>, or both. Other tags are welcome, and custom tags are allowed when needed.
           </div>
+          <div class="tag-preview" data-tags-preview></div>
         </div>
 
         <div data-section="open">
@@ -364,7 +388,7 @@
             </div>
             <div class="field">
               <label>Player answer?</label>
-              <label class="mini-chip" style="justify-content:flex-start; width:max-content">
+              <label class="mini-chip">
                 <input type="checkbox" data-field="open_player" />
                 This question expects a player name
               </label>
@@ -429,8 +453,8 @@
 
     const typeField = card.querySelector("[data-field='question_type']");
     const removeBtn = card.querySelector("[data-remove-card]");
-    const fields = card.querySelectorAll("[data-field]");
     const tagsInput = card.querySelector("[data-field='tags']");
+    const fields = card.querySelectorAll("[data-field]");
 
     typeField.value = data.question_type || "open";
 
@@ -485,7 +509,7 @@
   }
 
   function collectCard(cardEl) {
-    const id = normalizeText(cardEl.querySelector("[data-field='id']").value) || makeId();
+    const id = normalizeText(cardEl.querySelector("[data-field='id']").value);
     const type = cardEl.querySelector("[data-field='question_type']").value;
     const question_corps = normalizeText(cardEl.querySelector("[data-field='question_corps']").value);
     const difficulty = Number(cardEl.querySelector("[data-field='difficulty']").value || 1);
@@ -547,16 +571,16 @@
 
     if (row.question_type === "qcm") {
       if (!row.qcm_a || !row.qcm_b || !row.qcm_c || !row.qcm_d) {
-        return `Question #${index + 1}: all four QCM options are required.`;
+        return `Question #${index + 1}: QCM questions need all four options.`;
       }
       if (!["a", "b", "c", "d"].includes(String(row.qcm_answer || "").toLowerCase())) {
-        return `Question #${index + 1}: QCM correct answer must be A, B, C, or D.`;
+        return `Question #${index + 1}: QCM correct answer must be a, b, c, or d.`;
       }
     }
 
     if (row.question_type === "tf") {
       if (typeof row.true_false !== "boolean") {
-        return `Question #${index + 1}: the True / False answer is required.`;
+        return `Question #${index + 1}: True / False questions need a boolean answer.`;
       }
     }
 
@@ -646,11 +670,6 @@
       btn.addEventListener("click", () => addTagToFocusedInput(btn.getAttribute("data-insert-tag")));
     });
 
-    const loginBtn = document.querySelector("[data-login-btn]");
-    const registerBtn = document.querySelector("[data-register-btn]");
-    if (loginBtn) loginBtn.addEventListener("click", openLogin);
-    if (registerBtn) registerBtn.addEventListener("click", openRegister);
-
     document.addEventListener("click", (ev) => {
       if (!ev.target.closest(".auth-box")) {
         const existing = document.querySelector(".dropdown");
@@ -663,7 +682,6 @@
     bindUi();
     addQuestionCard("open");
     renderAuthBox();
-    $("endpointLabel").textContent = ENDPOINT;
     setDraftCount();
 
     const api = getAuthApi();

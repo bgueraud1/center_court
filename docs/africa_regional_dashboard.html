@@ -672,9 +672,18 @@
             <section class="card">
               <div class="sectionHeader">
                 <h2>Game statistics</h2>
-                <div class="meta">Volumes are shown as totals; ratios as percentages</div>
+                <div class="meta" id="gameStatsMeta">Volumes are shown as totals; ratios as percentages · Region aggregate</div>
               </div>
-              <div class="sectionBody" id="gameStats"></div>
+              <div class="sectionBody">
+                <div class="mapControls" style="margin-bottom:12px;">
+                  <label for="gameStatsScope">Scope</label>
+                  <select id="gameStatsScope" class="mapSelect">
+                    <option value="region">Region</option>
+                    <option value="country">Selected country</option>
+                  </select>
+                </div>
+                <div id="gameStats"></div>
+              </div>
             </section>
 
             <section class="card mapWrap">
@@ -855,6 +864,7 @@
       selectedCountryCode: qs.get('country') || null,
       resolvedIOC: null,
       mapMetric: 'year_mass',
+      gameStatsScope: 'region',
       geojson: null,
       geojsonSource: null,
       geojsonPromise: null,
@@ -942,22 +952,281 @@
     }
 
     function regionMetricOptions() {
-      const circuit = state.circuit === 'WTA' ? 'WTA' : 'ATP';
       return [
-        { value: 'year_mass', label: 'Year mass' },
-        { value: 'year_efficiency', label: 'Year efficiency' },
-        { value: 'year_coherence_distance', label: 'Year coherence distance' },
-        { value: `${circuit}_ranking`, label: `${circuit} ranking` },
-        { value: `${circuit}_performance`, label: `${circuit} performance` },
-        { value: `${circuit}_win_rate`, label: `${circuit} win rate` },
-        { value: `${circuit}_significant_win_rate`, label: `${circuit} significant win rate` },
-        { value: `${circuit}_avg_opponent_rank`, label: `${circuit} average opponent rank` },
-        { value: `${circuit}_points`, label: `${circuit} points` },
+        { value: 'year_mass', label: 'Mass' },
+        { value: 'year_efficiency', label: 'Efficiency' },
+        { value: 'share_of_region_mass', label: 'Share of region mass' },
+        { value: 'atp_players_count', label: 'ATP players' },
+        { value: 'wta_players_count', label: 'WTA players' },
+        { value: 'total_players_count', label: 'Total players' },
+        { value: 'mass_rank', label: 'Mass rank' },
+        { value: 'efficiency_rank', label: 'Efficiency rank' },
       ];
     }
 
     function getCountryCode(item) {
       return String(item?.country_code || item?.country || item?.iso3 || item?.adm0_a3 || '').toUpperCase();
+    }
+
+    const ISO2_TO_ISO3 = {
+      "AD": "AND",
+      "AE": "ARE",
+      "AF": "AFG",
+      "AG": "ATG",
+      "AI": "AIA",
+      "AL": "ALB",
+      "AM": "ARM",
+      "AO": "AGO",
+      "AQ": "ATA",
+      "AR": "ARG",
+      "AS": "ASM",
+      "AT": "AUT",
+      "AU": "AUS",
+      "AW": "ABW",
+      "AX": "ALA",
+      "AZ": "AZE",
+      "BA": "BIH",
+      "BB": "BRB",
+      "BD": "BGD",
+      "BE": "BEL",
+      "BF": "BFA",
+      "BG": "BGR",
+      "BH": "BHR",
+      "BI": "BDI",
+      "BJ": "BEN",
+      "BL": "BLM",
+      "BM": "BMU",
+      "BN": "BRN",
+      "BO": "BOL",
+      "BQ": "BES",
+      "BR": "BRA",
+      "BS": "BHS",
+      "BT": "BTN",
+      "BV": "BVT",
+      "BW": "BWA",
+      "BY": "BLR",
+      "BZ": "BLZ",
+      "CA": "CAN",
+      "CC": "CCK",
+      "CD": "COD",
+      "CF": "CAF",
+      "CG": "COG",
+      "CH": "CHE",
+      "CI": "CIV",
+      "CK": "COK",
+      "CL": "CHL",
+      "CM": "CMR",
+      "CN": "CHN",
+      "CO": "COL",
+      "CR": "CRI",
+      "CU": "CUB",
+      "CV": "CPV",
+      "CW": "CUW",
+      "CX": "CXR",
+      "CY": "CYP",
+      "CZ": "CZE",
+      "DE": "DEU",
+      "DJ": "DJI",
+      "DK": "DNK",
+      "DM": "DMA",
+      "DO": "DOM",
+      "DZ": "DZA",
+      "EC": "ECU",
+      "EE": "EST",
+      "EG": "EGY",
+      "EH": "ESH",
+      "EL": "GRC",
+      "ER": "ERI",
+      "ES": "ESP",
+      "ET": "ETH",
+      "FI": "FIN",
+      "FJ": "FJI",
+      "FK": "FLK",
+      "FM": "FSM",
+      "FO": "FRO",
+      "FR": "FRA",
+      "GA": "GAB",
+      "GB": "GBR",
+      "GD": "GRD",
+      "GE": "GEO",
+      "GF": "GUF",
+      "GG": "GGY",
+      "GH": "GHA",
+      "GI": "GIB",
+      "GL": "GRL",
+      "GM": "GMB",
+      "GN": "GIN",
+      "GP": "GLP",
+      "GQ": "GNQ",
+      "GR": "GRC",
+      "GS": "SGS",
+      "GT": "GTM",
+      "GU": "GUM",
+      "GW": "GNB",
+      "GY": "GUY",
+      "HK": "HKG",
+      "HM": "HMD",
+      "HN": "HND",
+      "HR": "HRV",
+      "HT": "HTI",
+      "HU": "HUN",
+      "ID": "IDN",
+      "IE": "IRL",
+      "IL": "ISR",
+      "IM": "IMN",
+      "IN": "IND",
+      "IO": "IOT",
+      "IQ": "IRQ",
+      "IR": "IRN",
+      "IS": "ISL",
+      "IT": "ITA",
+      "JE": "JEY",
+      "JM": "JAM",
+      "JO": "JOR",
+      "JP": "JPN",
+      "KE": "KEN",
+      "KG": "KGZ",
+      "KH": "KHM",
+      "KI": "KIR",
+      "KM": "COM",
+      "KN": "KNA",
+      "KP": "PRK",
+      "KR": "KOR",
+      "KW": "KWT",
+      "KY": "CYM",
+      "KZ": "KAZ",
+      "LA": "LAO",
+      "LB": "LBN",
+      "LC": "LCA",
+      "LI": "LIE",
+      "LK": "LKA",
+      "LR": "LBR",
+      "LS": "LSO",
+      "LT": "LTU",
+      "LU": "LUX",
+      "LV": "LVA",
+      "LY": "LBY",
+      "MA": "MAR",
+      "MC": "MCO",
+      "MD": "MDA",
+      "ME": "MNE",
+      "MF": "MAF",
+      "MG": "MDG",
+      "MH": "MHL",
+      "MK": "MKD",
+      "ML": "MLI",
+      "MM": "MMR",
+      "MN": "MNG",
+      "MO": "MAC",
+      "MP": "MNP",
+      "MQ": "MTQ",
+      "MR": "MRT",
+      "MS": "MSR",
+      "MT": "MLT",
+      "MU": "MUS",
+      "MV": "MDV",
+      "MW": "MWI",
+      "MX": "MEX",
+      "MY": "MYS",
+      "MZ": "MOZ",
+      "NA": "NAM",
+      "NC": "NCL",
+      "NE": "NER",
+      "NF": "NFK",
+      "NG": "NGA",
+      "NI": "NIC",
+      "NL": "NLD",
+      "NO": "NOR",
+      "NP": "NPL",
+      "NR": "NRU",
+      "NU": "NIU",
+      "NZ": "NZL",
+      "OM": "OMN",
+      "PA": "PAN",
+      "PE": "PER",
+      "PF": "PYF",
+      "PG": "PNG",
+      "PH": "PHL",
+      "PK": "PAK",
+      "PL": "POL",
+      "PM": "SPM",
+      "PN": "PCN",
+      "PR": "PRI",
+      "PS": "PSE",
+      "PT": "PRT",
+      "PW": "PLW",
+      "PY": "PRY",
+      "QA": "QAT",
+      "RE": "REU",
+      "RO": "ROU",
+      "RS": "SRB",
+      "RU": "RUS",
+      "RW": "RWA",
+      "SA": "SAU",
+      "SB": "SLB",
+      "SC": "SYC",
+      "SD": "SDN",
+      "SE": "SWE",
+      "SG": "SGP",
+      "SH": "SHN",
+      "SI": "SVN",
+      "SJ": "SJM",
+      "SK": "SVK",
+      "SL": "SLE",
+      "SM": "SMR",
+      "SN": "SEN",
+      "SO": "SOM",
+      "SR": "SUR",
+      "SS": "SSD",
+      "ST": "STP",
+      "SV": "SLV",
+      "SX": "SXM",
+      "SY": "SYR",
+      "SZ": "SWZ",
+      "TC": "TCA",
+      "TD": "TCD",
+      "TF": "ATF",
+      "TG": "TGO",
+      "TH": "THA",
+      "TJ": "TJK",
+      "TK": "TKL",
+      "TL": "TLS",
+      "TM": "TKM",
+      "TN": "TUN",
+      "TO": "TON",
+      "TR": "TUR",
+      "TT": "TTO",
+      "TV": "TUV",
+      "TW": "TWN",
+      "TZ": "TZA",
+      "UA": "UKR",
+      "UG": "UGA",
+      "UK": "GBR",
+      "UM": "UMI",
+      "US": "USA",
+      "UY": "URY",
+      "UZ": "UZB",
+      "VA": "VAT",
+      "VC": "VCT",
+      "VE": "VEN",
+      "VG": "VGB",
+      "VI": "VIR",
+      "VN": "VNM",
+      "VU": "VUT",
+      "WF": "WLF",
+      "WS": "WSM",
+      "XK": "XKX",
+      "YE": "YEM",
+      "YT": "MYT",
+      "ZA": "ZAF",
+      "ZM": "ZMB",
+      "ZW": "ZWE"
+    };
+    function normalizeCountryCodeForMap(code) {
+      const value = String(code || '').trim().toUpperCase();
+      if (!value) return '';
+      if (value.length === 3) return value;
+      return ISO2_TO_ISO3[value] || value;
     }
 
     function getVectorForCircuit(entry, circuit) {
@@ -967,47 +1236,50 @@
 
     function getMetricValueFromEntry(entry, metric) {
       if (!entry) return null;
-      const circuit = state.circuit === 'WTA' ? 'WTA' : 'ATP';
       switch (metric) {
-        case 'year_mass': return entry.mass ?? entry.country_mass ?? entry.year_mass ?? null;
-        case 'year_efficiency': return entry.efficiency ?? entry.year_efficiency ?? null;
-        case 'year_coherence_distance': return entry.coherence_distance ?? entry.year_coherence_distance ?? null;
-        case `${circuit}_ranking`:
-          return getVectorForCircuit(entry, circuit)?.ranking ?? null;
-        case `${circuit}_performance`:
-          return getVectorForCircuit(entry, circuit)?.performance ?? null;
-        case `${circuit}_win_rate`:
-          return getVectorForCircuit(entry, circuit)?.win_rate ?? null;
-        case `${circuit}_significant_win_rate`:
-          return getVectorForCircuit(entry, circuit)?.significant_win_rate ?? null;
-        case `${circuit}_avg_opponent_rank`:
-          return getVectorForCircuit(entry, circuit)?.avg_opponent_rank ?? null;
-        case `${circuit}_points`:
-          return getVectorForCircuit(entry, circuit)?.points ?? null;
+        case 'year_mass':
+        case 'mass':
+          return entry.mass ?? entry.country_mass ?? entry.year_mass ?? null;
+        case 'year_efficiency':
+        case 'efficiency':
+          return entry.efficiency ?? entry.year_efficiency ?? null;
+        case 'share_of_region_mass':
+        case 'share':
+          return entry.share_of_region_mass ?? entry.share ?? null;
+        case 'atp_players_count':
+        case 'ATP_players_count':
+          return entry.atp_players_count ?? entry.ATP_players_count ?? null;
+        case 'wta_players_count':
+        case 'WTA_players_count':
+          return entry.wta_players_count ?? entry.WTA_players_count ?? null;
+        case 'total_players_count':
+          return entry.total_players_count ?? null;
+        case 'mass_rank':
+          return entry.mass_rank ?? null;
+        case 'efficiency_rank':
+          return entry.efficiency_rank ?? null;
         default:
-          return null;
+          return entry?.[metric] ?? null;
       }
     }
 
     function getMetricConfig(metric) {
       const base = {
-        year_mass: { label: 'Year mass', ascending: false, digits: 3, percent: false },
-        year_efficiency: { label: 'Year efficiency', ascending: false, digits: 3, percent: false },
-        year_coherence_distance: { label: 'Year coherence distance', ascending: true, digits: 3, percent: false },
-        ATP_ranking: { label: 'ATP ranking', ascending: false, digits: 3, percent: false },
-        ATP_performance: { label: 'ATP performance', ascending: false, digits: 3, percent: false },
-        ATP_win_rate: { label: 'ATP win rate', ascending: false, digits: 1, percent: true },
-        ATP_significant_win_rate: { label: 'ATP significant win rate', ascending: false, digits: 1, percent: true },
-        ATP_avg_opponent_rank: { label: 'ATP average opponent rank', ascending: true, digits: 3, percent: false },
-        ATP_points: { label: 'ATP points', ascending: false, digits: 3, percent: false },
-        WTA_ranking: { label: 'WTA ranking', ascending: false, digits: 3, percent: false },
-        WTA_performance: { label: 'WTA performance', ascending: false, digits: 3, percent: false },
-        WTA_win_rate: { label: 'WTA win rate', ascending: false, digits: 1, percent: true },
-        WTA_significant_win_rate: { label: 'WTA significant win rate', ascending: false, digits: 1, percent: true },
-        WTA_avg_opponent_rank: { label: 'WTA average opponent rank', ascending: true, digits: 3, percent: false },
-        WTA_points: { label: 'WTA points', ascending: false, digits: 3, percent: false },
+        year_mass: { label: 'Mass', ascending: false, digits: 3, percent: false },
+        mass: { label: 'Mass', ascending: false, digits: 3, percent: false },
+        year_efficiency: { label: 'Efficiency', ascending: false, digits: 3, percent: false },
+        efficiency: { label: 'Efficiency', ascending: false, digits: 3, percent: false },
+        share_of_region_mass: { label: 'Share of region mass', ascending: false, digits: 1, percent: true },
+        share: { label: 'Share of region mass', ascending: false, digits: 1, percent: true },
+        atp_players_count: { label: 'ATP players', ascending: false, digits: 0, percent: false },
+        ATP_players_count: { label: 'ATP players', ascending: false, digits: 0, percent: false },
+        wta_players_count: { label: 'WTA players', ascending: false, digits: 0, percent: false },
+        WTA_players_count: { label: 'WTA players', ascending: false, digits: 0, percent: false },
+        total_players_count: { label: 'Total players', ascending: false, digits: 0, percent: false },
+        mass_rank: { label: 'Mass rank', ascending: true, digits: 0, percent: false },
+        efficiency_rank: { label: 'Efficiency rank', ascending: true, digits: 0, percent: false },
       };
-      return base[metric] || null;
+      return base[metric] || base[String(metric)] || null;
     }
 
     async function tryFetchJson(path) {
@@ -1037,49 +1309,41 @@
       const cfg = getMetricConfig(metric);
       const countries = countryList();
       const contribution = state.raw?.country_contribution || {};
-      const rankingEntriesList = rankingEntries();
       const rows = [];
 
       for (const country of countries) {
         const code = country.country_code;
-        const rankingEntry = rankingEntriesList.find(entry => entry.country_code === code) || null;
-        const value = getMetricValueFromEntry(rankingEntry || contribution[code] || null, metric);
-        const present = Boolean(rankingEntry || contribution[code]);
+        const entry = contribution[code] || null;
+        const rawValue = getMetricValueFromEntry(entry, metric);
+        const value = Number(rawValue);
 
         rows.push({
           code,
           name: getCountryName(code),
           country,
-          rankingEntry,
-          contribution: contribution[code] || null,
-          value: Number(value),
-          present,
+          contribution: entry,
+          value: Number.isFinite(value) ? value : null,
+          present: Boolean(entry) && Number.isFinite(value),
           cfg,
         });
       }
 
-      const presentRows = rows.filter(r => r.present && Number.isFinite(r.value));
+      const presentRows = rows.filter(r => r.present);
       presentRows.sort((a, b) => cfg.ascending ? (a.value - b.value) || a.code.localeCompare(b.code) : (b.value - a.value) || a.code.localeCompare(b.code));
       presentRows.forEach((row, idx) => {
         row.rank = idx + 1;
       });
 
-      const missingRank = (presentRows.length || rows.length) + 1;
+      const total = Math.max(presentRows.length - 1, 1);
       for (const row of rows) {
-        if (!row.rank) {
-          row.rank = missingRank;
-          row.value = 0;
-          row.missing = true;
-        } else {
+        if (row.present) {
           row.missing = false;
+          row.z = ((row.rank - 1) / total) * 100;
+        } else {
+          row.missing = true;
+          row.rank = null;
+          row.z = null;
         }
-      }
-
-      rows.sort((a, b) => (a.rank - b.rank) || a.code.localeCompare(b.code));
-
-      const total = Math.max(rows.length - 1, 1);
-      for (const row of rows) {
-        row.z = ((row.rank - 1) / total) * 100;
       }
 
       return rows;
@@ -1089,31 +1353,48 @@
       const container = el('rankingMapDetail');
       if (!container) return;
       const cfg = getMetricConfig(metric);
+
       if (!row) {
         container.innerHTML = `<div class="empty">Click a country on the map to inspect its ${cfg?.label || metric}.</div>`;
         return;
       }
 
+      if (row.missing || row.value === null) {
+        container.innerHTML = `
+          <div class="mapMetricCard">
+            <div class="label">Selected country</div>
+            <div class="value">${row.name} <span style="font-size:14px;color:var(--muted);font-weight:700;">(${row.code})</span></div>
+            <div class="sub">No ${cfg?.label || metric} data available for this country.</div>
+          </div>
+        `;
+        return;
+      }
+
       const metricValue = cfg?.percent ? percentFmt(row.value) : numberFmt(row.value, cfg?.digits ?? 3);
       const secondary = [];
-      if (row.present && !row.missing) secondary.push('Present in the dataset');
-      if (row.missing) secondary.push('Missing from the ranking table, assigned last rank');
-      const c = row.rankingEntry || row.contribution || {};
+      if (row.present) secondary.push('Present in the dataset');
+      const c = row.contribution || {};
 
       const extra = [];
-      if (metric === 'year_mass') {
+      if (metric === 'year_mass' || metric === 'mass') {
         if (c.efficiency !== undefined) extra.push(`Efficiency: <strong>${numberFmt(c.efficiency)}</strong>`);
         if (c.share_of_region_mass !== undefined) extra.push(`Share of region mass: <strong>${percentFmt(c.share_of_region_mass * 100)}</strong>`);
-      } else if (metric === 'year_efficiency') {
+        if (c.mass_rank !== undefined) extra.push(`Mass rank: <strong>#${numberFmt(c.mass_rank, 0)}</strong>`);
+        if (c.efficiency_rank !== undefined) extra.push(`Efficiency rank: <strong>#${numberFmt(c.efficiency_rank, 0)}</strong>`);
+      } else if (metric === 'year_efficiency' || metric === 'efficiency') {
         if (c.mass !== undefined) extra.push(`Mass: <strong>${numberFmt(c.mass)}</strong>`);
         if (c.share_of_region_mass !== undefined) extra.push(`Share of region mass: <strong>${percentFmt(c.share_of_region_mass * 100)}</strong>`);
+        if (c.mass_rank !== undefined) extra.push(`Mass rank: <strong>#${numberFmt(c.mass_rank, 0)}</strong>`);
+        if (c.efficiency_rank !== undefined) extra.push(`Efficiency rank: <strong>#${numberFmt(c.efficiency_rank, 0)}</strong>`);
+      } else if (metric === 'share_of_region_mass' || metric === 'share') {
+        if (c.mass !== undefined) extra.push(`Mass: <strong>${numberFmt(c.mass)}</strong>`);
+        if (c.efficiency !== undefined) extra.push(`Efficiency: <strong>${numberFmt(c.efficiency)}</strong>`);
+        if (c.mass_rank !== undefined) extra.push(`Mass rank: <strong>#${numberFmt(c.mass_rank, 0)}</strong>`);
+        if (c.efficiency_rank !== undefined) extra.push(`Efficiency rank: <strong>#${numberFmt(c.efficiency_rank, 0)}</strong>`);
       } else {
-        const vec = getVectorForCircuit(row.rankingEntry, state.circuit === 'WTA' ? 'WTA' : 'ATP') || {};
-        if (vec.performance !== undefined) extra.push(`Performance: <strong>${numberFmt(vec.performance)}</strong>`);
-        if (vec.win_rate !== undefined) extra.push(`Win rate: <strong>${percentFmt(vec.win_rate * 100)}</strong>`);
-        if (vec.significant_win_rate !== undefined) extra.push(`Significant win rate: <strong>${percentFmt(vec.significant_win_rate * 100)}</strong>`);
-        if (vec.avg_opponent_rank !== undefined) extra.push(`Average opponent rank: <strong>${numberFmt(vec.avg_opponent_rank)}</strong>`);
-        if (vec.points !== undefined) extra.push(`Points: <strong>${numberFmt(vec.points)}</strong>`);
+        if (c.atp_players_count !== undefined) extra.push(`ATP players: <strong>${numberFmt(c.atp_players_count, 0)}</strong>`);
+        if (c.wta_players_count !== undefined) extra.push(`WTA players: <strong>${numberFmt(c.wta_players_count, 0)}</strong>`);
+        if (c.total_players_count !== undefined) extra.push(`Total players: <strong>${numberFmt(c.total_players_count, 0)}</strong>`);
       }
 
       container.innerHTML = `
@@ -1125,7 +1406,7 @@
         <div class="mapDetailGrid">
           <div class="mapMetricCard">
             <div class="label">Status</div>
-            <div class="value">${row.missing ? 'Filled as missing' : 'Present'}</div>
+            <div class="value">Present</div>
             <div class="sub">${secondary.join(' · ') || '—'}</div>
           </div>
           <div class="mapMetricCard">
@@ -1151,7 +1432,7 @@
       select.value = state.mapMetric;
       select.onchange = () => {
         state.mapMetric = select.value;
-        renderRegionalRankingMap();
+        void renderRegionalRankingMap();
       };
 
       if (!window.Plotly) {
@@ -1177,32 +1458,58 @@
         return;
       }
 
+      const presentRows = rows.filter(r => r.present);
+      const missingRows = rows.filter(r => !r.present);
       const selectedCode = selectedCountryCode();
-      const selectedRow = rows.find(r => r.code === selectedCode) || rows[0];
+      const selectedRow = rows.find(r => r.code === selectedCode) || rows.find(r => r.present) || rows[0];
       const cfg = getMetricConfig(state.mapMetric);
 
-      const trace = {
-        type: 'choropleth',
-        locationmode: 'ISO-3',
-        geojson,
-        featureidkey: 'properties.adm0_a3',
-        locations: rows.map(r => r.code),
-        z: rows.map(r => r.z),
-        text: rows.map(r => r.name),
-        customdata: rows.map(r => [r.code, r.rank, r.value, r.present ? 1 : 0]),
-        colorscale: [[0, '#49e59c'], [0.5, '#ffd166'], [1, '#ff6d7d']],
-        zmin: 0,
-        zmax: 100,
-        marker: { line: { color: 'rgba(255,255,255,.30)', width: 0.6 } },
-        hovertemplate:
-          '<b>%{text}</b><br>' +
-          'Rank: #%{customdata[1]}<br>' +
-          'Value: %{customdata[2]:.3f}<extra></extra>',
-        colorbar: {
-          title: cfg?.label || state.mapMetric,
-          tickformat: '.0f'
-        },
-      };
+      const traces = [];
+
+      if (missingRows.length) {
+        traces.push({
+          type: 'choropleth',
+          locationmode: 'ISO-3',
+          geojson,
+          featureidkey: 'properties.adm0_a3',
+          locations: missingRows.map(r => r.code),
+          z: missingRows.map(() => 0),
+          text: missingRows.map(r => r.name),
+          hoverinfo: 'skip',
+          colorscale: [[0, 'rgba(142, 150, 176, .35)'], [1, 'rgba(142, 150, 176, .35)']],
+          zmin: 0,
+          zmax: 1,
+          marker: { line: { color: 'rgba(255,255,255,.18)', width: 0.35 } },
+          showscale: false,
+        });
+      }
+
+      if (presentRows.length) {
+        traces.push({
+          type: 'choropleth',
+          locationmode: 'ISO-3',
+          geojson,
+          featureidkey: 'properties.adm0_a3',
+          locations: presentRows.map(r => r.code),
+          z: presentRows.map(r => r.z),
+          text: presentRows.map(r => r.name),
+          customdata: presentRows.map(r => [r.code, r.rank, r.value]),
+          colorscale: [[0, '#49e59c'], [0.5, '#ffd166'], [1, '#ff6d7d']],
+          zmin: 0,
+          zmax: 100,
+          marker: { line: { color: 'rgba(255,255,255,.30)', width: 0.6 } },
+          hovertemplate:
+            '<b>%{text}</b><br>' +
+            'Rank: #%{customdata[1]}<br>' +
+            'Value: %{customdata[2]:.3f}<extra></extra>',
+          showscale: true,
+          colorbar: {
+            title: 'Rank (best → worst)',
+            tickvals: [0, 100],
+            ticktext: ['Best', 'Worst'],
+          },
+        });
+      }
 
       const layout = {
         margin: { l: 0, r: 0, t: 0, b: 0 },
@@ -1220,7 +1527,7 @@
         },
       };
 
-      await Plotly.newPlot(container, [trace], layout, {
+      await Plotly.newPlot(container, traces, layout, {
         displayModeBar: false,
         responsive: true,
       });
@@ -1250,7 +1557,8 @@
       const others = [];
 
       (Array.isArray(items) ? items : []).forEach(item => {
-        const code = getCountryCode(item);
+        const rawCode = getCountryCode(item);
+        const code = normalizeCountryCodeForMap(rawCode);
         if (!code) return;
 
         const matches = Number(item?.matches ?? 0) || 0;
@@ -1258,13 +1566,13 @@
         const winRate = Number(item?.win_rate ?? (matches ? wins / matches : 0)) || 0;
         const entry = {
           code,
-          name: item?.country_name || item?.name || code,
+          name: item?.country_name || item?.name || rawCode || code,
           matches,
           wins,
           win_rate: winRate,
         };
 
-        if (homeCode && code === homeCode) home.push(entry);
+        if (homeCode && code === normalizeCountryCodeForMap(homeCode)) home.push(entry);
         else others.push(entry);
       });
 
@@ -1785,9 +2093,70 @@
       el('perfMeta').textContent = `${state.circuit} · contribution focus`;
     }
 
+    function isGameStatsRatioKey(key) {
+      return /percent|rate|share|win_rate|aces_per_service_point|double_faults_per_service_point/i.test(String(key || ''));
+    }
+
+    function aggregateGameStats(scope) {
+      const countries = scope === 'country'
+        ? [getSelectedCountry()].filter(Boolean)
+        : countryList();
+
+      const aggregate = {};
+      const weightedSums = {};
+      const weights = {};
+      const countKeys = new Set(['matches', 'wins', 'losses', 'points_earned', 'players_count', 'number_of_aces', 'number_of_double_faults', 'breakpoints_faced', 'breakpoints_converted_count']);
+
+      for (const country of countries) {
+        const code = country?.country_code;
+        const active = code ? (getCountryBlock(code).activeBlock || {}) : {};
+        const statsSource = active.stats || active.stats_means || active.stats_totals || {};
+        const weight = Math.max(
+          1,
+          Number(active.matches ?? statsSource.matches ?? active.players_count ?? statsSource.players_count ?? 1) || 1
+        );
+
+        for (const [key, raw] of Object.entries(statsSource)) {
+          const value = Number(raw);
+          if (!Number.isFinite(value)) continue;
+
+          if (countKeys.has(key) || (!isGameStatsRatioKey(key) && value > 1 && !String(key).includes('percent'))) {
+            aggregate[key] = (aggregate[key] || 0) + value;
+          } else if (isGameStatsRatioKey(key)) {
+            weightedSums[key] = (weightedSums[key] || 0) + (value * weight);
+            weights[key] = (weights[key] || 0) + weight;
+          } else {
+            aggregate[key] = (aggregate[key] || 0) + value;
+          }
+        }
+      }
+
+      for (const key of Object.keys(weightedSums)) {
+        const denom = weights[key] || 1;
+        aggregate[key] = weightedSums[key] / denom;
+      }
+
+      return aggregate;
+    }
+
     function renderGameStats() {
-      const selectedBlock = getCountryBlock(selectedCountryCode()).activeBlock || {};
-      const statsSource = selectedBlock.stats || selectedBlock.stats_means || selectedBlock.stats_totals || {};
+      const scopeSelect = el('gameStatsScope');
+      const scope = scopeSelect?.value === 'country' ? 'country' : 'region';
+      state.gameStatsScope = scope;
+
+      if (scopeSelect && scopeSelect.value !== scope) scopeSelect.value = scope;
+
+      const selectedCountry = getSelectedCountry();
+      const activeBlock = getCountryBlock(selectedCountryCode()).activeBlock || {};
+      const statsSource = scope === 'country'
+        ? (activeBlock.stats || activeBlock.stats_means || activeBlock.stats_totals || {})
+        : aggregateGameStats('region');
+
+      const scopeLabel = scope === 'country'
+        ? `${getCountryName(selectedCountry?.country_code || selectedCountryCode())} (${selectedCountry?.country_code || selectedCountryCode()})`
+        : `${REGION_NAME} aggregate`;
+
+      setText('gameStatsMeta', `Volumes are shown as totals; ratios as percentages · ${scopeLabel}`);
 
       const metrics = [
         ['Number of aces', ['number_of_aces', 'aces', 'aces_count', 'total_aces']],
@@ -1823,7 +2192,7 @@
       }).filter(r => r.value !== '—' || r.numeric !== null);
 
       if (!rows.length) {
-        el('gameStats').innerHTML = `<div class="empty">No usable game statistics were found in the selected country's JSON block.</div>`;
+        el('gameStats').innerHTML = `<div class="empty">No usable game statistics were found in the selected ${scope === 'country' ? 'country' : 'region'} block.</div>`;
         return;
       }
 

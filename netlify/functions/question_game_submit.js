@@ -124,6 +124,7 @@ async function resolveUser(ctx) {
 function normalizeQuestion(row) {
   return {
     id: row?.id ?? null,
+    user_id: row?.user_id ?? null,
     question_type: row?.question_type ?? null,
     question_corps: row?.question_corps ?? null,
     qcm_a: row?.qcm_a ?? null,
@@ -223,6 +224,7 @@ exports.handler = async (event) => {
 
       const row = {
         id,
+        user_id: user.id || ctx.user_id || null,
         question_type,
         question_corps,
         qcm_a: null,
