@@ -1448,6 +1448,35 @@
       return rows;
     }
 
+    function getInfoDescription(metric) {
+      const label = String(metric?.label || '');
+      const circuit = label.startsWith('ATP ') ? 'ATP' : (label.startsWith('WTA ') ? 'WTA' : '');
+      const replaceCircuit = (text) => circuit ? text.replace(/WTA/g, circuit) : text;
+
+      const descriptions = {
+        'year_mass': `This is the sum of the performance_index of all players from the country over the current year, across ATP and WTA. It measures the country’s total yearly output: the higher the value, the stronger the overall combined performance of its players.`,
+        'year_efficiency': `This is Year mass divided by the number of players. It shows how much performance the country gets per player, so a high score means a smaller group of players is producing a lot of performance.`,
+        'year_coherence_distance': `This measures how close the ATP and WTA profiles of the country are to each other. It is built from the difference between ATP and WTA averages for ranking, performance, win rate, significant win rate, average opponent rank, and points; lower values mean the two circuits look more similar and balanced.`,
+      };
+
+      if (descriptions[metric?.id]) return descriptions[metric.id];
+
+      const generic = {
+        ranking: `This is the average WTA ranking value of the country’s WTA players in the selected period. Lower is better, because a smaller ranking number means a stronger position in the rankings.`,
+        performance: `This is the average performance_index of the country’s WTA players. It combines results, opponent quality, tournament level, significant wins and losses, ranking progress, and match volume into a single score; higher means better overall performance.`,
+        win_rate: `This is the average match win rate of the country’s WTA players, computed as wins divided by matches for each player, then averaged across the group. Higher means the players win a larger share of their matches.`,
+        significant_win_rate: `This is the average rate of significant wins per match for the country’s WTA players. A significant win is a result against a clearly higher-ranked opponent, so a higher value means the country’s players are producing more notable upsets or quality wins.`,
+        avg_opponent_rank: `This is the average ranking of the opponents faced by the country’s WTA players. Lower means tougher opposition, because the players are facing better-ranked opponents on average.`,
+        points: `This is the average number of tournament points earned by the country’s WTA players. It reflects the ranking points collected from their best results in tournaments, so a higher value means more points earned on average.`,
+      };
+
+      for (const [key, text] of Object.entries(generic)) {
+        if (metric?.id && metric.id.endsWith(`.${key}`)) return replaceCircuit(text);
+      }
+
+      return 'Methodology text coming soon.';
+    }
+
     function openInfoModal(metric) {
       const modal = el('infoModal');
       const title = el('infoModalTitle');
@@ -1456,11 +1485,7 @@
       if (!modal || !title || !meta || !body) return;
       title.textContent = 'How it is computed:';
       meta.textContent = metric.label;
-      body.innerHTML = `
-        <p>This is a temporary placeholder for the methodology text of <strong>${metric.label}</strong>.</p>
-        <p>Replace this paragraph with your final explanation later on.</p>
-        <p>Example placeholder: this value is derived from a combination of volume, quality, and consistency indicators.</p>
-      `;
+      body.innerHTML = `<p>${getInfoDescription(metric)}</p>`;
       modal.classList.add('open');
       modal.setAttribute('aria-hidden', 'false');
     }
