@@ -63,6 +63,7 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 from pathlib import Path
 from typing import Dict, Any, Tuple, Optional
+
 try:
     from zoneinfo import ZoneInfo
 except Exception:
@@ -431,7 +432,7 @@ def is_debug_json_valid(debug_dir: Path, tourn_id: int, year: int, match_code: s
         print(f"    [resume-check] {path} non reconnu -> re-fetch")
     return False, None
 
-# ---------- Orchestration avec reprise (inchangée) ----------
+# ---------- Orchestration avec reprise ----------
 def run_scrape_with_retries(
     tournament_player_counts,
     year,
@@ -464,6 +465,10 @@ def run_scrape_with_retries(
         per_match_attempts = {code: 0 for code in candidate_codes}
         total_fetches = 0
 
+        # garde demandée : si phase 1 ne produit aucun JSON, on ne lance pas la phase 2
+        phase1_fetch_attempts = 0
+        phase1_json_received = 0
+
         # PHASE 1 : passe initiale (skip si raw exists valide)
         if verbose:
             print("[phase 1] passe initiale (avec reprise si debug_json existant).")
@@ -484,6 +489,7 @@ def run_scrape_with_retries(
             globals()['URL'] = BASE_URL_TEMPLATE.format(year=year, tournament_id=tourn_id, match_code=match_code)
             per_match_attempts[match_code] += 1
             total_fetches += 1
+            phase1_fetch_attempts += 1
             if verbose:
                 print(f"  [phase1] fetch #{total_fetches} -> {match_code} (attempt {per_match_attempts[match_code]}/{max_attempts_per_match})")
 
@@ -500,12 +506,13 @@ def run_scrape_with_retries(
                 if data is None:
                     raw_path.write_text(json.dumps({"error": "no json returned", "url": globals().get('URL')}), encoding="utf-8")
                 else:
+                    phase1_json_received += 1
                     raw_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
             except Exception as e:
                 if verbose:
                     print(f"    [warn] couldn't write debug file: {e}")
 
-            if data:
+            if data is not None:
                 parsed = parse_atp_match_json(data, year=year, tournament_id=tourn_id, verbose=verbose)
                 if parsed:
                     rows.append(parsed)
@@ -521,91 +528,102 @@ def run_scrape_with_retries(
 
             time.sleep(0.4)
 
+        # Si aucun JSON n'a été reçu en phase 1, on n'enchaîne pas sur la phase 2
+        phase1_had_no_json = (phase1_fetch_attempts > 0 and phase1_json_received == 0)
+
         # PHASE 2 : retries ciblés sur manquants (round-robin), avec re-check fichiers raw
         if len(collected_codes) < required_matches:
             missing = [c for c in candidate_codes if c not in collected_codes]
-            if verbose:
-                print(f"[phase 2] retries ciblés sur {len(missing)} manquants: {missing}. max_attempts_per_match={max_attempts_per_match}")
 
-            round_no = 0
-            while missing:
-                round_no += 1
+            if phase1_had_no_json:
                 if verbose:
-                    print(f"  [retry-round {round_no}] remaining missing={len(missing)}")
-                progressed = False
-                for match_code in list(missing):
-                    ok, j = is_debug_json_valid(debug_dir, tourn_id, year, match_code, verbose=verbose)
-                    if ok:
-                        parsed = parse_atp_match_json(j, year=year, tournament_id=tourn_id, verbose=verbose)
-                        if parsed:
-                            rows.append(parsed)
-                            collected_codes.add(match_code)
-                            missing.remove(match_code)
-                            progressed = True
+                    print(
+                        f"[phase 2] skippée: phase 1 a fait {phase1_fetch_attempts} tentatives "
+                        f"et n'a produit aucun JSON. Passage au tournoi suivant."
+                    )
+            else:
+                if verbose:
+                    print(f"[phase 2] retries ciblés sur {len(missing)} manquants: {missing}. max_attempts_per_match={max_attempts_per_match}")
+
+                round_no = 0
+                while missing:
+                    round_no += 1
+                    if verbose:
+                        print(f"  [retry-round {round_no}] remaining missing={len(missing)}")
+                    progressed = False
+                    for match_code in list(missing):
+                        ok, j = is_debug_json_valid(debug_dir, tourn_id, year, match_code, verbose=verbose)
+                        if ok:
+                            parsed = parse_atp_match_json(j, year=year, tournament_id=tourn_id, verbose=verbose)
+                            if parsed:
+                                rows.append(parsed)
+                                collected_codes.add(match_code)
+                                missing.remove(match_code)
+                                progressed = True
+                                if verbose:
+                                    print(f"    [resume] reused during retry -> {match_code}")
+                                continue
+                            else:
+                                if verbose:
+                                    print(f"    [resume] fichier existant mais parse failed -> refetch {match_code}")
+
+                        if per_match_attempts[match_code] >= max_attempts_per_match:
                             if verbose:
-                                print(f"    [resume] reused during retry -> {match_code}")
+                                print(f"    [skip] {match_code} reached max attempts ({per_match_attempts[match_code]})")
+                            missing.remove(match_code)
                             continue
+
+                        globals()['URL'] = BASE_URL_TEMPLATE.format(year=year, tournament_id=tourn_id, match_code=match_code)
+                        per_match_attempts[match_code] += 1
+                        total_fetches += 1
+                        if verbose:
+                            print(f"    [retry] fetch #{total_fetches} -> {match_code} (attempt {per_match_attempts[match_code]}/{max_attempts_per_match})")
+
+                        try:
+                            data = fetch_with_playwright(headless=headless)
+                        except Exception as e:
+                            data = None
+                            if verbose:
+                                print(f"      [error] fetch_with_playwright raised: {e}")
+
+                        safe_name = f"{tourn_id}_{year}_{match_code}"
+                        raw_path = debug_dir / f"raw_{safe_name}.json"
+                        try:
+                            if data is None:
+                                raw_path.write_text(json.dumps({"error": "no json returned", "url": globals().get('URL'), "attempt": per_match_attempts[match_code]}), encoding="utf-8")
+                            else:
+                                raw_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+                        except Exception as e:
+                            if verbose:
+                                print(f"      [warn] couldn't write debug file: {e}")
+
+                        if data is not None:
+                            parsed = parse_atp_match_json(data, year=year, tournament_id=tourn_id, verbose=verbose)
+                            if parsed:
+                                rows.append(parsed)
+                                collected_codes.add(match_code)
+                                missing.remove(match_code)
+                                progressed = True
+                                if verbose:
+                                    print(f"      parsed OK -> collected {len(collected_codes)}/{required_matches}")
+                            else:
+                                if verbose:
+                                    print("      parse returned None (structure inattendue).")
                         else:
                             if verbose:
-                                print(f"    [resume] fichier existant mais parse failed -> refetch {match_code}")
+                                print("      aucun JSON obtenu pour ce match (voir debug).")
 
-                    if per_match_attempts[match_code] >= max_attempts_per_match:
-                        if verbose:
-                            print(f"    [skip] {match_code} reached max attempts ({per_match_attempts[match_code]})")
-                        missing.remove(match_code)
-                        continue
+                        time.sleep(wait_between_retries)
 
-                    globals()['URL'] = BASE_URL_TEMPLATE.format(year=year, tournament_id=tourn_id, match_code=match_code)
-                    per_match_attempts[match_code] += 1
-                    total_fetches += 1
-                    if verbose:
-                        print(f"    [retry] fetch #{total_fetches} -> {match_code} (attempt {per_match_attempts[match_code]}/{max_attempts_per_match})")
-
-                    try:
-                        data = fetch_with_playwright(headless=headless)
-                    except Exception as e:
-                        data = None
-                        if verbose:
-                            print(f"      [error] fetch_with_playwright raised: {e}")
-
-                    safe_name = f"{tourn_id}_{year}_{match_code}"
-                    raw_path = debug_dir / f"raw_{safe_name}.json"
-                    try:
-                        if data is None:
-                            raw_path.write_text(json.dumps({"error": "no json returned", "url": globals().get('URL'), "attempt": per_match_attempts[match_code]}), encoding="utf-8")
-                        else:
-                            raw_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-                    except Exception as e:
-                        if verbose:
-                            print(f"      [warn] couldn't write debug file: {e}")
-
-                    if data:
-                        parsed = parse_atp_match_json(data, year=year, tournament_id=tourn_id, verbose=verbose)
-                        if parsed:
-                            rows.append(parsed)
-                            collected_codes.add(match_code)
-                            missing.remove(match_code)
-                            progressed = True
+                    if not progressed:
+                        any_left = any(per_match_attempts[c] < max_attempts_per_match for c in missing)
+                        if not any_left:
                             if verbose:
-                                print(f"      parsed OK -> collected {len(collected_codes)}/{required_matches}")
-                        else:
-                            if verbose:
-                                print("      parse returned None (structure inattendue).")
-                    else:
+                                print("  [stop] aucun progrès possible: tous les manquants ont atteint max_attempts_per_match.")
+                            break
                         if verbose:
-                            print("      aucun JSON obtenu pour ce match (voir debug).")
-
-                    time.sleep(wait_between_retries)
-
-                if not progressed:
-                    any_left = any(per_match_attempts[c] < max_attempts_per_match for c in missing)
-                    if not any_left:
-                        if verbose:
-                            print("  [stop] aucun progrès possible: tous les manquants ont atteint max_attempts_per_match.")
-                        break
-                    if verbose:
-                        print("  [info] fin de round sans progrès mais certains ont encore des tentatives disponibles -> nouvelle passe.")
-                    time.sleep(wait_between_rounds)
+                            print("  [info] fin de round sans progrès mais certains ont encore des tentatives disponibles -> nouvelle passe.")
+                        time.sleep(wait_between_rounds)
 
         # Sauvegarde CSV et logs
         if rows:
@@ -616,7 +634,7 @@ def run_scrape_with_retries(
             if verbose:
                 print(f"[proc] sauvegardé -> {outpath} ({len(df)} lignes, {len(df.columns)} colonnes)")
 
-                        # record created files for CI
+            # record created files for CI
             try:
                 rel = os.path.relpath(outpath, start=Path.cwd())
             except Exception:
@@ -672,7 +690,7 @@ def run_scrape_with_retries(
 
     return
 
-# ---------- Runner multi-année (inchangé) ----------
+# ---------- Runner multi-année ----------
 def run_scrape_multi_year(
     tournaments_by_year: Dict[int, Dict[int, Any]],
     out_folder="data_atp",
@@ -819,6 +837,7 @@ def _today_in_paris() -> date:
             pass
     # fallback to naive local date
     return datetime.now().date()
+
 def build_tournaments_by_year_from_json(
     tournaments_json_path: str,
     last_scrape_atp: Optional[date] = None,
@@ -919,8 +938,6 @@ def _build_arg_parser():
     p.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
     return p
 
-
-
 def main(argv=None):
     parser = _build_arg_parser()
     args = parser.parse_args(argv)
@@ -937,7 +954,7 @@ def main(argv=None):
     state = load_scrape_state()
     last_scrape_atp = datetime.fromisoformat(state["atp"]).date()
 
-        # --- build tournaments_by_year from either provided ids OR date-selection
+    # --- build tournaments_by_year from either provided ids OR date-selection
     if args.tournament_ids:
         # read JSON and pick the requested ids (ignore date)
         ids = set()
@@ -987,7 +1004,6 @@ def main(argv=None):
             today_override=today_override
         )
 
-
     # call runner
     run_scrape_multi_year(
         tournaments_by_year=tournaments_by_year,
@@ -1005,8 +1021,7 @@ def main(argv=None):
     if args.verbose:
         print(f"[main] updated docs/tools/last_scrape_date.csv -> atp={final_today.isoformat()}")
 
-
-        # runner returned, now write created files list for CI
+    # runner returned, now write created files list for CI
     if CREATED_FILES:
         out_cf = args.created_files_out or "created_files.txt"
         try:
