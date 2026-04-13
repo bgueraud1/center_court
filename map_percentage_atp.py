@@ -413,7 +413,9 @@ def build_and_save_presence_map_atp(players: list, out_html: str, geojson: str):
               let slug = name.toLowerCase().replace(/[^a-z0-9\u00C0-\u024F]+/g, '-').replace(/(^-|-$)/g,'');
               slug = encodeURIComponent(slug);
 
-              const localPath = SITE_BASE + '/players_atp/' + (id ? (encodeURIComponent(id) + '-' + slug + '.html') : (slug + '.html'));
+              const localPath = (typeof SITE_BASE !== 'undefined' ? SITE_BASE.replace(/\/$/, '') : 'https://www.center-court.net')
+  + '/players_atp/'
+  + (pid ? (encodeURIComponent(pid) + '-' + slug) : slug);
               const atp = id ? ("https://www.atptour.com/en/players/" + slug + "/" + encodeURIComponent(id.toString().toLowerCase()) + "/overview") : '#';
 
               // reviewed flag (coerce to boolean)

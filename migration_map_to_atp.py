@@ -687,9 +687,9 @@ const SITE_BASE = (typeof globalThis !== 'undefined' && globalThis.SITE_BASE !==
                   slug = encodeURIComponent(slug);
 
                                 // use SITE_BASE defined once at script top (do not redeclare here)
-                  const localUrl = (typeof SITE_BASE !== 'undefined' ? SITE_BASE.replace(/\/$/, '') : 'https://www.center-court.net') 
-                                   + '/players_atp/' 
-                                   + (pid ? (encodeURIComponent(pid) + '-' + slug + '.html') : (slug + '.html'));
+                  const localUrl = (typeof SITE_BASE !== 'undefined' ? SITE_BASE.replace(/\/$/, '') : 'https://www.center-court.net')
+  + '/players_atp/'
+  + (pid ? (encodeURIComponent(pid) + '-' + slug) : slug);
 
                   const atpUrl = pid ? ('https://www.atptour.com/en/players/' + slug + '/' + encodeURIComponent(String(pid).toLowerCase()) + '/overview') : '#';
 

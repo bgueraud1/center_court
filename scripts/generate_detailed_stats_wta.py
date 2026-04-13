@@ -869,7 +869,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Generate detailed statistics per player from matches CSVs.")
     ap.add_argument("--matches-dir", required=True, help="Directory containing matches CSV files")
     ap.add_argument("--out-dir", default="./dist", help="Output directory")
-    ap.add_argument("--rankings-dir", default="./atpp_rankings", help="Directory containing ATP ranking CSV snapshots")
+    ap.add_argument("--rankings-dir", default="./wta_rankings", help="Directory containing ATP ranking CSV snapshots")
     ap.add_argument("--host-event-map", default=None, help="Optional JSON file path containing HOST_COUNTRY_TO_EVENT_IDS mapping")
     ap.add_argument("--limit-players", type=int, default=None, help="Limit number of players to process")
     ap.add_argument("--player", help="Process a single player id (e.g. S0AG)")

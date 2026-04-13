@@ -270,7 +270,7 @@ def build_and_save_presence_map(players: list, out_html: str, geojson):
               let slug = name.toLowerCase().replace(/[^a-z0-9\u00C0-\u024F]+/g, '-').replace(/(^-|-$)/g,'');
               slug = encodeURIComponent(slug);
 
-              const localPath = SITE_BASE + '/players/' + (id ? (encodeURIComponent(id) + '-' + slug + '.html') : (slug + '.html'));
+              const localPath = SITE_BASE + '/players/' + (id && /^\d+$/.test(id)? (encodeURIComponent(id) + '-' + slug): slug);
               const wta = id ? ("https://www.wtatennis.com/players/" + id + "/" + slug) : '#';
 
               // reviewed flag (boolean expected from server-side JSON)

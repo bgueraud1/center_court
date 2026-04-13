@@ -453,6 +453,19 @@ async function loadCourtVisionForPlayer(playerData){
     panel.dataset.loaded = '';
   }
 }
+// juste après `const players = index.players;`
+const playerSlugById = new Map(
+  players
+    .filter(p => p.player_id && p.slug)
+    .map(p => [String(p.player_id), String(p.slug)])
+);
+
+function buildPlayerHref(playerId, fallbackSlug) {
+  const id = String(playerId || '').trim();
+  const slug = String(fallbackSlug || playerSlugById.get(id) || '').trim();
+  if (!id) return '#';
+  return slug ? `/players/${id}-${slug}` : `/players/${id}`;
+}
 /* ----------------- main loader for player data ----------------- */
 (async function(){
   const loading = document.getElementById('loading');
@@ -684,7 +697,7 @@ async function loadCourtVisionForPlayer(playerData){
         if(m.opponent_id){
           const href = `/players_atp/${String(m.opponent_id).toLowerCase()}`;
           oppHtml = `<a class="player-link" href="${href}"><strong>${escapeHtml(m.opponent || m.opponent_id)}</strong></a>`;
-        } else {
+        }else {
           oppHtml = `<strong>${escapeHtml(m.opponent || '—')}</strong>`;
         }
         const scoreHtml = `<strong>${escapeHtml(m.score || '')}</strong>`;

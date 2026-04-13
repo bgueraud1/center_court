@@ -608,7 +608,7 @@ const SITE_BASE = (typeof globalThis !== 'undefined' && globalThis.SITE_BASE !==
                 let slug = safeName.toLowerCase().replace(/[^a-z0-9\u00C0-\u024F]+/g,'-').replace(/(^-|-$)/g,'');
                 slug = encodeURIComponent(slug);
 
-                const localUrl = SITE_BASE + '/players/' + (pid ? (encodeURIComponent(pid) + '-' + slug + '.html') : (slug + '.html'));
+                const localUrl = SITE_BASE + '/players/' + (id && /^\d+$/.test(id)? (encodeURIComponent(id) + '-' + slug): slug);
                 const wtaUrl = pid ? ('https://www.wtatennis.com/players/' + pid + '/' + slug) : '#';
 
                 const originText = l._meta.birthplace_text || '';

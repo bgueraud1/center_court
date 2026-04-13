@@ -8,8 +8,8 @@ from typing import Any, List
 
 # ------------------ CONFIG ------------------
 PAGE_SIZE = 20
-MAX_PAGE_LIMIT = 200            # sécurité : ne pas dépasser ce nombre de pages
-CONSECUTIVE_EMPTY_THRESHOLD = 5 # s'arrêter après N pages vides consécutives
+MAX_PAGE_LIMIT = 1000            # sécurité : ne pas dépasser ce nombre de pages
+CONSECUTIVE_EMPTY_THRESHOLD = 10 # s'arrêter après N pages vides consécutives
 PER_PAGE_RETRIES = 3            # tentatives par page
 PER_PAGE_INIT_DELAY = 1         # backoff initial (s)
 DATE_ACCEPT_THRESHOLD = 100     # seuil minimal pour accepter et sauvegarder une date

@@ -1098,6 +1098,53 @@ def autodiscover_tournaments_path(prefix: str = 'atp') -> Optional[str]:
 
     return None
 
+
+
+def csv_is_fully_converted(csv_path: Path, out_base: Path) -> bool:
+    """
+    Retourne True si tous les tournament.json attendus pour ce CSV existent déjà.
+    """
+    try:
+        df = pd.read_csv(csv_path, dtype=str, keep_default_na=False, na_values=[""])
+    except Exception:
+        return False
+
+    cols = set(df.columns.tolist())
+    is_wta = detect_wta_from_path(csv_path)
+    tour_label = 'wta' if is_wta else 'atp'
+
+    col_event_id = _first_of(cols, ['event_id', 'tourney_id', 'tournament_id', 'tournamentId'])
+    col_event_year = _first_of(cols, ['event_year', 'tourney_year', 'year'])
+
+    # Si on ne peut pas identifier les colonnes, on ne saute pas le fichier.
+    if not col_event_id or not col_event_year:
+        return False
+
+    seen_tournaments = set()
+
+    for _, row in df.iterrows():
+        event_id = normalize_str(row.get(col_event_id))
+        event_year = normalize_str(row.get(col_event_year))
+
+        if not event_id or not event_year:
+            continue
+
+        event_id = str(event_id).strip()
+        event_year = str(event_year).strip()
+        seen_tournaments.add((event_id, event_year))
+
+    # Si aucun tournoi exploitable n'est trouvé, on ne saute pas.
+    if not seen_tournaments:
+        return False
+
+    for event_id, event_year in seen_tournaments:
+        out_dir = out_base / f"{tour_label}_{event_id}_{event_year}"
+        tournament_json = out_dir / "tournament.json"
+        if not tournament_json.exists():
+            return False
+
+    return True
+
 # ---------------- main ----------------
 
 def main():
@@ -1173,8 +1220,12 @@ def main():
     missing_set = set()
 
     for csv_path in csv_files:
+        if csv_is_fully_converted(csv_path, out_base):
+            print(f"[INFO] Skipping CSV already converted: {csv_path}")
+            continue
+        
         print(f"[INFO] Processing CSV: {csv_path}")
-
+    
         report = {
             'tournaments': {},
             'produced_match_files': [],
@@ -1182,10 +1233,16 @@ def main():
             'errors': [],
             'warnings': []
         }
-
+    
         process_csv_file(csv_path, geos, out_base, report)
-        results = build_tournament_jsons(report, geos, country_map, tourney_overrides=tourney_overrides,
-                                        missing_set=missing_set, atp_index=atp_index, wta_index=wta_index, debug=args.debug)
+        results = build_tournament_jsons(
+            report, geos, country_map,
+            tourney_overrides=tourney_overrides,
+            missing_set=missing_set,
+            atp_index=atp_index,
+            wta_index=wta_index,
+            debug=args.debug
+        )
 
         print(f"[INFO] Results for {csv_path.name}: produced {len(report['produced_tournament_files'])} tournament JSON(s)")
         overall_report['processed_csvs'].append(str(csv_path))

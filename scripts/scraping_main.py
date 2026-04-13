@@ -15,6 +15,7 @@ import json
 from scraping_gc_matches import fetch_tournament_data
 from transform_gc_data import transform_home_away_data
 from scraping_wta import process_matches
+from docs.tools.scrape_state import load_scrape_state, save_scrape_state, today_paris
 
 
 YEAR = 2026
@@ -620,7 +621,7 @@ def tournaments_to_scrape(tournament_player_counts, last_scraped_date, today_dat
             start = datetime.strptime(details[1], "%Y-%m-%d")
             end = datetime.strptime(details[2], "%Y-%m-%d")
             is_gc = details[3] == 1
-            if start <= today_date and end >= last_scraped_date:
+            if last_scraped_date <= end <= today_date:
                 out.append((tid, is_gc))
         except Exception:
             continue
@@ -1548,8 +1549,10 @@ def main(year=None, tournament_player_counts=None, verbose=True, requested_tourn
     ensure_out_dir()
 
     today = datetime.now()
-    last_scraped_file = f"last_scraped_date_{year_str}.txt"
-    last_scraped = get_last_scraped_date(file_path=last_scraped_file)
+
+    state = load_scrape_state()
+    last_scraped = datetime.fromisoformat(state["wta"]).date()
+    today = today_paris()
     to_scrape = tournaments_to_scrape(tpc, last_scraped, today)
     if verbose:
         print(f"\n=== YEAR {year_str} | Tournaments à scraper: {to_scrape}")
@@ -1823,6 +1826,8 @@ def main(year=None, tournament_player_counts=None, verbose=True, requested_tourn
         if verbose:
             print(f"Année {year_str} : Toutes les GC attendues ont renvoyé au moins une ligne.")
 
+    save_scrape_state(wta=today_paris().isoformat())
+    
     return per_tournament_results
 
 # --------- Multi-year runner ----------

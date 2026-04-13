@@ -307,7 +307,9 @@ const SITE_BASE = (typeof globalThis !== 'undefined' && globalThis.SITE_BASE !==
               slug = encodeURIComponent(slug);
             
               // local ATP player page absolute (production)
-              const localPath = SITE_BASE + '/players_atp/' + (id ? (encodeURIComponent(id) + '-' + slug + '.html') : (slug + '.html'));
+              const localPath = (typeof SITE_BASE !== 'undefined' ? SITE_BASE.replace(/\/$/, '') : 'https://www.center-court.net')
+  + '/players_atp/'
+  + (pid ? (encodeURIComponent(pid) + '-' + slug) : slug);
 
               const atp = id ? ("https://www.atptour.com/en/players/" + slug + "/" + encodeURIComponent(id.toString().toLowerCase()) + "/overview") : '#';
             

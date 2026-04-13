@@ -583,14 +583,14 @@ def process_rankings_in_chunks(
 
             if circuit.upper() == "ATP":
                 if pid:
-                    url = f"/players_atp/{pid}-{slug}.html"
+                    url = f"/players_atp/{pid}-{slug}"
                 else:
-                    url = f"/players_atp/{slug}.html"
+                    url = f"/players_atp/{slug}"
             else:
                 if pid:
-                    url = f"/players/{pid}-{slug}.html"
+                    url = f"/players/{pid}-{slug}"
                 else:
-                    url = f"/players/{slug}.html"
+                    url = f"/players/{slug}"
 
             out.append({
                 "ranking": current_rank,

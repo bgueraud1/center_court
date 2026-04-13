@@ -1,24 +1,20 @@
-name: Weekly update (scrape + commit)
+name: weekly_update
 
 permissions:
   contents: write
 
 on:
   schedule:
-    - cron: '0 4 * * 1'
-  workflow_dispatch:
-    inputs:
-      atp_date:
-        description: 'Optional date to use for ATP scrape (YYYY-MM-DD). If empty, uses current week Monday.'
-        required: false
-        default: ''
+    # 00:01 Europe/Paris le lundi :
+    # - en CET (UTC+1) => dimanche 23:01 UTC
+    # - en CEST (UTC+2) => dimanche 22:01 UTC
+    - cron: '1 22 * * 0'
+    - cron: '1 23 * * 0'
+  workflow_dispatch: {}
 
 jobs:
-  update_players:
-    env:
-      BUILD_DIR: ${{ github.workspace }}/docs_build
+  weekly_update:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -28,31 +24,77 @@ jobs:
           persist-credentials: true
           lfs: true
 
-      - name: Show initial workspace
+      - name: Show workspace (debug)
         run: |
-          echo "PWD: $(pwd)"
-          echo "Top-level entries:"
+          echo "Workspace: $GITHUB_WORKSPACE"
           ls -la | sed -n '1,200p'
-          echo "Show possible ranking dirs if present:"
-          for d in wta_rankings atp_rankings center_court/wta_rankings center_court/atp_rankings; do
-            echo "---- $d ----"
-            ls -la "$d" || true
-          done
+
+      - name: Decide whether to proceed (Europe/Paris window)
+        id: check_time
+        run: |
+          python - <<'PY'
+          import os
+          from datetime import datetime, timezone
+
+          try:
+              from zoneinfo import ZoneInfo
+              now = datetime.now(ZoneInfo("Europe/Paris"))
+          except Exception:
+              now = datetime.now(timezone.utc)
+
+          print("Europe/Paris now:", now.isoformat())
+
+          proceed = (now.weekday() == 0 and now.hour == 0 and now.minute < 15)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"proceed={str(proceed).lower()}\n")
+              fh.write(f"local_time_iso={now.isoformat()}\n")
+          PY
 
       - name: Setup Python
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      - name: Install build deps
+      - name: Install dependencies
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
-          if [ -f requirements-build.txt ]; then pip install -r requirements-build.txt; fi
-          pip install geopy pandas "selenium>=4.8" "webdriver-manager>=4.0"
+          pip install pandas requests selenium webdriver-manager playwright folium branca pycountry geopy beautifulsoup4
+          python -m playwright install --with-deps chromium
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+
+      - name: Compute TODAY in Europe/Paris
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          python - <<'PY'
+          import os
+          from datetime import datetime, timezone
+
+          try:
+              from zoneinfo import ZoneInfo
+              now = datetime.now(ZoneInfo("Europe/Paris"))
+          except Exception:
+              now = datetime.now(timezone.utc)
+
+          today = now.strftime("%Y-%m-%d")
+          today_underscore = now.strftime("%Y_%m_%d")
+
+          print("TODAY:", today)
+          print("TODAY_UNDERSCORE:", today_underscore)
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:
+              fh.write(f"TODAY={today}\n")
+              fh.write(f"TODAY_UNDERSCORE={today_underscore}\n")
+          PY
 
       - name: Prepare tmp branch from origin/main
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         env:
-          GITHUB_TOKEN: ${{ secrets.PAT_FOR_CI || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PAT_UPDATE_TOURNAMENT || secrets.GITHUB_TOKEN }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -79,220 +121,436 @@ jobs:
           echo "On branch: $(git branch --show-current)"
           git status --porcelain || true
 
-      - name: Run main.py (update CSV)
-        working-directory: ${{ github.workspace }}
-        env:
-          SKIP_GEOCODE: "1"
-          RANKINGS_DIR: "${{ github.workspace }}/wta_rankings"
+      - name: Run ATP and WTA ranking scrapers
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
-          echo "Running main.py with RANKINGS_DIR=${RANKINGS_DIR}"
-          python main.py
+          set -euo pipefail
 
-      - name: Debug show ranking files just after main.py
-        run: |
-          echo "PWD: $(pwd)"
-          echo "--- top-level wta_rankings listing (first 200) ---"
-          ls -la wta_rankings | sed -n '1,200p' || true
-          echo "--- show most recent files (mtime) ---"
-          find wta_rankings -maxdepth 1 -type f -printf '%T@ %p\n' | sort -n | tail -n 10 || true
-          echo "--- show sample head for newest file if present ---"
-          newest=$(find wta_rankings -type f -name 'data_*.csv' -printf '%T@ %p\n' | sort -n | tail -n1 | cut -d' ' -f2-)
-          [ -n "$newest" ] && echo "Newest: $newest" && head -n 5 "$newest" || echo "No data_*.csv found in wta_rankings"
+          echo "Running ATP ranking scraper for ${TODAY}..."
+          xvfb-run -a python3 scripts/scrape_player_ranking_atp.py --date "${TODAY}" --no-headless
 
-      - name: Recompute best rankings (WTA)
-        run: |
-          python3 scripts/recompute_best_rankings.py --rankings-dir wta_rankings --csv player_data_wta.csv
+          echo "Running WTA ranking scraper for ${TODAY}..."
+          python3 scripts/scrape_player_ranking_wta.py --date "${TODAY}" --save-dir wta_rankings
 
-      - name: Recompute best rankings (ATP)
+      - name: Generate latest ATP/WTA ranking JSON
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
-          python3 scripts/recompute_best_rankings.py --rankings-dir atp_rankings --csv player_data_atp.csv
+          set -euo pipefail
 
-      - name: Generate combined players list for blur_game
-        run: |
-          echo "Generating games/blur_game/players_list.csv and players_ranks.json"
-          python3 scripts/generate_players_list.py \
-            --wta player_data_wta.csv \
-            --atp player_data_atp.csv \
-            --out-csv games/blur_game/players_list.csv \
-            --out-json games/blur_game/players_ranks.json
+          mkdir -p docs/tools site_static/tools
 
-      - name: Copy generated JSONs into site_static/tools
-        run: |
-          mkdir -p site_static/tools
-          mkdir -p "${BUILD_DIR}/tools"
-          cp -v "${BUILD_DIR}/tools/"*.json site_static/tools/ || true
-          ls -la site_static/tools || true
-
-      - name: Run build_all (generate maps & docs)
-        env:
-          SKIP_GEOCODE: "1"
-        run: |
-          python scripts/build_all.py --out-dir "${BUILD_DIR}"
-
-      - name: Show build_dir contents (debug)
-        run: |
-          echo "BUILD_DIR = ${BUILD_DIR}"
-          ls -la "${BUILD_DIR}" || true
-          ls -la "${BUILD_DIR}/tools" || true
-          find "${BUILD_DIR}" -maxdepth 2 -type f | sed -n '1,200p' || true
-
-      - name: Generate birthdate index (players_by_birth.json)
-        run: |
-          python3 scripts/generate_birthdate_index.py
-
-      - name: Compute weekly league movements
-        run: |
-          python3 scripts/update_leagues.py \
-            --users-csv player_data_users.csv \
-            --scores-csv data/scores.csv \
-            --week-date "$(date -d 'last monday' +%F)" \
-            --out-csv data/users_updated.csv \
-            --out-json "${BUILD_DIR}/tools/league_users.json" \
-            --sql-file tmp/update_leagues.sql
-
-      - name: Debug git status & untracked sample before commit
-        run: |
-          echo "=== git status (porcelain) ==="
-          git status --porcelain || true
-          echo "=== untracked sample (others --exclude-standard) ==="
-          git ls-files --others --exclude-standard | sed -n '1,200p' || true
-          echo "--- listing wta_rankings (first 200) ---"
-          ls -la wta_rankings | sed -n '1,200p' || true
-
-      - name: Generate latest ATP ranking JSON
-        run: |
           python3 scripts/generate_latest_rankings_json.py \
             --rankings-dir atp_rankings \
             --players-csv player_data_atp.csv \
-            --out ${BUILD_DIR}/tools/latest_atp_ranking.json \
-            --latest \
+            --out docs/tools/latest_atp_ranking.json \
             --circuit ATP \
-            --base-url "https://www.center-court.net"
+            --latest
 
-      - name: Generate latest WTA ranking JSON
-        run: |
           python3 scripts/generate_latest_rankings_json.py \
             --rankings-dir wta_rankings \
             --players-csv player_data_wta.csv \
-            --out ${BUILD_DIR}/tools/latest_wta_ranking.json \
-            --latest \
+            --out docs/tools/latest_wta_ranking.json \
             --circuit WTA \
-            --base-url "https://www.center-court.net"
+            --latest
 
-      - name: Generate player meta, maps, detailed stats, scenarios, and leaderboards
+          cp -v docs/tools/latest_atp_ranking.json site_static/tools/latest_atp_ranking.json
+          cp -v docs/tools/latest_wta_ranking.json site_static/tools/latest_wta_ranking.json
+
+          echo ">>> docs/tools latest rankings:"
+          ls -la docs/tools/latest_*_ranking.json || true
+          echo ">>> site_static/tools latest rankings:"
+          ls -la site_static/tools/latest_*_ranking.json || true
+
+      - name: Run ATP and WTA match scrapers
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
           set -euo pipefail
-          mkdir -p docs/players_atp docs/players docs/leaderboards docs/leaderboards_wta
 
+          echo "Running ATP match scraper for ${TODAY}..."
+          python3 scripts/scrape_atp_matches.py \
+            --tournaments-json docs/atp_tournaments_2026.json \
+            --out-folder docs/matches/atp_matches \
+            --headless \
+            --today "${TODAY}" \
+            -v
+
+          echo "Running WTA match scraper for ${TODAY}..."
+          python3 scripts/scrape_wta_matches.py \
+            --tournament-dict-path docs/wta_tournaments_2026.json \
+            -v
+
+      - name: Build tournament JSONs (ATP)
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p docs/data/tournaments/json_by_tournaments/atp
+
+          python3 scripts/build_tournament_jsons_oneshot.py \
+            --input-dir docs/matches/atp_matches \
+            --geocodes docs/tools/geocodes_combined.json \
+            --country-map docs/tools/country_to_ioc.json \
+            --out-base docs/data/tournaments/json_by_tournaments/atp \
+            --tourney-overrides docs/tools/tourney_overrides.json
+
+      - name: Build tournament JSONs (WTA)
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p docs/data/tournaments/json_by_tournaments/wta
+
+          python3 scripts/build_tournament_jsons_oneshot.py \
+            --input-dir docs/matches/wta_matches \
+            --geocodes docs/tools/geocodes_combined.json \
+            --country-map docs/tools/country_to_ioc.json \
+            --out-base docs/data/tournaments/json_by_tournaments/wta \
+            --tourney-overrides docs/tools/tourney_overrides.json
+
+      - name: Update tournament winners JSON files
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          python3 scripts/update_tournament_winners.py \
+            --json-base docs/data/tournaments/json_by_tournaments \
+            --alt-json-base docs/data/tournaments/tournaments_by_json \
+            --out-wta docs/wta_tournaments_winners.json \
+            --out-atp docs/atp_tournaments_winners.json
+
+      - name: Run main.py for ATP and WTA
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Running main.py in ATP mode..."
+          python3 main.py --mode ATP
+
+          echo "Running main.py in WTA mode..."
+          python3 main.py --mode WTA
+
+      - name: Run ATP maps
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Running ATP map generation..."
+          python3 main_maps_atp.py
+
+      - name: Run WTA maps
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Running WTA map generation..."
+          python3 main_maps.py
+
+      - name: Generate ATP player meta
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Generating ATP player meta..."
           python3 scripts/generate_player_meta.py \
-            --matches-dir docs/matches/atp_matches \
-            --out-dir ./docs \
-            --player-data-csv ./player_data_atp.csv
+            --matches-dir docs/matches/atp_matches/ \
+            --out-dir docs/players_atp/
 
+      - name: Generate WTA player meta
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Generating WTA player meta..."
           python3 scripts/generate_player_meta_wta.py \
+            --matches-dir docs/matches/wta_matches/ \
+            --out-dir docs/players/
+
+      - name: Generate ATP detailed stats
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Generating ATP detailed stats..."
+          python3 scripts/generate_detailed_stats.py \
+            --matches-dir docs/matches/atp_matches/ \
+            --out-dir docs/players_atp/ \
+            --rankings-dir atp_rankings/ \
+            --host-event-map host_event_map.json
+
+      - name: Generate WTA detailed stats
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Generating WTA detailed stats..."
+          python3 scripts/generate_detailed_stats_wta.py \
+            --matches-dir docs/matches/wta_matches/ \
+            --out-dir docs/players_wta/ \
+            --rankings-dir wta_rankings/ \
+            --host-event-map host_event_map_wta.json
+
+      - name: Generate ATP time series
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Generating ATP time series..."
+          python3 scripts/generate_time_series.py \
+            --stats-dir docs/players_atp/ \
+            --out-dir docs/players_atp/
+
+      - name: Generate WTA time series
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Generating WTA time series..."
+          python3 scripts/generate_time_series_wta.py \
+            --stats-dir docs/players_wta/ \
+            --out-dir docs/players_wta/
+
+      - name: Generate ATP scenarios
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Generating ATP scenarios..."
+          python3 scripts/generate_scenarios.py \
+            --matches-dir docs/matches/atp_matches \
+            --out-dir docs/players_atp
+
+      - name: Generate WTA scenarios
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Generating WTA scenarios..."
+          python3 scripts/generate_scenarios_wta.py \
+            --matches-dir docs/matches/wta_matches/ \
+            --out-dir docs/players/
+
+      - name: Generate ATP maps JSON
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Generating ATP maps JSON..."
+          python3 scripts/generate_maps.py \
+            --matches-dir docs/matches/atp_matches \
+            --out-dir docs/players_atp \
+            --host-event-map host_event_map.json
+
+      - name: Generate WTA maps JSON
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Generating WTA maps JSON..."
+          python3 scripts/generate_maps_wta.py \
             --matches-dir docs/matches/wta_matches \
-            --out-dir ./docs \
-            --player-data-csv ./player_data_atp.csv
+            --out-dir docs/players \
+            --host-event-map host_event_map_wta.json
 
-          python scripts/generate_maps.py --matches-dir docs/matches/atp_matches --out-dir docs/players_atp --host-event-map ./host_event_map.json
-          python scripts/generate_maps_wta.py --matches-dir docs/matches/wta_matches --out-dir docs/players --host-event-map ./host_event_map_wta.json
-          python scripts/generate_detailed_stats.py --matches-dir docs/matches/atp_matches --out-dir docs/players_atp --rankings-dir atp_rankings
-          python scripts/generate_detailed_stats_wta.py --matches-dir docs/matches/wta_matches --out-dir docs/players --rankings-dir wta_rankings
-          python scripts/generate_scenarios.py --matches-dir docs/matches/atp_matches --out-dir docs/players_atp
-          python scripts/generate_scenarios_wta.py --matches-dir docs/matches/wta_matches --out-dir docs/players
-          python scripts/generate_stats_leaderboards.py --players-dir ./docs/players_atp --out-dir ./docs/leaderboards --players-csv ./player_data_atp.csv
-          python scripts/generate_stats_leaderboards_wta.py --players-dir ./docs/players --out-dir ./docs/leaderboards_wta --players-csv ./player_data_wta.csv
+      - name: Generate ATP stats leaderboards
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
 
-      - name: Commit ranking CSVs & docs (safe, selective)
+          echo "Generating ATP stats leaderboards..."
+          python3 scripts/generate_stats_leaderboard.py \
+            --players-dir docs/players_atp \
+            --out-dir docs/leaderboards \
+            --players-csv player_data_atp.csv
+
+      - name: Generate WTA stats leaderboards
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Generating WTA stats leaderboards..."
+          python3 scripts/generate_stats_leaderboard_wta.py \
+            --players-dir docs/players \
+            --out-dir docs/leaderboards_wta \
+            --players-csv player_data_wta.csv
+
+      - name: Generate ATP head-to-head
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Generating ATP head-to-head..."
+          python3 scripts/generate_head_to_head.py \
+            --matches-dir ./matches \
+            --outdir ./docs/data/h2h_by_player \
+            --player-atp ./player_data_atp.csv \
+            --player-wta ./player_data_wta.csv \
+            --verbose
+
+      - name: Build players index
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Building ATP players index..."
+          python3 scripts/build_players_index.py --tour atp
+
+          echo "Building WTA players index..."
+          python3 scripts/build_players_index.py --tour wta
+
+      - name: Generate weekly update
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Generating weekly update..."
+          python3 scripts/weekly_update.py
+
+      - name: Generate Africa regional report
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Generating Africa regional report..."
+          python3 scripts/tennis_africa_generator.py
+
+      - name: Generate Central Asia regional report
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Generating Central Asia regional report..."
+          python3 scripts/tennis_central_asia_generator.py
+
+      - name: Clean debug artefacts
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          rm -f atp_rankings/captcha_*.png atp_rankings/captcha_*.html || true
+          rm -f wta_rankings/bad_json_*.txt || true
+          rm -rf wta_rankings/partials || true
+
+          echo "Remaining files (overview):"
+          find atp_rankings wta_rankings docs/tools docs/matches docs/data/tournaments site_static/tools docs -maxdepth 5 -type f | sed -n '1,250p' || true
+
+      - name: Commit generated files
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         env:
           GIT_AUTHOR_NAME: "github-actions[bot]"
           GIT_AUTHOR_EMAIL: "github-actions[bot]@users.noreply.github.com"
         run: |
           set -euo pipefail
+
           git config user.name "$GIT_AUTHOR_NAME"
           git config user.email "$GIT_AUTHOR_EMAIL"
 
-          stage_tree() {
+          stage_if_exists() {
             local path="$1"
-            if [ -d "$path" ]; then
-              find "$path" -type f -print0 | while IFS= read -r -d '' f; do
-                git add -f -- "$f"
-              done
+            if [ -f "$path" ]; then
+              git add -f "$path"
+              echo "Staged: $path"
             else
-              echo "[WARN] Missing directory (skip): $path"
+              echo "[WARN] Missing file (skip): $path"
             fi
           }
 
-          echo "Detect untracked files in ranking dirs..."
-          dirs="wta_rankings atp_rankings center_court/wta_rankings center_court/atp_rankings"
-          for d in $dirs; do
-            if [ -d "$d" ]; then
-              echo "Scanning $d for untracked files..."
-              while IFS= read -r -d '' f; do
-                if [ -f "$f" ]; then
-                  echo " -> adding $f"
-                  git add -f -- "$f"
-                fi
-              done < <(git ls-files --others --exclude-standard -z -- "$d")
-            else
-              echo "Dir missing: $d"
+          stage_glob() {
+            local pattern="$1"
+            shopt -s nullglob globstar
+            local files=( $pattern )
+            shopt -u nullglob globstar
+
+            if [ "${#files[@]}" -eq 0 ]; then
+              echo "[WARN] No files for pattern: $pattern"
+              return 0
             fi
-          done
 
-          echo "Also stage specific generated artifacts (whitelist)"
-          git add -f ${BUILD_DIR}/tools/*.json 2>/dev/null || true
-          git add -f site_static/tools/*.json 2>/dev/null || true
-          git add -f site_static/rankings/*.html 2>/dev/null || true
-          git add -f site_static/js/*.js 2>/dev/null || true
-          git add -f site_static/css/*.css 2>/dev/null || true
-          git add -f player_data_wta.csv 2>/dev/null || true
-          git add -f player_data_atp.csv 2>/dev/null || true
+            for f in "${files[@]}"; do
+              if [ -f "$f" ]; then
+                git add -f "$f"
+                echo "Staged: $f"
+              fi
+            done
+          }
 
-          stage_tree docs/players_atp
-          stage_tree docs/players
-          stage_tree docs/leaderboards
-          stage_tree docs/leaderboards_wta
+          stage_tree_jsons() {
+            local root="$1"
+            if [ -d "$root" ]; then
+              while IFS= read -r -d '' f; do
+                git add -f "$f"
+                echo "Staged: $f"
+              done < <(find "$root" -type f -name '*.json' -print0)
+            else
+              echo "[WARN] Missing directory (skip): $root"
+            fi
+          }
 
-          git add -f docs/*.json 2>/dev/null || true
-          git add -f docs/*.csv 2>/dev/null || true
+          # ATP/WTA raw ranking CSVs
+          stage_if_exists "atp_rankings/data_${TODAY_UNDERSCORE}.csv"
+          stage_if_exists "wta_rankings/data_${TODAY_UNDERSCORE}.csv"
 
-          echo "Staged files (preview):"
-          git diff --name-only --cached | sed -n '1,200p' || true
+          # Match CSVs
+          stage_glob "docs/matches/atp_matches/*.csv"
+          stage_glob "docs/matches/wta_matches/*.csv"
 
-          if git diff --name-only --cached | grep -Eiq '(^|/)index\.html$'; then
-            echo "ERROR: index.html is staged by the workflow — aborting to avoid overwriting manual changes."
-            echo "Staged list:"
-            git diff --name-only --cached || true
+          # Tournament JSON outputs
+          stage_tree_jsons "docs/data/tournaments/json_by_tournaments/atp"
+          stage_tree_jsons "docs/data/tournaments/json_by_tournaments/wta"
+
+          # Player meta, detailed stats, time series, scenarios, maps, leaderboards, H2H, indexes
+          stage_tree_jsons "docs/players_atp"
+          stage_tree_jsons "docs/players"
+          stage_tree_jsons "docs/players_wta"
+          stage_tree_jsons "docs/leaderboards"
+          stage_tree_jsons "docs/leaderboards_wta"
+          stage_tree_jsons "docs/data/h2h_by_player"
+          stage_tree_jsons "docs/index"
+          stage_tree_jsons "docs/generated/weekly_update"
+          stage_tree_jsons "docs/generated/regional"
+
+          # H2H index
+          stage_if_exists "docs/data/h2h_players_index.json"
+
+          # Winners files
+          stage_if_exists "docs/atp_tournaments_winners.json"
+          stage_if_exists "docs/wta_tournaments_winners.json"
+
+          # Shared scrape state
+          stage_if_exists "docs/tools/last_scrape_date.csv"
+
+          # Latest JSON outputs
+          stage_if_exists "docs/tools/latest_atp_ranking.json"
+          stage_if_exists "docs/tools/latest_wta_ranking.json"
+          stage_if_exists "site_static/tools/latest_atp_ranking.json"
+          stage_if_exists "site_static/tools/latest_wta_ranking.json"
+
+          # Player bases and enriched outputs updated by main.py
+          stage_if_exists "player_data_atp.csv"
+          stage_if_exists "player_data_wta.csv"
+          stage_if_exists "player_data_atp_enriched.csv"
+          stage_if_exists "player_data_wta_enriched.csv"
+
+          # Maps generated by main_maps_atp.py and main_maps.py
+          stage_glob "docs/*.html"
+
+          if git diff --cached --name-only | grep -Eiq '(^|/)index\.html$'; then
+            echo "ERROR: index.html would be staged — aborting to avoid overwrite."
+            git diff --cached --name-only || true
             exit 1
           fi
 
-          echo "git status (porcelain):"
-          git status --porcelain
-
           if [ -n "$(git diff --cached --name-only)" ]; then
-            git commit -m "chore(automated): weekly update player DB + rebuild docs [skip ci]" || { echo "commit failed"; exit 1; }
+            echo "Files staged to commit:"
+            git diff --cached --name-only || true
+            git commit -m "ci(weekly): update ATP/WTA rankings, match CSVs, tournament JSONs, winners, player meta, stats, time series, scenarios, maps, leaderboards, H2H, indexes, regional reports, weekly update, player bases, and html maps"
           else
             echo "No generated changes to commit"
           fi
 
-      - name: Check for changes
-        id: git-check
-        run: |
-          git fetch origin main --quiet || true
-          if git rev-parse --verify origin/main >/dev/null 2>&1; then
-            if git rev-parse HEAD | grep -q $(git rev-parse origin/main); then
-              echo "no-changes=true" >> $GITHUB_OUTPUT
-            else
-              echo "no-changes=false" >> $GITHUB_OUTPUT
-            fi
-          else
-            echo "no-changes=false" >> $GITHUB_OUTPUT
-          fi
-
       - name: Push changes (tmp branch -> main)
-        if: steps.git-check.outputs.no-changes == 'false'
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         env:
-          PAT: ${{ secrets.PAT_FOR_CI }}
+          PAT: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
@@ -312,55 +570,29 @@ jobs:
 
           git push --set-upstream origin "${TMP_BRANCH}" --force-with-lease || git push --set-upstream origin "${TMP_BRANCH}"
 
-          MAX_RETRIES=4
-          attempt=0
-          merged_success=false
-
-          while [ $attempt -lt $MAX_RETRIES ]; do
-            attempt=$((attempt + 1))
-            echo "Merge attempt ${attempt}/${MAX_RETRIES}: update local main and merge ${TMP_BRANCH}..."
-
-            if git show-ref --verify --quiet refs/heads/main; then
-              git checkout main
-            else
-              if git rev-parse --verify origin/main >/dev/null 2>&1; then
-                git checkout -B main origin/main
-              else
-                git checkout -B main
-              fi
-            fi
-
-            git fetch origin main --quiet || true
+          if git show-ref --verify --quiet refs/heads/main; then
+            git checkout main
+          else
             if git rev-parse --verify origin/main >/dev/null 2>&1; then
-              git merge --ff-only origin/main || git merge --no-edit origin/main || true
+              git checkout -B main origin/main
+            else
+              git checkout -B main
             fi
+          fi
 
-            if git merge --no-ff --no-edit "${TMP_BRANCH}"; then
+          git fetch origin main --quiet || true
+
+          if git rev-parse --verify "${TMP_BRANCH}" >/dev/null 2>&1; then
+            if git merge --no-edit --no-ff "${TMP_BRANCH}"; then
               echo "Merge of ${TMP_BRANCH} into main succeeded locally."
             else
               echo "Merge reported issues; attempting ours strategy."
-              git merge --abort || true
-              git merge -s ours -m "chore(automated): weekly update player DB + rebuild docs [skip ci]" "${TMP_BRANCH}" || true
+              git merge --strategy-option=ours --no-edit "${TMP_BRANCH}" || true
             fi
-
-            git commit --amend -m "chore(automated): weekly update player DB + rebuild docs [skip ci]" || true
-
-            echo "Attempting to push main to origin (attempt ${attempt})..."
-            if git push origin HEAD:main; then
-              echo "Push of main successful."
-              merged_success=true
-              break
-            fi
-
-            echo "Push failed on attempt ${attempt}. Will retry after refetch."
-            git fetch origin "${TMP_BRANCH}" --quiet || true
-            sleep 1
-          done
-
-          if [ "$merged_success" = "false" ]; then
-            echo "Failed to merge & push main after ${MAX_RETRIES} attempts."
-            echo "Work has been preserved on branch: ${TMP_BRANCH} (pushed)."
           fi
+
+          echo "Attempting to push main to origin..."
+          git push origin HEAD:main
 
           echo "Done. Remote refs:"
           git ls-remote --heads origin main "${TMP_BRANCH}" || true

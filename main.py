@@ -1,315 +1,424 @@
-# main.py (modifié)
-import requests
+import argparse
+import json
+import os
+import tempfile
+from pathlib import Path
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+
 import pandas as pd
-import datetime
-import os
-import time
-from pathlib import Path
-import shutil
+import requests
 
-from config import players_path, output_path, rankings_dir, min_first_date, overwrite_wiki, overwrite_ioc, begin_index_ioc, begin_index_wiki, end_index_wiki, end_index_ioc
-from scrape_player_ranking_wta import scrape_data
-from rankings_to_player_base import load_players, load_rankings, find_new_ids, summarize_new_players, save_players, update_last_appearances
-from add_ioc_to_player import enrich_country_codes
-from scrape_wiki_wta import enrich_csv, make_retry_session
+from scrape_wiki_data import enrich_csv, make_retry_session
+from add_ioc_to_player_atp import enrich_country_codes_atp
+from add_ioc_to_player import enrich_country_codes as enrich_country_codes_wta
 
 
+SCHEMAS = {
+    "ATP": {
+        "base_csv": "player_data_atp.csv",
+        "output_csv": "player_data_atp_enriched.csv",
+        "ranking_json_candidates": ["latest_atp_ranking.json"],
+        "ranking_temp_csv": "data_latest_atp.csv",
+        "column_order": [
+            "full_name", "player_id", "represented_country", "height_inches", "height_cm",
+            "plays", "backhand", "birth_date", "birthplace", "first_appearance",
+            "last_appearance", "highest_ranking", "prize_money", "reviewed_player",
+            "date_review", "biography", "turned_pro", "retired",
+        ],
+        "ranking_col": "highest_ranking",
+        "birth_date_mode": "ATP",
+    },
+    "WTA": {
+        "base_csv": "player_data_wta.csv",
+        "output_csv": "player_data_wta_enriched.csv",
+        "ranking_json_candidates": [
+            "latest_wta_rankin.json",
+            "latest_wta_ranking.json",
+        ],
+        "ranking_temp_csv": "data_latest_wta.csv",
+        "column_order": [
+            "height_inches", "height_cm", "plays", "birth_date", "birthplace",
+            "player_id", "full_name", "best_rank", "first_appearance", "last_appearance",
+            "represented_country", "reviewed_player", "date_review", "biography", "backhand",
+        ],
+        "ranking_col": "best_rank",
+        "birth_date_mode": "WTA",
+    },
+}
 
 
-# main.py — ajouter tout en haut, après imports
-from pathlib import Path
-import sys
-import os
-
-
-
-# ---- Force working dir to repository root (robust for CI) ----
-from pathlib import Path
-import os, sys
-
-# The repo layout is:
-#   <repo root>/
-#     wta_rankings/
-#     atp_rankings/
-#
-# We want to run from the repo root so relative paths in config.py (like "wta_rankings")
-# resolve consistently in local and CI runs.
-REPO_ROOT = Path(__file__).resolve().parents[1]   # one level above this package directory
-os.chdir(str(REPO_ROOT))
-print("DEBUG: forced cwd ->", REPO_ROOT)
-
-# Resolve rankings_dir to an absolute Path (respect absolute settings in config.py)
-orig_rankings_dir = rankings_dir
-rankings_dir = Path(orig_rankings_dir)
-if not rankings_dir.is_absolute():
-    rankings_dir = (REPO_ROOT / orig_rankings_dir).resolve()
-print("DEBUG: rankings_dir ->", rankings_dir)
-
-# Allow explicit override from env (useful in CI/workflow)
-env_rankings = os.getenv("RANKINGS_DIR", "").strip()
-if env_rankings:
+def clean_text(value) -> str:
+    if value is None:
+        return ""
     try:
-        override_path = Path(env_rankings)
-        if not override_path.is_absolute():
-            override_path = (REPO_ROOT / override_path).resolve()
-        rankings_dir = override_path
-        print("DEBUG: Overriding rankings_dir from RANKINGS_DIR env ->", rankings_dir)
-    except Exception as e:
-        print("WARNING: failed to parse RANKINGS_DIR env:", e)
-
-# Ensure the rankings_dir exists (scripts will write into it)
-try:
-    rankings_dir.mkdir(parents=True, exist_ok=True)
-except Exception as e:
-    print("WARNING: could not create rankings_dir:", e)
-
-
-# Ensure the directory exists (creates if missing)
-rankings_dir.mkdir(parents=True, exist_ok=True)
-
-DATA_DIR = Path(players_path).parent
-print("DEBUG: players_path  ->", players_path)
-print("DEBUG: DATA_DIR      ->", DATA_DIR)
-print("DEBUG: REPO_ROOT     ->", REPO_ROOT)
-
-# Helpful debug: list a few ranking files (so CI logs show exactly what was found)
-try:
-    sample = sorted(rankings_dir.glob("data_*.csv"))[:20]
-    print(f"DEBUG: sample ranking files ({len(sample)} shown up to 20):")
-    for p in sample:
-        print(" -", p, p.exists())
-except Exception as e:
-    print("DEBUG: could not list rankings_dir:", e)
-# --- 1) Scrape rankings for the requested dates ---
-
-
-today = datetime.date.today()
-
-# Option: forcer depuis env var SCRAPE_DATE="YYYY-MM-DD"
-scrape_date_env = os.getenv("SCRAPE_DATE")
-if scrape_date_env:
-    try:
-        start_date = datetime.datetime.strptime(scrape_date_env, "%Y-%m-%d").date()
+        if pd.isna(value):
+            return ""
     except Exception:
-        raise SystemExit("SCRAPE_DATE mal formattée, utiliser YYYY-MM-DD")
-else:
-    # calculer le lundi de la semaine courante (weekday(): Monday=0)
-    # Si today is Monday -> use today, else go back to last Monday
-    days_since_monday = today.weekday()  # 0..6
-    start_date = today - datetime.timedelta(days=days_since_monday)
+        pass
+    return str(value).strip()
 
-# si tu veux scraper seulement ce lundi (une date) :
-end_date = start_date
 
-specific_dates = [start_date + datetime.timedelta(weeks=i) for i in range((end_date - start_date).days // 7 + 1)]
-print(f"Will scrape rankings for: {specific_dates}")
+def repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
 
-scrape_data(specific_dates, str(rankings_dir))
 
-# --- 2) Update player base from rankings (unchanged) ---
-players_df = load_players(players_path)
-ranks_df = load_rankings(rankings_dir)
+def pick_existing_path(candidates: Sequence[Path]) -> Optional[Path]:
+    for path in candidates:
+        if path.exists():
+            return path
+    return None
 
-new_ids = find_new_ids(players_df, ranks_df)
-if new_ids:
-    new_players_df = summarize_new_players(ranks_df, new_ids, list(players_df.columns))
-    players_df = pd.concat([players_df, new_players_df], ignore_index=True)
-    print(f"Added {len(new_ids)} new players.")
-else:
-    print("No new players to add.")
 
-players_df = update_last_appearances(players_df, ranks_df)
-save_players(players_df, str(players_path.resolve()))
-print(f"Player data refreshed and written to → {output_path}")
+def load_latest_rankings(json_path: Path) -> pd.DataFrame:
+    with json_path.open("r", encoding="utf-8") as f:
+        raw = json.load(f)
 
-# --- 3) Decide whether to run full refresh or only on new players ---
-today = datetime.date.today()
-monthly_window = 1 <= today.day <= 7
+    if isinstance(raw, dict):
+        if "data" in raw and isinstance(raw["data"], list):
+            raw = raw["data"]
+        elif "results" in raw and isinstance(raw["results"], list):
+            raw = raw["results"]
+        else:
+            raise ValueError(f"Unexpected JSON structure in {json_path}")
 
-# helper paths for temporary per-new-player runs
-tmp_in = DATA_DIR / "tmp_new_players_input.csv"
-tmp_out = DATA_DIR / "tmp_new_players_output.csv"
-summary_tmp = DATA_DIR / "tmp_overwrite_changes.csv"
+    if not isinstance(raw, list):
+        raise ValueError(f"Unexpected JSON structure in {json_path}")
 
-# Create the requests/session before scraping
-session = make_retry_session(
-    total_retries=3,
-    backoff_factor=0.5,
-    status_forcelist=[500,502,503,504]
-)
+    df = pd.DataFrame(raw)
+    if df.empty:
+        raise ValueError(f"No ranking rows found in {json_path}")
 
-if monthly_window:
-    print("=== Monthly full refresh window (day 1..7) — running full wiki + IOC enrich on all active players ===")
-    # Run full enrichment on the master CSV (same behavior as before)
-    enrich_csv(
-        session=session,
-        input_csv=str(players_path),
-        output_csv=str(output_path),
-        summary_csv=str(DATA_DIR / "overwrite_changes.csv"),
-        rankings_dir=str(rankings_dir),
-        start_index=begin_index_wiki,
-        end_index=end_index_wiki,
-        overwrite=overwrite_wiki,
-        min_first_date=min_first_date
+    if "player_id" not in df.columns:
+        raise ValueError(f"{json_path} must contain a player_id field")
+    if "date" not in df.columns:
+        raise ValueError(f"{json_path} must contain a date field")
+
+    df["player_id"] = df["player_id"].astype(str).str.strip()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df[df["player_id"] != ""].copy()
+    df = df[pd.notna(df["date"])].copy()
+
+    if df.empty:
+        raise ValueError(f"No valid player_id/date rows found in {json_path}")
+
+    return df
+
+
+def normalize_birth_date(value: object, mode: str) -> str:
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except Exception:
+        pass
+
+    dt = pd.to_datetime(value, errors="coerce")
+    if pd.isna(dt):
+        return clean_text(value)
+
+    if mode.upper() == "ATP":
+        return dt.strftime("%Y-%m-%d")
+
+    return dt.strftime("%b %d %Y").replace(" 0", " ")
+
+
+def make_empty_row(schema: Dict[str, object]) -> Dict[str, str]:
+    return {c: "" for c in schema["column_order"]}
+
+
+def build_new_player_row(row: pd.Series, schema: Dict[str, object], latest_date: str) -> Dict[str, str]:
+    mode = schema["birth_date_mode"]
+    ranking_col = schema["ranking_col"]
+
+    new_row = make_empty_row(schema)
+
+    full_name = clean_text(row.get("full_name", ""))
+    player_id = clean_text(row.get("player_id", ""))
+    country = clean_text(row.get("country_name", "")) or clean_text(row.get("country_code", ""))
+    ranking = clean_text(row.get("ranking", ""))
+
+    if mode == "ATP":
+        new_row.update({
+            "full_name": full_name,
+            "player_id": player_id,
+            "represented_country": country,
+            "height_inches": "",
+            "height_cm": "",
+            "plays": "",
+            "backhand": "",
+            "birth_date": normalize_birth_date(row.get("birth_date", ""), mode),
+            "birthplace": "",
+            "first_appearance": latest_date,
+            "last_appearance": latest_date,
+            "highest_ranking": ranking,
+            "prize_money": "",
+            "reviewed_player": "False",
+            "date_review": "",
+            "biography": "",
+            "turned_pro": "",
+            "retired": "",
+        })
+    else:
+        new_row.update({
+            "height_inches": "",
+            "height_cm": "",
+            "plays": "",
+            "birth_date": normalize_birth_date(row.get("birth_date", ""), mode),
+            "birthplace": "",
+            "player_id": player_id,
+            "full_name": full_name,
+            "best_rank": ranking,
+            "first_appearance": latest_date,
+            "last_appearance": latest_date,
+            "represented_country": country,
+            "reviewed_player": "False",
+            "date_review": "",
+            "biography": "",
+            "backhand": "",
+        })
+
+    new_row[ranking_col] = ranking
+    return new_row
+
+
+def ensure_columns(df: pd.DataFrame, columns: Sequence[str]) -> pd.DataFrame:
+    for col in columns:
+        if col not in df.columns:
+            df[col] = ""
+    return df
+
+
+def normalize_player_ids(series: pd.Series) -> pd.Series:
+    return series.astype(str).str.strip()
+
+
+def update_last_appearances(master: pd.DataFrame, latest_ids: Iterable[str], latest_date: str) -> pd.DataFrame:
+    if "player_id" not in master.columns:
+        raise ValueError("Base CSV must contain a player_id column")
+    if "last_appearance" not in master.columns:
+        master["last_appearance"] = ""
+
+    latest_ids = {str(pid).strip() for pid in latest_ids if str(pid).strip()}
+    master["player_id"] = normalize_player_ids(master["player_id"])
+    mask = master["player_id"].isin(latest_ids)
+    master.loc[mask, "last_appearance"] = latest_date
+    return master
+
+
+def append_missing_players(
+    master: pd.DataFrame,
+    latest: pd.DataFrame,
+    schema: Dict[str, object],
+    latest_date: str,
+) -> Tuple[pd.DataFrame, List[str]]:
+    master = master.copy()
+    master["player_id"] = normalize_player_ids(master["player_id"])
+    existing_ids = set(master["player_id"].tolist())
+
+    new_rows = []
+    new_ids = []
+
+    for _, row in latest.iterrows():
+        pid = clean_text(row.get("player_id", ""))
+        if not pid or pid in existing_ids:
+            continue
+        new_rows.append(build_new_player_row(row, schema, latest_date))
+        new_ids.append(pid)
+        existing_ids.add(pid)
+
+    if new_rows:
+        master = pd.concat([master, pd.DataFrame(new_rows)], ignore_index=True)
+
+    return master, new_ids
+
+
+def merge_non_blank_fields(
+    master: pd.DataFrame,
+    source: pd.DataFrame,
+    key: str = "player_id",
+    only_columns: Optional[Sequence[str]] = None,
+) -> pd.DataFrame:
+    if key not in master.columns or key not in source.columns:
+        return master
+
+    master = master.copy()
+    master[key] = normalize_player_ids(master[key])
+    source = source.copy()
+    source[key] = normalize_player_ids(source[key])
+
+    if only_columns is None:
+        only_columns = [c for c in source.columns if c != key]
+
+    master_index = {pid: idx for idx, pid in zip(master.index, master[key]) if pid}
+
+    for _, row in source.iterrows():
+        pid = clean_text(row.get(key, ""))
+        if not pid or pid not in master_index:
+            continue
+
+        idx = master_index[pid]
+        for col in only_columns:
+            if col == key or col not in master.columns or col not in source.columns:
+                continue
+
+            new_val = clean_text(row.get(col, ""))
+            old_val = clean_text(master.at[idx, col])
+
+            if new_val == "":
+                continue
+            if old_val == "" or old_val != new_val:
+                master.at[idx, col] = new_val
+
+    return master
+
+
+def write_output(df: pd.DataFrame, path: Path, schema: Dict[str, object]) -> None:
+    out = df.copy()
+    ordered = list(schema["column_order"])
+    for col in ordered:
+        if col not in out.columns:
+            out[col] = ""
+    remaining = [c for c in out.columns if c not in ordered]
+    out = out[ordered + remaining]
+    out.to_csv(path, index=False)
+
+
+def create_temp_rankings_csv(latest_rankings: pd.DataFrame, temp_dir: Path, filename: str) -> Path:
+    out = temp_dir / filename
+    tmp = latest_rankings[["date", "player_id"]].copy()
+    tmp["date"] = tmp["date"].dt.strftime("%Y-%m-%d")
+    tmp.to_csv(out, index=False)
+    return out
+
+
+def run(mode: str) -> None:
+    mode = mode.upper().strip()
+    if mode not in SCHEMAS:
+        raise ValueError("mode must be 'ATP' or 'WTA'")
+
+    schema = SCHEMAS[mode]
+    root = repo_root()
+    tools_dir = root / "docs" / "tools"
+
+    base_csv = tools_dir / schema["base_csv"]
+    output_csv = tools_dir / schema["output_csv"]
+    ranking_json = pick_existing_path([tools_dir / p for p in schema["ranking_json_candidates"]])
+
+    if ranking_json is None:
+        candidates = ", ".join(schema["ranking_json_candidates"])
+        raise FileNotFoundError(f"Unable to find latest ranking JSON. Tried: {candidates}")
+
+    if not base_csv.exists():
+        raise FileNotFoundError(f"Base CSV not found: {base_csv}")
+
+    latest = load_latest_rankings(ranking_json)
+    latest_date = latest["date"].max().strftime("%Y-%m-%d")
+    latest_ids = latest["player_id"].astype(str).str.strip().tolist()
+
+    master = pd.read_csv(base_csv, dtype=str, keep_default_na=False).fillna("")
+    master = ensure_columns(master, schema["column_order"])
+    master["player_id"] = normalize_player_ids(master["player_id"])
+
+    master = update_last_appearances(master, latest_ids, latest_date)
+    master, new_ids = append_missing_players(master, latest, schema, latest_date)
+
+    wiki_session = make_retry_session(
+        total_retries=3,
+        backoff_factor=0.5,
+        status_forcelist=(429, 500, 502, 503, 504),
     )
 
-    with requests.Session() as sess:
-        enrich_country_codes(
-            session=sess,
-            input_csv=str(players_path),
-            output_csv=str(output_path),
-            start_index=begin_index_ioc,
-            end_index=end_index_ioc,
-            overwrite=overwrite_ioc
-        )
+    if new_ids:
+        print(f"Detected {len(new_ids)} new {mode} players.")
+        new_subset = master[master["player_id"].isin(new_ids)].copy()
 
-    print("Monthly full refresh done.")
-
-else:
-    # Normal case: run wiki & IOC only for new players
-    if not new_ids:
-        print("No new players -> skipping wiki and IOC enrichment for this run.")
-    else:
-        print(f"=== Running wiki + IOC enrichment ONLY for {len(new_ids)} new players ===")
-
-        # Build tmp input CSV containing only the rows for new_ids
-        # Ensure player_id is int for matching
-        # ensure numeric player_id
-        players_df['player_id'] = pd.to_numeric(players_df['player_id'], errors='coerce').astype('Int64')
-
-        # build subset for new players
-        mask = players_df['player_id'].isin(new_ids)
-        df_new_subset = players_df.loc[mask].copy()
-
-        # --- IMPORTANT: keep only players that are "active" in the latest rankings ---
-        # ranks_df est déjà chargé plus haut (load_rankings). On calcule les player_id apparus
-        # à la date de classement la plus récente et on filtre df_new_subset sur cette liste.
-        try:
-            latest_date = ranks_df['date'].max()
-            active_ids = set(ranks_df.loc[ranks_df['date'] == latest_date, 'player_id'].astype(int))
-            print(f"DEBUG: latest ranking date = {latest_date}, active ids = {len(active_ids)}")
-            # filter the new-subset to only active players (avoid scraping retirees / historical players)
-            before = len(df_new_subset)
-            df_new_subset = df_new_subset[df_new_subset['player_id'].isin(active_ids)].copy()
-            after = len(df_new_subset)
-            print(f"DEBUG: filtered new-subset by active ids: {before} -> {after} rows")
-        except Exception as e:
-            # if something goes wrong reading ranks_df, continue but warn
-            print("WARNING: could not filter new-subset by active ids:", e)
-
-
-        # If there are no rows (safety)
-        if df_new_subset.shape[0] == 0:
-            print("No matching rows found for new_ids -> skipping enrich.")
-        else:
-            # write tmp input and call enrich_csv on it
-            df_new_subset.to_csv(tmp_in, index=False)
-            print(f"Temporary input for enrich_csv written -> {tmp_in} ({len(df_new_subset)} rows)")
-
-            # Run enrichment on the tmp file. We set start_index/end_index to defaults so enrich_csv
-            # will compute active_idxs relative to the temp file (that's OK — it will only attempt active ones)
-            enrich_csv(
-                session=session,
-                input_csv=str(tmp_in),
-                output_csv=str(tmp_out),
-                summary_csv=str(summary_tmp),
-                rankings_dir=str(rankings_dir),
-                start_index=0,
-                end_index=None,
-                overwrite=overwrite_wiki,
-                min_first_date=min_first_date
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            create_temp_rankings_csv(
+                latest_rankings=latest,
+                temp_dir=tmpdir_path,
+                filename=schema["ranking_temp_csv"],
             )
 
-            # Read enriched tmp_out and merge back into master
-            if tmp_out.exists():
-                enriched = pd.read_csv(tmp_out, keep_default_na=False, parse_dates=['birth_date','first_appearance','last_appearance'], infer_datetime_format=True)
-                # ensure numeric player_id for merging
-                enriched['player_id'] = pd.to_numeric(enriched['player_id'], errors='coerce').astype(int)
+            temp_input = tmpdir_path / f"new_players_{mode.lower()}_input.csv"
+            temp_wiki_output = tmpdir_path / f"new_players_{mode.lower()}_wiki.csv"
+            temp_ioc_output = tmpdir_path / f"new_players_{mode.lower()}_ioc.csv"
+            summary_csv = tmpdir_path / f"overwrite_changes_{mode.lower()}.csv"
 
-                # Columns that enrich_csv is expected to populate (safe list)
-                target_cols = ['height_inches','height_cm','plays','birth_date','birthplace']
-                # for each enriched row, update master players_df accordingly (don't overwrite unexpected columns)
-                updated = 0
-                for _, r in enriched.iterrows():
-                    pid = int(r['player_id'])
-                    idxs = players_df.index[players_df['player_id'] == pid].tolist()
-                    if not idxs:
-                        continue
-                    idx = idxs[0]
-                    for c in target_cols:
-                        if c in enriched.columns:
-                            new_val = r[c]
-                            # Only set if non-empty OR master is empty (same policy as enrich_csv)
-                            # We'll mimic "never replace non-blank with blank"
-                            old_val = players_df.at[idx, c] if c in players_df.columns else ""
-                            if (str(new_val).strip() != "" ) or (str(old_val).strip() == ""):
-                                players_df.at[idx, c] = new_val
-                                updated += 1
+            new_subset.to_csv(temp_input, index=False)
 
-                # Save merged master
-                save_players(players_df, str(players_path.resolve()))
-                print(f"Merged enriched data for {len(enriched)} rows into master; approx {updated} fields updated. Master saved -> {output_path}")
+            enrich_csv(
+                session=wiki_session,
+                input_csv=str(temp_input),
+                output_csv=str(temp_wiki_output),
+                summary_csv=str(summary_csv),
+                rankings_dir=str(tmpdir_path),
+                mode=mode,
+                start_index=0,
+                end_index=None,
+                overwrite=False,
+                min_first_date=None,
+            )
 
-                # Clean tmp files (optional)
-                try:
-                    tmp_in.unlink(missing_ok=True)
-                    tmp_out.unlink(missing_ok=True)
-                    summary_tmp.unlink(missing_ok=True)
-                except Exception:
-                    pass
+            if temp_wiki_output.exists():
+                wiki_df = pd.read_csv(temp_wiki_output, dtype=str, keep_default_na=False).fillna("")
+                master = merge_non_blank_fields(master, wiki_df)
             else:
-                print("Warning: expected tmp output not produced by enrich_csv:", tmp_out)
+                print(f"Warning: wiki output not produced: {temp_wiki_output}")
 
-        # Now run IOC enrichment (add_ioc_to_player). We'll reuse the same mechanism:
-        # create tmp_in again from updated master rows for the same new_ids and call enrich_country_codes on it
-        # then merge back the 'represented_country' (or other IOC-related columns) into master.
+            ioc_input_df = master[master["player_id"].isin(new_ids)].copy()
+            ioc_input_df.to_csv(temp_input, index=False)
 
-        # Recreate tmp_in from the current master (so we include updates from enrich_csv)
-        df_new_subset = players_df[players_df['player_id'].isin(new_ids)].copy()
-        if df_new_subset.shape[0] == 0:
-            print("No new players found for IOC enrichment -> skipping.")
-        else:
-            df_new_subset.to_csv(tmp_in, index=False)
-            tmp_ioc_out = DATA_DIR / "tmp_new_players_ioc_output.csv"
             with requests.Session() as sess:
-                enrich_country_codes(
-                    session=sess,
-                    input_csv=str(tmp_in),
-                    output_csv=str(tmp_ioc_out),
-                    start_index=0,
-                    end_index=None,
-                    overwrite=overwrite_ioc
-                )
+                if mode == "ATP":
+                    enrich_country_codes_atp(
+                        session=sess,
+                        input_csv=str(temp_input),
+                        output_csv=str(temp_ioc_output),
+                        start_index=0,
+                        end_index=None,
+                        overwrite=False,
+                    )
+                else:
+                    enrich_country_codes_wta(
+                        session=sess,
+                        input_csv=str(temp_input),
+                        output_csv=str(temp_ioc_output),
+                        start_index=0,
+                        end_index=None,
+                        overwrite=False,
+                    )
 
-            if tmp_ioc_out.exists():
-                ioc_enriched = pd.read_csv(tmp_ioc_out, keep_default_na=False)
-                ioc_enriched['player_id'] = pd.to_numeric(ioc_enriched['player_id'], errors='coerce').astype(int)
-                # Columns to merge (typical: 'represented_country' but depends on your function)
-                ioc_cols = [c for c in ['represented_country'] if c in ioc_enriched.columns]
-                ioc_updated = 0
-                for _, r in ioc_enriched.iterrows():
-                    pid = int(r['player_id'])
-                    idxs = players_df.index[players_df['player_id'] == pid].tolist()
-                    if not idxs:
-                        continue
-                    idx = idxs[0]
-                    for c in ioc_cols:
-                        new_val = r[c]
-                        old_val = players_df.at[idx, c] if c in players_df.columns else ""
-                        if (str(new_val).strip() != "") or (str(old_val).strip() == ""):
-                            players_df.at[idx, c] = new_val
-                            ioc_updated += 1
-
-                save_players(players_df, str(players_path.resolve()))
-                print(f"Merged IOC enrichment for {len(ioc_enriched)} rows into master; approx {ioc_updated} fields updated. Master saved -> {output_path}")
-
-                # clean tmp files
-                try:
-                    tmp_in.unlink(missing_ok=True)
-                    tmp_ioc_out.unlink(missing_ok=True)
-                except Exception:
-                    pass
+            if temp_ioc_output.exists():
+                ioc_df = pd.read_csv(temp_ioc_output, dtype=str, keep_default_na=False).fillna("")
+                master = merge_non_blank_fields(master, ioc_df, only_columns=["represented_country"])
             else:
-                print("Warning: expected tmp IOC output not produced:", tmp_ioc_out)
+                print(f"Warning: IOC output not produced: {temp_ioc_output}")
 
-print("All done.")
+    else:
+        print(f"No new {mode} players detected.")
+
+    master = ensure_columns(master, schema["column_order"])
+    write_output(master, base_csv, schema)
+    write_output(master, output_csv, schema)
+
+    print(f"Base CSV updated   -> {base_csv}")
+    print(f"Output CSV written -> {output_csv}")
+    print("All done.")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Update ATP/WTA player base from the latest ranking JSON.")
+    parser.add_argument(
+        "--mode",
+        choices=["ATP", "WTA"],
+        default=os.getenv("MODE", "WTA").upper(),
+        help="Choose ATP or WTA",
+    )
+    args = parser.parse_args()
+    run(args.mode)
+
+
+if __name__ == "__main__":
+    main()

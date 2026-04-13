@@ -706,6 +706,7 @@ def parse_args():
     p.add_argument("--max-retries-captcha", type=int, default=3, help="Max retries on captcha/other failure.")
     p.add_argument("--backoff-factor", type=float, default=2.0, help="Backoff factor for retries.")
     p.add_argument("--dates-file", type=str, default=None, help="CSV file with a column 'date' or 'dates' listing ISO dates to process.")
+    p.add_argument("--date", type=str, default=None, help="Date unique YYYY-MM-DD à scraper.")
     return p.parse_args()
 
 if __name__ == "__main__":
@@ -714,6 +715,26 @@ if __name__ == "__main__":
 
     # debug simple pour tracer ce qui est passé
     print("DEBUG: CLI args:", args)
+
+    if args.date:
+        try:
+            datetime.strptime(args.date, "%Y-%m-%d")
+        except ValueError:
+            print(f"ERROR: invalid --date '{args.date}', expected YYYY-MM-DD")
+            sys.exit(2)
+
+        iterate_dates_from_list(
+            [args.date],
+            headless=args.headless,
+            max_players=args.max_players,
+            rotate_ua=args.rotate_ua,
+            ua_list=DEFAULT_USER_AGENTS,
+            proxy_file=args.proxy_file,
+            restart_run_every=args.restart_run_every,
+            max_retries_captcha=args.max_retries_captcha,
+            backoff_factor=args.backoff_factor
+        )
+        sys.exit(0)
 
     # If a dates_file was passed, read it and optionally force single-date mode
     if args.dates_file:

@@ -16,6 +16,7 @@ Sortie : appelle run_scrape_multi_year avec { year: { tourn_id: [draw_size, star
 from playwright.sync_api import sync_playwright
 import json
 from textwrap import shorten
+from docs.tools.scrape_state import load_scrape_state, save_scrape_state, today_paris
 
 CREATED_FILES = []
 
@@ -818,22 +819,25 @@ def _today_in_paris() -> date:
             pass
     # fallback to naive local date
     return datetime.now().date()
-
-def build_tournaments_by_year_from_json(tournaments_json_path: str, days_after_end: int = 1, verbose: bool = True, today_override: Optional[date]=None) -> Dict[int, Dict[int, Any]]:
-    """
-    Read the tournaments JSON (structure provided) and return a dict:
-      { year: { tourn_id_int: [singles_draw_size, start_iso, end_iso, is_gs_int] } }
-    Only includes tournaments where end_date + days_after_end == today_paris (or today_override).
-    If a tournament has no parsable end_date, it is skipped.
-    """
+def build_tournaments_by_year_from_json(
+    tournaments_json_path: str,
+    last_scrape_atp: Optional[date] = None,
+    verbose: bool = True,
+    today_override: Optional[date] = None
+) -> Dict[int, Dict[int, Any]]:
     p = Path(tournaments_json_path)
     if not p.exists():
         raise FileNotFoundError(f"{tournaments_json_path} not found")
+
     raw = json.loads(p.read_text(encoding="utf-8"))
     out: Dict[int, Dict[int, Any]] = {}
+
     today = today_override if today_override is not None else _today_in_paris()
+    if last_scrape_atp is None:
+        last_scrape_atp = date(1900, 1, 1)
+
     if verbose:
-        print(f"[selector] today (Europe/Paris) = {today.isoformat()} -- days_after_end={days_after_end}")
+        print(f"[selector] today (Europe/Paris) = {today.isoformat()} -- last_scrape_atp = {last_scrape_atp.isoformat()}")
 
     tdates = raw.get("TournamentDates") or []
     for month_block in tdates:
@@ -846,52 +850,55 @@ def build_tournaments_by_year_from_json(tournaments_json_path: str, days_after_e
                 tid = int(str(tid_raw))
             except Exception:
                 continue
+
             formatted = t.get("FormattedDate") or t.get("Formatted") or ""
             start_iso, end_iso, year = parse_formatted_date(formatted)
+
             if not year:
-                # try fallback: maybe Year field present
                 try:
                     year_fallback = int(t.get("Year")) if t.get("Year") else None
                     if year_fallback:
                         year = year_fallback
                 except Exception:
                     pass
+
             if not end_iso:
                 if verbose:
                     print(f"  [skip] tourn {tid} no parsable end date (FormattedDate='{formatted}')")
                 continue
-            # convert end_iso to date
+
             try:
                 end_dt = datetime.fromisoformat(end_iso).date()
             except Exception:
                 if verbose:
                     print(f"  [skip] tourn {tid} end date invalid iso '{end_iso}'")
                 continue
-            trigger_date = end_dt + timedelta(days=days_after_end)
-            if trigger_date == today:
+
+            if last_scrape_atp <= end_dt <= today:
                 sgl = t.get("SglDrawSize") or t.get("SglDraw") or t.get("Sgl")
                 try:
                     sgl_n = int(sgl) if sgl is not None else 0
                 except Exception:
                     sgl_n = 0
+
                 typ = t.get("Type") or ""
                 is_gs = 1 if str(typ).strip().upper() == "GS" else 0
+
                 if year is None:
-                    # try to extract from end_iso
                     try:
                         year = datetime.fromisoformat(end_iso).year
                     except Exception:
                         year = datetime.now().year
+
                 if year not in out:
                     out[year] = {}
                 out[year][tid] = [sgl_n, start_iso, end_iso, is_gs]
+
                 if verbose:
                     print(f"  [select] tourn {tid} year={year} end={end_iso} draw={sgl_n} gs={is_gs}")
-            else:
-                if verbose:
-                    if False:
-                        print(f"    debug: tourn {tid} trigger_date={trigger_date.isoformat()} (today={today.isoformat()})")
+
     return out
+
 
 # ---------- CLI / main ----------
 def _build_arg_parser():
@@ -926,6 +933,9 @@ def main(argv=None):
             sys.exit(2)
     else:
         today_override = None
+
+    state = load_scrape_state()
+    last_scrape_atp = datetime.fromisoformat(state["atp"]).date()
 
         # --- build tournaments_by_year from either provided ids OR date-selection
     if args.tournament_ids:
@@ -972,7 +982,7 @@ def main(argv=None):
     else:
         tournaments_by_year = build_tournaments_by_year_from_json(
             args.tournaments_json,
-            days_after_end=args.days_after_end,
+            last_scrape_atp=last_scrape_atp,
             verbose=args.verbose,
             today_override=today_override
         )
@@ -989,6 +999,11 @@ def main(argv=None):
         wait_between_retries=args.wait_between_retries,
         pause_between_years=args.pause_between_years
     )
+
+    final_today = today_override if today_override is not None else today_paris()
+    save_scrape_state(atp=final_today.isoformat())
+    if args.verbose:
+        print(f"[main] updated docs/tools/last_scrape_date.csv -> atp={final_today.isoformat()}")
 
 
         # runner returned, now write created files list for CI

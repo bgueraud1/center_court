@@ -2,216 +2,393 @@
 """
 build_players_index.py
 
-Parcourt tous les CSV dans matches/wta_matches/ et génère index/players_wta_index.json
-contenant la liste des joueuses trouvées et le nombre de matches par joueuse.
+Construit un index des joueuses/joueurs à partir des CSV WTA/ATP.
+
+Modes:
+    - wta : lit docs/matches/wta_matches/ et écrit docs/index/players_wta_index.json
+    - atp : lit docs/matches/atp_matches/ et écrit docs/index/players_atp_index.json
+    - all : construit les deux
 
 Usage:
-    python build_players_index.py
+    python build_players_index.py --tour wta
+    python build_players_index.py --tour atp
+    python build_players_index.py --tour all
 """
+
 from __future__ import annotations
-import os
-import json
+
+import argparse
 import hashlib
-import unicodedata
+import json
+import os
 import re
-from typing import Dict, Set, Tuple, Optional
+import unicodedata
+from typing import Dict, Iterable, List, Optional, Tuple
+
 import pandas as pd
-import numpy as np
 
-# Répertoires (modifiable si nécessaire)
-MATCHES_DIR = os.path.join("matches", "wta_matches")
-OUT_INDEX_DIR = "docs/index"
-OUT_INDEX_FILE = os.path.join(OUT_INDEX_DIR, "players_wta_index.json")
 
-# Colonnes candidates pour noms / pays / match id (ordre d'essai)
-NAME_COL_CANDIDATES = [
-    "winner", "loser",
-    "winner_player_name", "loser_player_name",
-    "player_a", "player_b",
-    "PlayerNameA", "PlayerNameB",
-    "Home Player", "Away Player",
-    "HomePlayer", "AwayPlayer"
+# -----------------------------
+# Configuration des dossiers
+# -----------------------------
+WTA_MATCHES_DIR = os.path.join("docs", "matches", "wta_matches")
+ATP_MATCHES_DIR = os.path.join("docs", "matches", "atp_matches")
+
+OUT_INDEX_DIR = os.path.join("docs", "index")
+WTA_OUT_INDEX_FILE = os.path.join(OUT_INDEX_DIR, "players_wta_index.json")
+ATP_OUT_INDEX_FILE = os.path.join(OUT_INDEX_DIR, "players_atp_index.json")
+
+
+# -----------------------------
+# Colonnes candidates WTA
+# -----------------------------
+WTA_NAME_PAIR_CANDIDATES = [
+    ("player_a", "player_b"),
+    ("PlayerNameA", "PlayerNameB"),
 ]
 
-COUNTRY_COL_CANDIDATES = [
-    "winner_country", "loser_country",
-    "country_a", "country_b",
-    "PlayerCountryA", "PlayerCountryB",
-    "Home Country", "Away Country"
-]
+WTA_WINNER_NAME_CANDIDATES = ["winner", "winner_player_name", "winner_name"]
+WTA_LOSER_NAME_CANDIDATES = ["loser", "loser_player_name", "loser_name"]
 
-MATCH_ID_CANDIDATES = [
-    "match_id", "Match ID", "MatchID", "MatchId", "ls_match_id"
-]
+WTA_WINNER_COUNTRY_CANDIDATES = ["winner_country", "country_a"]
+WTA_LOSER_COUNTRY_CANDIDATES = ["loser_country", "country_b"]
 
+WTA_MATCH_ID_CANDIDATES = ["match_id", "Match ID", "MatchID", "MatchId", "ls_match_id"]
+
+
+# -----------------------------
+# Colonnes candidates ATP
+# -----------------------------
+ATP_WINNER_NAME_CANDIDATES = ["player_winner", "winner_player_name", "winner_name"]
+ATP_LOSER_NAME_CANDIDATES = ["player_loser", "loser_player_name", "loser_name"]
+
+ATP_WINNER_COUNTRY_CANDIDATES = ["country_winner", "winner_country"]
+ATP_LOSER_COUNTRY_CANDIDATES = ["country_loser", "loser_country"]
+
+ATP_WINNER_ID_CANDIDATES = ["player_id_winner"]
+ATP_LOSER_ID_CANDIDATES = ["player_id_loser"]
+
+ATP_MATCH_ID_CANDIDATES = ["match_id", "Match ID", "MatchID", "MatchId"]
+
+
+# -----------------------------
+# Utilitaires
+# -----------------------------
 def slugify(name: str) -> str:
-    """Transforme un nom en slug sûre: remove accents, keep alnum + '-'."""
+    """Transforme un nom en slug sûre: minuscules, sans accents, alnum + '-'."""
     if name is None:
         return ""
     s = str(name).strip().lower()
-    # normalize accents
     s = unicodedata.normalize("NFKD", s)
     s = "".join(ch for ch in s if not unicodedata.combining(ch))
-    # replace non-alnum by hyphen
     s = re.sub(r"[^a-z0-9]+", "-", s)
     s = re.sub(r"-{2,}", "-", s).strip("-")
     return s
 
+
 def make_player_id_from_slug(slug_name: str) -> str:
-    """Crée un id stable à partir du slug. Ex: W + md5(slug)[:6].upper()."""
+    """Crée un id stable à partir du slug."""
     h = hashlib.md5(slug_name.encode("utf-8")).hexdigest()[:6].upper()
     return f"W{h}"
 
-def safe_get_series_val(row: pd.Series, cols: list) -> Optional[str]:
-    """Renvoie la première valeur non-nulle trouvée dans row pour la liste de colonnes."""
+
+def safe_get_series_val(row: pd.Series, cols: List[str]) -> Optional[str]:
+    """Renvoie la première valeur non nulle trouvée dans row pour la liste de colonnes."""
     for c in cols:
-        if c in row and pd.notna(row[c]) and str(row[c]).strip() != "":
-            return str(row[c])
+        if c in row.index and pd.notna(row[c]) and str(row[c]).strip() != "":
+            return str(row[c]).strip()
     return None
 
-def gather_players_from_row(row: pd.Series, row_unique_id: str) -> list[Tuple[str, Optional[str], str]]:
-    """
-    Retourne liste de tuples (name, country, match_unique_id) extraits d'une ligne.
-    - match_unique_id = match_id s'il existe, sinon row_unique_id (file+index)
-    """
-    results = []
-    # determine match_id (if any)
-    match_id_val = safe_get_series_val(row, MATCH_ID_CANDIDATES)
-    if match_id_val is not None:
-        match_uid = str(match_id_val)
-    else:
-        match_uid = row_unique_id
 
-    # Try to map player columns pairs (player_a -> country_a, player_b -> country_b)
-    # If both player_a/player_b exist, prefer them (pairing)
-    # Otherwise fallback to winner/loser pair
-    if ("player_a" in row.index or "PlayerNameA" in row.index) and ("player_b" in row.index or "PlayerNameB" in row.index):
-        # player A
-        name_a = safe_get_series_val(row, ["player_a", "PlayerNameA", "PlayerNameFirstA", "PlayerNameLastA"])
-        country_a = safe_get_series_val(row, ["country_a", "PlayerCountryA"])
-        if name_a:
-            results.append((name_a.strip(), country_a.strip() if country_a else None, match_uid))
-        # player B
-        name_b = safe_get_series_val(row, ["player_b", "PlayerNameB", "PlayerNameFirstB", "PlayerNameLastB"])
-        country_b = safe_get_series_val(row, ["country_b", "PlayerCountryB"])
-        if name_b:
-            results.append((name_b.strip(), country_b.strip() if country_b else None, match_uid))
-        return results
+def normalize_name(name: str) -> str:
+    """Nettoie les espaces superflus."""
+    return " ".join(str(name).strip().split())
 
-    # fallback: winner / loser columns
-    name_w = safe_get_series_val(row, ["winner", "winner_player_name", "winner_name"])
-    country_w = safe_get_series_val(row, ["winner_country"]) or safe_get_series_val(row, ["country_a"])  # try best-effort
-    if name_w:
-        results.append((name_w.strip(), country_w.strip() if country_w else None, match_uid))
-    name_l = safe_get_series_val(row, ["loser", "loser_player_name", "loser_name"])
-    country_l = safe_get_series_val(row, ["loser_country"]) or safe_get_series_val(row, ["country_b"])
-    if name_l:
-        results.append((name_l.strip(), country_l.strip() if country_l else None, match_uid))
 
-    # if nothing found, try any candidate name cols
-    if not results:
-        for c in NAME_COL_CANDIDATES:
-            if c in row and pd.notna(row[c]) and str(row[c]).strip() != "":
-                results.append((str(row[c]).strip(), None, match_uid))
-    return results
+def iter_csv_files(root_dir: str) -> List[str]:
+    """Retourne tous les CSV sous root_dir, de façon récursive."""
+    files: List[str] = []
+    for base, _, filenames in os.walk(root_dir):
+        for filename in filenames:
+            if filename.lower().endswith(".csv"):
+                files.append(os.path.join(base, filename))
+    return sorted(files)
+
 
 def read_csv_safe(path: str) -> Optional[pd.DataFrame]:
-    """Lit un csv de façon robuste. Retourne DataFrame ou None."""
+    """Lit un CSV de façon robuste. Retourne DataFrame ou None."""
     try:
         return pd.read_csv(path, low_memory=False)
-    except Exception as e:
+    except Exception:
         try:
-            # second attempt with different engine
             return pd.read_csv(path, engine="python", low_memory=False)
         except Exception as e2:
             print(f"[WARN] Impossible de lire {path}: {e2}")
             return None
 
-def build_index(matches_dir: str = MATCHES_DIR, out_file: str = OUT_INDEX_FILE) -> dict:
+
+def better_name(current: Optional[str], candidate: str) -> str:
     """
-    Parcourt tous les CSV dans matches_dir et construit la structure players.
-    Retourne le dict complet et écrit out_file.
+    Garde le nom le plus utile.
+    En pratique, on préfère souvent le plus long, car il est plus complet.
     """
-    # stockage temporaire: slug_base -> player info
-    # structure: slug_base -> { 'player_id':..., 'slug':..., 'name':..., 'country':..., 'match_ids': set(...) }
-    players: Dict[str, dict] = {}
+    candidate = normalize_name(candidate)
+    if not current:
+        return candidate
+    if len(candidate) > len(current):
+        return candidate
+    return current
+
+
+def build_entry(
+    *,
+    mode: str,
+    name_raw: str,
+    country_raw: Optional[str],
+    match_uid: str,
+    player_id_raw: Optional[str] = None,
+) -> Tuple[str, Dict]:
+    """
+    Construit la clé interne + l'objet joueur.
+    - Pour ATP, si player_id_raw existe, il sert de clé stable.
+    - Pour WTA, la clé reste basée sur le nom normalisé.
+    """
+    name_norm = normalize_name(name_raw)
+    slug_base = slugify(name_norm) or "unknown"
+
+    if player_id_raw and str(player_id_raw).strip():
+        stable_id = str(player_id_raw).strip()
+        key = f"pid::{stable_id}"
+        slug = f"{stable_id.lower()}-{slug_base}"
+    else:
+        stable_id = make_player_id_from_slug(slug_base)
+        key = f"name::{slug_base}"
+        slug = f"{stable_id.lower()}-{slug_base}"
+
+    if mode == "wta":
+        page_href = f"players_wta/{slug}"
+        data_path = f"players_wta/data/{slug}.json"
+    else:
+        page_href = f"players_atp/{slug}"
+        data_path = f"players_atp/data/{slug}.json"
+
+    entry = {
+        "player_id": stable_id,
+        "name": name_norm,
+        "slug": slug,
+        "page_href": page_href,
+        "data_path": data_path,
+        "country": country_raw if country_raw else None,
+        "match_ids": {str(match_uid)},
+    }
+    return key, entry
+
+
+# -----------------------------
+# Extraction WTA
+# -----------------------------
+def gather_players_from_row_wta(row: pd.Series, row_unique_id: str) -> List[Tuple[str, Optional[str], str, Optional[str]]]:
+    """
+    Retourne une liste de tuples:
+        (name, country, match_uid, player_id_raw)
+
+    WTA:
+      - essaie player_a / player_b
+      - sinon winner / loser
+      - sinon fallback sur toute colonne candidate nom
+    """
+    results: List[Tuple[str, Optional[str], str, Optional[str]]] = []
+
+    match_id_val = safe_get_series_val(row, WTA_MATCH_ID_CANDIDATES)
+    match_uid = match_id_val if match_id_val is not None else row_unique_id
+
+    # Priorité au couple player_a / player_b
+    pair_found = False
+    for name_a_col, name_b_col in WTA_NAME_PAIR_CANDIDATES:
+        if name_a_col in row.index and name_b_col in row.index:
+            name_a = safe_get_series_val(row, [name_a_col])
+            name_b = safe_get_series_val(row, [name_b_col])
+
+            country_a = safe_get_series_val(row, WTA_WINNER_COUNTRY_CANDIDATES)
+            country_b = safe_get_series_val(row, WTA_LOSER_COUNTRY_CANDIDATES)
+
+            if name_a:
+                results.append((name_a, country_a, match_uid, None))
+            if name_b:
+                results.append((name_b, country_b, match_uid, None))
+            pair_found = True
+            break
+
+    if pair_found:
+        return results
+
+    # Fallback winner / loser
+    name_w = safe_get_series_val(row, WTA_WINNER_NAME_CANDIDATES)
+    country_w = safe_get_series_val(row, WTA_WINNER_COUNTRY_CANDIDATES)
+    if name_w:
+        results.append((name_w, country_w, match_uid, None))
+
+    name_l = safe_get_series_val(row, WTA_LOSER_NAME_CANDIDATES)
+    country_l = safe_get_series_val(row, WTA_LOSER_COUNTRY_CANDIDATES)
+    if name_l:
+        results.append((name_l, country_l, match_uid, None))
+
+    # Dernier recours: n'importe quelle colonne candidate de nom
+    if not results:
+        fallback_cols = (
+            WTA_WINNER_NAME_CANDIDATES
+            + WTA_LOSER_NAME_CANDIDATES
+            + [c for pair in WTA_NAME_PAIR_CANDIDATES for c in pair]
+        )
+        for c in fallback_cols:
+            if c in row.index and pd.notna(row[c]) and str(row[c]).strip() != "":
+                results.append((str(row[c]).strip(), None, match_uid, None))
+                break
+
+    return results
+
+
+# -----------------------------
+# Extraction ATP
+# -----------------------------
+def gather_players_from_row_atp(row: pd.Series, row_unique_id: str) -> List[Tuple[str, Optional[str], str, Optional[str]]]:
+    """
+    Retourne une liste de tuples:
+        (name, country, match_uid, player_id_raw)
+
+    ATP:
+      - winner/loser explicites
+      - utilise player_id_winner / player_id_loser comme identifiant stable
+    """
+    results: List[Tuple[str, Optional[str], str, Optional[str]]] = []
+
+    match_id_val = safe_get_series_val(row, ATP_MATCH_ID_CANDIDATES)
+    match_uid = match_id_val if match_id_val is not None else row_unique_id
+
+    # Winner
+    name_w = safe_get_series_val(row, ATP_WINNER_NAME_CANDIDATES)
+    country_w = safe_get_series_val(row, ATP_WINNER_COUNTRY_CANDIDATES)
+    player_id_w = safe_get_series_val(row, ATP_WINNER_ID_CANDIDATES)
+
+    if name_w:
+        results.append((name_w, country_w, match_uid, player_id_w))
+
+    # Loser
+    name_l = safe_get_series_val(row, ATP_LOSER_NAME_CANDIDATES)
+    country_l = safe_get_series_val(row, ATP_LOSER_COUNTRY_CANDIDATES)
+    player_id_l = safe_get_series_val(row, ATP_LOSER_ID_CANDIDATES)
+
+    if name_l:
+        results.append((name_l, country_l, match_uid, player_id_l))
+
+    return results
+
+
+# -----------------------------
+# Construction de l'index
+# -----------------------------
+def build_index(mode: str) -> dict:
+    """
+    Construit l'index pour un mode donné ("wta" ou "atp").
+    Écrit le JSON dans le bon fichier et renvoie le dict final.
+    """
+    mode = mode.lower().strip()
+    if mode not in {"wta", "atp"}:
+        raise ValueError("mode doit être 'wta' ou 'atp'")
+
+    if mode == "wta":
+        matches_dir = WTA_MATCHES_DIR
+        out_file = WTA_OUT_INDEX_FILE
+        extractor = gather_players_from_row_wta
+        page_prefix = "players_wta"
+    else:
+        matches_dir = ATP_MATCHES_DIR
+        out_file = ATP_OUT_INDEX_FILE
+        extractor = gather_players_from_row_atp
+        page_prefix = "players_atp"
 
     if not os.path.isdir(matches_dir):
         raise FileNotFoundError(f"Directory not found: {matches_dir}")
 
-    # list csv files (only top-level)
-    file_list = [os.path.join(matches_dir, f) for f in os.listdir(matches_dir) if f.lower().endswith(".csv") and os.path.isfile(os.path.join(matches_dir, f))]
-    # iterate files
-    for file_path in sorted(file_list):
+    players: Dict[str, dict] = {}
+
+    file_list = iter_csv_files(matches_dir)
+    for file_path in file_list:
         df = read_csv_safe(file_path)
         if df is None:
             continue
-        # iterate rows
+
         for idx, row in df.iterrows():
-            # unique fallback id if match_id absent: file + row index
             row_uid = f"{os.path.basename(file_path)}::{idx}"
-            entries = gather_players_from_row(row, row_uid)
-            for name_raw, country_raw, match_uid in entries:
+            entries = extractor(row, row_uid)
+
+            for name_raw, country_raw, match_uid, player_id_raw in entries:
                 if not name_raw or str(name_raw).strip() == "":
                     continue
-                # normalize name for keying
-                name_norm = " ".join(str(name_raw).strip().split())  # collapse whitespace
-                slug_name_only = slugify(name_norm)
-                slug_base = slug_name_only if slug_name_only else slugify(name_norm or "unknown")
-                # generate stable player_id from slug base
-                player_id = make_player_id_from_slug(slug_base)
-                slug = f"{player_id.lower()}-{slug_base}" if slug_base else f"{player_id.lower()}-player"
-                # key players by slug (stable)
-                key = slug
+
+                key, entry = build_entry(
+                    mode=mode,
+                    name_raw=name_raw,
+                    country_raw=country_raw,
+                    match_uid=match_uid,
+                    player_id_raw=player_id_raw,
+                )
+
                 if key not in players:
-                    players[key] = {
-                        "player_id": player_id,
-                        "name": name_norm,
-                        "slug": slug,
-                        "page_href": f"players_wta/{slug}",
-                        "data_path": f"players_wta/data/{slug}.json",
-                        "country": country_raw if country_raw else None,
-                        "match_ids": set()
-                    }
-                # update country if missing and we have it now
-                if not players[key].get("country") and country_raw:
-                    players[key]["country"] = country_raw
-                # increment match set
-                players[key]["match_ids"].add(str(match_uid))
+                    players[key] = entry
+                else:
+                    # On garde l'id stable / slug existant, mais on améliore si possible
+                    players[key]["name"] = better_name(players[key].get("name"), name_raw)
 
-    # build final list (convert sets -> counts)
+                    if not players[key].get("country") and country_raw:
+                        players[key]["country"] = country_raw
+
+                    players[key]["match_ids"].add(str(match_uid))
+
     players_list = []
-    for key, v in players.items():
-        players_list.append({
-            "player_id": v["player_id"],
-            "name": v["name"],
-            "slug": v["slug"],
-            "page_href": v["page_href"],
-            "data_path": v["data_path"],
-            "country": v["country"] if v["country"] else None,
-            "matches_count": len(v["match_ids"])
-        })
+    for v in players.values():
+        players_list.append(
+            {
+                "player_id": v["player_id"],
+                "name": v["name"],
+                "slug": v["slug"],
+                "page_href": v["page_href"],
+                "data_path": v["data_path"],
+                "country": v["country"] if v["country"] else None,
+                "matches_count": len(v["match_ids"]),
+            }
+        )
 
-    # Optionnel: trier par matches_count desc puis name
     players_list = sorted(players_list, key=lambda x: (-x["matches_count"], x["name"].lower()))
 
-    # Préparer structure finale
-    out = {"players": players_list}
+    out = {"players": players_list, "mode": mode}
 
-    # ensure out dir
     os.makedirs(os.path.dirname(out_file), exist_ok=True)
-    # write JSON
     with open(out_file, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=2)
 
+    print(f"[OK] {mode.upper()} index écrit dans {out_file} ({len(players_list)} joueurs/joueuses).")
     return out
 
+
 def main():
+    parser = argparse.ArgumentParser(description="Construit l'index des joueurs/joueuses WTA/ATP.")
+    parser.add_argument(
+        "--tour",
+        choices=["wta", "atp", "all"],
+        default="all",
+        help="Mode à construire : wta, atp ou all (défaut).",
+    )
+    args = parser.parse_args()
+
     try:
-        out = build_index()
-        print(f"[OK] Index construit et écrit dans {OUT_INDEX_FILE} ({len(out['players'])} joueuses).")
+        if args.tour in {"wta", "all"}:
+            build_index("wta")
+        if args.tour in {"atp", "all"}:
+            build_index("atp")
     except Exception as e:
         print(f"[ERR] Erreur lors de la construction de l'index: {e}")
+
 
 if __name__ == "__main__":
     main()
