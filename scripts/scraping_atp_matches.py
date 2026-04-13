@@ -16,7 +16,7 @@ Sortie : appelle run_scrape_multi_year avec { year: { tourn_id: [draw_size, star
 from playwright.sync_api import sync_playwright
 import json
 from textwrap import shorten
-from docs.tools.scrape_state import load_scrape_state, save_scrape_state, today_paris
+from scrape_state import load_scrape_state, save_scrape_state, today_paris
 
 CREATED_FILES = []
 

@@ -15,7 +15,7 @@ import json
 from scraping_gc_matches import fetch_tournament_data
 from transform_gc_data import transform_home_away_data
 from scraping_wta import process_matches
-from docs.tools.scrape_state import load_scrape_state, save_scrape_state, today_paris
+from scrape_state import load_scrape_state, save_scrape_state, today_paris
 
 
 YEAR = 2026
@@ -1827,7 +1827,7 @@ def main(year=None, tournament_player_counts=None, verbose=True, requested_tourn
             print(f"Année {year_str} : Toutes les GC attendues ont renvoyé au moins une ligne.")
 
     save_scrape_state(wta=today_paris().isoformat())
-    
+
     return per_tournament_results
 
 # --------- Multi-year runner ----------
