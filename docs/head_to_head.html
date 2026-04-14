@@ -212,15 +212,15 @@
             <div id="p1-suggestions" class="suggestions" style="display:none"></div>
           </div>
 
-          <button id="swap" class="btn" title="Swap players">⇄</button>
+          <button id="swap" class="btn" title="Swap players" type="button">⇄</button>
 
           <div class="picker" style="min-width:320px">
             <input id="p2-input" placeholder="Player 2 (name or ID)" aria-label="Player 2">
             <div id="p2-suggestions" class="suggestions" style="display:none"></div>
           </div>
 
-          <button id="display" class="btn btn-primary">Display H2H</button>
-          <button id="clear" class="btn btn-ghost">Clear</button>
+          <button id="display" class="btn btn-primary" type="button">Display H2H</button>
+          <button id="clear" class="btn btn-ghost" type="button">Clear</button>
 
           <div style="margin-left:auto" id="json-link-wrap" class="small-muted"></div>
         </div>
@@ -304,6 +304,7 @@
     </div>
   </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
 /* CONFIG */
@@ -466,7 +467,7 @@ function searchPlayers(q, limit=12){
   const up = q.toUpperCase();
   if(playersById[up]) out.push(playersById[up]);
   for(const p of playersByName){
-    if(p._lc.includes(s)) out.push(p);
+    if(p._lc.includes(s) && !out.includes(p)) out.push(p);
     if(out.length >= limit) break;
   }
   return out.slice(0, limit);
@@ -807,7 +808,7 @@ function computeH2HFromPlayers(p1json, p2json, p1id, p2id){
   return { matches: arr, p1wins, p2wins };
 }
 
-function renderEvents(matches, p1id, p2id){
+function renderEvents(matches){
   eventsTableWrap.innerHTML = '';
   if(!Array.isArray(matches) || matches.length === 0){
     eventsTableWrap.innerHTML = '<div class="small-muted">No H2H matches were found.</div>';
@@ -837,13 +838,18 @@ function renderCenteredStats(leftWins, rightWins, leftCareer, rightCareer, leftT
   for(const r of rows){
     const div = document.createElement('div');
     div.style.marginBottom = '8px';
+
+    const leftNum = Number(String(r.left).replace(/[^\d]/g,''));
+    const rightNum = Number(String(r.right).replace(/[^\d]/g,''));
+    const width = (leftNum + rightNum) ? Math.round(100 * leftNum / (leftNum + rightNum)) : 0;
+
     div.innerHTML = `
       <div class="stat-item">
         <div class="stat-left">${r.left}</div>
         <div class="stat-center">${r.label}</div>
         <div class="stat-right">${r.right}</div>
       </div>
-      <div class="bar-outer"><div class="bar-inner" style="width:${(Number(r.left.replace(/[^\d]/g,'')) + Number(r.right.replace(/[^\d]/g,''))) ? Math.round(100 * Number(r.left.replace(/[^\d]/g,'')) / (Number(r.left.replace(/[^\d]/g,'')) + Number(r.right.replace(/[^\d]/g,'')))) : 0}%"></div></div>
+      <div class="bar-outer"><div class="bar-inner" style="width:${width}%"></div></div>
     `;
     sharedStats.appendChild(div);
   }
@@ -973,6 +979,7 @@ function setNameAndFlag(nameEl, flagWrap, linkEl, player, nameText){
 
 async function renderPayload(payload, jsonUrl, p1, p2){
   resultsWrap.style.display = 'block';
+
   if(jsonUrl){
     jsonLinkWrap.innerHTML = `<a href="${jsonUrl}" target="_blank" class="small-muted">View source</a>`;
     sourceLink.style.display = 'inline';
@@ -1027,11 +1034,8 @@ async function renderPayload(payload, jsonUrl, p1, p2){
     }
   }
 
-  const leftCareer = leftPlayer;
-  const rightCareer = rightPlayer;
-  renderCenteredStats(leftH2H, rightH2H, leftCareer, rightCareer, leftPlayer.titles, rightPlayer.titles, matches.length);
-  renderEvents(matches || [], p1, p2);
-
+  renderCenteredStats(leftH2H, rightH2H, leftPlayer, rightPlayer, leftPlayer.titles, rightPlayer.titles, matches.length);
+  renderEvents(matches || []);
   const radius = 112;
   const circumference = 2 * Math.PI * radius;
   const leftFraction = (leftH2H + rightH2H) ? leftH2H / (leftH2H + rightH2H) : 0.5;
@@ -1059,58 +1063,44 @@ async function renderFallbackNoH2H(p1, p2){
   await renderPayload(payload, null, p1, p2);
 }
 
-displayBtn.addEventListener('click', ()=>{
-  const v1 = p1Input.dataset.selectedId || p1Input.value.trim();
-  const v2 = p2Input.dataset.selectedId || p2Input.value.trim();
-  if(!v1 || !v2){ showStatus('Please choose two players (selection or ID).', 4000, true); return; }
-  const id1 = resolveIdFromInput(p1Input);
-  const id2 = resolveIdFromInput(p2Input);
-  if(!id1 || !id2){ showStatus('Unable to resolve one of the players to an ID.', 5000, true); return; }
-  const url = new URL(location.href); url.searchParams.set('p1', id1); url.searchParams.set('p2', id2); window.location.href = url.toString();
-});
+async function runComparison(id1, id2, updateUrl = true){
+  try {
+    if(!id1 || !id2){
+      showStatus('Please choose two players (selection or ID).', 4000, true);
+      return;
+    }
 
-clearBtn.addEventListener('click', ()=>{
-  p1Input.value=''; p2Input.value=''; delete p1Input.dataset.selectedId; delete p2Input.dataset.selectedId; resultsWrap.style.display='none'; showStatus('Selection cleared.', 1200);
-});
-swapBtn.addEventListener('click', ()=>{
-  const a = p1Input.value, aid = p1Input.dataset.selectedId;
-  p1Input.value = p2Input.value; p1Input.dataset.selectedId = p2Input.dataset.selectedId || '';
-  p2Input.value = a; p2Input.dataset.selectedId = aid || '';
-});
+    if(updateUrl){
+      const url = new URL(location.href);
+      url.searchParams.set('p1', id1);
+      url.searchParams.set('p2', id2);
+      history.replaceState({}, '', url.toString());
+    }
 
-window.addEventListener('DOMContentLoaded', async ()=>{
-  await loadCatalog();
-  const url = new URL(location.href);
-  const urlP1 = url.searchParams.get('p1');
-  const urlP2 = url.searchParams.get('p2');
-  if(urlP1 && playersById[urlP1]){ p1Input.value = playersById[urlP1].name || urlP1; p1Input.dataset.selectedId = urlP1; }
-  if(urlP2 && playersById[urlP2]){ p2Input.value = playersById[urlP2].name || urlP2; p2Input.dataset.selectedId = urlP2; }
-
-  if(urlP1 && urlP2){
-    const prefer = preferManifestForPair(urlP1, urlP2);
+    const prefer = preferManifestForPair(id1, id2);
     await loadImageManifestOnce(prefer);
 
-    const [p1Res, p2Res] = await Promise.all([fetchPlayerJson(urlP1), fetchPlayerJson(urlP2)]);
+    const [p1Res, p2Res] = await Promise.all([fetchPlayerJson(id1), fetchPlayerJson(id2)]);
     if(!p1Res && !p2Res){
-      await renderFallbackNoH2H(urlP1, urlP2);
+      await renderFallbackNoH2H(id1, id2);
       return;
     }
 
     const p1json = p1Res ? p1Res.json : null;
     const p2json = p2Res ? p2Res.json : null;
-    const computed = computeH2HFromPlayers(p1json, p2json, urlP1, urlP2);
+    const computed = computeH2HFromPlayers(p1json, p2json, id1, id2);
     const matches = computed.matches || [];
     const p1wins = computed.p1wins || 0;
     const p2wins = computed.p2wins || 0;
 
-    const player1_obj = p1json?.player || playersById[urlP1] || { id: urlP1, raw: { full_name: urlP1, represented_country: '' }, full_name: urlP1 };
-    const player2_obj = p2json?.player || playersById[urlP2] || { id: urlP2, raw: { full_name: urlP2, represented_country: '' }, full_name: urlP2 };
+    const player1_obj = p1json?.player || playersById[id1] || { id: id1, raw: { full_name: id1, represented_country: '' }, full_name: id1 };
+    const player2_obj = p2json?.player || playersById[id2] || { id: id2, raw: { full_name: id2, represented_country: '' }, full_name: id2 };
 
     const player1Norm = normalizeCareerFromJson(p1json || { player: player1_obj, matches: [], aggregates: {} });
     const player2Norm = normalizeCareerFromJson(p2json || { player: player2_obj, matches: [], aggregates: {} });
 
     const payload = {
-      meta: { generated_at: new Date().toISOString(), pair: [urlP1, urlP2], total_matches: matches.length },
+      meta: { generated_at: new Date().toISOString(), pair: [id1, id2], total_matches: matches.length },
       player1: player1_obj,
       player2: player2_obj,
       aggregates: {
@@ -1122,7 +1112,51 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     };
 
     const jsonUrl = (p1Res?.url && p2Res?.url) ? `${p1Res.url} + ${p2Res.url}` : (p1Res?.url || p2Res?.url || null);
-    await renderPayload(payload, jsonUrl, urlP1, urlP2);
+    await renderPayload(payload, jsonUrl, id1, id2);
+  } catch (err) {
+    console.error(err);
+    showStatus('Une erreur JavaScript empêche l’affichage du résultat. Regarde la console du navigateur.', 7000, true);
+  }
+}
+
+/* Boutons */
+displayBtn.addEventListener('click', async ()=>{
+  const id1 = resolveIdFromInput(p1Input);
+  const id2 = resolveIdFromInput(p2Input);
+  if(!id1 || !id2){
+    showStatus('Unable to resolve one of the players to an ID.', 5000, true);
+    return;
+  }
+  await runComparison(id1, id2, true);
+});
+
+clearBtn.addEventListener('click', ()=>{
+  p1Input.value=''; p2Input.value='';
+  delete p1Input.dataset.selectedId;
+  delete p2Input.dataset.selectedId;
+  resultsWrap.style.display='none';
+  history.replaceState({}, '', location.pathname);
+  showStatus('Selection cleared.', 1200);
+});
+
+swapBtn.addEventListener('click', ()=>{
+  const a = p1Input.value, aid = p1Input.dataset.selectedId;
+  p1Input.value = p2Input.value; p1Input.dataset.selectedId = p2Input.dataset.selectedId || '';
+  p2Input.value = a; p2Input.dataset.selectedId = aid || '';
+});
+
+window.addEventListener('DOMContentLoaded', async ()=>{
+  await loadCatalog();
+
+  const url = new URL(location.href);
+  const urlP1 = url.searchParams.get('p1');
+  const urlP2 = url.searchParams.get('p2');
+
+  if(urlP1 && playersById[urlP1]){ p1Input.value = playersById[urlP1].name || urlP1; p1Input.dataset.selectedId = urlP1; }
+  if(urlP2 && playersById[urlP2]){ p2Input.value = playersById[urlP2].name || urlP2; p2Input.dataset.selectedId = urlP2; }
+
+  if(urlP1 && urlP2){
+    await runComparison(urlP1, urlP2, false);
   } else {
     showStatus('Enter two players (name or ID), then click Display H2H.', 5000);
   }

@@ -176,7 +176,7 @@ jobs:
 
           echo "Running WTA match scraper for ${TODAY}..."
           python3 scripts/scraping_main.py \
-            --tournament-dict-path docs/wta_tournaments_2026.json 
+            --tournament-dict-path docs/wta_tournaments_2026.json
 
       - name: Build tournament JSONs (ATP)
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
@@ -396,6 +396,17 @@ jobs:
           echo "Building WTA players index..."
           python3 scripts/build_players_index.py --tour wta
 
+      - name: Generate players catalog
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Generating players catalog..."
+          python3 scripts/generate_players_catalog.py \
+            --atp player_data_atp.csv \
+            --wta player_data_wta.csv \
+            --out docs/tools/players_catalog.json
+
       - name: Generate weekly update
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
@@ -484,6 +495,7 @@ jobs:
           add_if_exists "docs/tools/latest_wta_ranking.json"
           add_if_exists "site_static/tools/latest_atp_ranking.json"
           add_if_exists "site_static/tools/latest_wta_ranking.json"
+          add_if_exists "docs/tools/players_catalog.json"
 
           add_if_exists "player_data_atp.csv"
           add_if_exists "player_data_wta.csv"

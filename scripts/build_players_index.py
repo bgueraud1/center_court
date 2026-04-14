@@ -166,8 +166,8 @@ def build_entry(
         slug = f"{stable_id.lower()}-{slug_base}"
 
     if mode == "wta":
-        page_href = f"players_wta/{slug}"
-        data_path = f"players_wta/data/{slug}.json"
+        page_href = f"players/{slug}"
+        data_path = f"players/data/{slug}.json"
     else:
         page_href = f"players_atp/{slug}"
         data_path = f"players_atp/data/{slug}.json"
@@ -300,7 +300,7 @@ def build_index(mode: str) -> dict:
         matches_dir = WTA_MATCHES_DIR
         out_file = WTA_OUT_INDEX_FILE
         extractor = gather_players_from_row_wta
-        page_prefix = "players_wta"
+        page_prefix = "players"
     else:
         matches_dir = ATP_MATCHES_DIR
         out_file = ATP_OUT_INDEX_FILE
