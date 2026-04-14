@@ -31,10 +31,7 @@ SCHEMAS = {
     "WTA": {
         "base_csv": "player_data_wta.csv",
         "output_csv": "player_data_wta_enriched.csv",
-        "ranking_json_candidates": [
-            "latest_wta_rankin.json",
-            "latest_wta_ranking.json",
-        ],
+        "ranking_json_candidates": ["latest_wta_ranking.json"],
         "ranking_temp_csv": "data_latest_wta.csv",
         "column_order": [
             "height_inches", "height_cm", "plays", "birth_date", "birthplace",
@@ -307,7 +304,9 @@ def run(mode: str) -> None:
 
     if ranking_json is None:
         candidates = ", ".join(schema["ranking_json_candidates"])
-        raise FileNotFoundError(f"Unable to find latest ranking JSON. Tried: {candidates}")
+        raise FileNotFoundError(
+            f"Impossible de trouver le fichier de ranking. Cherché dans {tools_dir} : {candidates}"
+        )
 
     if not base_csv.exists():
         raise FileNotFoundError(f"Base CSV not found: {base_csv}")
