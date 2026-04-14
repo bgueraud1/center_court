@@ -56,7 +56,7 @@ def clean_text(value) -> str:
 
 
 def repo_root() -> Path:
-    return Path(__file__).resolve().parents[1]
+    return Path(__file__).resolve().parent
 
 
 def pick_existing_path(candidates: Sequence[Path]) -> Optional[Path]:
@@ -298,8 +298,8 @@ def run(mode: str) -> None:
     root = repo_root()
     tools_dir = root / "docs" / "tools"
 
-    base_csv = tools_dir / schema["base_csv"]
-    output_csv = tools_dir / schema["output_csv"]
+    base_csv = root / schema["base_csv"]
+    output_csv = root / schema["output_csv"]
     ranking_json = pick_existing_path([tools_dir / p for p in schema["ranking_json_candidates"]])
 
     if ranking_json is None:
