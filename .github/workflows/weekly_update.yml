@@ -443,94 +443,71 @@ jobs:
           git config user.name "$GIT_AUTHOR_NAME"
           git config user.email "$GIT_AUTHOR_EMAIL"
 
-          stage_if_exists() {
-            local path="$1"
-            if [ -f "$path" ]; then
-              git add -f "$path"
-              echo "Staged: $path"
+          shopt -s nullglob
+
+          paths_to_add=()
+
+          add_if_exists() {
+            local p="$1"
+            if [ -e "$p" ]; then
+              paths_to_add+=("$p")
             else
-              echo "[WARN] Missing file (skip): $path"
+              echo "[WARN] Missing path (skip): $p"
             fi
           }
 
-          stage_glob() {
+          add_glob_if_any() {
             local pattern="$1"
-            shopt -s nullglob globstar
-            local files=( $pattern )
-            shopt -u nullglob globstar
-
-            if [ "${#files[@]}" -eq 0 ]; then
-              echo "[WARN] No files for pattern: $pattern"
+            local matches=( $pattern )
+            if [ "${#matches[@]}" -eq 0 ]; then
+              echo "[WARN] No match for pattern: $pattern"
               return 0
             fi
-
-            for f in "${files[@]}"; do
-              if [ -f "$f" ]; then
-                git add -f "$f"
-                echo "Staged: $f"
-              fi
+            for m in "${matches[@]}"; do
+              [ -e "$m" ] && paths_to_add+=("$m")
             done
           }
 
-          stage_tree_jsons() {
-            local root="$1"
-            if [ -d "$root" ]; then
-              while IFS= read -r -d '' f; do
-                git add -f "$f"
-                echo "Staged: $f"
-              done < <(find "$root" -type f -name '*.json' -print0)
-            else
-              echo "[WARN] Missing directory (skip): $root"
-            fi
-          }
+          add_if_exists "atp_rankings/data_${TODAY_UNDERSCORE}.csv"
+          add_if_exists "wta_rankings/data_${TODAY_UNDERSCORE}.csv"
 
-          # ATP/WTA raw ranking CSVs
-          stage_if_exists "atp_rankings/data_${TODAY_UNDERSCORE}.csv"
-          stage_if_exists "wta_rankings/data_${TODAY_UNDERSCORE}.csv"
+          add_glob_if_any "docs/matches/atp_matches/*.csv"
+          add_glob_if_any "docs/matches/wta_matches/*.csv"
+          add_glob_if_any "docs/*.html"
 
-          # Match CSVs
-          stage_glob "docs/matches/atp_matches/*.csv"
-          stage_glob "docs/matches/wta_matches/*.csv"
+          add_if_exists "docs/atp_tournaments_winners.json"
+          add_if_exists "docs/wta_tournaments_winners.json"
+          add_if_exists "docs/data/h2h_players_index.json"
+          add_if_exists "docs/tools/last_scrape_date.csv"
 
-          # Tournament JSON outputs
-          stage_tree_jsons "docs/data/tournaments/json_by_tournaments/atp"
-          stage_tree_jsons "docs/data/tournaments/json_by_tournaments/wta"
+          add_if_exists "docs/tools/latest_atp_ranking.json"
+          add_if_exists "docs/tools/latest_wta_ranking.json"
+          add_if_exists "site_static/tools/latest_atp_ranking.json"
+          add_if_exists "site_static/tools/latest_wta_ranking.json"
 
-          # Player meta, detailed stats, time series, scenarios, maps, leaderboards, H2H, indexes
-          stage_tree_jsons "docs/players_atp"
-          stage_tree_jsons "docs/players"
-          stage_tree_jsons "docs/players_wta"
-          stage_tree_jsons "docs/leaderboards"
-          stage_tree_jsons "docs/leaderboards_wta"
-          stage_tree_jsons "docs/data/h2h_by_player"
-          stage_tree_jsons "docs/index"
-          stage_tree_jsons "docs/generated/weekly_update"
-          stage_tree_jsons "docs/generated/regional"
+          add_if_exists "player_data_atp.csv"
+          add_if_exists "player_data_wta.csv"
+          add_if_exists "player_data_atp_enriched.csv"
+          add_if_exists "player_data_wta_enriched.csv"
 
-          # H2H index
-          stage_if_exists "docs/data/h2h_players_index.json"
+          add_if_exists "docs/data/tournaments/json_by_tournaments/atp"
+          add_if_exists "docs/data/tournaments/json_by_tournaments/wta"
+          add_if_exists "docs/players_atp"
+          add_if_exists "docs/players"
+          add_if_exists "docs/players_wta"
+          add_if_exists "docs/leaderboards"
+          add_if_exists "docs/leaderboards_wta"
+          add_if_exists "docs/data/h2h_by_player"
+          add_if_exists "docs/index"
+          add_if_exists "docs/generated/weekly_update"
+          add_if_exists "docs/generated/regional"
 
-          # Winners files
-          stage_if_exists "docs/atp_tournaments_winners.json"
-          stage_if_exists "docs/wta_tournaments_winners.json"
-
-          # Shared scrape state
-          stage_if_exists "docs/tools/last_scrape_date.csv"
-
-          # Latest JSON outputs
-          stage_if_exists "docs/tools/latest_atp_ranking.json"
-          stage_if_exists "docs/tools/latest_wta_ranking.json"
-          stage_if_exists "site_static/tools/latest_atp_ranking.json"
-          stage_if_exists "site_static/tools/latest_wta_ranking.json"
-
-          # Player bases and enriched outputs updated by main.py
-          stage_if_exists "player_data_atp.csv"
-          stage_if_exists "player_data_wta.csv"
-          stage_if_exists "player_data_atp_enriched.csv"
-          stage_if_exists "player_data_wta_enriched.csv"
-
-          # Maps generated by main_maps_atp.py and main_maps.py
-          stage_glob "docs/*.html"
+          if [ "${#paths_to_add[@]}" -gt 0 ]; then
+            echo "Staging ${#paths_to_add[@]} path(s)..."
+            git add -A -- "${paths_to_add[@]}"
+          else
+            echo "No paths to stage"
+          fi
 
           if git diff --cached --name-only | grep -Eiq '(^|/)index\.html$'; then
             echo "ERROR: index.html would be staged — aborting to avoid overwrite."
@@ -538,12 +515,12 @@ jobs:
             exit 1
           fi
 
-          if [ -n "$(git diff --cached --name-only)" ]; then
+          if git diff --cached --quiet; then
+            echo "No generated changes to commit"
+          else
             echo "Files staged to commit:"
             git diff --cached --name-only || true
-            git commit -m "ci(weekly): update ATP/WTA rankings, match CSVs, tournament JSONs, winners, player meta, stats, time series, scenarios, maps, leaderboards, H2H, indexes, regional reports, weekly update, player bases, and html maps"
-          else
-            echo "No generated changes to commit"
+            git commit -m "ci(weekly): update generated tennis data"
           fi
 
       - name: Push changes (tmp branch -> main)
