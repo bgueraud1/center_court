@@ -303,7 +303,8 @@ def build_wiki_url(full_name: str) -> str:
     Build a safe Wikipedia URL from a player name.
     """
     title = str(full_name).strip().replace(" ", "_")
-    return f"https://en.wikipedia.org/wiki/{quote(title, safe='_()\'-')}"
+    safe_chars = "_()'-"
+    return f"https://en.wikipedia.org/wiki/{quote(title, safe=safe_chars)}"
 
 
 def enrich_csv(
