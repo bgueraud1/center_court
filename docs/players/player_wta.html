@@ -454,6 +454,19 @@ async function loadCourtVisionForPlayer(playerData){
   }
 }
 
+/* ----------------- main loader for player data ----------------- */
+(async function(){
+  const loading = document.getElementById('loading');
+  const root = document.getElementById('player-root');
+  const parts = location.pathname.replace(/\/$/, '').split('/');
+  const slug = parts[parts.length - 1] || parts[parts.length - 2] || '';
+  if(!slug){ loading.textContent = 'Slug not found in URL.'; return; }
+
+  loading.textContent = 'Loading players index...';
+  const index = await fetchJsonSafe('/index/players_wta_index.json');
+  if(!index || !Array.isArray(index.players)){ loading.textContent = 'Index unavailable (/index/players_wta_index.json).'; return; }
+  
+  
 const players = index.players;
 
 
@@ -470,17 +483,7 @@ function buildPlayerHref(playerId, fallbackSlug) {
   if (!id) return '#';
   return slug ? `/players/${id}-${slug}` : `/players/${id}`;
 }
-/* ----------------- main loader for player data ----------------- */
-(async function(){
-  const loading = document.getElementById('loading');
-  const root = document.getElementById('player-root');
-  const parts = location.pathname.replace(/\/$/, '').split('/');
-  const slug = parts[parts.length - 1] || parts[parts.length - 2] || '';
-  if(!slug){ loading.textContent = 'Slug not found in URL.'; return; }
-
-  loading.textContent = 'Loading players index...';
-  const index = await fetchJsonSafe('/index/players_wta_index.json');
-  if(!index || !Array.isArray(index.players)){ loading.textContent = 'Index unavailable (/index/players_wta_index.json).'; return; }
+  
   const slugLower = slug.toLowerCase();
   const found = players.find(p => (p.slug && p.slug.toLowerCase() === slugLower) || (((''+(p.player_id||'')).toLowerCase() + '-' + (p.slug||'')).toLowerCase() === slugLower));
   if(!found){ loading.textContent = 'Player not found for slug: ' + slug; return; }
