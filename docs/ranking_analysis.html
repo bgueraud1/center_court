@@ -1,0 +1,2255 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Ranking Analysis</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Cinzel:wght@600;700;800&display=swap" rel="stylesheet">
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"></script>
+
+  <style>
+    :root{
+      --bg: #000;
+      --panel: rgba(255,255,255,0.05);
+      --panel-2: rgba(255,255,255,0.08);
+      --border: rgba(255,255,255,0.12);
+      --text: #f5f7fb;
+      --muted: #a2aab9;
+      --muted-2: #c3c9d6;
+      --success: #22c55e;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+
+      --accent: #3b82f6;
+      --accent-2: #1d4ed8;
+      --accent-soft: rgba(59,130,246,0.20);
+      --accent-soft-2: rgba(59,130,246,0.10);
+      --accent-border: rgba(59,130,246,0.34);
+      --accent-glow: rgba(59,130,246,0.18);
+    }
+
+    body[data-tour="wta"]{
+      --accent: #a855f7;
+      --accent-2: #7c3aed;
+      --accent-soft: rgba(168,85,247,0.20);
+      --accent-soft-2: rgba(168,85,247,0.10);
+      --accent-border: rgba(168,85,247,0.34);
+      --accent-glow: rgba(168,85,247,0.18);
+    }
+
+    *{ box-sizing: border-box; }
+
+    html, body { height: 100%; }
+
+    body{
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, var(--accent-glow), transparent 28%),
+        radial-gradient(circle at top right, rgba(255,255,255,0.06), transparent 24%),
+        linear-gradient(180deg, #000 0%, #040405 100%);
+      overflow-x: hidden;
+    }
+
+    .app-shell{
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .topbar-wrap{
+      width: min(1460px, calc(100% - 1.2rem));
+      margin: 1rem auto 0;
+    }
+
+    .topbar{
+      position: relative;
+      background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+      border: 1px solid var(--border);
+      border-radius: 26px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+      overflow: hidden;
+      padding: 1.15rem 1.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .topbar::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.04), transparent 38%);
+      pointer-events:none;
+    }
+
+    .brand-block{
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .brand-title{
+      margin: 0;
+      font-family: "Cinzel", serif;
+      font-size: clamp(2rem, 4.3vw, 4.6rem);
+      font-weight: 800;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      line-height: 1;
+      background: linear-gradient(90deg, #ffffff 0%, #edf2ff 24%, #ffffff 58%, #d7e8ff 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      white-space: nowrap;
+      text-shadow: 0 10px 30px rgba(0,0,0,0.35);
+    }
+
+    .brand-subtitle{
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.88rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .tour-switch{
+      position: relative;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .tour-pill{
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.05);
+      color: var(--text);
+      padding: 0.72rem 1rem;
+      border-radius: 999px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      font-size: 0.8rem;
+      transition: transform .2s ease, background .2s ease, border-color .2s ease;
+    }
+
+    .tour-pill:hover{
+      transform: translateY(-1px);
+      border-color: var(--accent-border);
+    }
+
+    .tour-pill.active{
+      background: linear-gradient(180deg, var(--accent-soft), var(--accent-soft-2));
+      border-color: var(--accent-border);
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.04) inset, 0 0 24px var(--accent-glow);
+      color: #fff;
+    }
+
+    .workspace{
+      width: min(1460px, calc(100% - 1.2rem));
+      margin: 0 auto;
+      padding: 1rem 0 1.1rem;
+      display: grid;
+      grid-template-columns: minmax(0, 1.95fr) minmax(330px, 0.95fr);
+      gap: 1.2rem;
+      align-items: start;
+      flex: 1;
+    }
+
+    .panel{
+      background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+      border: 1px solid var(--border);
+      border-radius: 26px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .panel::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.04), transparent 38%);
+      pointer-events:none;
+    }
+
+    .panel:hover{
+      box-shadow: 0 26px 80px rgba(0,0,0,0.58);
+      border-color: rgba(255,255,255,0.18);
+    }
+
+    .panel-head{
+      padding: 1.2rem 1.25rem 0.75rem;
+    }
+
+    .panel-title{
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 900;
+      letter-spacing: 0.01em;
+    }
+
+    .panel-subtitle{
+      margin: 0.35rem 0 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.35;
+    }
+
+    .panel-body{
+      padding: 0 1.25rem 1.25rem;
+    }
+
+    .stack{
+      display: grid;
+      gap: 1.15rem;
+    }
+
+    .chart-card{
+      padding: 0;
+      overflow: hidden;
+    }
+
+    .chart-toolbar{
+      display:flex;
+      justify-content: space-between;
+      align-items:flex-start;
+      gap: 1rem;
+      flex-wrap: wrap;
+      padding: 1.1rem 1.2rem 0.5rem;
+    }
+
+    .chart-toolbar .meta{
+      min-width: 0;
+    }
+
+    .chart-title{
+      margin: 0;
+      font-size: 1.03rem;
+      font-weight: 900;
+      letter-spacing: 0.01em;
+    }
+
+    .chart-note{
+      margin: 0.3rem 0 0;
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.35;
+    }
+
+    .chart-wrap{
+      padding: 0.1rem 1rem 1rem;
+    }
+
+    .chart-box{
+      height: 360px;
+      position: relative;
+    }
+
+    .chart-box.tall{
+      height: 410px;
+    }
+
+    .subgrid{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.75rem;
+    }
+
+    .field{
+      display:flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .field label{
+      font-size: 0.77rem;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      font-weight: 800;
+      color: var(--muted-2);
+    }
+
+    .field input, .field select, .field textarea{
+      width: 100%;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.04);
+      color: var(--text);
+      padding: 0.7rem 0.85rem;
+      outline: none;
+      transition: border-color .2s ease, box-shadow .2s ease, background .2s ease;
+      font-size: 0.95rem;
+    }
+
+    .field input:focus, .field select:focus, .field textarea:focus{
+      border-color: var(--accent-border);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+      background: rgba(255,255,255,0.05);
+    }
+
+    .field small{
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.35;
+    }
+
+    .inline{
+      display:flex;
+      gap: 0.65rem;
+      align-items:center;
+      flex-wrap: wrap;
+    }
+
+    .btn-soft{
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.05);
+      color: var(--text);
+      border-radius: 14px;
+      padding: 0.72rem 0.92rem;
+      font-weight: 800;
+      font-size: 0.86rem;
+      letter-spacing: 0.03em;
+      transition: transform .2s ease, background .2s ease, border-color .2s ease;
+    }
+
+    .btn-soft:hover{
+      transform: translateY(-1px);
+      border-color: var(--accent-border);
+      background: rgba(255,255,255,0.07);
+      color: #fff;
+    }
+
+    .btn-accent{
+      border: 1px solid transparent;
+      background: linear-gradient(180deg, var(--accent), var(--accent-2));
+      color: #fff;
+      border-radius: 14px;
+      padding: 0.72rem 1rem;
+      font-weight: 900;
+      font-size: 0.88rem;
+      letter-spacing: 0.03em;
+      box-shadow: 0 16px 30px rgba(0,0,0,0.28), 0 0 18px var(--accent-glow);
+      transition: transform .2s ease, filter .2s ease;
+    }
+
+    .btn-accent:hover{
+      transform: translateY(-1px);
+      filter: brightness(1.03);
+      color: #fff;
+    }
+
+    .chips{
+      display:flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+    }
+
+    .chip{
+      display:inline-flex;
+      align-items:center;
+      gap: 0.35rem;
+      border-radius: 999px;
+      padding: 0.38rem 0.7rem;
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: 0.03em;
+      background: rgba(255,255,255,0.055);
+      border: 1px solid rgba(255,255,255,0.10);
+      color: #eef2ff;
+      user-select: none;
+    }
+
+    .chip input{
+      accent-color: var(--accent);
+    }
+
+    .chip.active{
+      background: linear-gradient(180deg, var(--accent-soft), var(--accent-soft-2));
+      border-color: var(--accent-border);
+      color: #fff;
+    }
+
+    .chips.compact .chip{
+      padding: 0.34rem 0.62rem;
+      font-size: 0.75rem;
+    }
+
+    .search-results{
+      display: grid;
+      gap: 0.5rem;
+      max-height: 280px;
+      overflow: auto;
+      padding-right: 0.2rem;
+    }
+
+    .search-item{
+      display:flex;
+      justify-content: space-between;
+      gap: 0.8rem;
+      align-items:center;
+      border-radius: 16px;
+      padding: 0.8rem 0.85rem;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.10);
+      cursor: pointer;
+      transition: transform .2s ease, border-color .2s ease, background .2s ease;
+    }
+
+    .search-item:hover{
+      transform: translateY(-1px);
+      border-color: var(--accent-border);
+      background: rgba(255,255,255,0.06);
+    }
+
+    .search-name{
+      font-weight: 800;
+      line-height: 1.2;
+    }
+
+    .search-meta{
+      color: var(--muted);
+      font-size: 0.82rem;
+      white-space: nowrap;
+      text-align: right;
+    }
+
+    .stat-grid{
+      display:grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.7rem;
+    }
+
+    .stat-card{
+      padding: 0.85rem 0.85rem 0.9rem;
+      border-radius: 18px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .stat-label{
+      font-size: 0.74rem;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 800;
+      margin-bottom: 0.35rem;
+    }
+
+    .stat-value{
+      font-size: 1.06rem;
+      font-weight: 900;
+      line-height: 1.2;
+    }
+
+    .stat-sub{
+      margin-top: 0.25rem;
+      color: var(--muted-2);
+      font-size: 0.8rem;
+      line-height: 1.35;
+    }
+
+    .rank-badge{
+      display:inline-flex;
+      align-items:center;
+      gap: 0.45rem;
+      padding: 0.34rem 0.68rem;
+      border-radius: 999px;
+      font-weight: 900;
+      font-size: 0.78rem;
+      letter-spacing: 0.03em;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.05);
+    }
+
+    .rank-badge.high{ color: #fecaca; border-color: rgba(239,68,68,0.32); background: rgba(239,68,68,0.12); }
+    .rank-badge.low{ color: #bbf7d0; border-color: rgba(34,197,94,0.32); background: rgba(34,197,94,0.12); }
+    .rank-badge.normal{ color: #dbeafe; border-color: var(--accent-border); background: var(--accent-soft); }
+
+    .player-card{
+      display:flex;
+      flex-direction: column;
+      gap: 0.7rem;
+    }
+
+    .player-top{
+      display:flex;
+      align-items:flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+
+    .player-name{
+      font-size: 1.2rem;
+      font-weight: 900;
+      line-height: 1.12;
+      margin: 0;
+    }
+
+    .player-meta{
+      margin-top: 0.28rem;
+      color: var(--muted);
+      font-size: 0.87rem;
+      line-height: 1.35;
+    }
+
+    .player-link{
+      color: #fff;
+      text-decoration: none;
+      font-weight: 800;
+      font-size: 0.82rem;
+      border-bottom: 1px solid rgba(255,255,255,0.2);
+      padding-bottom: 0.05rem;
+    }
+
+    .player-link:hover{
+      color: #fff;
+      border-color: rgba(255,255,255,0.55);
+    }
+
+    .avatar-pill{
+      display:inline-flex;
+      align-items:center;
+      gap: 0.45rem;
+      padding: 0.46rem 0.75rem;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.10);
+      font-weight: 800;
+      font-size: 0.82rem;
+      white-space: nowrap;
+    }
+
+    .details-list{
+      display:grid;
+      gap: 0.45rem;
+      margin-top: 0.2rem;
+    }
+
+    .details-row{
+      display:flex;
+      justify-content: space-between;
+      gap: 1rem;
+      align-items:flex-start;
+      padding: 0.52rem 0.68rem;
+      border-radius: 14px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .details-row .k{
+      color: var(--muted);
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
+      font-weight: 800;
+      flex: 0 0 auto;
+    }
+
+    .details-row .v{
+      font-weight: 800;
+      text-align: right;
+      line-height: 1.25;
+    }
+
+    .narrative{
+      padding: 0.85rem 0.9rem;
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.03));
+      border: 1px solid rgba(255,255,255,0.09);
+      color: #edf2ff;
+      line-height: 1.45;
+      font-size: 0.92rem;
+    }
+
+    .footer-note{
+      padding: 0.65rem 1.25rem 1.1rem;
+      color: var(--muted);
+      font-size: 0.8rem;
+      line-height: 1.45;
+    }
+
+    .loading-overlay{
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.88);
+      backdrop-filter: blur(10px);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      z-index: 9999;
+      padding: 1rem;
+    }
+
+    .loading-box{
+      max-width: 560px;
+      width: 100%;
+      border-radius: 28px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04));
+      border: 1px solid rgba(255,255,255,0.14);
+      box-shadow: 0 24px 70px rgba(0,0,0,0.55);
+      padding: 1.3rem 1.25rem;
+      text-align: center;
+    }
+
+    .spinner{
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      border: 4px solid rgba(255,255,255,0.12);
+      border-top-color: var(--accent);
+      margin: 0 auto 1rem;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin{
+      to { transform: rotate(360deg); }
+    }
+
+    .error-box{
+      display:none;
+      margin-bottom: 1rem;
+      border-radius: 16px;
+      padding: 0.9rem 1rem;
+      background: rgba(239,68,68,0.12);
+      border: 1px solid rgba(239,68,68,0.28);
+      color: #fecaca;
+      font-size: 0.92rem;
+      line-height: 1.4;
+    }
+
+    .small-muted{
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.4;
+    }
+
+    .info-panel{
+      width: min(1460px, calc(100% - 1.2rem));
+      margin: 0 auto 1rem;
+      background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.03));
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 16px 46px rgba(0,0,0,0.38);
+      overflow: hidden;
+    }
+
+    .info-panel .inner{
+      padding: 1rem 1.15rem;
+    }
+
+    .info-panel h3{
+      margin: 0 0 0.45rem;
+      font-size: 0.98rem;
+      font-weight: 900;
+      letter-spacing: 0.01em;
+    }
+
+    .info-panel p{
+      margin: 0;
+      color: #dbe2ee;
+      font-size: 0.9rem;
+      line-height: 1.55;
+    }
+
+    .info-panel .muted{
+      color: var(--muted);
+      margin-top: 0.65rem;
+      font-size: 0.84rem;
+      line-height: 1.45;
+    }
+
+    .smooth-toggle{
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.58rem 0.78rem;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.04);
+      font-size: 0.85rem;
+      font-weight: 800;
+      color: #edf2ff;
+      user-select: none;
+    }
+
+    .smooth-toggle input{
+      accent-color: var(--accent);
+      transform: translateY(0.5px);
+    }
+
+    @media (max-width: 1200px){
+      .workspace{
+        grid-template-columns: 1fr;
+      }
+      .topbar{
+        justify-content: space-between;
+      }
+    }
+
+    @media (max-width: 720px){
+      .topbar-wrap{
+        width: min(1460px, calc(100% - 0.8rem));
+      }
+      .workspace, .info-panel{
+        width: min(1460px, calc(100% - 0.8rem));
+      }
+      .chart-box{
+        height: 320px;
+      }
+      .chart-box.tall{
+        height: 360px;
+      }
+      .subgrid, .stat-grid{
+        grid-template-columns: 1fr;
+      }
+      .panel-head, .panel-body{
+        padding-left: 1rem;
+        padding-right: 1rem;
+      }
+      .chart-toolbar, .chart-wrap, .footer-note{
+        padding-left: 0.9rem;
+        padding-right: 0.9rem;
+      }
+    }
+  </style>
+</head>
+
+<body data-tour="atp">
+<div class="app-shell">
+
+  <header class="topbar-wrap">
+    <div class="topbar">
+      <div class="brand-block">
+        <h1 class="brand-title">RANKING ANALYSIS</h1>
+        <p class="brand-subtitle" id="tourSubtitle">ATP / WTA ranking level dashboard</p>
+      </div>
+
+      <div class="tour-switch" role="tablist" aria-label="Tour switch">
+        <button class="tour-pill active" id="btnAtp" type="button">ATP</button>
+        <button class="tour-pill" id="btnWta" type="button">WTA</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <section class="stack">
+
+      <div class="panel chart-card">
+        <div class="chart-toolbar">
+          <div class="meta">
+            <h2 class="chart-title">Evolution of key thresholds</h2>
+            <p class="chart-note">
+              Default view shows the Top 10. You can switch the displayed thresholds and narrow the historical window.
+            </p>
+          </div>
+          <div class="inline">
+            <label class="smooth-toggle" title="Smooth the lines in the evolution chart">
+              <input type="checkbox" id="smoothEvolution">
+              Smooth curve
+            </label>
+            <button class="btn-soft" id="evoAllBtn" type="button">All history</button>
+            <button class="btn-soft" id="evoResetBtn" type="button">Reset to top 10</button>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <div class="field">
+            <label>Thresholds shown</label>
+            <div class="chips compact" id="thresholdChips"></div>
+          </div>
+          <div class="subgrid">
+            <div class="field">
+              <label for="evoPreset">Evolution window</label>
+              <select id="evoPreset">
+                <option value="all">All history</option>
+                <option value="since2017">Since 2017</option>
+                <option value="range2014_2022">2014 to 2022</option>
+                <option value="since2020">Since 2020</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Custom dates</label>
+              <div class="inline">
+                <input id="evoStart" type="date" />
+                <input id="evoEnd" type="date" />
+              </div>
+            </div>
+          </div>
+          <div class="chart-box tall">
+            <canvas id="evolutionChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel chart-card">
+        <div class="chart-toolbar">
+          <div class="meta">
+            <h2 class="chart-title">Date-of-interest curve</h2>
+            <p class="chart-note">
+              Shows the required level across the selected rank range for the chosen date, compared with the reference window.
+            </p>
+          </div>
+          <div class="inline">
+            <button class="btn-soft" id="latestDateBtn" type="button">Use latest date</button>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <div class="subgrid">
+            <div class="field">
+              <label for="targetDate">Date of interest</label>
+              <input id="targetDate" type="date" />
+            </div>
+            <div class="field">
+              <label for="rankRange">Rank range</label>
+              <div class="inline">
+                <input id="rankMin" type="number" min="1" step="1" value="1" />
+                <input id="rankMax" type="number" min="1" step="1" value="100" />
+              </div>
+            </div>
+          </div>
+          <div class="subgrid">
+            <div class="field">
+              <label for="refPreset">Reference window</label>
+              <select id="refPreset">
+                <option value="all">All history</option>
+                <option value="since2017">Since 2017</option>
+                <option value="range2014_2022">2014 to 2022</option>
+                <option value="since2020">Since 2020</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Custom reference dates</label>
+              <div class="inline">
+                <input id="refStart" type="date" />
+                <input id="refEnd" type="date" />
+              </div>
+            </div>
+          </div>
+          <div class="chart-box tall">
+            <canvas id="dateCurveChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel chart-card">
+        <div class="chart-toolbar">
+          <div class="meta">
+            <h2 class="chart-title">Deviation curve</h2>
+            <p class="chart-note">
+              Color coding shows whether the selected date sits above or below the usual level for the same rank.
+            </p>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <div class="chart-box tall">
+            <canvas id="deviationChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2 class="panel-title">Rank profile insights</h2>
+          <p class="panel-subtitle">Structural breaks, plateaus, and nearby key thresholds for the selected rank.</p>
+        </div>
+        <div class="panel-body">
+          <div id="insightNarrative" class="narrative">
+            Loading analysis…
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="stack">
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2 class="panel-title">Search a player or a rank</h2>
+          <p class="panel-subtitle">
+            Autocomplete comes from the latest ATP/WTA ranking JSON. Enter a player name, ranking number, or slug.
+          </p>
+        </div>
+        <div class="panel-body">
+          <div class="field">
+            <label for="searchInput">Search</label>
+            <input id="searchInput" type="text" list="playerSuggestions" placeholder="Type a player name or a rank" />
+            <datalist id="playerSuggestions"></datalist>
+          </div>
+
+          <div class="inline mb-3">
+            <button class="btn-accent" id="searchBtn" type="button">Analyze</button>
+            <button class="btn-soft" id="clearSearchBtn" type="button">Clear</button>
+          </div>
+
+          <div id="searchResults" class="search-results mb-3"></div>
+
+          <div class="player-card" id="playerCard">
+            <div class="details-row">
+              <div class="k">Selection</div>
+              <div class="v" id="selectionLabel">Top 10</div>
+            </div>
+            <div class="details-row">
+              <div class="k">Current player</div>
+              <div class="v" id="currentPlayerLabel">None</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2 class="panel-title">Selected rank analysis</h2>
+          <p class="panel-subtitle">
+            Mean, median, dispersion, significance band, and local structure around the current rank.
+          </p>
+        </div>
+        <div class="panel-body">
+          <div class="stat-grid" id="statGrid">
+            <div class="stat-card">
+              <div class="stat-label">Level</div>
+              <div class="stat-value" id="statLevel">—</div>
+              <div class="stat-sub" id="statLevelSub">—</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Classification</div>
+              <div class="stat-value" id="statClass">—</div>
+              <div class="stat-sub" id="statClassSub">—</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Mean / median</div>
+              <div class="stat-value" id="statMeanMedian">—</div>
+              <div class="stat-sub" id="statMeanMedianSub">—</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Std / range</div>
+              <div class="stat-value" id="statStdRange">—</div>
+              <div class="stat-sub" id="statStdRangeSub">—</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Plateau score</div>
+              <div class="stat-value" id="statPlateau">—</div>
+              <div class="stat-sub" id="statPlateauSub">—</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Nearby breaks</div>
+              <div class="stat-value" id="statBreaks">—</div>
+              <div class="stat-sub" id="statBreaksSub">—</div>
+            </div>
+          </div>
+
+          <div class="details-list mt-3" id="thresholdDetails"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2 class="panel-title">Player card</h2>
+          <p class="panel-subtitle">Latest ranking snapshot for the current tour.</p>
+        </div>
+        <div class="panel-body">
+          <div id="playerInfo">
+            <div class="small-muted">No player selected yet.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2 class="panel-title">Global stats for the selected range</h2>
+          <p class="panel-subtitle">Based on the current rank range and reference window.</p>
+        </div>
+        <div class="panel-body">
+          <div class="stat-grid">
+            <div class="stat-card">
+              <div class="stat-label">Minimum</div>
+              <div class="stat-value" id="globalMin">—</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Maximum</div>
+              <div class="stat-value" id="globalMax">—</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Q10 / Q90</div>
+              <div class="stat-value" id="globalQ10Q90">—</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Selected date</div>
+              <div class="stat-value" id="globalDate">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <section class="info-panel">
+    <div class="inner">
+      <h3>Why this analysis is useful</h3>
+      <p>
+        Raw points are not ideal for comparing ranking thresholds across time because the scale of points can shift with the calendar,
+        tournament distribution, and the depth of the field. A relative level is more informative: it captures how difficult a rank is
+        compared with the rest of the tour at a given moment, instead of only counting points.
+      </p>
+      <p class="muted">
+        This approach helps detect inflation or compression in the ranking ladder, identify plateau zones where several ranks require
+        almost the same level, and spot structural breaks where the difficulty jumps sharply between two adjacent clusters of ranks.
+        The charts are built from week-by-week interpolated rank curves, then summarized with means, medians, standard deviations,
+        quantiles, and a reference-window comparison for the selected date.
+      </p>
+    </div>
+  </section>
+</div>
+
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="loading-box">
+    <div class="spinner"></div>
+    <h2 class="panel-title" style="font-size:1.2rem;">Loading ranking analysis</h2>
+    <p class="panel-subtitle">Fetching ATP/WTA analysis and latest ranking snapshots…</p>
+    <div class="small-muted mt-2" id="loadingStatus">Initializing…</div>
+    <div class="error-box mt-3" id="errorBox"></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const THRESHOLDS = [1, 2, 3, 5, 10, 16, 20, 32, 50, 100, 250, 1000];
+  const THRESHOLD_COLORS = [
+    "#fbbf24", "#22c55e", "#38bdf8", "#fb7185", "#a78bfa", "#f472b6",
+    "#34d399", "#facc15", "#60a5fa", "#c084fc", "#fb923c", "#94a3b8"
+  ];
+
+  const TOURS = {
+    atp: {
+      label: "ATP",
+      subtitle: "ATP / WTA ranking level dashboard — ATP mode",
+      analysisPath: "ranking_analysis/atp/analysis.json",
+      latestPath: "tools/latest_atp_ranking.json"
+    },
+    wta: {
+      label: "WTA",
+      subtitle: "ATP / WTA ranking level dashboard — WTA mode",
+      analysisPath: "ranking_analysis/wta/analysis.json",
+      latestPath: "tools/latest_wta_ranking.json"
+    }
+  };
+
+  const PRESETS = {
+    all: { start: null, end: null },
+    since2017: { start: "2017-01-01", end: null },
+    range2014_2022: { start: "2014-01-01", end: "2022-12-31" },
+    since2020: { start: "2020-01-01", end: null },
+    custom: { start: null, end: null }
+  };
+
+  const state = {
+    tour: "atp",
+    selectedRank: 10,
+    selectedDate: null,
+    searchQuery: "",
+    evoPreset: "all",
+    refPreset: "all",
+    evoStart: null,
+    evoEnd: null,
+    refStart: null,
+    refEnd: null,
+    rankMin: 1,
+    rankMax: 100,
+    selectedThresholds: new Set([1,2,3,5,10]),
+    smoothEvolution: false,
+    data: { atp: null, wta: null },
+    latest: { atp: [], wta: [] }
+  };
+
+  const el = {
+    loadingOverlay: document.getElementById("loadingOverlay"),
+    loadingStatus: document.getElementById("loadingStatus"),
+    errorBox: document.getElementById("errorBox"),
+    tourSubtitle: document.getElementById("tourSubtitle"),
+
+    btnAtp: document.getElementById("btnAtp"),
+    btnWta: document.getElementById("btnWta"),
+
+    evoPreset: document.getElementById("evoPreset"),
+    evoStart: document.getElementById("evoStart"),
+    evoEnd: document.getElementById("evoEnd"),
+    evoAllBtn: document.getElementById("evoAllBtn"),
+    evoResetBtn: document.getElementById("evoResetBtn"),
+    smoothEvolution: document.getElementById("smoothEvolution"),
+    thresholdChips: document.getElementById("thresholdChips"),
+
+    refPreset: document.getElementById("refPreset"),
+    refStart: document.getElementById("refStart"),
+    refEnd: document.getElementById("refEnd"),
+    latestDateBtn: document.getElementById("latestDateBtn"),
+    targetDate: document.getElementById("targetDate"),
+    rankMin: document.getElementById("rankMin"),
+    rankMax: document.getElementById("rankMax"),
+
+    searchInput: document.getElementById("searchInput"),
+    searchBtn: document.getElementById("searchBtn"),
+    clearSearchBtn: document.getElementById("clearSearchBtn"),
+    searchResults: document.getElementById("searchResults"),
+    playerSuggestions: document.getElementById("playerSuggestions"),
+
+    selectionLabel: document.getElementById("selectionLabel"),
+    currentPlayerLabel: document.getElementById("currentPlayerLabel"),
+    playerInfo: document.getElementById("playerInfo"),
+
+    statLevel: document.getElementById("statLevel"),
+    statLevelSub: document.getElementById("statLevelSub"),
+    statClass: document.getElementById("statClass"),
+    statClassSub: document.getElementById("statClassSub"),
+    statMeanMedian: document.getElementById("statMeanMedian"),
+    statMeanMedianSub: document.getElementById("statMeanMedianSub"),
+    statStdRange: document.getElementById("statStdRange"),
+    statStdRangeSub: document.getElementById("statStdRangeSub"),
+    statPlateau: document.getElementById("statPlateau"),
+    statPlateauSub: document.getElementById("statPlateauSub"),
+    statBreaks: document.getElementById("statBreaks"),
+    statBreaksSub: document.getElementById("statBreaksSub"),
+    thresholdDetails: document.getElementById("thresholdDetails"),
+
+    globalMin: document.getElementById("globalMin"),
+    globalMax: document.getElementById("globalMax"),
+    globalQ10Q90: document.getElementById("globalQ10Q90"),
+    globalDate: document.getElementById("globalDate"),
+
+    insightNarrative: document.getElementById("insightNarrative"),
+
+    evolutionChart: document.getElementById("evolutionChart"),
+    dateCurveChart: document.getElementById("dateCurveChart"),
+    deviationChart: document.getElementById("deviationChart")
+  };
+
+  const charts = { evolution: null, curve: null, deviation: null };
+
+  function setError(msg){
+    el.errorBox.style.display = "block";
+    el.errorBox.textContent = msg;
+  }
+
+  function clearError(){
+    el.errorBox.style.display = "none";
+    el.errorBox.textContent = "";
+  }
+
+  function setLoading(msg){
+    el.loadingStatus.textContent = msg;
+  }
+
+  function hideLoading(){
+    el.loadingOverlay.style.display = "none";
+  }
+
+  function applyTheme(tour){
+    document.body.setAttribute("data-tour", tour);
+    el.tourSubtitle.textContent = TOURS[tour].subtitle;
+    el.btnAtp.classList.toggle("active", tour === "atp");
+    el.btnWta.classList.toggle("active", tour === "wta");
+  }
+
+  function isFiniteNumber(v){
+    return typeof v === "number" && Number.isFinite(v);
+  }
+
+  function normalizeText(s){
+    return String(s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  }
+
+  function clamp(x, min, max){
+    return Math.max(min, Math.min(max, x));
+  }
+
+  function getCurrentAnalysis(){
+    return state.data[state.tour];
+  }
+
+  function getCurrentLatest(){
+    return state.latest[state.tour];
+  }
+
+  function getRankGrid(){
+    return getCurrentAnalysis()?.weekly?.rank_grid ?? [];
+  }
+
+  function getRankProfile(){
+    return getCurrentAnalysis()?.rank_profile ?? null;
+  }
+
+  function getWeeklyMatrix(useReference = false){
+    const a = getCurrentAnalysis();
+    if (!a?.weekly) return null;
+    if (useReference && Array.isArray(a.weekly.reference_level_matrix)) return a.weekly.reference_level_matrix;
+    if (Array.isArray(a.weekly.level_matrix)) return a.weekly.level_matrix;
+    return null;
+  }
+
+  function getAnalysisDates(){
+    return getCurrentAnalysis()?.weekly?.dates ?? [];
+  }
+
+  function currentDateLatest(){
+    const dates = getAnalysisDates();
+    return dates.length ? dates[dates.length - 1] : null;
+  }
+
+  function presetToRange(preset, customStart, customEnd){
+    const p = PRESETS[preset] || PRESETS.all;
+    return {
+      start: preset === "custom" ? (customStart || null) : p.start,
+      end: preset === "custom" ? (customEnd || null) : p.end
+    };
+  }
+
+  function withinWindow(iso, start, end){
+    if (!iso) return false;
+    if (start && iso < start) return false;
+    if (end && iso > end) return false;
+    return true;
+  }
+
+  function buildDenseRanks(minRank, maxRank){
+    const out = [];
+    for (let r = minRank; r <= maxRank; r++) out.push(r);
+    return out;
+  }
+
+  function interp(xs, ys, x){
+    const points = [];
+    const n = Math.min(xs.length, ys.length);
+
+    for (let i = 0; i < n; i++){
+      const xv = Number(xs[i]);
+      const yv = ys[i] == null ? NaN : Number(ys[i]);
+      if (Number.isFinite(xv) && Number.isFinite(yv)) points.push([xv, yv]);
+    }
+
+    if (!points.length) return NaN;
+    if (points.length === 1) return points[0][1];
+
+    points.sort((a, b) => a[0] - b[0]);
+
+    if (x <= points[0][0]) return points[0][1];
+    if (x >= points[points.length - 1][0]) return points[points.length - 1][1];
+
+    for (let i = 0; i < points.length - 1; i++){
+      const [x1, y1] = points[i];
+      const [x2, y2] = points[i + 1];
+      if (x >= x1 && x <= x2){
+        if (x2 === x1) return y1;
+        const t = (x - x1) / (x2 - x1);
+        return y1 + t * (y2 - y1);
+      }
+    }
+    return NaN;
+  }
+
+  function getSelectedDateIndex(){
+    const dates = getAnalysisDates();
+    const target = state.selectedDate || dates[dates.length - 1];
+    return dates.indexOf(target);
+  }
+
+  function getSelectedReferenceSeries(){
+  const analysis = getCurrentAnalysis();
+  const matrix = getWeeklyMatrix(true);
+  const dates = analysis?.weekly?.dates ?? [];
+  if (!matrix || !dates.length) return null;
+
+  const { start, end } = presetToRange(state.refPreset, state.refStart, state.refEnd);
+
+  const idx = [];
+  dates.forEach((d, i) => {
+    if (withinWindow(d, start, end)) idx.push(i);
+  });
+
+  if (!idx.length) return null;
+
+  return {
+    dates: idx.map(i => dates[i]),
+    matrix: idx.map(i => matrix[i])
+  };
+}
+
+
+  function getSelectedEvolutionSeries(){
+    const analysis = getCurrentAnalysis();
+    const series = analysis?.weekly?.selected_thresholds?.series ?? {};
+    const dates = analysis?.weekly?.selected_thresholds?.dates ?? [];
+    const { start, end } = presetToRange(state.evoPreset, state.evoStart, state.evoEnd);
+
+    const idx = [];
+    dates.forEach((d, i) => {
+      if (withinWindow(d, start, end)) idx.push(i);
+    });
+
+    return { dates: idx.map(i => dates[i]), series, idx };
+  }
+
+  function scoreLabel(z){
+    if (!isFiniteNumber(z)) return "Unknown";
+    if (z >= 2.5) return "Very high";
+    if (z >= 1.5) return "Rather high";
+    if (z >= 0.5) return "Slightly high";
+    if (z > -0.5) return "Normal";
+    if (z > -1.5) return "Slightly low";
+    if (z > -2.5) return "Rather low";
+    return "Very low";
+  }
+
+  function scoreClass(z){
+    if (!isFiniteNumber(z)) return "normal";
+    if (z >= 0.5) return "high";
+    if (z <= -0.5) return "low";
+    return "normal";
+  }
+
+  function thresholdColor(i){
+    return THRESHOLD_COLORS[i % THRESHOLD_COLORS.length];
+  }
+
+  function renderThresholdChips(){
+    el.thresholdChips.innerHTML = "";
+    THRESHOLDS.forEach((t) => {
+      const chip = document.createElement("label");
+      chip.className = "chip" + (state.selectedThresholds.has(t) ? " active" : "");
+      chip.style.borderColor = state.selectedThresholds.has(t) ? "var(--accent-border)" : "rgba(255,255,255,0.10)";
+      chip.innerHTML = `
+        <input type="checkbox" value="${t}" ${state.selectedThresholds.has(t) ? "checked" : ""}>
+        <span>${t}</span>
+      `;
+      chip.querySelector("input").addEventListener("change", (e) => {
+        if (e.target.checked) state.selectedThresholds.add(t);
+        else state.selectedThresholds.delete(t);
+        renderThresholdChips();
+        renderAll();
+      });
+      el.thresholdChips.appendChild(chip);
+    });
+  }
+
+  function fillPlayerSuggestions(query = ""){
+    const list = getCurrentLatest();
+    if (!Array.isArray(list)) return;
+
+    const q = normalizeText(query);
+    const filtered = list.filter(p => {
+      const fields = [p.full_name, p.player_slug, String(p.ranking), String(p.points)]
+        .map(normalizeText);
+      return !q || fields.some(f => f.includes(q));
+    }).slice(0, 80);
+
+    el.playerSuggestions.innerHTML = filtered.map(p =>
+      `<option value="${String(p.full_name).replaceAll('"', "&quot;")}"></option>`
+    ).join("");
+
+    el.searchResults.innerHTML = "";
+    const results = filtered.slice(0, 10);
+    if (!results.length){
+      el.searchResults.innerHTML = `<div class="small-muted">No match found.</div>`;
+      return;
+    }
+
+    results.forEach(p => {
+      const row = document.createElement("div");
+      row.className = "search-item";
+      row.innerHTML = `
+        <div>
+          <div class="search-name">${p.flag_emoji ? `${p.flag_emoji} ` : ""}${p.full_name}</div>
+          <div class="small-muted">Rank ${p.ranking} • ${p.points} points</div>
+        </div>
+        <div class="search-meta">
+          ${p.country_name || ""}<br>
+          ${p.circuit || ""}
+        </div>
+      `;
+      row.addEventListener("click", () => {
+        state.searchQuery = p.full_name;
+        el.searchInput.value = p.full_name;
+        selectByPlayer(p);
+      });
+      el.searchResults.appendChild(row);
+    });
+  }
+
+  function findPlayerByQuery(query){
+    const list = getCurrentLatest();
+    if (!Array.isArray(list) || !list.length) return null;
+
+    const raw = String(query ?? "").trim();
+    if (!raw) return null;
+
+    if (/^\d+$/.test(raw)){
+      const rank = parseInt(raw, 10);
+      return list.find(p => Number(p.ranking) === rank) || null;
+    }
+
+    const q = normalizeText(raw);
+    const exactName = list.find(p => normalizeText(p.full_name) === q);
+    if (exactName) return exactName;
+
+    const exactSlug = list.find(p => normalizeText(p.player_slug) === q);
+    if (exactSlug) return exactSlug;
+
+    const contains = list.find(p =>
+      normalizeText(p.full_name).includes(q) ||
+      normalizeText(p.player_slug).includes(q)
+    );
+    return contains || null;
+  }
+
+  function selectByPlayer(player){
+    if (!player) return;
+    state.selectedRank = Number(player.ranking) || 10;
+    state.selectedDate = currentDateLatest();
+    updateSearchDisplay(player);
+    updateControlsFromState();
+    renderAll();
+  }
+
+  function updateSearchDisplay(player){
+    if (!player){
+      el.currentPlayerLabel.textContent = "None";
+      el.playerInfo.innerHTML = `<div class="small-muted">No player selected yet.</div>`;
+      return;
+    }
+
+    el.currentPlayerLabel.textContent = `${player.full_name} (#${player.ranking})`;
+    el.playerInfo.innerHTML = `
+      <div class="player-top">
+        <div>
+          <h3 class="player-name">${player.flag_emoji ? `${player.flag_emoji} ` : ""}${player.full_name}</h3>
+          <div class="player-meta">
+            ${player.country_name || ""}${player.country_code ? ` • ${player.country_code}` : ""}<br>
+            ${player.circuit || state.tour.toUpperCase()}
+          </div>
+        </div>
+        <div class="avatar-pill">${player.player_url ? `<a class="player-link" href="${player.player_url}" target="_blank" rel="noopener">Profile</a>` : `Rank #${player.ranking}`}</div>
+      </div>
+
+      <div class="details-list">
+        <div class="details-row">
+          <div class="k">Current rank</div>
+          <div class="v">#${player.ranking}</div>
+        </div>
+        <div class="details-row">
+          <div class="k">Points</div>
+          <div class="v">${player.points}</div>
+        </div>
+        <div class="details-row">
+          <div class="k">Snapshot date</div>
+          <div class="v">${player.date || "—"}</div>
+        </div>
+        <div class="details-row">
+          <div class="k">At a glance</div>
+          <div class="v">${player.evolution !== undefined ? `Δ ${player.evolution}` : "—"}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function updateControlsFromState(){
+    el.evoPreset.value = state.evoPreset;
+    el.refPreset.value = state.refPreset;
+    if (state.evoStart) el.evoStart.value = state.evoStart;
+    if (state.evoEnd) el.evoEnd.value = state.evoEnd;
+    if (state.refStart) el.refStart.value = state.refStart;
+    if (state.refEnd) el.refEnd.value = state.refEnd;
+    el.rankMin.value = state.rankMin;
+    el.rankMax.value = state.rankMax;
+    el.targetDate.value = state.selectedDate || currentDateLatest() || "";
+    el.selectionLabel.textContent = state.searchQuery ? state.searchQuery : `Rank #${state.selectedRank}`;
+    el.smoothEvolution.checked = state.smoothEvolution;
+  }
+
+  function updateDateDefaults(){
+    const dates = getAnalysisDates();
+    if (!dates.length) return;
+    const latest = dates[dates.length - 1];
+    if (!state.selectedDate || !dates.includes(state.selectedDate)){
+      state.selectedDate = latest;
+    }
+    el.targetDate.min = dates[0];
+    el.targetDate.max = latest;
+    el.targetDate.value = state.selectedDate;
+  }
+
+  function getRankWindow(){
+    const maxRank = getCurrentAnalysis()?.meta?.max_rank || 1000;
+    let minRank = clamp(parseInt(el.rankMin.value || state.rankMin, 10) || 1, 1, maxRank);
+    let maxR = clamp(parseInt(el.rankMax.value || state.rankMax, 10) || 100, 1, maxRank);
+    if (minRank > maxR) [minRank, maxR] = [maxR, minRank];
+    state.rankMin = minRank;
+    state.rankMax = maxR;
+    return { minRank, maxRank: maxR };
+  }
+
+  function findSelectedPlayerInLatest(){
+    return findPlayerByQuery(String(state.selectedRank));
+  }
+
+  function getRefStatsAtRank(rank){
+    const analysis = getCurrentAnalysis();
+    const summary = analysis?.weekly?.summary_reference_window;
+    const grid = analysis?.weekly?.rank_grid ?? [];
+    if (!summary || !grid.length) return null;
+
+    return {
+      mean: interp(grid, summary.mean, rank),
+      median: interp(grid, summary.median ?? summary.mean, rank),
+      std: interp(grid, summary.std, rank),
+      min: interp(grid, summary.min, rank),
+      max: interp(grid, summary.max, rank),
+      q10: interp(grid, summary.q10, rank),
+      q25: interp(grid, summary.q25, rank),
+      q75: interp(grid, summary.q75, rank),
+      q90: interp(grid, summary.q90, rank)
+    };
+  }
+
+  function getAllStatsAtRank(rank){
+    const analysis = getCurrentAnalysis();
+    const summary = analysis?.weekly?.summary_all_weeks;
+    const grid = analysis?.weekly?.rank_grid ?? [];
+    if (!summary || !grid.length) return null;
+
+    return {
+      mean: interp(grid, summary.mean, rank),
+      median: interp(grid, summary.median ?? summary.mean, rank),
+      std: interp(grid, summary.std, rank),
+      min: interp(grid, summary.min, rank),
+      max: interp(grid, summary.max, rank)
+    };
+  }
+
+  function getProfileAtRank(rank){
+    const profile = getRankProfile();
+    const grid = getCurrentAnalysis()?.weekly?.rank_grid ?? [];
+    if (!profile || !grid.length) return null;
+
+    return {
+      plateau: interp(grid, profile.plateau_score, rank),
+      slope: interp(grid, profile.slope, rank),
+      curvature: interp(grid, profile.curvature, rank),
+      localBandStd: interp(grid, profile.local_band_std, rank),
+      nearestKeyAbove: interp(grid, profile.nearest_key_above, rank),
+      nearestKeyBelow: interp(grid, profile.nearest_key_below, rank),
+      gapAbove: interp(grid, profile.gap_to_above_key_mean, rank),
+      gapBelow: interp(grid, profile.gap_to_below_key_mean, rank),
+      rankDistanceAbove: interp(grid, profile.rank_distance_to_above_key, rank),
+      rankDistanceBelow: interp(grid, profile.rank_distance_to_below_key, rank)
+    };
+  }
+
+  function nearestStrongBreak(grid, curvature, rank, direction){
+    if (!Array.isArray(grid) || !Array.isArray(curvature)) return null;
+    const valid = curvature
+      .map((v, i) => ({ rank: grid[i], val: Math.abs(Number(v)) }))
+      .filter(o => Number.isFinite(o.rank) && Number.isFinite(o.val));
+    if (!valid.length) return null;
+
+    const sorted = valid.map(o => o.val).sort((a, b) => a - b);
+    const threshold = sorted[Math.floor(sorted.length * 0.9)] || sorted[sorted.length - 1];
+    const filtered = valid.filter(o => o.val >= threshold);
+
+    if (!filtered.length) return null;
+
+    if (direction === "up"){
+      const candidates = filtered.filter(o => o.rank > rank).sort((a, b) => a.rank - b.rank);
+      return candidates.length ? candidates[0].rank : null;
+    }
+    const candidates = filtered.filter(o => o.rank < rank).sort((a, b) => b.rank - a.rank);
+    return candidates.length ? candidates[0].rank : null;
+  }
+
+  function buildNarrative(rank, refStats, profile, currentValue, z){
+    const classLabel = scoreLabel(z);
+    const cls = scoreClass(z);
+
+    const plateauText = !profile ? "No profile available." :
+      profile.plateau >= 0.65 ? "This rank sits in a fairly flat plateau." :
+      profile.plateau <= 0.35 ? "This rank sits in a sharper transition zone." :
+      "This rank is in a mixed zone between plateau and break.";
+
+    const above = profile?.nearestKeyAbove;
+    const below = profile?.nearestKeyBelow;
+    const gapAbove = profile?.gapAbove;
+    const gapBelow = profile?.gapBelow;
+
+    const aboveTxt = above != null ? `Nearest better key threshold: #${above}${isFiniteNumber(gapAbove) ? ` (gap ${gapAbove >= 0 ? "+" : ""}${gapAbove.toFixed(2)})` : ""}.` : "No better key threshold in range.";
+    const belowTxt = below != null ? `Nearest worse key threshold: #${below}${isFiniteNumber(gapBelow) ? ` (gap ${gapBelow >= 0 ? "+" : ""}${gapBelow.toFixed(2)})` : ""}.` : "No worse key threshold in range.";
+
+    return `
+      For rank <strong>#${rank}</strong>, the selected date sits <span class="rank-badge ${cls}">${classLabel}</span>
+      versus the chosen reference window. The current level is <strong>${isFiniteNumber(currentValue) ? currentValue.toFixed(3) : "—"}</strong>,
+      compared with a reference mean of <strong>${isFiniteNumber(refStats?.mean) ? refStats.mean.toFixed(3) : "—"}</strong>
+      and a median of <strong>${isFiniteNumber(refStats?.median) ? refStats.median.toFixed(3) : "—"}</strong>.
+      ${plateauText} ${aboveTxt} ${belowTxt}
+    `;
+  }
+
+  function updateInsights(){
+    const analysis = getCurrentAnalysis();
+    const rankGrid = analysis?.weekly?.rank_grid ?? [];
+    const matrix = getWeeklyMatrix(false);
+    const dateIdx = getSelectedDateIndex();
+
+    if (!rankGrid.length || !matrix || dateIdx < 0){
+      el.insightNarrative.textContent = "Analysis data not available.";
+      return;
+    }
+
+    const currentRow = matrix[dateIdx] || [];
+    const currentValue = interp(rankGrid, currentRow, state.selectedRank);
+    const refStats = getRefStatsAtRank(state.selectedRank);
+    const profile = getProfileAtRank(state.selectedRank);
+    const z = isFiniteNumber(refStats?.std) && refStats.std > 1e-12 ? (currentValue - refStats.mean) / refStats.std : NaN;
+
+    const currentClass = scoreClass(z);
+    const classLabel = scoreLabel(z);
+    const selectedPlayer = findSelectedPlayerInLatest();
+
+    el.statLevel.textContent = isFiniteNumber(currentValue) ? currentValue.toFixed(3) : "—";
+    el.statLevelSub.textContent = `Selected rank #${state.selectedRank} • ${currentClass.toUpperCase()} / ${classLabel}`;
+    el.statClass.textContent = classLabel;
+    el.statClassSub.textContent = `z-score ${isFiniteNumber(z) ? z.toFixed(2) : "—"} vs reference window`;
+
+    el.statMeanMedian.textContent = `${isFiniteNumber(refStats?.mean) ? refStats.mean.toFixed(3) : "—"} / ${isFiniteNumber(refStats?.median) ? refStats.median.toFixed(3) : "—"}`;
+    el.statMeanMedianSub.textContent = `Current date: ${state.selectedDate || "—"}`;
+
+    el.statStdRange.textContent = `${isFiniteNumber(refStats?.std) ? refStats.std.toFixed(3) : "—"} / ${isFiniteNumber(refStats?.min) ? refStats.min.toFixed(3) : "—"} → ${isFiniteNumber(refStats?.max) ? refStats.max.toFixed(3) : "—"}`;
+    el.statStdRangeSub.textContent = `Reference window dispersion and extremes`;
+
+    el.statPlateau.textContent = isFiniteNumber(profile?.plateau) ? profile.plateau.toFixed(3) : "—";
+    el.statPlateauSub.textContent = profile?.plateau >= 0.65 ? "Plateau-like region" : profile?.plateau <= 0.35 ? "Break / transition region" : "Intermediate structure";
+
+    const breaksUp = nearestStrongBreak(rankGrid, analysis?.rank_profile?.curvature, state.selectedRank, "up");
+    const breaksDown = nearestStrongBreak(rankGrid, analysis?.rank_profile?.curvature, state.selectedRank, "down");
+    el.statBreaks.textContent = `${breaksDown ?? "—"} / ${breaksUp ?? "—"}`;
+    el.statBreaksSub.textContent = `Closest strong break below / above`;
+
+    const allStats = getAllStatsAtRank(state.selectedRank);
+    el.globalMin.textContent = isFiniteNumber(allStats?.min) ? allStats.min.toFixed(3) : "—";
+    el.globalMax.textContent = isFiniteNumber(allStats?.max) ? allStats.max.toFixed(3) : "—";
+    el.globalQ10Q90.textContent = `${isFiniteNumber(refStats?.q10) ? refStats.q10.toFixed(3) : "—"} / ${isFiniteNumber(refStats?.q90) ? refStats.q90.toFixed(3) : "—"}`;
+    el.globalDate.textContent = state.selectedDate || "—";
+
+    const keyAbove = profile?.nearestKeyAbove;
+    const keyBelow = profile?.nearestKeyBelow;
+    const thresholdRows = [];
+
+    if (keyAbove != null){
+      thresholdRows.push({
+        k: `Above key threshold`,
+        v: `#${Math.round(keyAbove)}${isFiniteNumber(profile.gapAbove) ? ` • gap ${profile.gapAbove >= 0 ? "+" : ""}${profile.gapAbove.toFixed(2)}` : ""}`
+      });
+    }
+    if (keyBelow != null){
+      thresholdRows.push({
+        k: `Below key threshold`,
+        v: `#${Math.round(keyBelow)}${isFiniteNumber(profile.gapBelow) ? ` • gap ${profile.gapBelow >= 0 ? "+" : ""}${profile.gapBelow.toFixed(2)}` : ""}`
+      });
+    }
+
+    el.thresholdDetails.innerHTML = thresholdRows.map(r => `
+      <div class="details-row">
+        <div class="k">${r.k}</div>
+        <div class="v">${r.v}</div>
+      </div>
+    `).join("") || `<div class="small-muted">No threshold information available.</div>`;
+
+    el.selectionLabel.textContent = selectedPlayer ? `${selectedPlayer.full_name} (#${selectedPlayer.ranking})` : `Rank #${state.selectedRank}`;
+    el.currentPlayerLabel.textContent = selectedPlayer ? `${selectedPlayer.full_name} • ${selectedPlayer.country_name || ""}` : "No current player at this rank";
+
+    el.insightNarrative.innerHTML = buildNarrative(state.selectedRank, refStats, profile, currentValue, z);
+  }
+
+  function destroyCharts(){
+    Object.values(charts).forEach(ch => {
+      if (ch) ch.destroy();
+    });
+    charts.evolution = charts.curve = charts.deviation = null;
+  }
+
+  function getAccent(){
+    return getComputedStyle(document.body).getPropertyValue("--accent").trim() || "#3b82f6";
+  }
+
+  function toChartValue(v){
+    return Number.isFinite(v) ? v : null;
+  }
+
+  function buildEvolutionChart(){
+    const sel = getSelectedEvolutionSeries();
+    const dates = sel.dates || [];
+    const series = sel.series || {};
+    const selected = Array.from(state.selectedThresholds).sort((a, b) => a - b);
+    const datasets = [];
+    const accent = getAccent();
+    const tensionValue = state.smoothEvolution ? 0.38 : 0.18;
+
+    selected.forEach((thr, idx) => {
+      const arr = series[String(thr)] || [];
+      const data = dates.map((d, i) => ({
+        x: d,
+        y: toChartValue(Number(arr[sel.idx[i]]))
+      }));
+
+      datasets.push({
+        label: `Top ${thr}`,
+        data,
+        borderColor: thresholdColor(idx),
+        backgroundColor: thresholdColor(idx),
+        borderWidth: 2,
+        tension: tensionValue,
+        cubicInterpolationMode: state.smoothEvolution ? "monotone" : "default",
+        pointRadius: 2,
+        pointHoverRadius: 4,
+        spanGaps: true
+      });
+    });
+
+    const ctx = el.evolutionChart.getContext("2d");
+    charts.evolution = new Chart(ctx, {
+      type: "line",
+      data: { datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "nearest", intersect: false },
+        plugins: {
+          legend: {
+            labels: { color: "#e5e7eb", boxWidth: 14, boxHeight: 14 }
+          },
+          tooltip: {
+            callbacks: {
+              title: items => items?.[0]?.raw?.x || "",
+              label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(3)}`
+            }
+          },
+          annotation: {}
+        },
+        scales: {
+          x: {
+            type: "time",
+            time: { unit: "month" },
+            ticks: { color: "#cbd5e1" },
+            grid: { color: "rgba(255,255,255,0.07)" }
+          },
+          y: {
+            ticks: { color: "#cbd5e1" },
+            grid: { color: "rgba(255,255,255,0.07)" }
+          }
+        }
+      }
+    });
+  }
+
+  function buildCurveAndDeviationCharts(){
+    const analysis = getCurrentAnalysis();
+    const rankGrid = analysis?.weekly?.rank_grid ?? [];
+    const matrix = getWeeklyMatrix(false);
+    const dates = analysis?.weekly?.dates ?? [];
+    const dateIdx = getSelectedDateIndex();
+    const { minRank, maxRank } = getRankWindow();
+
+    if (!rankGrid.length || !matrix || dateIdx < 0){
+      return;
+    }
+
+    const denseRanks = buildDenseRanks(minRank, maxRank);
+    const currentRow = matrix[dateIdx] || [];
+    const currentSeries = denseRanks.map(r => interp(rankGrid, currentRow, r));
+
+    const ref = getSelectedReferenceSeries();
+    const refMatrixSel = ref?.matrix || [];
+
+    const refMean = denseRanks.map(r => {
+      if (!refMatrixSel.length) return NaN;
+      const vals = refMatrixSel.map(row => interp(rankGrid, row, r)).filter(v => Number.isFinite(v));
+      if (!vals.length) return NaN;
+      return vals.reduce((a, b) => a + b, 0) / vals.length;
+    });
+
+    const refMedian = denseRanks.map(r => {
+      if (!refMatrixSel.length) return NaN;
+      const vals = refMatrixSel.map(row => interp(rankGrid, row, r)).filter(v => Number.isFinite(v));
+      if (!vals.length) return NaN;
+      vals.sort((a, b) => a - b);
+      const m = Math.floor(vals.length / 2);
+      return vals.length % 2 ? vals[m] : (vals[m - 1] + vals[m]) / 2;
+    });
+
+    const refStd = denseRanks.map(r => {
+      if (!refMatrixSel.length) return NaN;
+      const vals = refMatrixSel.map(row => interp(rankGrid, row, r)).filter(v => Number.isFinite(v));
+      if (vals.length < 2) return NaN;
+      const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+      const varr = vals.reduce((a, b) => a + (b - mean) * (b - mean), 0) / (vals.length - 1);
+      return Math.sqrt(varr);
+    });
+
+    const ciLow = refMean.map((m, i) => {
+      const s = refStd[i];
+      const n = refMatrixSel.length;
+      return Number.isFinite(m) && Number.isFinite(s) && n > 1 ? m - 1.96 * (s / Math.sqrt(n)) : NaN;
+    });
+
+    const ciHigh = refMean.map((m, i) => {
+      const s = refStd[i];
+      const n = refMatrixSel.length;
+      return Number.isFinite(m) && Number.isFinite(s) && n > 1 ? m + 1.96 * (s / Math.sqrt(n)) : NaN;
+    });
+
+    const zScores = currentSeries.map((v, i) => {
+      const m = refMean[i];
+      const s = refStd[i];
+      return Number.isFinite(v) && Number.isFinite(m) && Number.isFinite(s) && s > 1e-12 ? (v - m) / s : NaN;
+    });
+
+    const accent = getAccent();
+
+    const curveDatasets = [
+      {
+        label: "Reference CI low",
+        data: denseRanks.map((r, i) => ({ x: r, y: toChartValue(ciLow[i]) })),
+        borderColor: "rgba(0,0,0,0)",
+        backgroundColor: "rgba(0,0,0,0)",
+        pointRadius: 0,
+        borderWidth: 0,
+        tension: 0.15,
+        spanGaps: true
+      },
+      {
+        label: "Reference CI high",
+        data: denseRanks.map((r, i) => ({ x: r, y: toChartValue(ciHigh[i]) })),
+        borderColor: "rgba(0,0,0,0)",
+        backgroundColor: "rgba(59,130,246,0.16)",
+        pointRadius: 0,
+        borderWidth: 0,
+        fill: "-1",
+        tension: 0.15,
+        spanGaps: true
+      },
+      {
+        label: "Reference mean",
+        data: denseRanks.map((r, i) => ({ x: r, y: toChartValue(refMean[i]) })),
+        borderColor: "rgba(255,255,255,0.90)",
+        backgroundColor: "rgba(255,255,255,0.90)",
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0.15,
+        spanGaps: true
+      },
+      {
+        label: "Reference median",
+        data: denseRanks.map((r, i) => ({ x: r, y: toChartValue(refMedian[i]) })),
+        borderColor: "rgba(148,163,184,0.92)",
+        backgroundColor: "rgba(148,163,184,0.92)",
+        borderWidth: 1.5,
+        borderDash: [6, 4],
+        pointRadius: 0,
+        tension: 0.15,
+        spanGaps: true
+      },
+      {
+        label: `Selected date (${state.selectedDate})`,
+        data: denseRanks.map((r, i) => ({ x: r, y: toChartValue(currentSeries[i]) })),
+        borderColor: accent,
+        backgroundColor: accent,
+        borderWidth: 3,
+        pointRadius: 0,
+        tension: 0.17,
+        spanGaps: true
+      }
+    ];
+
+    const ctx = el.dateCurveChart.getContext("2d");
+    charts.curve = new Chart(ctx, {
+      type: "line",
+      data: { datasets: curveDatasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "nearest", intersect: false },
+        plugins: {
+          legend: {
+            labels: { color: "#e5e7eb", boxWidth: 14, boxHeight: 14 }
+          },
+          tooltip: {
+            callbacks: {
+              title: items => `Rank #${items?.[0]?.parsed?.x}`,
+              label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(3)}`
+            }
+          },
+          annotation: {
+            annotations: {
+              selectedRankLine: {
+                type: "line",
+                xMin: state.selectedRank,
+                xMax: state.selectedRank,
+                borderColor: "rgba(255,255,255,0.55)",
+                borderWidth: 1,
+                borderDash: [5, 4],
+                label: {
+                  enabled: true,
+                  content: `#${state.selectedRank}`,
+                  backgroundColor: "rgba(0,0,0,0.72)",
+                  color: "#fff",
+                  position: "start"
+                }
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            type: "linear",
+            ticks: { color: "#cbd5e1" },
+            grid: { color: "rgba(255,255,255,0.07)" }
+          },
+          y: {
+            ticks: { color: "#cbd5e1" },
+            grid: { color: "rgba(255,255,255,0.07)" }
+          }
+        }
+      }
+    });
+
+    const devData = denseRanks.map((r, i) => ({
+      x: r,
+      y: toChartValue(currentSeries[i]),
+      z: toChartValue(zScores[i])
+    }));
+
+    const devCtx = el.deviationChart.getContext("2d");
+    charts.deviation = new Chart(devCtx, {
+      type: "line",
+      data: {
+        datasets: [
+          {
+            label: "Deviation vs reference",
+            data: devData,
+            parsing: false,
+            borderWidth: 3,
+            pointRadius: 0,
+            tension: 0.1,
+            spanGaps: true,
+            segment: {
+              borderColor: (ctx) => {
+                const z1 = ctx.p0?.raw?.z;
+                const z2 = ctx.p1?.raw?.z;
+                const z = ((Number(z1) || 0) + (Number(z2) || 0)) / 2;
+                if (!Number.isFinite(z)) return "rgba(255,255,255,0.45)";
+                if (z >= 0.5) return "rgba(239,68,68,0.95)";
+                if (z <= -0.5) return "rgba(34,197,94,0.95)";
+                return "rgba(255,255,255,0.80)";
+              }
+            }
+          },
+          {
+            label: "Reference mean",
+            data: denseRanks.map((r, i) => ({ x: r, y: toChartValue(refMean[i]) })),
+            borderColor: "rgba(255,255,255,0.70)",
+            borderWidth: 1.6,
+            borderDash: [6, 4],
+            pointRadius: 0,
+            tension: 0.15,
+            spanGaps: true
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "nearest", intersect: false },
+        plugins: {
+          legend: {
+            labels: { color: "#e5e7eb", boxWidth: 14, boxHeight: 14 }
+          },
+          tooltip: {
+            callbacks: {
+              title: items => `Rank #${items?.[0]?.parsed?.x}`,
+              label: ctx => {
+                if (ctx.dataset.label === "Deviation vs reference"){
+                  const z = ctx.raw?.z;
+                  return `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(3)} (${Number.isFinite(z) ? `z=${z.toFixed(2)}` : "n/a"})`;
+                }
+                return `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(3)}`;
+              }
+            }
+          },
+          annotation: {
+            annotations: {
+              selectedRankLine: {
+                type: "line",
+                xMin: state.selectedRank,
+                xMax: state.selectedRank,
+                borderColor: "rgba(255,255,255,0.55)",
+                borderWidth: 1,
+                borderDash: [5, 4]
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            type: "linear",
+            ticks: { color: "#cbd5e1" },
+            grid: { color: "rgba(255,255,255,0.07)" }
+          },
+          y: {
+            ticks: { color: "#cbd5e1" },
+            grid: { color: "rgba(255,255,255,0.07)" }
+          }
+        }
+      }
+    });
+  }
+
+  function renderAll(){
+    const analysis = getCurrentAnalysis();
+    if (!analysis) return;
+
+    const dates = getAnalysisDates();
+    if (!dates.length) return;
+
+    const maxRank = analysis?.meta?.max_rank || 1000;
+    state.selectedRank = clamp(parseInt(state.selectedRank || 10, 10) || 10, 1, maxRank);
+    state.rankMin = clamp(parseInt(state.rankMin || 1, 10) || 1, 1, maxRank);
+    state.rankMax = clamp(parseInt(state.rankMax || 100, 10) || 100, 1, maxRank);
+    if (state.rankMin > state.rankMax) [state.rankMin, state.rankMax] = [state.rankMax, state.rankMin];
+
+    const latestDate = currentDateLatest();
+    if (!state.selectedDate || !dates.includes(state.selectedDate)){
+      state.selectedDate = latestDate;
+    }
+
+    updateControlsFromState();
+    updateDateDefaults();
+
+    destroyCharts();
+    buildEvolutionChart();
+    buildCurveAndDeviationCharts();
+    updateInsights();
+
+    const player = findSelectedPlayerInLatest();
+    updateSearchDisplay(player);
+  }
+
+  function setTour(tour){
+    state.tour = tour;
+    applyTheme(tour);
+    fillPlayerSuggestions(el.searchInput.value);
+    updateDateDefaults();
+    state.selectedDate = currentDateLatest();
+    renderThresholdChips();
+    renderAll();
+  }
+
+  function bindEvents(){
+    el.btnAtp.addEventListener("click", () => setTour("atp"));
+    el.btnWta.addEventListener("click", () => setTour("wta"));
+
+    el.evoPreset.addEventListener("change", () => {
+      state.evoPreset = el.evoPreset.value;
+      renderAll();
+    });
+    el.evoStart.addEventListener("change", () => {
+      state.evoStart = el.evoStart.value || null;
+      if (state.evoPreset !== "custom") state.evoPreset = "custom";
+      renderAll();
+    });
+    el.evoEnd.addEventListener("change", () => {
+      state.evoEnd = el.evoEnd.value || null;
+      if (state.evoPreset !== "custom") state.evoPreset = "custom";
+      renderAll();
+    });
+    el.evoAllBtn.addEventListener("click", () => {
+      state.evoPreset = "all";
+      state.evoStart = null;
+      state.evoEnd = null;
+      renderAll();
+    });
+    el.evoResetBtn.addEventListener("click", () => {
+      state.selectedThresholds = new Set([1,2,3,5,10]);
+      renderThresholdChips();
+      renderAll();
+    });
+    el.smoothEvolution.addEventListener("change", () => {
+      state.smoothEvolution = el.smoothEvolution.checked;
+      renderAll();
+    });
+
+    el.refPreset.addEventListener("change", () => {
+      state.refPreset = el.refPreset.value;
+      renderAll();
+    });
+    el.refStart.addEventListener("change", () => {
+      state.refStart = el.refStart.value || null;
+      if (state.refPreset !== "custom") state.refPreset = "custom";
+      renderAll();
+    });
+    el.refEnd.addEventListener("change", () => {
+      state.refEnd = el.refEnd.value || null;
+      if (state.refPreset !== "custom") state.refPreset = "custom";
+      renderAll();
+    });
+
+    el.latestDateBtn.addEventListener("click", () => {
+      state.selectedDate = currentDateLatest();
+      el.targetDate.value = state.selectedDate || "";
+      renderAll();
+    });
+    el.targetDate.addEventListener("change", () => {
+      state.selectedDate = el.targetDate.value || currentDateLatest();
+      renderAll();
+    });
+
+    el.rankMin.addEventListener("change", () => {
+      state.rankMin = parseInt(el.rankMin.value || "1", 10) || 1;
+      renderAll();
+    });
+    el.rankMax.addEventListener("change", () => {
+      state.rankMax = parseInt(el.rankMax.value || "100", 10) || 100;
+      renderAll();
+    });
+
+    el.searchInput.addEventListener("input", () => {
+      state.searchQuery = el.searchInput.value;
+      fillPlayerSuggestions(state.searchQuery);
+    });
+
+    el.searchBtn.addEventListener("click", () => {
+      const query = el.searchInput.value.trim();
+      if (!query){
+        const player = findSelectedPlayerInLatest();
+        if (player) selectByPlayer(player);
+        return;
+      }
+      const player = findPlayerByQuery(query);
+      if (player){
+        selectByPlayer(player);
+        return;
+      }
+      if (/^\d+$/.test(query)){
+        state.selectedRank = parseInt(query, 10);
+        state.searchQuery = query;
+        updateSearchDisplay(null);
+        renderAll();
+        return;
+      }
+      state.searchQuery = query;
+      fillPlayerSuggestions(query);
+    });
+
+    el.searchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter"){
+        e.preventDefault();
+        el.searchBtn.click();
+      }
+    });
+
+    el.clearSearchBtn.addEventListener("click", () => {
+      el.searchInput.value = "";
+      state.searchQuery = "";
+      updateSearchDisplay(null);
+      fillPlayerSuggestions("");
+      renderAll();
+    });
+  }
+
+  async function loadJson(url){
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error(`Failed to load ${url} (HTTP ${res.status})`);
+    return await res.json();
+  }
+
+  async function loadAll(){
+    try{
+      clearError();
+      setLoading("Loading ATP analysis…");
+
+      const [atpAnalysis, wtaAnalysis, atpLatest, wtaLatest] = await Promise.all([
+        loadJson(TOURS.atp.analysisPath),
+        loadJson(TOURS.wta.analysisPath),
+        loadJson(TOURS.atp.latestPath),
+        loadJson(TOURS.wta.latestPath)
+      ]);
+
+      state.data.atp = atpAnalysis;
+      state.data.wta = wtaAnalysis;
+      state.latest.atp = Array.isArray(atpLatest) ? atpLatest : (atpLatest.players || []);
+      state.latest.wta = Array.isArray(wtaLatest) ? wtaLatest : (wtaLatest.players || []);
+
+      bindEvents();
+      applyTheme(state.tour);
+
+      const latestData = getCurrentLatest();
+      fillPlayerSuggestions("");
+      updateSearchDisplay(latestData?.[0] || null);
+
+      state.selectedDate = currentDateLatest();
+      state.rankMin = 1;
+      state.rankMax = Math.min(100, getCurrentAnalysis()?.meta?.max_rank || 100);
+      state.selectedRank = 10;
+      state.evoPreset = "all";
+      state.refPreset = "all";
+
+      updateDateDefaults();
+      renderThresholdChips();
+      renderAll();
+      hideLoading();
+    } catch (err){
+      console.error(err);
+      setError(err?.message || String(err));
+      setLoading("Failed to load analysis.");
+    }
+  }
+
+  loadAll();
+})();
+</script>
+</body>
+</html>

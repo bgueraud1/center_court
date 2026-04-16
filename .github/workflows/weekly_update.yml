@@ -407,6 +407,34 @@ jobs:
             --wta player_data_wta.csv \
             --out docs/tools/players_catalog.json
 
+      - name: Generate ranking analysis
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Generating ranking analysis..."
+          python3 scripts/generate_ranking_analysis.py \
+            --atp-dir atp_rankings \
+            --wta-dir wta_rankings \
+            --output-dir docs/ranking_analysis \
+            --include-level-matrix
+
+      - name: Generate race rankings
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Generating race rankings..."
+          python3 scripts/build_race_rankings.py --root . --output-dir .
+
+      - name: Generate year rankings
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Generating year rankings..."
+          python3 scripts/build_year_rankings.py
+
       - name: Generate weekly update
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
@@ -441,7 +469,7 @@ jobs:
           rm -rf wta_rankings/partials || true
 
           echo "Remaining files (overview):"
-          find atp_rankings wta_rankings docs/tools docs/matches docs/data/tournaments site_static/tools docs -maxdepth 5 -type f | sed -n '1,250p' || true
+          find atp_rankings wta_rankings docs/tools docs/matches docs/data/tournaments site_static/tools docs ranking_analysis .docs -maxdepth 5 -type f | sed -n '1,250p' || true
 
       - name: Commit generated files
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
@@ -496,6 +524,13 @@ jobs:
           add_if_exists "site_static/tools/latest_atp_ranking.json"
           add_if_exists "site_static/tools/latest_wta_ranking.json"
           add_if_exists "docs/tools/players_catalog.json"
+
+          add_if_exists "race_ranking_atp.json"
+          add_if_exists "race_ranking_wta.json"
+          add_if_exists ".docs/rolling_52w_ranking_atp.json"
+          add_if_exists ".docs/rolling_52w_ranking_wta.json"
+
+          add_if_exists "ranking_analysis"
 
           add_if_exists "player_data_atp.csv"
           add_if_exists "player_data_wta.csv"

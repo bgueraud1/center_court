@@ -1,0 +1,1498 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Ranking Projection — ATP & WTA</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root{
+      --bg:#0b1220;
+      --bg-soft:#111a2e;
+      --card:#121c31;
+      --card-2:#16213a;
+      --text:#e8eefc;
+      --muted:#93a4c3;
+      --border:rgba(148,163,184,.18);
+      --good:#41d99a;
+      --bad:#ff6b8b;
+      --warning:#ffd166;
+    }
+    body{
+      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(78,160,255,.12), transparent 28%),
+        radial-gradient(circle at top right, rgba(178,108,255,.10), transparent 28%),
+        var(--bg);
+      color:var(--text);
+      padding:1rem;
+    }
+    main{max-width:1680px}
+    .page-title{letter-spacing:-.03em;font-weight:800}
+    .subtitle{color:var(--muted);margin-top:.1rem}
+    .card-dark{background:linear-gradient(180deg, rgba(255,255,255,.02), transparent 22%), var(--card);border:1px solid var(--border);border-radius:1.25rem;box-shadow:0 16px 40px rgba(0,0,0,.25)}
+    .sidebar-card{background:linear-gradient(180deg, rgba(255,255,255,.02), transparent 18%), var(--card);border:1px solid var(--border);border-radius:1.25rem;box-shadow:0 16px 40px rgba(0,0,0,.25)}
+    .controls{display:grid;grid-template-columns:1.6fr .8fr .75fr .75fr auto auto;gap:.75rem;align-items:end}
+    @media (max-width:1399px){ .controls{grid-template-columns:1fr 1fr 1fr;} }
+    @media (max-width:767px){ .controls{grid-template-columns:1fr 1fr;} }
+    @media (max-width:575px){ .controls{grid-template-columns:1fr;} }
+    .form-label{color:var(--muted);font-size:.82rem;margin-bottom:.28rem}
+    .form-control,.form-select{background:#0f1728;color:var(--text);border:1px solid var(--border);border-radius:.9rem;box-shadow:none}
+    .form-control:focus,.form-select:focus{background:#0f1728;color:var(--text);border-color:rgba(78,160,255,.5);box-shadow:0 0 0 .2rem rgba(78,160,255,.14)}
+    .form-select option{background:#0f1728;color:var(--text)}
+    .btn-soft{border-radius:999px;padding:.55rem 1rem;border:1px solid var(--border);background:#0f1728;color:var(--text)}
+    .btn-soft:hover{filter:brightness(1.06);color:var(--text)}
+    .tab-btn{border-radius:999px;padding:.6rem 1rem;border:1px solid var(--border);background:#0f1728;color:var(--text)}
+    .tab-btn.active[data-page="ranking"]{background:linear-gradient(180deg, rgba(78,160,255,.24), rgba(78,160,255,.12));border-color:rgba(78,160,255,.45);color:#fff;font-weight:700}
+    .tab-btn.active[data-page="analysis"]{background:linear-gradient(180deg, rgba(178,108,255,.24), rgba(178,108,255,.12));border-color:rgba(178,108,255,.45);color:#fff;font-weight:700}
+    .tab-btn.active[data-circuit="ATP"]{background:linear-gradient(180deg, rgba(78,160,255,.24), rgba(78,160,255,.12));border-color:rgba(78,160,255,.45);color:#fff;font-weight:700}
+    .tab-btn.active[data-circuit="WTA"]{background:linear-gradient(180deg, rgba(178,108,255,.24), rgba(178,108,255,.12));border-color:rgba(178,108,255,.45);color:#fff;font-weight:700}
+    .small-muted{color:var(--muted);font-size:.92rem}
+    .status-line{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap}
+    .table-wrap{border:1px solid var(--border);border-radius:1rem;overflow:hidden;background:#0f1728}
+    table{margin-bottom:0}
+    .table thead th{position:sticky;top:0;z-index:2;background:#0c1527 !important;color:#dbe8ff !important;border-bottom:1px solid var(--border) !important;font-weight:700;white-space:nowrap}
+    .table td{border-top:1px solid rgba(15,23,42,.04);vertical-align:middle}
+    tr.player-row{cursor:pointer;transition:transform .08s ease, box-shadow .08s ease, filter .08s ease;color:#0f172a}
+    tr.player-row:hover{filter:brightness(.985);transform:translateY(-1px);box-shadow:inset 0 0 0 9999px rgba(255,255,255,.03)}
+    tr.player-row[data-circuit="ATP"]{border-left:4px solid rgba(78,160,255,.9)}
+    tr.player-row[data-circuit="WTA"]{border-left:4px solid rgba(178,108,255,.9)}
+    .rank-badge{min-width:3rem;text-align:center;font-weight:800;border-radius:.8rem;padding:.45rem .5rem;font-size:.92rem;color:#fff;background:#24314d}
+    .player-cell{display:flex;align-items:center;gap:.7rem;min-width:240px}
+    .player-name{font-weight:800;line-height:1.15;color:#0f172a;text-decoration:none}
+    .player-sub{color:#5b6474;font-size:.85rem;line-height:1.15;margin-top:.15rem}
+    .mono{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+    .empty-state{padding:2.5rem 1rem;text-align:center;color:var(--muted)}
+    .note-pill{display:inline-flex;align-items:center;gap:.4rem;padding:.35rem .65rem;border-radius:999px;border:1px solid var(--border);background:#0f1728;color:#dbe8ff;font-size:.84rem;white-space:nowrap}
+    .section-title{font-weight:800;letter-spacing:-.02em}
+    .chart-box{height:420px;position:relative}
+    .pill-toggle{display:flex;flex-wrap:wrap;gap:.45rem}
+    .pill{border-radius:999px;border:1px solid var(--border);background:#0f1728;color:var(--text);padding:.45rem .8rem;font-size:.88rem;cursor:pointer;user-select:none}
+    .pill.active[data-page="ranking"]{background:rgba(78,160,255,.16);border-color:rgba(78,160,255,.45)}
+    .pill.active[data-page="analysis"]{background:rgba(178,108,255,.16);border-color:rgba(178,108,255,.45)}
+    .pill.active{font-weight:700;color:#fff}
+    .metric-card{background:linear-gradient(180deg, rgba(255,255,255,.02), transparent 18%), var(--card-2);border:1px solid var(--border);border-radius:1rem;padding:1rem}
+    .metric-value{font-size:1.25rem;font-weight:800;letter-spacing:-.02em}
+    .metric-label{color:var(--muted);font-size:.82rem}
+    .metric-sub{color:#c7d6f5;font-size:.86rem}
+    .badge-soft{border:1px solid var(--border);background:#0f1728;color:#dbe8ff;border-radius:999px;padding:.25rem .5rem;font-size:.8rem}
+    .score-input{max-width:120px}
+    .sortable{cursor:pointer;user-select:none}
+    .sortable::after{content:'↕';margin-left:.35rem;color:#7f93bb;font-size:.8rem}
+    .chart-note{color:var(--muted);font-size:.83rem}
+    .curve-list{display:flex;flex-wrap:wrap;gap:.45rem}
+    .curve-pill{display:inline-flex;align-items:center;gap:.35rem;padding:.35rem .6rem;border-radius:999px;border:1px solid var(--border);background:#0f1728;color:#fff;font-size:.85rem}
+    .curve-pill button{border:0;background:transparent;color:#fff;line-height:1;padding:0 .15rem;opacity:.75}
+    .curve-pill button:hover{opacity:1}
+    .analysis-search{display:grid;grid-template-columns:1fr auto;gap:.5rem}
+    .mini-label{color:var(--muted);font-size:.8rem}
+    .point-details{margin-top:1rem}
+    .point-details ul{padding-left:1.1rem;margin:0}
+    .point-details li{margin:.2rem 0}
+    .threshold-grid{display:grid;grid-template-columns:1fr;gap:.5rem}
+    .threshold-row{display:flex;justify-content:space-between;gap:.75rem;align-items:flex-start;padding:.55rem .65rem;border-radius:.85rem;background:#0f1728;border:1px solid rgba(148,163,184,.12)}
+    .threshold-row strong{white-space:nowrap}
+    .threshold-sub{color:#c7d6f5;font-size:.82rem;line-height:1.25}
+  </style>
+</head>
+<body>
+<main class="container-fluid">
+  <div class="d-flex align-items-start justify-content-between gap-3 mb-3 flex-wrap">
+    <div>
+      <h3 class="page-title mb-1">Rolling 52W Projection</h3>
+      <div class="subtitle">Projected ATP and WTA rankings built from the rolling 52-week capital of points.</div>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <button class="btn tab-btn active" id="nav-ranking" data-page="ranking">Ranking</button>
+      <button class="btn tab-btn" id="nav-analysis" data-page="analysis">Charts &amp; stats</button>
+    </div>
+  </div>
+
+  <div class="card card-dark mb-3 p-3 p-lg-4">
+    <div class="status-line mb-3">
+      <div class="btn-group flex-wrap" role="tablist" aria-label="Circuit selection">
+        <button type="button" class="btn tab-btn active" id="tab-atp" data-circuit="ATP">ATP</button>
+        <button type="button" class="btn tab-btn" id="tab-wta" data-circuit="WTA">WTA</button>
+      </div>
+      <div class="small-muted" id="status">Loading JSON files…</div>
+    </div>
+
+    <div class="controls">
+      <div>
+        <label class="form-label" for="search-input">Search player</label>
+        <input id="search-input" class="form-control" placeholder="Name or ID">
+      </div>
+      <div>
+        <label class="form-label" for="sort-by">Sort by</label>
+        <select id="sort-by" class="form-select">
+          <option value="plus1">+1 week</option>
+          <option value="plus2">+2 weeks</option>
+          <option value="plus3">+3 weeks</option>
+          <option value="plus4">+4 weeks</option>
+          <option value="plus5">+5 weeks</option>
+          <option value="custom">Custom +n</option>
+          <option value="current">Current</option>
+          <option value="drop52">Largest loss by +52</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label" for="custom-week">+n (0–52)</label>
+        <input id="custom-week" type="number" class="form-control score-input mono" min="0" max="52" value="1">
+      </div>
+      <div>
+        <label class="form-label" for="page-size">Rows / page</label>
+        <select id="page-size" class="form-select">
+          <option value="25">25</option>
+          <option value="50" selected>50</option>
+          <option value="100">100</option>
+          <option value="200">200</option>
+          <option value="500">500</option>
+          <option value="1000">1000</option>
+        </select>
+      </div>
+      <div>
+        <button id="reset-btn" class="btn btn-soft w-100">Reset</button>
+      </div>
+      <div>
+        <button id="open-analysis-btn" class="btn btn-soft w-100">Open charts &amp; stats</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="main-page">
+    <div class="d-flex align-items-center justify-content-between gap-2 mb-2 flex-wrap">
+      <div class="small-muted">Click a row to open the chart and statistics page.</div>
+      <div class="small-muted mono" id="window-pill">Window: —</div>
+    </div>
+
+    <div class="table-wrap mb-3">
+      <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0" id="ranking-table">
+          <thead>
+            <tr>
+              <th class="sortable" data-sort="rank">#</th>
+              <th class="sortable" data-sort="player_name">Player</th>
+              <th class="sortable" data-sort="current">Current</th>
+              <th class="sortable" data-sort="plus1">+1</th>
+              <th class="sortable" data-sort="plus2">+2</th>
+              <th class="sortable" data-sort="plus3">+3</th>
+              <th class="sortable" data-sort="plus4">+4</th>
+              <th class="sortable" data-sort="plus5">+5</th>
+              <th class="sortable" data-sort="custom" id="dynamic-week-label">+n</th>
+              <th class="sortable" data-sort="projrank">Rank +n</th>
+              <th>Δrank</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <div id="results-info" class="small-muted mt-2"></div>
+  </div>
+
+  <div id="analysis-page" class="d-none">
+    <div class="d-flex align-items-center justify-content-between gap-3 mb-3 flex-wrap">
+      <div>
+        <h4 class="section-title mb-1">Charts &amp; stats</h4>
+        <div class="small-muted">Use the search field to jump to a player, then add one or more curves.</div>
+      </div>
+      <button id="back-btn" class="btn btn-soft">Back to ranking</button>
+    </div>
+
+    <div class="row g-3">
+      <div class="col-12 col-xl-8">
+        <div class="card-dark p-3 p-lg-4 mb-3">
+          <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap mb-3">
+            <div>
+              <div class="section-title h5 mb-1">Decay curves</div>
+              <div class="small-muted">Remaining points over the next 52 weeks, one point per week.</div>
+            </div>
+            <div class="curve-list" id="curve-pills"></div>
+          </div>
+          <div class="chart-box"><canvas id="decay-chart"></canvas></div>
+          <div class="chart-note mt-2">Click a point to show the tournament(s) that expire at that step.</div>
+          <div class="metric-card point-details" id="decay-click-info">
+            <div class="metric-label mb-1">Point details</div>
+            <div class="metric-sub">Click a point on the decay curve.</div>
+          </div>
+        </div>
+
+        <div class="card-dark p-3 p-lg-4 mb-3">
+          <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap mb-3">
+            <div>
+              <div class="section-title h5 mb-1">Seasonal loading profile</div>
+              <div class="small-muted">Weekly share of the current capital, smoothed to reveal concentrated periods.</div>
+            </div>
+            <div class="pill-toggle">
+              <button class="pill active smooth-btn" data-smooth="3">3w smooth</button>
+              <button class="pill smooth-btn" data-smooth="5">5w smooth</button>
+              <button class="pill smooth-btn" data-smooth="7">7w smooth</button>
+            </div>
+          </div>
+          <div class="chart-box"><canvas id="season-chart"></canvas></div>
+          <div class="chart-note mt-2">The smoothed line is a centered moving average; it keeps the message without overreacting to sparse weeks.</div>
+        </div>
+      </div>
+
+      <div class="col-12 col-xl-4">
+        <div class="sidebar-card p-3 p-lg-4 sticky-top">
+          <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+            <div>
+              <div class="section-title h5 mb-1">Player stats</div>
+              <div class="small-muted">Insights for the selected player.</div>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label" for="player-search">Search player</label>
+            <div class="analysis-search">
+              <input id="player-search" class="form-control" placeholder="Type a player name">
+              <button id="apply-player-search" class="btn btn-soft">Use</button>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label" for="player-select">Selected player</label>
+            <select id="player-select" class="form-select"></select>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label" for="add-curve-select">Add another curve</label>
+            <div class="d-flex gap-2">
+              <select id="add-curve-select" class="form-select"></select>
+              <button id="add-curve-btn" class="btn btn-soft">Add</button>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <div class="mini-label mb-2">Curves shown</div>
+            <div id="selected-curves" class="curve-list"></div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label" for="analysis-week">Analysis week</label>
+            <input id="analysis-week" type="range" class="form-range" min="0" max="52" value="5">
+            <div class="d-flex justify-content-between small-muted mono"><span>+0</span><span id="analysis-week-label">+5</span><span>+52</span></div>
+          </div>
+
+          <div class="row g-2 mb-3" id="stats-grid"></div>
+
+          <div class="metric-card mb-3">
+            <div class="metric-label mb-1">Largest defense block</div>
+            <div class="metric-value mono" id="metric-defense-block">—</div>
+            <div class="metric-sub" id="metric-defense-block-sub">—</div>
+          </div>
+          <div class="metric-card mb-3">
+            <div class="metric-label mb-1">Lightest defense stretch</div>
+            <div class="metric-value mono" id="metric-light-defense">—</div>
+            <div class="metric-sub" id="metric-light-defense-sub">—</div>
+          </div>
+          <div class="metric-card mb-3">
+            <div class="metric-label mb-1">Largest single week</div>
+            <div class="metric-value mono" id="metric-biggest-week">—</div>
+            <div class="metric-sub" id="metric-biggest-week-sub">—</div>
+          </div>
+          <div class="metric-card mb-3">
+            <div class="metric-label mb-1">Projected rank swing at +n</div>
+            <div class="metric-value mono" id="metric-rank-risk">—</div>
+            <div class="metric-sub" id="metric-rank-risk-sub">—</div>
+          </div>
+          <div class="metric-card mb-3">
+            <div class="metric-label mb-1">Best / worst credible rank</div>
+            <div class="metric-value mono" id="metric-best-worst-rank">—</div>
+            <div class="metric-sub" id="metric-best-worst-rank-sub">—</div>
+          </div>
+          <div class="metric-card mb-3">
+            <div class="metric-label mb-1">Top-tier entry / exit alerts</div>
+            <div class="threshold-grid" id="metric-threshold-alerts"></div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label mb-1">Volatility signals</div>
+            <div class="metric-sub" id="metric-volatility">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+const RANKING_URLS = {
+  ATP: './rolling_52w_ranking_atp.json',
+  WTA: './rolling_52w_ranking_wta.json'
+};
+
+const CURVE_COLORS = [
+  '#4ea0ff', '#ff6b6b', '#41d99a', '#ffd166', '#b26cff',
+  '#ff9f1c', '#00d1b2', '#f72585', '#8ac926', '#7c3aed',
+  '#06b6d4', '#fb7185', '#f59e0b', '#22c55e', '#38bdf8', '#e879f9'
+];
+const CURVE_DASHES = [[], [8,4], [3,3], [10,4,2,4], [2,6], [12,3], [6,2,1,2], [1,0]];
+const CURVE_SHAPES = ['circle','rectRot','triangle','rect','cross','star','rectRounded','line'];
+
+const state = {
+  page: 'ranking',
+  circuit: 'ATP',
+  data: { ATP: null, WTA: null },
+  currentRows: [],
+  filteredRows: [],
+  sortKey: 'plus1',
+  customWeek: 1,
+  selectedPlayerId: null,
+  selectedCurveIds: [],
+  decayChart: null,
+  seasonChart: null,
+  smoothWindow: 5,
+  weekStarts: [],
+  clickedPoint: null,
+};
+
+function escapeHtml(value) {
+  const s = value === null || value === undefined ? '' : String(value);
+  return s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+}
+
+function fmt(n) {
+  if (n === null || n === undefined || Number.isNaN(Number(n))) return '—';
+  return Number(n).toLocaleString('en-US');
+}
+
+function signFmt(n) {
+  if (n === null || n === undefined || Number.isNaN(Number(n))) return '—';
+  const v = Number(n);
+  return `${v > 0 ? '+' : ''}${v.toLocaleString('en-US')}`;
+}
+
+function formatDate(value) {
+  if (!value) return '—';
+  const d = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return new Intl.DateTimeFormat('en', { year: 'numeric', month: 'short', day: '2-digit', timeZone: 'UTC' }).format(d);
+}
+
+function addDays(isoDate, days) {
+  const d = new Date(`${isoDate}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function shiftWeek(isoDate, weeks) {
+  return addDays(isoDate, weeks * 7);
+}
+
+function setStatus(text, isError = false) {
+  const el = document.getElementById('status');
+  el.textContent = text;
+  el.style.color = isError ? '#ff8ea0' : 'var(--muted)';
+}
+
+function playerLabel(row) {
+  return row.player_name || row.full_name || row.player_id || '—';
+}
+
+function clone(obj) {
+  return JSON.parse(JSON.stringify(obj));
+}
+
+function movingAverage(values, windowSize) {
+  const half = Math.floor(windowSize / 2);
+  return values.map((_, i) => {
+    let sum = 0;
+    let count = 0;
+    for (let j = Math.max(0, i - half); j <= Math.min(values.length - 1, i + half); j++) {
+      const v = Number(values[j]);
+      if (!Number.isFinite(v)) continue;
+      sum += v;
+      count += 1;
+    }
+    return count ? sum / count : 0;
+  });
+}
+
+function weekKey(value) {
+  return String(value || '').slice(0, 10);
+}
+
+function normalizeRow(raw) {
+  const row = clone(raw);
+  row.player_id = String(row.player_id ?? '');
+  row.player_name = row.player_name || row.full_name || row.player_id || '—';
+  row.race_points = Number(row.race_points || 0);
+  row.weeks = Array.isArray(row.weeks) ? row.weeks.slice().sort((a, b) => String(a.week_start).localeCompare(String(b.week_start))) : [];
+  row.selected_events = Array.isArray(row.selected_events) ? row.selected_events : [];
+  row.weekPoints = [];
+  row.projections = [];
+  row.ranks = [];
+  row.currentRank = row.ranking_at_window_end ?? null;
+  row.displayRank = null;
+  row.deltaRank = null;
+  return row;
+}
+
+function buildCircuitModel(payload) {
+  const rows = (payload.ranking || []).map(normalizeRow);
+  const allStarts = [...new Set(rows.flatMap(r => r.weeks.map(w => weekKey(w.week_start))).filter(Boolean))].sort();
+  const firstWeekStart = allStarts[0] || payload.window_start || null;
+  const weekStarts = [];
+  if (firstWeekStart) {
+    for (let i = 0; i < 52; i++) weekStarts.push(shiftWeek(firstWeekStart, i));
+  }
+
+  rows.forEach(row => {
+    const byWeek = new Map();
+    for (const w of row.weeks) byWeek.set(weekKey(w.week_start), Number(w.points || 0));
+    row.weekPoints = weekStarts.map(ws => Number(byWeek.get(ws) || 0));
+    row.projections = [Number(row.race_points || 0)];
+    let cumulativeLoss = 0;
+    for (let i = 0; i < 52; i++) {
+      cumulativeLoss += row.weekPoints[i] || 0;
+      row.projections.push(Math.max(0, Number(row.race_points || 0) - cumulativeLoss));
+    }
+  });
+
+  for (let n = 0; n <= 52; n++) {
+    const sorted = rows.slice().sort((a, b) => {
+      const av = a.projections[n] ?? 0;
+      const bv = b.projections[n] ?? 0;
+      if (bv !== av) return bv - av;
+      return playerLabel(a).localeCompare(playerLabel(b), 'en');
+    });
+    let rank = 0;
+    let prev = null;
+    sorted.forEach((row, idx) => {
+      const v = row.projections[n] ?? 0;
+      if (prev === null || v !== prev) {
+        rank = idx + 1;
+        prev = v;
+      }
+      row.ranks[n] = rank;
+    });
+  }
+
+  rows.forEach(row => {
+    row.currentRank = row.ranks[0] ?? row.ranking_at_window_end ?? null;
+    row.lossByWeek = row.projections.map(v => (row.race_points ?? 0) - v);
+    row.eventsCount = row.selected_events.length;
+  });
+
+  return { rows, weekStarts, payload };
+}
+
+function getTableWeek() {
+  const sortKey = state.sortKey;
+  if (sortKey === 'plus1') return 1;
+  if (sortKey === 'plus2') return 2;
+  if (sortKey === 'plus3') return 3;
+  if (sortKey === 'plus4') return 4;
+  if (sortKey === 'plus5') return 5;
+  if (sortKey === 'custom') return Math.max(0, Math.min(52, Number(state.customWeek) || 0));
+  if (sortKey === 'drop52') return 52;
+  return 0;
+}
+
+function getSortMetric(row) {
+  const wk = getTableWeek();
+  if (state.sortKey === 'current') return row.projections[0] ?? 0;
+  return row.projections[wk] ?? 0;
+}
+
+function sortRows(rows) {
+  const sortKey = state.sortKey;
+  rows.sort((a, b) => {
+    if (sortKey === 'player_name') return playerLabel(a).localeCompare(playerLabel(b), 'en');
+    const av = getSortMetric(a);
+    const bv = getSortMetric(b);
+    if (bv !== av) return bv - av;
+    return playerLabel(a).localeCompare(playerLabel(b), 'en');
+  });
+  let rank = 0;
+  let prev = null;
+  const wk = getTableWeek();
+  rows.forEach((row, idx) => {
+    const v = getSortMetric(row);
+    if (prev === null || v !== prev) {
+      rank = idx + 1;
+      prev = v;
+    }
+    row.displayRank = rank;
+    row.deltaRank = (row.currentRank !== null && row.ranks[wk] !== undefined && row.ranks[wk] !== null) ? (row.currentRank - row.ranks[wk]) : null;
+  });
+  return rows;
+}
+
+function renderWindowInfo() {
+  const payload = state.data[state.circuit];
+  const start = payload?.window_start || '—';
+  const end = payload?.window_end || '—';
+  document.getElementById('window-pill').textContent = `Window: ${start} → ${end}`;
+}
+
+function updateDynamicLabels() {
+  const wk = getTableWeek();
+  document.getElementById('dynamic-week-label').textContent = `+n (${wk === 0 ? '0' : wk})`;
+}
+
+function renderTable() {
+  const tbody = document.querySelector('#ranking-table tbody');
+  tbody.innerHTML = '';
+  const pageSize = Number(document.getElementById('page-size').value || 50);
+  const rows = state.filteredRows.slice(0, pageSize);
+
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="11"><div class="empty-state">No players match the current filters.</div></td></tr>`;
+    document.getElementById('results-info').textContent = 'No players found.';
+    return;
+  }
+
+  const wk = getTableWeek();
+  const frag = document.createDocumentFragment();
+  rows.forEach(row => {
+    const tr = document.createElement('tr');
+    tr.className = 'player-row';
+    tr.dataset.circuit = state.circuit;
+    tr.innerHTML = `
+      <td><span class="rank-badge mono">${escapeHtml(fmt(row.displayRank ?? row.currentRank ?? '—'))}</span></td>
+      <td>
+        <div class="player-cell">
+          <div>
+            <div class="player-name">${escapeHtml(playerLabel(row))}</div>
+          </div>
+        </div>
+      </td>
+      <td class="mono"><strong>${escapeHtml(fmt(row.projections[0] ?? 0))}</strong></td>
+      <td class="mono">${escapeHtml(fmt(row.projections[1] ?? 0))}</td>
+      <td class="mono">${escapeHtml(fmt(row.projections[2] ?? 0))}</td>
+      <td class="mono">${escapeHtml(fmt(row.projections[3] ?? 0))}</td>
+      <td class="mono">${escapeHtml(fmt(row.projections[4] ?? 0))}</td>
+      <td class="mono">${escapeHtml(fmt(row.projections[5] ?? 0))}</td>
+      <td class="mono">${escapeHtml(fmt(row.projections[wk] ?? 0))}</td>
+      <td class="mono">${escapeHtml(fmt(row.ranks[wk] ?? '—'))}</td>
+      <td class="mono ${row.deltaRank > 0 ? 'text-success' : row.deltaRank < 0 ? 'text-warning' : ''}">${escapeHtml(signFmt(row.deltaRank))}</td>
+    `;
+    tr.addEventListener('click', () => openAnalysis(row.player_id));
+    frag.appendChild(tr);
+  });
+
+  tbody.appendChild(frag);
+  document.getElementById('results-info').textContent = `${rows.length.toLocaleString('en-US')} displayed / ${state.filteredRows.length.toLocaleString('en-US')} filtered.`;
+}
+
+function renderPlayerOptions() {
+  const playerSelect = document.getElementById('player-select');
+  const addSelect = document.getElementById('add-curve-select');
+  const current = playerSelect.value;
+  const currentAdd = addSelect.value;
+
+  playerSelect.innerHTML = '';
+  addSelect.innerHTML = '';
+
+  state.currentRows.forEach(row => {
+    const o1 = document.createElement('option');
+    o1.value = row.player_id;
+    o1.textContent = `${playerLabel(row)} — ${fmt(row.race_points)} pts`;
+    playerSelect.appendChild(o1);
+
+    const o2 = document.createElement('option');
+    o2.value = row.player_id;
+    o2.textContent = `${playerLabel(row)} — ${fmt(row.race_points)} pts`;
+    addSelect.appendChild(o2);
+  });
+
+  if ([...playerSelect.options].some(o => o.value === current)) playerSelect.value = current;
+  else if (playerSelect.options.length) playerSelect.selectedIndex = 0;
+
+  if ([...addSelect.options].some(o => o.value === currentAdd)) addSelect.value = currentAdd;
+  else if (addSelect.options.length) addSelect.selectedIndex = 0;
+
+  if (!playerSelect.value && state.currentRows.length) playerSelect.value = state.currentRows[0].player_id;
+  state.selectedPlayerId = playerSelect.value || state.selectedPlayerId || (state.currentRows[0] ? state.currentRows[0].player_id : null);
+  if (!state.selectedCurveIds.length && state.selectedPlayerId) state.selectedCurveIds = [String(state.selectedPlayerId)];
+}
+
+function applyFilters() {
+  const search = document.getElementById('search-input').value.trim().toLowerCase();
+  const rows = state.currentRows.slice();
+  const filtered = rows.filter(row => {
+    const hay = `${playerLabel(row)} ${row.player_id || ''}`.toLowerCase();
+    if (search && !hay.includes(search)) return false;
+    return true;
+  });
+  state.filteredRows = sortRows(filtered);
+  updateDynamicLabels();
+  renderTable();
+  renderWindowInfo();
+}
+
+function setCircuit(circuit) {
+  state.circuit = circuit;
+  const payload = state.data[circuit];
+  if (!payload) return;
+  const model = buildCircuitModel(payload);
+  state.currentRows = model.rows;
+  state.weekStarts = model.weekStarts;
+  state.selectedPlayerId = state.currentRows[0] ? String(state.currentRows[0].player_id) : null;
+  state.selectedCurveIds = state.selectedPlayerId ? [state.selectedPlayerId] : [];
+  renderPlayerOptions();
+  renderWindowInfo();
+  setActiveCircuitTabs();
+  updatePageNav();
+  applyFilters();
+  if (state.page === 'analysis') updateAnalysisState();
+  setStatus(`${circuit} loaded.`);
+}
+
+function setActiveCircuitTabs() {
+  document.getElementById('tab-atp').classList.toggle('active', state.circuit === 'ATP');
+  document.getElementById('tab-wta').classList.toggle('active', state.circuit === 'WTA');
+}
+
+function updatePageNav() {
+  document.getElementById('nav-ranking').classList.toggle('active', state.page === 'ranking');
+  document.getElementById('nav-analysis').classList.toggle('active', state.page === 'analysis');
+}
+
+function setPage(page) {
+  state.page = page;
+  document.getElementById('main-page').classList.toggle('d-none', page !== 'ranking');
+  document.getElementById('analysis-page').classList.toggle('d-none', page !== 'analysis');
+  updatePageNav();
+  if (page === 'analysis') {
+    updateAnalysisState();
+  }
+}
+
+function getSelectedPlayer() {
+  const pid = String(state.selectedPlayerId || document.getElementById('player-select').value || '');
+  return state.currentRows.find(r => String(r.player_id) === pid) || state.currentRows[0] || null;
+}
+
+function selectedCurves() {
+  return state.currentRows.filter(r => state.selectedCurveIds.includes(String(r.player_id)));
+}
+
+function renderCurvePills() {
+  const container = document.getElementById('curve-pills');
+  container.innerHTML = '';
+  selectedCurves().forEach(row => {
+    const pill = document.createElement('span');
+    pill.className = 'curve-pill';
+    pill.innerHTML = `<span class="mono">${escapeHtml(playerLabel(row))}</span><button type="button" aria-label="Remove">×</button>`;
+    pill.querySelector('button').addEventListener('click', () => {
+      state.selectedCurveIds = state.selectedCurveIds.filter(id => String(id) !== String(row.player_id));
+      if (!state.selectedCurveIds.length && state.currentRows.length) state.selectedCurveIds = [String(state.currentRows[0].player_id)];
+      renderCurvePills();
+      updateAnalysisCharts();
+    });
+    container.appendChild(pill);
+  });
+}
+
+function ensureDecayChart() {
+  if (state.decayChart) return state.decayChart;
+  const ctx = document.getElementById('decay-chart');
+  state.decayChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: Array.from({ length: 53 }, (_, i) => `+${i}`), datasets: [] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'nearest', axis: 'x', intersect: true },
+      onClick: (evt, elements) => {
+        if (!elements || !elements.length) return;
+        const { datasetIndex, index } = elements[0];
+        const row = selectedCurves()[datasetIndex];
+        if (row) renderDecayPointInfo(row, index);
+      },
+      plugins: {
+        legend: { labels: { color: '#e8eefc' } },
+        tooltip: { callbacks: { label: c => `${c.dataset.label}: ${fmt(c.parsed.y)} pts` } }
+      },
+      scales: {
+        x: {
+          title: { display: true, text: 'Weeks ahead', color: '#e8eefc' },
+          ticks: { color: '#cfe0ff', callback: value => `+${value}` },
+          grid: { color: 'rgba(148,163,184,.12)' }
+        },
+        y: {
+          title: { display: true, text: 'Projected points', color: '#e8eefc' },
+          ticks: { color: '#cfe0ff' },
+          grid: { color: 'rgba(148,163,184,.12)' }
+        }
+      }
+    }
+  });
+  return state.decayChart;
+}
+
+function ensureSeasonChart() {
+  if (state.seasonChart) return state.seasonChart;
+  const ctx = document.getElementById('season-chart');
+  state.seasonChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: Array.from({ length: 52 }, (_, i) => `W${i + 1}`), datasets: [] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#e8eefc' } },
+        tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y.toFixed(1)}%` } }
+      },
+      scales: {
+        x: {
+          title: { display: true, text: 'Weeks in the prior year', color: '#e8eefc' },
+          ticks: { color: '#cfe0ff' },
+          grid: { color: 'rgba(148,163,184,.12)' }
+        },
+        y: {
+          title: { display: true, text: 'Share of capital (%)', color: '#e8eefc' },
+          ticks: { color: '#cfe0ff' },
+          grid: { color: 'rgba(148,163,184,.12)' }
+        }
+      }
+    }
+  });
+  return state.seasonChart;
+}
+
+function bestDefenseBlock(row) {
+  const arr = row.weekPoints || [];
+  let best = { start: 0, len: 0, points: 0 };
+  for (let len = 2; len <= 8; len++) {
+    let sum = 0;
+    for (let i = 0; i < arr.length; i++) {
+      sum += arr[i] || 0;
+      if (i >= len) sum -= arr[i - len] || 0;
+      if (i >= len - 1 && sum > best.points) best = { start: i - len + 1, len, points: sum };
+    }
+  }
+  return best;
+}
+
+function lightDefenseStretch(row) {
+  const arr = row.weekPoints || [];
+  let best = null;
+  for (let len = 2; len <= 8; len++) {
+    let sum = 0;
+    for (let i = 0; i < arr.length; i++) {
+      sum += arr[i] || 0;
+      if (i >= len) sum -= arr[i - len] || 0;
+      if (i >= len - 1 && (best === null || sum < best.points)) best = { start: i - len + 1, len, points: sum };
+    }
+  }
+  return best;
+}
+
+function topWeeks(row, n = 1) {
+  return row.weekPoints
+    .map((pts, i) => ({ idx: i, week_start: state.weekStarts[i], week_end: state.weekStarts[i] ? shiftWeek(state.weekStarts[i], 1) : null, points: Number(pts || 0) }))
+    .filter(w => w.points > 0)
+    .sort((a, b) => b.points - a.points || a.idx - b.idx)
+    .slice(0, n);
+}
+
+function credibleRankWindow(row) {
+  const total = Number(row.race_points || 0);
+  const threshold = Math.max(50, Math.round(total * 0.03));
+  let idx = [];
+  for (let i = 0; i <= 52; i++) {
+    if ((row.projections[i] ?? 0) >= threshold) idx.push(i);
+  }
+  if (!idx.length) {
+    for (let i = 0; i <= 52; i++) if ((row.projections[i] ?? 0) > 0) idx.push(i);
+  }
+  if (!idx.length) idx = [0];
+  return { idx, threshold };
+}
+
+function projectedRankInfo(row, week) {
+  const rankNow = row.ranks[0] ?? row.currentRank ?? null;
+  const rankFuture = row.ranks[week] ?? null;
+  const delta = (rankNow !== null && rankFuture !== null) ? (rankNow - rankFuture) : null;
+  return { rankNow, rankFuture, delta };
+}
+
+function thresholdAlerts(row) {
+  const thresholds = [5, 10, 20, 50, 100];
+  const currentRank = row.ranks[0] ?? row.currentRank ?? null;
+  return thresholds.map(t => {
+    let exitWeek = null;
+    let entryWeek = null;
+    if (currentRank !== null) {
+      if (currentRank <= t) {
+        for (let i = 1; i <= 52; i++) {
+          if ((row.ranks[i] ?? Infinity) > t) { exitWeek = i; break; }
+        }
+      } else {
+        for (let i = 1; i <= 52; i++) {
+          if ((row.ranks[i] ?? Infinity) <= t) { entryWeek = i; break; }
+        }
+      }
+    }
+    let exitText = currentRank !== null && currentRank <= t
+      ? (exitWeek === null ? 'No exit within 52 weeks' : `Exit at +${exitWeek} (rank ${fmt(row.ranks[exitWeek])})`)
+      : `Already outside`;
+    let entryText = currentRank !== null && currentRank > t
+      ? (entryWeek === null ? 'No entry within 52 weeks' : `Entry at +${entryWeek} (rank ${fmt(row.ranks[entryWeek])})`)
+      : 'Already inside';
+    return { threshold: t, exitText, entryText, currentRank };
+  });
+}
+
+function renderThresholdAlerts(row) {
+  const box = document.getElementById('metric-threshold-alerts');
+  const lines = thresholdAlerts(row);
+  box.innerHTML = lines.map(item => `
+    <div class="threshold-row">
+      <div>
+        <strong>Top ${item.threshold}</strong>
+        <div class="threshold-sub">Exit: ${escapeHtml(item.exitText)}</div>
+      </div>
+      <div class="text-end">
+        <div class="threshold-sub">Entry: ${escapeHtml(item.entryText)}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderDecayPointInfo(row, pointIndex) {
+  const container = document.getElementById('decay-click-info');
+  const projectionWeek = Math.max(0, Math.min(52, Number(pointIndex)));
+  const expireWeek = projectionWeek === 0 ? null : projectionWeek - 1;
+  const expireWeekStart = expireWeek !== null ? state.weekStarts[expireWeek] : null;
+  const expireWeekEnd = expireWeekStart ? shiftWeek(expireWeekStart, 1) : null;
+  const week = expireWeek !== null && expireWeek >= 0 ? row.weeks.find(w => weekKey(w.week_start) === weekKey(expireWeekStart)) : null;
+  const events = week && Array.isArray(week.events) ? week.events : [];
+
+  const title = `+${projectionWeek}`;
+  const points = fmt(row.projections[projectionWeek] ?? 0);
+  const expiryLabel = expireWeek !== null ? `Week expiring now: +${expireWeek} (${expireWeekStart} → ${expireWeekEnd})` : 'No expiry yet at +0';
+
+  container.innerHTML = `
+    <div class="metric-label mb-1">Point details — ${title}</div>
+    <div class="metric-value mono mb-1">${points} pts</div>
+    <div class="metric-sub mb-2">${escapeHtml(expiryLabel)}</div>
+    ${events.length ? `
+      <ul>
+        ${events.map(ev => `<li><strong>${escapeHtml(ev.tourney_name || 'Unknown tournament')}</strong>${ev.level ? ` · ${escapeHtml(ev.level)}` : ''}${ev.event_date ? ` · ${escapeHtml(formatDate(ev.event_date))}` : ''}${ev.points != null ? ` · ${escapeHtml(fmt(ev.points))} pts` : ''}</li>`).join('')}
+      </ul>
+    ` : '<div class="metric-sub">No tournament expires at this step for this player.</div>'}
+  `;
+}
+
+function renderSelectedPills() {
+  const container = document.getElementById('selected-curves');
+  container.innerHTML = '';
+  selectedCurves().forEach(row => {
+    const pill = document.createElement('span');
+    pill.className = 'curve-pill';
+    pill.innerHTML = `<span class="mono">${escapeHtml(playerLabel(row))}</span><button type="button" aria-label="Remove">×</button>`;
+    pill.querySelector('button').addEventListener('click', () => {
+      state.selectedCurveIds = state.selectedCurveIds.filter(id => String(id) !== String(row.player_id));
+      if (!state.selectedCurveIds.length && state.currentRows.length) state.selectedCurveIds = [String(state.currentRows[0].player_id)];
+      renderSelectedPills();
+      updateAnalysisCharts();
+    });
+    container.appendChild(pill);
+  });
+}
+
+function ensureDecayChart() {
+  if (state.decayChart) return state.decayChart;
+  const ctx = document.getElementById('decay-chart');
+  state.decayChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: Array.from({ length: 53 }, (_, i) => `+${i}`), datasets: [] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'nearest', axis: 'x', intersect: true },
+      onClick: (evt, elements) => {
+        if (!elements || !elements.length) return;
+        const { datasetIndex, index } = elements[0];
+        const row = selectedCurves()[datasetIndex];
+        if (row) renderDecayPointInfo(row, index);
+      },
+      plugins: {
+        legend: { labels: { color: '#e8eefc' } },
+        tooltip: { callbacks: { label: c => `${c.dataset.label}: ${fmt(c.parsed.y)} pts` } }
+      },
+      scales: {
+        x: {
+          title: { display: true, text: 'Weeks ahead', color: '#e8eefc' },
+          ticks: { color: '#cfe0ff', callback: value => `+${value}` },
+          grid: { color: 'rgba(148,163,184,.12)' }
+        },
+        y: {
+          title: { display: true, text: 'Projected points', color: '#e8eefc' },
+          ticks: { color: '#cfe0ff' },
+          grid: { color: 'rgba(148,163,184,.12)' }
+        }
+      }
+    }
+  });
+  return state.decayChart;
+}
+
+function ensureSeasonChart() {
+  if (state.seasonChart) return state.seasonChart;
+  const ctx = document.getElementById('season-chart');
+  state.seasonChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: Array.from({ length: 52 }, (_, i) => `W${i + 1}`), datasets: [] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#e8eefc' } },
+        tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y.toFixed(1)}%` } }
+      },
+      scales: {
+        x: {
+          title: { display: true, text: 'Weeks in the prior year', color: '#e8eefc' },
+          ticks: { color: '#cfe0ff' },
+          grid: { color: 'rgba(148,163,184,.12)' }
+        },
+        y: {
+          title: { display: true, text: 'Share of capital (%)', color: '#e8eefc' },
+          ticks: { color: '#cfe0ff' },
+          grid: { color: 'rgba(148,163,184,.12)' }
+        }
+      }
+    }
+  });
+  return state.seasonChart;
+}
+
+function bestDefenseBlock(row) {
+  const arr = row.weekPoints || [];
+  let best = { start: 0, len: 0, points: 0 };
+  for (let len = 2; len <= 8; len++) {
+    let sum = 0;
+    for (let i = 0; i < arr.length; i++) {
+      sum += arr[i] || 0;
+      if (i >= len) sum -= arr[i - len] || 0;
+      if (i >= len - 1 && sum > best.points) best = { start: i - len + 1, len, points: sum };
+    }
+  }
+  return best;
+}
+
+function lightDefenseStretch(row) {
+  const arr = row.weekPoints || [];
+  let best = null;
+  for (let len = 2; len <= 8; len++) {
+    let sum = 0;
+    for (let i = 0; i < arr.length; i++) {
+      sum += arr[i] || 0;
+      if (i >= len) sum -= arr[i - len] || 0;
+      if (i >= len - 1 && (best === null || sum < best.points)) best = { start: i - len + 1, len, points: sum };
+    }
+  }
+  return best;
+}
+
+function topWeeks(row, n = 1) {
+  return row.weekPoints
+    .map((pts, i) => ({ idx: i, week_start: state.weekStarts[i], week_end: state.weekStarts[i] ? shiftWeek(state.weekStarts[i], 1) : null, points: Number(pts || 0) }))
+    .filter(w => w.points > 0)
+    .sort((a, b) => b.points - a.points || a.idx - b.idx)
+    .slice(0, n);
+}
+
+function credibleRankWindow(row) {
+  const total = Number(row.race_points || 0);
+  const threshold = Math.max(50, Math.round(total * 0.03));
+  let idx = [];
+  for (let i = 0; i <= 52; i++) {
+    if ((row.projections[i] ?? 0) >= threshold) idx.push(i);
+  }
+  if (!idx.length) {
+    for (let i = 0; i <= 52; i++) if ((row.projections[i] ?? 0) > 0) idx.push(i);
+  }
+  if (!idx.length) idx = [0];
+  return { idx, threshold };
+}
+
+function projectedRankInfo(row, week) {
+  const rankNow = row.ranks[0] ?? row.currentRank ?? null;
+  const rankFuture = row.ranks[week] ?? null;
+  const delta = (rankNow !== null && rankFuture !== null) ? (rankNow - rankFuture) : null;
+  return { rankNow, rankFuture, delta };
+}
+
+function thresholdAlerts(row) {
+  const thresholds = [5, 10, 20, 50, 100];
+  const currentRank = row.ranks[0] ?? row.currentRank ?? null;
+  return thresholds.map(t => {
+    let exitWeek = null;
+    let entryWeek = null;
+    if (currentRank !== null) {
+      if (currentRank <= t) {
+        for (let i = 1; i <= 52; i++) {
+          if ((row.ranks[i] ?? Infinity) > t) { exitWeek = i; break; }
+        }
+      } else {
+        for (let i = 1; i <= 52; i++) {
+          if ((row.ranks[i] ?? Infinity) <= t) { entryWeek = i; break; }
+        }
+      }
+    }
+    const exitText = currentRank !== null && currentRank <= t
+      ? (exitWeek === null ? 'No exit within 52 weeks' : `Exit at +${exitWeek} (rank ${fmt(row.ranks[exitWeek])})`)
+      : 'Already outside';
+    const entryText = currentRank !== null && currentRank > t
+      ? (entryWeek === null ? 'No entry within 52 weeks' : `Entry at +${entryWeek} (rank ${fmt(row.ranks[entryWeek])})`)
+      : 'Already inside';
+    return { threshold: t, exitText, entryText };
+  });
+}
+
+function renderThresholdAlerts(row) {
+  const box = document.getElementById('metric-threshold-alerts');
+  const lines = thresholdAlerts(row);
+  box.innerHTML = lines.map(item => `
+    <div class="threshold-row">
+      <div>
+        <strong>Top ${item.threshold}</strong>
+        <div class="threshold-sub">Exit: ${escapeHtml(item.exitText)}</div>
+      </div>
+      <div class="text-end">
+        <div class="threshold-sub">Entry: ${escapeHtml(item.entryText)}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderDecayPointInfo(row, pointIndex) {
+  const container = document.getElementById('decay-click-info');
+  const projectionWeek = Math.max(0, Math.min(52, Number(pointIndex)));
+  const expireWeek = projectionWeek === 0 ? null : projectionWeek - 1;
+  const expireWeekStart = expireWeek !== null ? state.weekStarts[expireWeek] : null;
+  const expireWeekEnd = expireWeekStart ? shiftWeek(expireWeekStart, 1) : null;
+  const week = expireWeek !== null && expireWeek >= 0 ? row.weeks.find(w => weekKey(w.week_start) === weekKey(expireWeekStart)) : null;
+  const events = week && Array.isArray(week.events) ? week.events : [];
+
+  const points = fmt(row.projections[projectionWeek] ?? 0);
+  const expiryLabel = expireWeek !== null ? `Week expiring now: +${expireWeek} (${expireWeekStart} → ${expireWeekEnd})` : 'No expiry yet at +0';
+
+  container.innerHTML = `
+    <div class="metric-label mb-1">Point details — +${projectionWeek}</div>
+    <div class="metric-value mono mb-1">${points} pts</div>
+    <div class="metric-sub mb-2">${escapeHtml(expiryLabel)}</div>
+    ${events.length ? `
+      <ul>
+        ${events.map(ev => `<li><strong>${escapeHtml(ev.tourney_name || 'Unknown tournament')}</strong>${ev.level ? ` · ${escapeHtml(ev.level)}` : ''}${ev.event_date ? ` · ${escapeHtml(formatDate(ev.event_date))}` : ''}${ev.points != null ? ` · ${escapeHtml(fmt(ev.points))} pts` : ''}</li>`).join('')}
+      </ul>
+    ` : '<div class="metric-sub">No tournament expires at this step for this player.</div>'}
+  `;
+}
+
+function renderSelectedPills() {
+  const container = document.getElementById('selected-curves');
+  container.innerHTML = '';
+  selectedCurves().forEach(row => {
+    const pill = document.createElement('span');
+    pill.className = 'curve-pill';
+    pill.innerHTML = `<span class="mono">${escapeHtml(playerLabel(row))}</span><button type="button" aria-label="Remove">×</button>`;
+    pill.querySelector('button').addEventListener('click', () => {
+      state.selectedCurveIds = state.selectedCurveIds.filter(id => String(id) !== String(row.player_id));
+      if (!state.selectedCurveIds.length && state.currentRows.length) state.selectedCurveIds = [String(state.currentRows[0].player_id)];
+      renderSelectedPills();
+      updateAnalysisCharts();
+    });
+    container.appendChild(pill);
+  });
+}
+
+function applyAnalysisSearch() {
+  const term = document.getElementById('player-search').value.trim().toLowerCase();
+  const row = state.currentRows.find(r => `${playerLabel(r)} ${r.player_id || ''}`.toLowerCase().includes(term));
+  if (!row) return;
+  state.selectedPlayerId = String(row.player_id);
+  if (!state.selectedCurveIds.includes(String(row.player_id))) state.selectedCurveIds = [String(row.player_id)];
+  document.getElementById('player-select').value = String(row.player_id);
+  if (![...document.getElementById('add-curve-select').options].some(o => o.value === String(row.player_id))) {
+    renderAnalysisSelects();
+  }
+  updateAnalysisState();
+}
+
+function renderAnalysisSelects() {
+  const searchTerm = document.getElementById('player-search').value.trim().toLowerCase();
+  const matches = state.currentRows.filter(row => {
+    const hay = `${playerLabel(row)} ${row.player_id || ''}`.toLowerCase();
+    return !searchTerm || hay.includes(searchTerm);
+  });
+
+  const playerSelect = document.getElementById('player-select');
+  const addSelect = document.getElementById('add-curve-select');
+  const current = playerSelect.value;
+  const currentAdd = addSelect.value;
+
+  playerSelect.innerHTML = '';
+  addSelect.innerHTML = '';
+
+  matches.forEach(row => {
+    const o1 = document.createElement('option');
+    o1.value = row.player_id;
+    o1.textContent = `${playerLabel(row)} — ${fmt(row.race_points)} pts`;
+    playerSelect.appendChild(o1);
+
+    const o2 = document.createElement('option');
+    o2.value = row.player_id;
+    o2.textContent = `${playerLabel(row)} — ${fmt(row.race_points)} pts`;
+    addSelect.appendChild(o2);
+  });
+
+  if ([...playerSelect.options].some(o => o.value === current)) playerSelect.value = current;
+  else if (playerSelect.options.length) playerSelect.selectedIndex = 0;
+
+  if ([...addSelect.options].some(o => o.value === currentAdd)) addSelect.value = currentAdd;
+  else if (addSelect.options.length) addSelect.selectedIndex = 0;
+
+  if (!playerSelect.value && matches.length) playerSelect.value = matches[0].player_id;
+}
+
+function updateAnalysisState() {
+  const row = getSelectedPlayer();
+  if (!row) return;
+  state.selectedPlayerId = String(row.player_id);
+  if (!state.selectedCurveIds.includes(String(row.player_id))) state.selectedCurveIds.unshift(String(row.player_id));
+  state.selectedCurveIds = [...new Set(state.selectedCurveIds)].filter(id => state.currentRows.some(r => String(r.player_id) === String(id)));
+  if (!state.selectedCurveIds.length && state.currentRows[0]) state.selectedCurveIds = [String(state.currentRows[0].player_id)];
+  document.getElementById('player-select').value = String(row.player_id);
+  renderSelectedPills();
+  updateAnalysisCharts();
+}
+
+function openAnalysis(playerId) {
+  state.selectedPlayerId = String(playerId);
+  if (!state.selectedCurveIds.includes(String(playerId))) state.selectedCurveIds = [String(playerId)];
+  setPage('analysis');
+  document.getElementById('player-search').value = playerLabel(state.currentRows.find(r => String(r.player_id) === String(playerId)) || {});
+  renderAnalysisSelects();
+  updateAnalysisState();
+}
+
+function updateAnalysisCharts() {
+  const decayChart = ensureDecayChart();
+  const seasonChart = ensureSeasonChart();
+  const curves = selectedCurves();
+
+  decayChart.data.datasets = curves.map((row, idx) => {
+    const color = CURVE_COLORS[idx % CURVE_COLORS.length];
+    const dash = CURVE_DASHES[idx % CURVE_DASHES.length];
+    const shape = CURVE_SHAPES[idx % CURVE_SHAPES.length];
+    return {
+      label: playerLabel(row),
+      data: row.projections.map((y, x) => ({ x, y })),
+      borderColor: color,
+      backgroundColor: color,
+      pointBackgroundColor: color,
+      pointBorderColor: '#ffffff',
+      pointBorderWidth: 1.5,
+      borderDash: dash,
+      tension: 0.2,
+      pointRadius: 3,
+      pointHoverRadius: 5,
+      pointStyle: shape,
+      borderWidth: 3,
+      fill: false
+    };
+  });
+  decayChart.update();
+
+  const row = getSelectedPlayer();
+  if (row) {
+    const total = Math.max(1, Number(row.race_points || 0));
+    const raw = (row.weekPoints || []).map(v => (Number(v || 0) / total) * 100);
+    const smooth = movingAverage(raw, state.smoothWindow);
+    const base = state.circuit === 'ATP' ? '#4ea0ff' : '#b26cff';
+    seasonChart.data.datasets = [
+      {
+        label: `${playerLabel(row)} raw`,
+        data: raw,
+        borderColor: 'rgba(255,255,255,.35)',
+        backgroundColor: 'rgba(255,255,255,.12)',
+        pointBackgroundColor: 'rgba(255,255,255,.5)',
+        pointBorderColor: '#fff',
+        pointBorderWidth: 1,
+        tension: 0.08,
+        pointRadius: 0,
+        borderWidth: 1.5,
+        fill: false
+      },
+      {
+        label: `${playerLabel(row)} smoothed`,
+        data: smooth,
+        borderColor: base,
+        backgroundColor: base,
+        pointBackgroundColor: base,
+        pointBorderColor: '#fff',
+        pointBorderWidth: 1.5,
+        tension: 0.25,
+        pointRadius: 3,
+        pointHoverRadius: 5,
+        borderWidth: 3,
+        fill: false
+      }
+    ];
+    seasonChart.update();
+  }
+
+  renderSelectedPills();
+  renderStatsPanel();
+}
+
+function renderStatsPanel() {
+  const row = getSelectedPlayer();
+  if (!row) return;
+  const week = Math.max(0, Math.min(52, Number(document.getElementById('analysis-week').value || 0)));
+  document.getElementById('analysis-week-label').textContent = `+${week}`;
+
+  const projected = row.projections[week] ?? 0;
+  const lost = (row.race_points ?? 0) - projected;
+  const { rankNow, rankFuture, delta } = projectedRankInfo(row, week);
+
+  document.getElementById('metric-rank-risk').textContent = `${signFmt(delta)} ranks`;
+  document.getElementById('metric-rank-risk-sub').textContent = `At +${week}, the player is projected at ${fmt(projected)} points and rank ${fmt(rankFuture)}.`;
+
+  const credible = credibleRankWindow(row);
+  const bestIdx = credible.idx.reduce((best, idx) => (best === null || (row.ranks[idx] ?? Infinity) < (row.ranks[best] ?? Infinity) ? idx : best), null);
+  const worstIdx = credible.idx.reduce((worst, idx) => (worst === null || (row.ranks[idx] ?? -Infinity) > (row.ranks[worst] ?? -Infinity) ? idx : worst), null);
+  const bestRank = bestIdx !== null ? row.ranks[bestIdx] : null;
+  const worstRank = worstIdx !== null ? row.ranks[worstIdx] : null;
+  document.getElementById('metric-best-worst-rank').textContent = `${fmt(bestRank)} / ${fmt(worstRank)}`;
+  document.getElementById('metric-best-worst-rank-sub').textContent = `Credible window uses weeks where projected points stay above ${fmt(credible.threshold)}.`;
+
+  const biggest = topWeeks(row, 1)[0];
+  if (biggest) {
+    document.getElementById('metric-biggest-week').textContent = `${fmt(biggest.points)} pts`;
+    document.getElementById('metric-biggest-week-sub').textContent = `Largest week: ${biggest.week_start} → ${biggest.week_end}.`;
+  } else {
+    document.getElementById('metric-biggest-week').textContent = '—';
+    document.getElementById('metric-biggest-week-sub').textContent = 'No week data available.';
+  }
+
+  const heavy = bestDefenseBlock(row);
+  if (heavy && heavy.len) {
+    const start = state.weekStarts[heavy.start];
+    const end = state.weekStarts[heavy.start + heavy.len - 1] ? shiftWeek(state.weekStarts[heavy.start + heavy.len - 1], 1) : null;
+    document.getElementById('metric-defense-block').textContent = `${fmt(heavy.points)} pts`;
+    document.getElementById('metric-defense-block-sub').textContent = `${heavy.len} weeks: ${start} → ${end || '—'}.`;
+  } else {
+    document.getElementById('metric-defense-block').textContent = '—';
+    document.getElementById('metric-defense-block-sub').textContent = 'No enough data.';
+  }
+
+  const light = lightDefenseStretch(row);
+  if (light && light.len) {
+    const start = state.weekStarts[light.start];
+    const end = state.weekStarts[light.start + light.len - 1] ? shiftWeek(state.weekStarts[light.start + light.len - 1], 1) : null;
+    document.getElementById('metric-light-defense').textContent = `${fmt(light.points)} pts`;
+    document.getElementById('metric-light-defense-sub').textContent = `${light.len} weeks: ${start} → ${end || '—'}.`;
+  } else {
+    document.getElementById('metric-light-defense').textContent = '—';
+    document.getElementById('metric-light-defense-sub').textContent = 'No enough data.';
+  }
+
+  document.getElementById('metric-volatility').textContent = `Current rank ${fmt(rankNow)} · +${week} rank ${fmt(rankFuture)} · loss at +${week}: ${fmt(lost)} points.`;
+
+  const items = [
+    ['Current points', fmt(row.race_points)],
+    [`Projected points +${week}`, fmt(projected)],
+    [`Points lost +${week}`, fmt(lost)],
+    [`Projected rank +${week}`, fmt(rankFuture)],
+    ['Delta rank', signFmt(delta)],
+    ['Events tracked', fmt(row.eventsCount)],
+  ];
+  const grid = document.getElementById('stats-grid');
+  grid.innerHTML = items.map(([label, value]) => `
+    <div class="col-6">
+      <div class="metric-card h-100">
+        <div class="metric-label mb-1">${escapeHtml(label)}</div>
+        <div class="metric-value mono">${escapeHtml(value)}</div>
+      </div>
+    </div>
+  `).join('');
+
+  renderThresholdAlerts(row);
+}
+
+function updateAnalysisState() {
+  const row = getSelectedPlayer();
+  if (!row) return;
+  state.selectedPlayerId = String(row.player_id);
+  if (!state.selectedCurveIds.includes(String(row.player_id))) state.selectedCurveIds.unshift(String(row.player_id));
+  state.selectedCurveIds = [...new Set(state.selectedCurveIds)].filter(id => state.currentRows.some(r => String(r.player_id) === String(id)));
+  if (!state.selectedCurveIds.length && state.currentRows[0]) state.selectedCurveIds = [String(state.currentRows[0].player_id)];
+  document.getElementById('player-select').value = String(row.player_id);
+  renderSelectedPills();
+  updateAnalysisCharts();
+}
+
+function applyAnalysisSearch() {
+  const term = document.getElementById('player-search').value.trim().toLowerCase();
+  if (!term) return;
+  const row = state.currentRows.find(r => `${playerLabel(r)} ${r.player_id || ''}`.toLowerCase().includes(term));
+  if (!row) return;
+  state.selectedPlayerId = String(row.player_id);
+  state.selectedCurveIds = [String(row.player_id)];
+  document.getElementById('player-search').value = playerLabel(row);
+  renderAnalysisSelects();
+  updateAnalysisState();
+}
+
+function renderAnalysisSelects() {
+  const searchTerm = document.getElementById('player-search').value.trim().toLowerCase();
+  const matches = state.currentRows.filter(row => {
+    const hay = `${playerLabel(row)} ${row.player_id || ''}`.toLowerCase();
+    return !searchTerm || hay.includes(searchTerm);
+  });
+
+  const playerSelect = document.getElementById('player-select');
+  const addSelect = document.getElementById('add-curve-select');
+  const current = playerSelect.value;
+  const currentAdd = addSelect.value;
+
+  playerSelect.innerHTML = '';
+  addSelect.innerHTML = '';
+
+  matches.forEach(row => {
+    const o1 = document.createElement('option');
+    o1.value = row.player_id;
+    o1.textContent = `${playerLabel(row)} — ${fmt(row.race_points)} pts`;
+    playerSelect.appendChild(o1);
+
+    const o2 = document.createElement('option');
+    o2.value = row.player_id;
+    o2.textContent = `${playerLabel(row)} — ${fmt(row.race_points)} pts`;
+    addSelect.appendChild(o2);
+  });
+
+  if ([...playerSelect.options].some(o => o.value === current)) playerSelect.value = current;
+  else if (playerSelect.options.length) playerSelect.selectedIndex = 0;
+
+  if ([...addSelect.options].some(o => o.value === currentAdd)) addSelect.value = currentAdd;
+  else if (addSelect.options.length) addSelect.selectedIndex = 0;
+
+  if (!playerSelect.value && matches.length) playerSelect.value = matches[0].player_id;
+}
+
+async function loadAll() {
+  try {
+    setStatus('Loading JSON files…');
+    const [atp, wta] = await Promise.all([
+      fetch(RANKING_URLS.ATP, { cache: 'no-cache' }).then(r => r.json()),
+      fetch(RANKING_URLS.WTA, { cache: 'no-cache' }).then(r => r.json())
+    ]);
+    state.data.ATP = atp;
+    state.data.WTA = wta;
+    setCircuit('ATP');
+    setPage('ranking');
+    setStatus('Ready.');
+  } catch (err) {
+    console.error(err);
+    setStatus('Failed to load JSON files.', true);
+    document.querySelector('#ranking-table tbody').innerHTML = `<tr><td colspan="11"><div class="empty-state text-danger">Unable to load the ranking JSON files.</div></td></tr>`;
+  }
+}
+
+function attachEvents() {
+  document.getElementById('tab-atp').addEventListener('click', () => setCircuit('ATP'));
+  document.getElementById('tab-wta').addEventListener('click', () => setCircuit('WTA'));
+  document.getElementById('nav-ranking').addEventListener('click', () => setPage('ranking'));
+  document.getElementById('nav-analysis').addEventListener('click', () => setPage('analysis'));
+  document.getElementById('search-input').addEventListener('input', applyFilters);
+  document.getElementById('page-size').addEventListener('change', renderTable);
+  document.getElementById('sort-by').addEventListener('change', () => {
+    state.sortKey = document.getElementById('sort-by').value;
+    updateDynamicLabels();
+    applyFilters();
+  });
+  document.getElementById('custom-week').addEventListener('input', (e) => {
+    state.customWeek = Math.max(0, Math.min(52, Number(e.target.value || 0)));
+    updateDynamicLabels();
+    applyFilters();
+  });
+  document.getElementById('open-analysis-btn').addEventListener('click', () => {
+    const row = state.filteredRows[0] || state.currentRows[0];
+    if (row) openAnalysis(row.player_id);
+  });
+  document.getElementById('back-btn').addEventListener('click', () => setPage('ranking'));
+  document.getElementById('player-search').addEventListener('input', () => {
+    // Do not change the selected player while typing.
+    renderAnalysisSelects();
+  });
+  document.getElementById('player-search').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      applyAnalysisSearch();
+    }
+  });
+  document.getElementById('apply-player-search').addEventListener('click', applyAnalysisSearch);
+  document.getElementById('player-select').addEventListener('change', (e) => {
+    state.selectedPlayerId = String(e.target.value);
+    if (!state.selectedCurveIds.includes(state.selectedPlayerId)) state.selectedCurveIds.unshift(state.selectedPlayerId);
+    updateAnalysisState();
+  });
+  document.getElementById('add-curve-btn').addEventListener('click', () => {
+    const pid = String(document.getElementById('add-curve-select').value || '');
+    if (!pid) return;
+    if (!state.selectedCurveIds.includes(pid)) state.selectedCurveIds.push(pid);
+    renderSelectedPills();
+    updateAnalysisCharts();
+  });
+  document.getElementById('analysis-week').addEventListener('input', (e) => {
+    const v = Math.max(0, Math.min(52, Number(e.target.value || 0)));
+    document.getElementById('analysis-week-label').textContent = `+${v}`;
+    updateAnalysisCharts();
+  });
+  document.querySelectorAll('.smooth-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.smoothWindow = Number(btn.dataset.smooth || 5);
+      document.querySelectorAll('.smooth-btn').forEach(b => b.classList.toggle('active', b === btn));
+      updateAnalysisCharts();
+    });
+  });
+  document.getElementById('reset-btn').addEventListener('click', () => {
+    document.getElementById('search-input').value = '';
+    document.getElementById('sort-by').value = 'plus1';
+    document.getElementById('custom-week').value = '1';
+    document.getElementById('player-search').value = '';
+    state.sortKey = 'plus1';
+    state.customWeek = 1;
+    if (state.currentRows[0]) {
+      state.selectedPlayerId = String(state.currentRows[0].player_id);
+      state.selectedCurveIds = [state.selectedPlayerId];
+    }
+    updateDynamicLabels();
+    applyFilters();
+    if (state.page === 'analysis') {
+      renderAnalysisSelects();
+      updateAnalysisState();
+    }
+  });
+  document.addEventListener('click', (e) => {
+    const sortable = e.target.closest('.sortable');
+    if (!sortable) return;
+    const key = sortable.dataset.sort;
+    if (!key) return;
+    state.sortKey = key;
+    document.getElementById('sort-by').value = key;
+    updateDynamicLabels();
+    applyFilters();
+  });
+}
+
+window.addEventListener('load', () => {
+  attachEvents();
+  loadAll();
+});
+</script>
+</body>
+</html>

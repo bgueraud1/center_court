@@ -1,0 +1,705 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Race Rankings — ATP & WTA</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#0b1220;
+      --bg-soft:#111a2e;
+      --card:#121c31;
+      --card-2:#16213a;
+      --text:#e8eefc;
+      --muted:#93a4c3;
+      --border:rgba(148,163,184,.18);
+      --accent-atp:#4ea0ff;
+      --accent-atp-soft:rgba(78,160,255,.16);
+      --accent-wta:#b26cff;
+      --accent-wta-soft:rgba(178,108,255,.16);
+      --row-border:rgba(15,23,42,.06);
+    }
+    body{
+      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(78,160,255,.12), transparent 28%),
+        radial-gradient(circle at top right, rgba(178,108,255,.10), transparent 28%),
+        var(--bg);
+      color:var(--text);
+      padding:1rem;
+    }
+    main{max-width:1500px}
+    .page-title{letter-spacing:-.03em;font-weight:800}
+    .subtitle{color:var(--muted);margin-top:.1rem}
+    .card-dark{background:linear-gradient(180deg, rgba(255,255,255,.02), transparent 22%), var(--card);border:1px solid var(--border);border-radius:1.25rem;box-shadow:0 16px 40px rgba(0,0,0,.25)}
+    .controls{display:grid;grid-template-columns:1.15fr .7fr auto auto auto;gap:.75rem;align-items:end}
+    @media (max-width:1199px){ .controls{grid-template-columns:1fr 1fr 1fr;} }
+    @media (max-width:767px){ .controls{grid-template-columns:1fr 1fr;} }
+    @media (max-width:575px){ .controls{grid-template-columns:1fr;} }
+    .form-label{color:var(--muted);font-size:.82rem;margin-bottom:.28rem}
+    .form-control,.form-select{background:#0f1728;color:var(--text);border:1px solid var(--border);border-radius:.9rem;box-shadow:none}
+    .form-control:focus,.form-select:focus{background:#0f1728;color:var(--text);border-color:rgba(78,160,255,.5);box-shadow:0 0 0 .2rem rgba(78,160,255,.14)}
+    .form-select option{background:#0f1728;color:var(--text)}
+    .btn-soft{border-radius:999px;padding:.55rem 1rem;border:1px solid var(--border);background:#0f1728;color:var(--text)}
+    .btn-soft:hover{filter:brightness(1.06);color:var(--text)}
+    .tab-btn{border-radius:999px;padding:.6rem 1rem;border:1px solid var(--border);background:#0f1728;color:var(--text)}
+    .tab-btn.active[data-circuit="ATP"],
+    .tab-btn.active[data-circuit="NEXTGEN"]{background:linear-gradient(180deg, rgba(78,160,255,.24), rgba(78,160,255,.12));border-color:rgba(78,160,255,.45);color:#fff;font-weight:700}
+    .tab-btn.active[data-circuit="WTA"]{background:linear-gradient(180deg, rgba(178,108,255,.24), rgba(178,108,255,.12));border-color:rgba(178,108,255,.45);color:#fff;font-weight:700}
+    .tab-btn:disabled{opacity:.35;cursor:not-allowed}
+    .small-muted{color:var(--muted);font-size:.92rem}
+    .loading{display:inline-flex;align-items:center;gap:.5rem}
+    .spinner-border{width:1rem;height:1rem;border-width:.16em}
+    .table-wrap{border:1px solid var(--border);border-radius:1rem;overflow:hidden;background:#0f1728}
+    table{margin-bottom:0}
+    .table thead th{position:sticky;top:0;z-index:2;background:#0c1527 !important;color:#dbe8ff !important;border-bottom:1px solid var(--border) !important;font-weight:700;white-space:nowrap}
+    .table td{border-top:1px solid rgba(15,23,42,.04);vertical-align:middle}
+    tr.player-row{cursor:pointer;transition:transform .08s ease, box-shadow .08s ease, filter .08s ease;border-left:4px solid transparent;color:#0f172a}
+    tr.player-row:hover{filter:brightness(.985);transform:translateY(-1px);box-shadow:inset 0 0 0 9999px rgba(255,255,255,.03)}
+    tr.player-row[data-circuit="ATP"]{border-left-color:rgba(78,160,255,.9)}
+    tr.player-row[data-circuit="WTA"]{border-left-color:rgba(178,108,255,.9)}
+    tr.player-row td{background-clip:padding-box}
+    .rank-badge{min-width:3rem;text-align:center;font-weight:800;border-radius:.8rem;padding:.45rem .5rem;font-size:.92rem;color:#fff;background:#24314d}
+    .player-cell{display:flex;align-items:center;gap:.7rem;min-width:240px}
+    .player-name{font-weight:800;line-height:1.15;color:#0f172a;text-decoration:none}
+    .player-sub{color:#5b6474;font-size:.85rem;line-height:1.15;margin-top:.15rem}
+    .flag-wrap{flex:0 0 auto;width:22px;height:16px;border-radius:3px;overflow:hidden;box-shadow:0 0 0 1px rgba(15,23,42,.12);background:#e5e7eb}
+    .flag-wrap img{width:100%;height:100%;object-fit:cover;display:block}
+    .flag-fallback{display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:.6rem;font-weight:800;color:#334155;background:linear-gradient(135deg,#fff,#dbeafe)}
+    .country-badge{display:inline-flex;align-items:center;gap:.35rem;padding:.22rem .5rem;border-radius:999px;background:rgba(15,23,42,.04);color:#0f172a;font-weight:700;white-space:nowrap}
+    .country-badge img{width:18px;height:13px;border-radius:2px;object-fit:cover;display:block;box-shadow:0 0 0 1px rgba(15,23,42,.10)}
+    .country-option{display:inline-flex;align-items:center;gap:.4rem}
+    .country-option .flag-emoji{font-size:1rem;margin-right:0}
+    .mono{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+    .empty-state{padding:2.5rem 1rem;text-align:center;color:var(--muted)}
+    .status-line{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap}
+    .note-pill{display:inline-flex;align-items:center;gap:.4rem;padding:.35rem .65rem;border-radius:999px;border:1px solid var(--border);background:#0f1728;color:#dbe8ff;font-size:.84rem;white-space:nowrap}
+    .table-hover tbody tr:hover td{background:inherit}
+    .pagehint{color:var(--muted);font-size:.88rem}
+    details.player-events{display:block}
+    details.player-events summary{cursor:pointer;list-style:none;user-select:none;display:inline-flex;align-items:center;gap:.35rem;padding:.3rem .55rem;border-radius:999px;border:1px solid var(--border);background:#0f1728;color:#dbe8ff;font-size:.82rem}
+    details.player-events summary::-webkit-details-marker{display:none}
+    .event-list{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:.45rem}
+    .event-item{border:1px solid rgba(148,163,184,.18);border-radius:.95rem;padding:.55rem .65rem;background:rgba(255,255,255,.25);min-width:13rem;max-width:100%}
+    .event-top{display:flex;justify-content:space-between;gap:.6rem;align-items:flex-start}
+    .event-name{font-weight:800;color:#0f172a;line-height:1.2}
+    .event-sub{color:#5b6474;font-size:.83rem;line-height:1.25;margin-top:.16rem}
+    .event-points{font-weight:900;white-space:nowrap;color:#0f172a}
+  </style>
+</head>
+<body>
+  <main class="container-fluid">
+    <div class="d-flex align-items-start justify-content-between gap-3 mb-3 flex-wrap">
+      <div>
+        <h3 class="page-title mb-1">Race Rankings</h3>
+        <div class="subtitle">ATP and WTA race tables enriched with the players catalog.</div>
+      </div>
+      <div class="text-end pagehint">
+        Rows open the player profile directly.
+      </div>
+    </div>
+
+    <div class="card card-dark mb-3 p-3 p-lg-4">
+      <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap mb-3">
+        <div class="btn-group flex-wrap" role="tablist" aria-label="Circuit selection">
+          <button type="button" class="btn tab-btn active" id="tab-atp" data-circuit="ATP">ATP</button>
+          <button type="button" class="btn tab-btn" id="tab-wta" data-circuit="WTA">WTA</button>
+          <button type="button" class="btn tab-btn d-none" id="tab-nextgen" data-circuit="NEXTGEN">Race NextGen</button>
+        </div>
+        <div id="status" class="small-muted loading">
+          <span class="spinner-border" role="status" aria-hidden="true"></span>
+          <span>Loading rankings and player catalog…</span>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div>
+          <label class="form-label" for="search-input">Search player</label>
+          <input id="search-input" type="text" class="form-control" placeholder="Name or ID">
+        </div>
+        <div>
+          <label class="form-label" for="country-filter">Country</label>
+          <select id="country-filter" class="form-select">
+            <option value="">— all —</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label" for="page-size">Rows per page</label>
+          <select id="page-size" class="form-select">
+            <option value="25">25</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+            <option value="200">200</option>
+            <option value="500">500</option>
+            <option value="1000">1000</option>
+          </select>
+        </div>
+        <div>
+          <button id="reset-btn" class="btn btn-soft w-100">Reset</button>
+        </div>
+        <div>
+          <button id="nextgen-btn" class="btn btn-soft w-100">Race NextGen</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0" id="ranking-table">
+          <thead>
+            <tr>
+              <th style="width:1%">#</th>
+              <th>Player</th>
+              <th style="width:1%">Country</th>
+              <th style="width:1%">Age</th>
+              <th style="width:1%">Race points</th>
+              <th style="width:1%">Mandatory</th>
+              <th style="width:1%">Other</th>
+              <th style="width:1%">Events</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="results-info" class="small-muted mt-2"></div>
+  </main>
+
+<script>
+const COUNTRY_TO_ALPHA2 = {
+  "ABW": "AW","AFG": "AF","AGO": "AO","AIA": "AI","ALA": "AX","ALB": "AL","AND": "AD","ARE": "AE","ARG": "AR","ARM": "AM","ASM": "AS","ATA": "AQ","ATF": "TF","ATG": "AG","AUS": "AU","AUT": "AT","AZE": "AZ",
+  "BDI": "BI","BEL": "BE","BEN": "BJ","BES": "BQ","BFA": "BF","BGD": "BD","BGR": "BG","BHR": "BH","BHS": "BS","BIH": "BA","BLM": "BL","BLR": "BY","BLZ": "BZ","BMU": "BM","BOL": "BO","BRA": "BR","BRB": "BB","BRN": "BN","BTN": "BT","BVT": "BV","BWA": "BW",
+  "CAF": "CF","CAN": "CA","CCK": "CC","CHE": "CH","CHL": "CL","CHN": "CN","CIV": "CI","CMR": "CM","COD": "CD","COG": "CG","COK": "CK","COL": "CO","COM": "KM","CPV": "CV","CRI": "CR","CUB": "CU","CUW": "CW","CXR": "CX","CYM": "KY","CYP": "CY","CZE": "CZ",
+  "DEU": "DE","DJI": "DJ","DMA": "DM","DNK": "DK","DOM": "DO","DZA": "DZ",
+  "ECU": "EC","EGY": "EG","ERI": "ER","ESH": "EH","ESP": "ES","EST": "EE","ETH": "ET",
+  "FIN": "FI","FJI": "FJ","FLK": "FK","FRA": "FR","FRO": "FO","FSM": "FM",
+  "GAB": "GA","GBR": "GB","GEO": "GE","GGY": "GG","GHA": "GH","GIB": "GI","GIN": "GN","GLP": "GP","GMB": "GM","GNB": "GW","GNQ": "GQ","GRC": "GR","GRD": "GD","GRL": "GL","GTM": "GT","GUF": "GF","GUM": "GU","GUY": "GY",
+  "HKG": "HK","HMD": "HM","HND": "HN","HRV": "HR","HTI": "HT","HUN": "HU",
+  "IDN": "ID","IMN": "IM","IND": "IN","IOT": "IO","IRL": "IE","IRN": "IR","IRQ": "IQ","ISL": "IS","ISR": "IL","ITA": "IT",
+  "JAM": "JM","JEY": "JE","JOR": "JO","JPN": "JP",
+  "KAZ": "KZ","KEN": "KE","KGZ": "KG","KHM": "KH","KIR": "KI","KNA": "KN","KOR": "KR","KWT": "KW",
+  "LAO": "LA","LBN": "LB","LBR": "LR","LBY": "LY","LCA": "LC","LIE": "LI","LKA": "LK","LSO": "LS","LTU": "LT","LUX": "LU","LVA": "LV",
+  "MAC": "MO","MAF": "MF","MAR": "MA","MCO": "MC","MDA": "MD","MDG": "MG","MDV": "MV","MEX": "MX","MHL": "MH","MKD": "MK","MLI": "ML","MLT": "MT","MMR": "MM","MNE": "ME","MNG": "MN","MNP": "MP","MOZ": "MZ","MRT": "MR","MSR": "MS","MTQ": "MQ","MUS": "MU","MWI": "MW","MYS": "MY","MYT": "YT",
+  "NAM": "NA","NCL": "NC","NER": "NE","NFK": "NF","NGA": "NG","NIC": "NI","NIU": "NU","NLD": "NL","NOR": "NO","NPL": "NP","NRU": "NR","NZL": "NZ",
+  "OMN": "OM",
+  "PAK": "PK","PAN": "PA","PCN": "PN","PER": "PE","PHL": "PH","PLW": "PW","PNG": "PG","POL": "PL","PRI": "PR","PRK": "KP","PRT": "PT","PRY": "PY","PSE": "PS","PYF": "PF",
+  "QAT": "QA",
+  "REU": "RE","ROU": "RO","RUS": "RU","RWA": "RW",
+  "SAU": "SA","SDN": "SD","SEN": "SN","SGP": "SG","SGS": "GS","SHN": "SH","SJM": "SJ","SLB": "SB","SLE": "SL","SLV": "SV","SMR": "SM","SOM": "SO","SPM": "PM","SRB": "RS","SSD": "SS","STP": "ST","SUR": "SR","SVK": "SK","SVN": "SI","SWE": "SE","SWZ": "SZ","SXM": "SX","SYC": "SC","SYR": "SY",
+  "TCA": "TC","TCD": "TD","TGO": "TG","THA": "TH","TJK": "TJ","TKL": "TK","TKM": "TM","TLS": "TL","TON": "TO","TTO": "TT","TUN": "TN","TUR": "TR","TUV": "TV","TWN": "TW","TZA": "TZ",
+  "UGA": "UG","UKR": "UA","UMI": "UM","URY": "UY","USA": "US","UZB": "UZ",
+  "VAT": "VA","VCT": "VC","VEN": "VE","VGB": "VG","VIR": "VI","VNM": "VN","VUT": "VU",
+  "WLF": "WF",
+  "WSM": "WS",
+  "YEM": "YE",
+  "ZAF": "ZA","ZMB": "ZM","ZWE": "ZW",
+  "NED": "NL","GRE": "GR","RSA": "ZA","PUR": "PR","TPE": "TW","CRO": "HR","SLO": "SI","MON": "MC","BER": "BM","LAT": "LV","LIT": "LT","DEN": "DK","BUL": "BG","ROM": "RO","GER": "DE","SUI": "CH","POR": "PT","CHI": "CL","URU": "UY","PHI": "PH","MAS": "MY","VIE": "VN","ALG": "DZ","UAE": "AE","KSA": "SA","IRI": "IR","ROK": "KR"
+};
+const RANKING_URLS = {
+  ATP: '/race_ranking_atp.json',
+  WTA: '/race_ranking_wta.json'
+};
+const PLAYERS_URL = '/tools/players_catalog.json';
+const PROFILE_BASE = {
+  ATP: 'players_atp',
+  WTA: 'players'
+};
+
+const CURRENT_YEAR = new Date().getFullYear();
+const NEXTGEN_CUTOFF = new Date(Date.UTC(CURRENT_YEAR - 22, 10, 1));
+
+const PALLETTES = {
+  ATP: ['#ffffff', '#f8fbff', '#eff5ff', '#e7f0ff', '#dfeaff', '#d6e4ff', '#cfe0ff', '#c6d9ff'],
+  WTA: ['#ffffff', '#fcf7ff', '#f7efff', '#f1e6ff', '#ebddff', '#e4d2ff', '#ddc8ff', '#d6beff']
+};
+
+const state = {
+  circuit: 'ATP',
+  nextgenOnly: false,
+  rankings: {},
+  playersById: new Map(),
+  playersByName: new Map(),
+  currentRows: [],
+  filteredRows: [],
+  loaded: false
+};
+
+function escapeHtml(value) {
+  const s = value === null || value === undefined ? '' : String(value);
+  return s
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function normalizeCountryCode(code) {
+  return (code || '').trim().toUpperCase();
+}
+
+function alpha2FromCountry(countryCode) {
+  const normalized = normalizeCountryCode(countryCode);
+  if (!normalized) return '';
+  return COUNTRY_TO_ALPHA2[normalized] || '';
+}
+
+function emojiFromAlpha2(alpha2) {
+  const s = normalizeCountryCode(alpha2);
+  if (!/^[A-Z]{2}$/.test(s)) return '';
+  try {
+    return String.fromCodePoint(127397 + s.charCodeAt(0), 127397 + s.charCodeAt(1));
+  } catch {
+    return '';
+  }
+}
+
+function countryLabel(code) {
+  const cc = normalizeCountryCode(code);
+  if (!cc) return '—';
+  const flag = emojiFromAlpha2(alpha2FromCountry(cc));
+  return flag ? `${flag} ${cc}` : cc;
+}
+
+function countryOptionLabel(code) {
+  const cc = normalizeCountryCode(code);
+  if (!cc) return '—';
+  const flag = emojiFromAlpha2(alpha2FromCountry(cc));
+  return flag ? `${flag} ${cc}` : cc;
+}
+
+function flagUrlFromCountry(countryCode) {
+  const alpha2 = alpha2FromCountry(countryCode);
+  if (!alpha2) return '';
+  return `https://flagcdn.com/w20/${alpha2.toLowerCase()}.png`;
+}
+
+function slugifyName(name) {
+  return String(name || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function buildProfileUrl(player, circuit) {
+  if (!player || !player.player_id) return '';
+  const base = PROFILE_BASE[circuit] || 'players';
+  const slug = slugifyName(player.full_name || player.player_name || '');
+  const suffix = slug ? `_${slug}` : '';
+  return `/${base}/${encodeURIComponent(String(player.player_id))}${suffix}`;
+}
+
+function safeDate(value) {
+  if (!value) return null;
+  const d = new Date(`${value}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function formatDate(value) {
+  const d = safeDate(value);
+  if (!d) return '—';
+  return new Intl.DateTimeFormat('en', { year: 'numeric', month: 'short', day: '2-digit', timeZone: 'UTC' }).format(d);
+}
+
+function formatSnapshot(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return new Intl.DateTimeFormat('en', {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(d);
+}
+
+function computeAge(birthDate) {
+  const d = safeDate(birthDate);
+  if (!d) return null;
+  const today = new Date();
+  let age = today.getUTCFullYear() - d.getUTCFullYear();
+  const m = today.getUTCMonth() - d.getUTCMonth();
+  if (m < 0 || (m === 0 && today.getUTCDate() < d.getUTCDate())) age--;
+  return age;
+}
+
+function isNextGenEligible(player) {
+  const birth = safeDate(player?.birth_date);
+  if (!birth) return false;
+  return birth > NEXTGEN_CUTOFF;
+}
+
+function mapPlayersCatalog(players) {
+  state.playersById = new Map();
+  state.playersByName = new Map();
+  (players || []).forEach(player => {
+    if (!player) return;
+    if (player.player_id) state.playersById.set(String(player.player_id), player);
+    if (player.full_name) state.playersByName.set(String(player.full_name).toLowerCase(), player);
+  });
+}
+
+function getPlayerRecord(row) {
+  if (!row) return null;
+  const byId = row.player_id ? state.playersById.get(String(row.player_id)) : null;
+  if (byId) return byId;
+  const byName = row.player_name ? state.playersByName.get(String(row.player_name).toLowerCase()) : null;
+  return byName || null;
+}
+
+function enrichRow(row, circuit) {
+  const player = getPlayerRecord(row) || {};
+  const fullName = player.full_name || row.player_name || '—';
+  const playerId = String(row.player_id || player.player_id || '');
+  const country = normalizeCountryCode(player.represented_country || row.represented_country || row.country_code || '');
+  const birthDate = player.birth_date || row.birth_date || '';
+  const age = player.age ?? computeAge(birthDate);
+  const events = Array.isArray(row.events) ? row.events : [];
+  return {
+    ...row,
+    circuit,
+    player_id: playerId || row.player_id || '',
+    player_name: fullName,
+    country_code: country,
+    birth_date: birthDate,
+    age,
+    profile_url: buildProfileUrl(player.player_id ? player : { ...row, full_name: fullName }, circuit),
+    flag_url: flagUrlFromCountry(country),
+    events_count: events.length,
+    row_seed: `${circuit}|${playerId}|${fullName}|${row.rank ?? ''}`,
+    events
+  };
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url, { cache: 'no-cache' });
+  if (!response.ok) {
+    throw new Error(`Failed to load ${url} (${response.status})`);
+  }
+  return response.json();
+}
+
+function updateStatus(message, isError = false) {
+  const status = document.getElementById('status');
+  status.className = isError ? 'small-muted text-danger' : 'small-muted loading';
+  status.innerHTML = isError
+    ? escapeHtml(message)
+    : `<span class="spinner-border" role="status" aria-hidden="true"></span><span>${escapeHtml(message)}</span>`;
+}
+
+function getCountryOptions(rows) {
+  const set = new Set();
+  rows.forEach(row => {
+    if (row.country_code) set.add(row.country_code.toUpperCase());
+  });
+  return Array.from(set).sort();
+}
+
+function renderCountrySelect() {
+  const currentCountry = document.getElementById('country-filter').value;
+  const options = getCountryOptions(state.currentRows);
+  const filter = document.getElementById('country-filter');
+
+  filter.innerHTML = '<option value="">— all —</option>';
+
+  options.forEach(code => {
+    const opt = document.createElement('option');
+    opt.value = code;
+    opt.textContent = countryOptionLabel(code);
+    filter.appendChild(opt);
+  });
+
+  if ([...filter.options].some(o => o.value === currentCountry)) filter.value = currentCountry;
+}
+
+function applyCircuitVisuals() {
+  const body = document.body;
+  body.style.background =
+    state.circuit === 'WTA'
+      ? 'radial-gradient(circle at top left, rgba(178,108,255,.12), transparent 28%), radial-gradient(circle at top right, rgba(178,108,255,.07), transparent 26%), var(--bg)'
+      : 'radial-gradient(circle at top left, rgba(78,160,255,.12), transparent 28%), radial-gradient(circle at top right, rgba(78,160,255,.07), transparent 26%), var(--bg)';
+}
+
+function setActiveTabs() {
+  const atpBtn = document.getElementById('tab-atp');
+  const wtaBtn = document.getElementById('tab-wta');
+  const nextBtn = document.getElementById('tab-nextgen');
+
+  atpBtn.classList.toggle('active', state.circuit === 'ATP' || state.circuit === 'NEXTGEN');
+  wtaBtn.classList.toggle('active', state.circuit === 'WTA');
+  nextBtn.classList.toggle('active', state.circuit === 'NEXTGEN');
+
+  nextBtn.classList.toggle('d-none', !(state.circuit === 'ATP' || state.circuit === 'NEXTGEN'));
+}
+
+function rowTint(row, index) {
+  const palette = PALLETTES[row.circuit === 'WTA' ? 'WTA' : 'ATP'];
+  let hash = 2166136261;
+  const seed = String(row.row_seed || index);
+  for (let i = 0; i < seed.length; i++) {
+    hash ^= seed.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  let shadeIndex = Math.abs(hash) % palette.length;
+  if (index > 0 && state.filteredRows[index - 1] && state.filteredRows[index - 1]._shadeIndex === shadeIndex) {
+    shadeIndex = (shadeIndex + 1) % palette.length;
+  }
+  row._shadeIndex = shadeIndex;
+  return palette[shadeIndex];
+}
+
+function bucketLabel(bucket) {
+  const b = String(bucket || '').toLowerCase();
+  if (b === 'gs') return 'Grand Slam';
+  if (b === 'combined') return 'Combined';
+  if (b === 'm1000') return 'Masters 1000';
+  if (b === 'non_combined') return 'Non-combined';
+  if (b === 'other') return 'Other';
+  return bucket || 'Other';
+}
+
+function renderEventList(events) {
+  if (!events || !events.length) {
+    return '<span class="small-muted">No event details</span>';
+  }
+  return `
+    <details class="player-events" onclick="event.stopPropagation()">
+      <summary>Show events</summary>
+      <div class="event-list">
+        ${events.map(ev => `
+          <div class="event-item">
+            <div class="event-top">
+              <div>
+                <div class="event-name">${escapeHtml(ev.tourney_name || '—')}</div>
+                <div class="event-sub">${escapeHtml(formatDate(ev.start_date))} · ${escapeHtml(ev.level || '—')} · ${escapeHtml(bucketLabel(ev.bucket))}</div>
+              </div>
+              <div class="event-points">${escapeHtml(String(ev.points ?? '—'))}</div>
+            </div>
+            <div class="event-sub mt-1">
+              ${ev.ranking_at_event != null ? `Event rank: <strong>${escapeHtml(String(ev.ranking_at_event))}</strong>` : 'Event rank: —'}
+              ${ev.ranking_name ? ` · ${escapeHtml(ev.ranking_name)}` : ''}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </details>
+  `;
+}
+
+function renderRows() {
+  const tbody = document.querySelector('#ranking-table tbody');
+  tbody.innerHTML = '';
+
+  const rows = state.filteredRows || [];
+  if (!rows.length) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="8">
+          <div class="empty-state">No players match the current filters.</div>
+        </td>
+      </tr>
+    `;
+    document.getElementById('results-info').textContent = 'No players found.';
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+
+  rows.forEach((row, index) => {
+    const tr = document.createElement('tr');
+    tr.className = 'player-row';
+    tr.dataset.circuit = row.circuit || state.circuit;
+    tr.tabIndex = 0;
+    tr.setAttribute('role', 'link');
+    tr.setAttribute('aria-label', `${row.player_name || 'Player'} profile`);
+    tr.style.cursor = row.profile_url ? 'pointer' : 'default';
+
+    const bg = rowTint(row, index);
+
+    const flagHtml = row.flag_url
+      ? `<span class="flag-wrap"><img src="${escapeHtml(row.flag_url)}" alt="${escapeHtml(row.country_code || '')} flag" loading="lazy"></span>`
+      : `<span class="flag-wrap"><span class="flag-fallback">?</span></span>`;
+
+    tr.innerHTML = `
+      <td><span class="rank-badge mono">${escapeHtml(String(row.rank ?? '—'))}</span></td>
+      <td>
+        <div class="player-cell">
+          <div>
+            <div class="player-name">${escapeHtml(row.player_name || '—')}</div>
+          </div>
+        </div>
+      </td>
+      <td>
+        <span class="country-badge" title="${escapeHtml(row.country_code || '')}">
+          ${flagHtml}
+        </span>
+      </td>
+      <td class="mono">${escapeHtml(row.age != null ? String(row.age) : '—')}</td>
+      <td class="mono"><strong>${escapeHtml(String(row.race_points ?? '—'))}</strong></td>
+      <td class="mono">${escapeHtml(String(row.mandatory_points ?? '—'))}</td>
+      <td class="mono">${escapeHtml(String(row.other_points ?? '—'))}</td>
+      <td class="mono">${renderEventList(row.events)}</td>
+    `;
+
+    tr.querySelectorAll('td').forEach(td => {
+      td.style.backgroundColor = bg;
+    });
+
+    if (row.profile_url) {
+      tr.addEventListener('click', (ev) => {
+        if (ev.target.closest('summary, a, button, input, select, textarea, details')) return;
+        window.location.assign(row.profile_url);
+      });
+      tr.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ') {
+          ev.preventDefault();
+          window.location.assign(row.profile_url);
+        }
+      });
+    }
+
+    fragment.appendChild(tr);
+  });
+
+  tbody.appendChild(fragment);
+  document.getElementById('results-info').textContent = `${rows.length.toLocaleString('en-US')} result${rows.length !== 1 ? 's' : ''}.`;
+}
+
+function applyFilters() {
+  const search = document.getElementById('search-input').value.trim().toLowerCase();
+  const country = document.getElementById('country-filter').value.trim().toUpperCase();
+
+  const baseRows = state.currentRows || [];
+  state.filteredRows = baseRows.filter(row => {
+    const haystack = `${row.player_name || ''} ${row.player_id || ''}`.toLowerCase();
+    if (search && !haystack.includes(search)) return false;
+    if (country && String(row.country_code || '').toUpperCase() !== country) return false;
+    if (state.nextgenOnly && state.circuit !== 'WTA' && !isNextGenEligible(row)) return false;
+    return true;
+  });
+
+  renderRows();
+}
+
+function setCircuit(circuit) {
+  state.circuit = circuit;
+  state.nextgenOnly = false;
+
+  document.getElementById('tab-nextgen').classList.add('d-none');
+  document.getElementById('tab-nextgen').classList.remove('active');
+
+  if (!state.rankings[circuit]) return;
+
+  if (circuit === 'ATP') {
+    document.getElementById('tab-nextgen').classList.remove('d-none');
+  }
+
+  const payload = state.rankings[circuit];
+  state.currentRows = (payload.ranking || [])
+    .map(row => enrichRow(row, circuit))
+    .sort((a, b) => Number(a.rank || 0) - Number(b.rank || 0));
+
+  state.filteredRows = state.currentRows.slice();
+  renderCountrySelect();
+  applyCircuitVisuals();
+  setActiveTabs();
+  applyFilters();
+
+  updateStatus(`${circuit} loaded.`);
+}
+
+function setNextGen() {
+  if (state.circuit !== 'ATP') return;
+  state.circuit = 'NEXTGEN';
+  state.nextgenOnly = true;
+
+  const atp = state.rankings.ATP;
+  state.currentRows = (atp?.ranking || [])
+    .map(row => enrichRow(row, 'ATP'))
+    .sort((a, b) => Number(a.rank || 0) - Number(b.rank || 0));
+
+  state.filteredRows = state.currentRows.filter(isNextGenEligible);
+  renderCountrySelect();
+  applyCircuitVisuals();
+  setActiveTabs();
+  applyFilters();
+  updateStatus('ATP NextGen loaded.');
+}
+
+function renderInitialState() {
+  setCircuit('ATP');
+}
+
+function wireEvents() {
+  document.getElementById('tab-atp').addEventListener('click', () => setCircuit('ATP'));
+  document.getElementById('tab-wta').addEventListener('click', () => setCircuit('WTA'));
+  document.getElementById('tab-nextgen').addEventListener('click', () => {
+    if (state.circuit === 'NEXTGEN') {
+      setCircuit('ATP');
+    } else {
+      setNextGen();
+    }
+  });
+
+  document.getElementById('search-input').addEventListener('input', applyFilters);
+  document.getElementById('country-filter').addEventListener('change', applyFilters);
+
+  document.getElementById('reset-btn').addEventListener('click', () => {
+    document.getElementById('search-input').value = '';
+    document.getElementById('country-filter').value = '';
+    state.nextgenOnly = false;
+    if (state.circuit === 'NEXTGEN') {
+      setCircuit('ATP');
+    } else {
+      applyFilters();
+    }
+  });
+
+  document.getElementById('nextgen-btn').addEventListener('click', () => {
+    if (state.circuit === 'NEXTGEN') {
+      setCircuit('ATP');
+    } else {
+      setNextGen();
+    }
+  });
+}
+
+async function init() {
+  wireEvents();
+  try {
+    updateStatus('Loading rankings and player catalog…');
+    const [playersPayload, atpPayload, wtaPayload] = await Promise.all([
+      fetchJson(PLAYERS_URL),
+      fetchJson(RANKING_URLS.ATP),
+      fetchJson(RANKING_URLS.WTA)
+    ]);
+
+    mapPlayersCatalog(playersPayload.players || []);
+    state.rankings.ATP = atpPayload;
+    state.rankings.WTA = wtaPayload;
+    state.loaded = true;
+
+    renderInitialState();
+  } catch (error) {
+    console.error(error);
+    updateStatus(error.message || 'Failed to load data.', true);
+    document.querySelector('#ranking-table tbody').innerHTML = `
+      <tr>
+        <td colspan="8">
+          <div class="empty-state text-danger">Unable to load the ranking files.</div>
+        </td>
+      </tr>
+    `;
+    document.getElementById('results-info').textContent = 'No data';
+  }
+}
+
+window.addEventListener('load', init);
+</script>
+</body>
+</html>

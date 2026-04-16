@@ -23,7 +23,7 @@ import json
 import os
 import re
 import unicodedata
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -42,18 +42,52 @@ ATP_OUT_INDEX_FILE = os.path.join(OUT_INDEX_DIR, "players_atp_index.json")
 # -----------------------------
 # Colonnes candidates WTA
 # -----------------------------
+# On privilégie les colonnes explicites winner/loser, puis on garde des fallback.
+WTA_WINNER_NAME_CANDIDATES = [
+    "winner",
+    "winner_player_name",
+    "winner_name",
+    "player_winner",
+]
+
+WTA_LOSER_NAME_CANDIDATES = [
+    "loser",
+    "loser_player_name",
+    "loser_name",
+    "player_loser",
+]
+
+WTA_WINNER_COUNTRY_CANDIDATES = [
+    "winner_country",
+    "country_winner",
+    "country_a",
+]
+
+WTA_LOSER_COUNTRY_CANDIDATES = [
+    "loser_country",
+    "country_loser",
+    "country_b",
+]
+
+WTA_WINNER_ID_CANDIDATES = [
+    "player_id_winner",
+    "PlayerIDA",
+    "PlayerIDA2",
+]
+
+WTA_LOSER_ID_CANDIDATES = [
+    "player_id_loser",
+    "PlayerIDB",
+    "PlayerIDB2",
+]
+
+WTA_MATCH_ID_CANDIDATES = ["match_id", "Match ID", "MatchID", "MatchId", "ls_match_id"]
+
+# Fallback si winner/loser sont absents
 WTA_NAME_PAIR_CANDIDATES = [
     ("player_a", "player_b"),
     ("PlayerNameA", "PlayerNameB"),
 ]
-
-WTA_WINNER_NAME_CANDIDATES = ["winner", "winner_player_name", "winner_name"]
-WTA_LOSER_NAME_CANDIDATES = ["loser", "loser_player_name", "loser_name"]
-
-WTA_WINNER_COUNTRY_CANDIDATES = ["winner_country", "country_a"]
-WTA_LOSER_COUNTRY_CANDIDATES = ["loser_country", "country_b"]
-
-WTA_MATCH_ID_CANDIDATES = ["match_id", "Match ID", "MatchID", "MatchId", "ls_match_id"]
 
 
 # -----------------------------
@@ -87,7 +121,7 @@ def slugify(name: str) -> str:
 
 
 def make_player_id_from_slug(slug_name: str) -> str:
-    """Crée un id stable à partir du slug."""
+    """Crée un id stable à partir du slug, utilisé seulement en fallback."""
     h = hashlib.md5(slug_name.encode("utf-8")).hexdigest()[:6].upper()
     return f"W{h}"
 
@@ -150,8 +184,8 @@ def build_entry(
 ) -> Tuple[str, Dict]:
     """
     Construit la clé interne + l'objet joueur.
-    - Pour ATP, si player_id_raw existe, il sert de clé stable.
-    - Pour WTA, la clé reste basée sur le nom normalisé.
+    - Si player_id_raw existe, on l'utilise comme identifiant stable.
+    - Sinon, on fabrique un id de fallback basé sur le nom.
     """
     name_norm = normalize_name(name_raw)
     slug_base = slugify(name_norm) or "unknown"
@@ -187,63 +221,68 @@ def build_entry(
 # -----------------------------
 # Extraction WTA
 # -----------------------------
-def gather_players_from_row_wta(row: pd.Series, row_unique_id: str) -> List[Tuple[str, Optional[str], str, Optional[str]]]:
+def gather_players_from_row_wta(
+    row: pd.Series, row_unique_id: str
+) -> List[Tuple[str, Optional[str], str, Optional[str]]]:
     """
     Retourne une liste de tuples:
         (name, country, match_uid, player_id_raw)
 
     WTA:
-      - essaie player_a / player_b
-      - sinon winner / loser
-      - sinon fallback sur toute colonne candidate nom
+      - priorité à winner / loser
+      - utilisation de player_id_winner / player_id_loser
+      - fallback sur player_a / player_b si nécessaire
     """
     results: List[Tuple[str, Optional[str], str, Optional[str]]] = []
 
     match_id_val = safe_get_series_val(row, WTA_MATCH_ID_CANDIDATES)
     match_uid = match_id_val if match_id_val is not None else row_unique_id
 
-    # Priorité au couple player_a / player_b
-    pair_found = False
+    # 1) Cas normal : winner / loser explicites
+    winner_name = safe_get_series_val(row, WTA_WINNER_NAME_CANDIDATES)
+    loser_name = safe_get_series_val(row, WTA_LOSER_NAME_CANDIDATES)
+
+    winner_country = safe_get_series_val(row, WTA_WINNER_COUNTRY_CANDIDATES)
+    loser_country = safe_get_series_val(row, WTA_LOSER_COUNTRY_CANDIDATES)
+
+    winner_id = safe_get_series_val(row, WTA_WINNER_ID_CANDIDATES)
+    loser_id = safe_get_series_val(row, WTA_LOSER_ID_CANDIDATES)
+
+    if winner_name:
+        results.append((winner_name, winner_country, match_uid, winner_id))
+    if loser_name:
+        results.append((loser_name, loser_country, match_uid, loser_id))
+
+    if results:
+        return results
+
+    # 2) Fallback : player_a / player_b
     for name_a_col, name_b_col in WTA_NAME_PAIR_CANDIDATES:
         if name_a_col in row.index and name_b_col in row.index:
             name_a = safe_get_series_val(row, [name_a_col])
             name_b = safe_get_series_val(row, [name_b_col])
 
-            country_a = safe_get_series_val(row, WTA_WINNER_COUNTRY_CANDIDATES)
-            country_b = safe_get_series_val(row, WTA_LOSER_COUNTRY_CANDIDATES)
+            country_a = safe_get_series_val(row, ["country_a", "winner_country", "country_winner"])
+            country_b = safe_get_series_val(row, ["country_b", "loser_country", "country_loser"])
 
             if name_a:
                 results.append((name_a, country_a, match_uid, None))
             if name_b:
                 results.append((name_b, country_b, match_uid, None))
-            pair_found = True
+
+            if results:
+                return results
+
+    # 3) Dernier recours : n'importe quelle colonne plausible
+    fallback_cols = (
+        WTA_WINNER_NAME_CANDIDATES
+        + WTA_LOSER_NAME_CANDIDATES
+        + [c for pair in WTA_NAME_PAIR_CANDIDATES for c in pair]
+    )
+    for c in fallback_cols:
+        if c in row.index and pd.notna(row[c]) and str(row[c]).strip() != "":
+            results.append((str(row[c]).strip(), None, match_uid, None))
             break
-
-    if pair_found:
-        return results
-
-    # Fallback winner / loser
-    name_w = safe_get_series_val(row, WTA_WINNER_NAME_CANDIDATES)
-    country_w = safe_get_series_val(row, WTA_WINNER_COUNTRY_CANDIDATES)
-    if name_w:
-        results.append((name_w, country_w, match_uid, None))
-
-    name_l = safe_get_series_val(row, WTA_LOSER_NAME_CANDIDATES)
-    country_l = safe_get_series_val(row, WTA_LOSER_COUNTRY_CANDIDATES)
-    if name_l:
-        results.append((name_l, country_l, match_uid, None))
-
-    # Dernier recours: n'importe quelle colonne candidate de nom
-    if not results:
-        fallback_cols = (
-            WTA_WINNER_NAME_CANDIDATES
-            + WTA_LOSER_NAME_CANDIDATES
-            + [c for pair in WTA_NAME_PAIR_CANDIDATES for c in pair]
-        )
-        for c in fallback_cols:
-            if c in row.index and pd.notna(row[c]) and str(row[c]).strip() != "":
-                results.append((str(row[c]).strip(), None, match_uid, None))
-                break
 
     return results
 
@@ -251,7 +290,9 @@ def gather_players_from_row_wta(row: pd.Series, row_unique_id: str) -> List[Tupl
 # -----------------------------
 # Extraction ATP
 # -----------------------------
-def gather_players_from_row_atp(row: pd.Series, row_unique_id: str) -> List[Tuple[str, Optional[str], str, Optional[str]]]:
+def gather_players_from_row_atp(
+    row: pd.Series, row_unique_id: str
+) -> List[Tuple[str, Optional[str], str, Optional[str]]]:
     """
     Retourne une liste de tuples:
         (name, country, match_uid, player_id_raw)
@@ -300,12 +341,10 @@ def build_index(mode: str) -> dict:
         matches_dir = WTA_MATCHES_DIR
         out_file = WTA_OUT_INDEX_FILE
         extractor = gather_players_from_row_wta
-        page_prefix = "players"
     else:
         matches_dir = ATP_MATCHES_DIR
         out_file = ATP_OUT_INDEX_FILE
         extractor = gather_players_from_row_atp
-        page_prefix = "players_atp"
 
     if not os.path.isdir(matches_dir):
         raise FileNotFoundError(f"Directory not found: {matches_dir}")
