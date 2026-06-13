@@ -5,10 +5,10 @@ permissions:
 
 on:
   schedule:
-    # Deux crons UTC pour couvrir l'alternance CET/CEST.
-    # Le garde-fou horaire ci-dessous tolère un léger retard du runner.
-    - cron: '30 22 * * *'  # ~00:30 Europe/Paris
-    - cron: '30 23 * * *'  # ~00:30 Europe/Paris
+    # Une seule exécution quotidienne, en heure de Paris.
+    # 01:07 évite le pic de charge du début d'heure.
+    - cron: '7 1 * * *'
+      timezone: "Europe/Paris"
   workflow_dispatch: {}
 
 jobs:
@@ -34,7 +34,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_UPDATE_TOURNAMENT || secrets.GITHUB_TOKEN }}
           OWNER: ${{ github.repository_owner }}
-          REPO: ${{ github.repository }}
+          REPO_FULL: ${{ github.repository }}
           WORKFLOW_FILE: update_tournament.yml
           WAIT_TIMEOUT_MIN: 10
         run: |
@@ -43,10 +43,11 @@ jobs:
           timeout=$(( WAIT_TIMEOUT_MIN * 60 ))
           interval=5
           elapsed=0
+          REPO_NAME="${REPO_FULL#*/}"
 
-          echo "Polling workflow runs for ${WORKFLOW_FILE} in ${OWNER}/${REPO} (status=in_progress)..."
+          echo "Polling workflow runs for ${WORKFLOW_FILE} in ${OWNER}/${REPO_NAME} (status=in_progress)..."
           while :; do
-            api="https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/${WORKFLOW_FILE}/runs?status=in_progress"
+            api="https://api.github.com/repos/${OWNER}/${REPO_NAME}/actions/workflows/${WORKFLOW_FILE}/runs?status=in_progress"
             out=$(curl -s -H "$AUTH_HEADER" "$api")
             total=$(echo "$out" | sed -n 's/.*"total_count":[[:space:]]*\([0-9]\+\).*/\1/p' || echo 0)
             total=${total:-0}
@@ -88,17 +89,14 @@ jobs:
         run: |
           python - <<'PY'
           import os
-          from datetime import datetime, timezone
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
 
-          try:
-              from zoneinfo import ZoneInfo
-              tz = ZoneInfo("Europe/Paris")
-              now = datetime.now(tz)
-          except Exception:
-              now = datetime.now(timezone.utc)
-
+          now = datetime.now(ZoneInfo("Europe/Paris"))
           print("Europe/Paris now:", now.isoformat())
-          proceed = (now.hour == 0 and now.minute < 55)
+
+          # Autorise le run pendant l'heure de 01h, même si le runner démarre un peu en retard.
+          proceed = (now.hour == 1 and now.minute < 55)
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
               fh.write(f"proceed={str(proceed).lower()}\n")

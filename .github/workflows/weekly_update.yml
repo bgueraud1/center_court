@@ -5,11 +5,8 @@ permissions:
 
 on:
   schedule:
-    # 00:01 Europe/Paris le lundi :
-    # - en CET (UTC+1) => dimanche 23:01 UTC
-    # - en CEST (UTC+2) => dimanche 22:01 UTC
-    - cron: '1 22 * * 0'
-    - cron: '1 23 * * 0'
+    - cron: '7 2 * * 1'
+      timezone: "Europe/Paris"
   workflow_dispatch: {}
 
 jobs:
@@ -34,20 +31,18 @@ jobs:
         run: |
           python - <<'PY'
           import os
-          from datetime import datetime, timezone
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
 
-          try:
-              from zoneinfo import ZoneInfo
-              now = datetime.now(ZoneInfo("Europe/Paris"))
-          except Exception:
-              now = datetime.now(timezone.utc)
-
+          now = datetime.now(ZoneInfo("Europe/Paris"))
           print("Europe/Paris now:", now.isoformat())
 
-          proceed = (now.weekday() == 0 and now.hour == 0 and now.minute < 15)
+          # Le schedule ci-dessus est le vrai déclencheur.
+          # On ne bloque pas si GitHub lance le job avec du retard.
+          proceed = True
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
-              fh.write(f"proceed={str(proceed).lower()}\n")
+              fh.write("proceed=true\n")
               fh.write(f"local_time_iso={now.isoformat()}\n")
           PY
 
