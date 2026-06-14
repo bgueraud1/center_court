@@ -609,7 +609,10 @@ def get_last_scraped_date(file_path="last_scraped_date.txt"):
     """Lit la date du dernier scrape si disponible; sinon retourne 1900-01-01."""
     try:
         with open(file_path, "r") as f:
-            return datetime.strptime(f.read().strip(), "%Y-%m-%d")
+            date_str = f.read().strip()
+            last_date = datetime.strptime(date_str, "%Y-%m-%d")
+            print(f"The last scraped date for WTA is: {last_date}")
+            return last_date
     except Exception:
         return datetime(1900,1,1)
 
@@ -1531,7 +1534,9 @@ def select_rows_for_tid(df, tid):
         candidates = candidates.drop_duplicates().reset_index(drop=True)
     return candidates
 
-def main(year=None, tournament_player_counts=None, verbose=True, requested_tournament_ids=None, created_files_out=None):
+def main(year=None, tournament_player_counts=None, verbose=True,
+         requested_tournament_ids=None, created_files_out=None,
+         ignore_last_scraped=False):
     """
     Exécute la pipeline pour une année.
     -> Ecrit uniquement : matches/wta_matches/wta_<tid>_<year>.csv
@@ -1553,7 +1558,19 @@ def main(year=None, tournament_player_counts=None, verbose=True, requested_tourn
     state = load_scrape_state()
     last_scraped = datetime.fromisoformat(state["wta"]).date()
     today = today_paris()
-    to_scrape = tournaments_to_scrape(tpc, last_scraped, today)
+
+    if verbose:
+        print(f"[DEBUG] last_scraped={last_scraped} | today={today}")
+
+    if ignore_last_scraped:
+        to_scrape = [(tid, (details[3] == 1)) for tid, details in tpc.items()]
+        if verbose:
+            print(f"[DEBUG] ignore_last_scraped=True -> scraping all tournaments of the dict")
+    else:
+        to_scrape = tournaments_to_scrape(tpc, last_scraped, today)
+
+    if verbose:
+        print(f"[DEBUG] to_scrape={to_scrape}")
     if verbose:
         print(f"\n=== YEAR {year_str} | Tournaments à scraper: {to_scrape}")
 
@@ -1831,7 +1848,9 @@ def main(year=None, tournament_player_counts=None, verbose=True, requested_tourn
     return per_tournament_results
 
 # --------- Multi-year runner ----------
-def run_years(years=None, tpc_map=None, verbose=True, requested_tournament_ids=None, created_files_out=None):
+def run_years(years=None, tpc_map=None, verbose=True,
+              requested_tournament_ids=None, created_files_out=None,
+              ignore_last_scraped=False):
     """
     Autoscanning des variables tournament_player_counts_<YYYY> dans globals() sauf si tpc_map fourni.
     Peut recevoir requested_tournament_ids (set/iterable de str) pour forcer le scraping de certains tid seulement.
@@ -1870,11 +1889,14 @@ def run_years(years=None, tpc_map=None, verbose=True, requested_tournament_ids=N
             continue
         try:
             # on passe requested_tournament_ids et created_files_out à main()
-            per_tid = main(year=y,
-                           tournament_player_counts=tpc,
-                           verbose=verbose,
-                           requested_tournament_ids=requested_tournament_ids,
-                           created_files_out=created_files_out)
+            per_tid = main(
+                            year=y,
+                            tournament_player_counts=tpc,
+                            verbose=verbose,
+                            requested_tournament_ids=requested_tournament_ids,
+                            created_files_out=created_files_out,
+                            ignore_last_scraped=ignore_last_scraped
+                        )
             results[y] = per_tid
         except Exception as e:
             print(f"Erreur en traitant l'année {y}: {e}")
@@ -1890,6 +1912,7 @@ def parse_args_and_run():
     parser.add_argument("--tournament-ids", help='Comma-separated tournament ids to process (ex: "800,1050")', default=None)
     parser.add_argument("--tournament-dict-path", help='Path to tournament dict JSON (optional)', default=None)
     parser.add_argument("--created-files-out", help='Path to write created files list (one per line)', default="created_files.txt")
+    parser.add_argument("--ignore-last-scraped", action="store_true")
     args = parser.parse_args()
 
     years = None
