@@ -1,0 +1,93 @@
+name: Manage inscriptions
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: "auto | open | close"
+        required: false
+        default: "auto"
+        type: choice
+        options:
+          - auto
+          - open
+          - close
+      anchor_date:
+        description: "YYYY-MM-DD. Sunday anchor for manual test runs."
+        required: false
+        default: ""
+
+concurrency:
+  group: manage-inscriptions
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  ATP_TOURNAMENTS_JSON: docs/atp_tournaments_2026.json
+  WTA_TOURNAMENTS_JSON: docs/wta_tournaments_2026.json
+  OUTPUT_JSON: docs/bracket/open_inscriptions.json
+
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL || vars.SUPABASE_URL }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || vars.SUPABASE_SERVICE_ROLE_KEY }}
+
+jobs:
+  manage:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check Supabase env
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_URL:-}" ]; then
+            echo "SUPABASE_URL is missing in GitHub secrets/variables"
+            exit 1
+          fi
+          if [ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+            echo "SUPABASE_SERVICE_ROLE_KEY is missing in GitHub secrets/variables"
+            exit 1
+          fi
+
+      - name: Run inscriptions manager
+        env:
+          PHASE: ${{ github.event_name == 'workflow_dispatch' && inputs.phase || 'auto' }}
+          ANCHOR_DATE: ${{ github.event_name == 'workflow_dispatch' && inputs.anchor_date || '' }}
+        run: |
+          set -euo pipefail
+          ARGS=(python3 scripts/manage_inscriptions.py --phase "$PHASE")
+
+          if [ -n "${ANCHOR_DATE:-}" ]; then
+            ARGS+=(--anchor-date "$ANCHOR_DATE")
+          fi
+
+          echo "Running: ${ARGS[*]}"
+          "${ARGS[@]}"
+
+      - name: Commit and push if changed
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- "$OUTPUT_JSON"; then
+            echo "No change."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$OUTPUT_JSON"
+          git commit -m "ci: update open inscriptions JSON [skip ci]"
+          git push
