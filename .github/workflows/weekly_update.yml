@@ -158,16 +158,18 @@ jobs:
 
       - name: Run ATP and WTA match scrapers
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        env:
+          ATP_SCRAPE_TODAY: "2026-05-15"
         run: |
           set -euo pipefail
       
-          echo "Running ATP match scraper for ${TODAY}..."
+          echo "Running ATP match scraper with fake today=${ATP_SCRAPE_TODAY}..."
           xvfb-run -a python3 scripts/scraping_atp_matches.py \
             --tournaments-json docs/atp_tournaments_2026.json \
             --out-folder docs/matches/atp_matches \
-            --today "${TODAY}" \
+            --today "${ATP_SCRAPE_TODAY}" \
             -v
-      
+
           echo "Running WTA match scraper for ${TODAY}..."
           python3 scripts/scraping_main.py \
             --tournament-dict-path docs/wta_tournaments_2026.json
