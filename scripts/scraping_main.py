@@ -1534,9 +1534,21 @@ def select_rows_for_tid(df, tid):
         candidates = candidates.drop_duplicates().reset_index(drop=True)
     return candidates
 
-def main(year=None, tournament_player_counts=None, verbose=True,
-         requested_tournament_ids=None, created_files_out=None,
-         ignore_last_scraped=False):
+#def main(year=None, tournament_player_counts=None, verbose=True,
+#         requested_tournament_ids=None, created_files_out=None,
+#         ignore_last_scraped=False):
+
+#XXXX
+def main(
+    year=None,
+    tournament_player_counts=None,
+    verbose=True,
+    requested_tournament_ids=None,
+    created_files_out=None,
+    ignore_last_scraped=False,
+    from_date=None,
+    to_date=None,
+):
     """
     Exécute la pipeline pour une année.
     -> Ecrit uniquement : matches/wta_matches/wta_<tid>_<year>.csv
@@ -1555,9 +1567,22 @@ def main(year=None, tournament_player_counts=None, verbose=True,
 
     today = datetime.now()
 
-    state = load_scrape_state()
-    last_scraped = datetime.fromisoformat(state["wta"]).date()
-    today = today_paris()
+    #state = load_scrape_state()
+    #last_scraped = datetime.fromisoformat(state["wta"]).date()
+    #today = today_paris()
+#XXXX
+
+    if from_date:
+        last_scraped = datetime.strptime(from_date, "%Y-%m-%d")
+    else:
+        state = load_scrape_state()
+        last_scraped = datetime.fromisoformat(state["wta"])
+
+    if to_date:
+        today = datetime.strptime(to_date, "%Y-%m-%d")
+    else:
+        today = today_paris()
+#XXXX
 
     if verbose:
         print(f"[DEBUG] last_scraped={last_scraped} | today={today}")
@@ -1848,9 +1873,13 @@ def main(year=None, tournament_player_counts=None, verbose=True,
     return per_tournament_results
 
 # --------- Multi-year runner ----------
-def run_years(years=None, tpc_map=None, verbose=True,
-              requested_tournament_ids=None, created_files_out=None,
-              ignore_last_scraped=False):
+#def run_years(years=None, tpc_map=None, verbose=True,
+#              requested_tournament_ids=None, created_files_out=None,
+#              ignore_last_scraped=False):
+#XXXX    
+def run_years(years=None,tpc_map=None,verbose=True,
+              requested_tournament_ids=None,created_files_out=None,
+              ignore_last_scraped=False,from_date=None,to_date=None,):
     """
     Autoscanning des variables tournament_player_counts_<YYYY> dans globals() sauf si tpc_map fourni.
     Peut recevoir requested_tournament_ids (set/iterable de str) pour forcer le scraping de certains tid seulement.
@@ -1897,6 +1926,19 @@ def run_years(years=None, tpc_map=None, verbose=True,
                             created_files_out=created_files_out,
                             ignore_last_scraped=ignore_last_scraped
                         )
+            
+
+            #XXXX
+            per_tid = main(
+    year=y,
+    tournament_player_counts=tpc,
+    verbose=verbose,
+    requested_tournament_ids=requested_tournament_ids,
+    created_files_out=created_files_out,
+    ignore_last_scraped=ignore_last_scraped,
+    from_date=from_date,
+    to_date=to_date,
+)
             results[y] = per_tid
         except Exception as e:
             print(f"Erreur en traitant l'année {y}: {e}")
@@ -1913,6 +1955,13 @@ def parse_args_and_run():
     parser.add_argument("--tournament-dict-path", help='Path to tournament dict JSON (optional)', default=None)
     parser.add_argument("--created-files-out", help='Path to write created files list (one per line)', default="created_files.txt")
     parser.add_argument("--ignore-last-scraped", action="store_true")
+
+    #XXXX
+    parser.add_argument("--from-date", help="Date de début YYYY-MM-DD", default=None)
+    parser.add_argument("--to-date", help="Date de fin YYYY-MM-DD", default=None)
+    #XXXX
+
+
     args = parser.parse_args()
 
     years = None
@@ -1972,10 +2021,32 @@ def parse_args_and_run():
         run_years(years=None, tpc_map=tpc_map, verbose=args.verbose,
                   requested_tournament_ids=requested_ids,
                   created_files_out=args.created_files_out)
+        
+#XXXX
+        run_years(
+    years=None,
+    tpc_map=tpc_map,
+    verbose=args.verbose,
+    requested_tournament_ids=requested_ids,
+    created_files_out=args.created_files_out,
+    from_date=args.from_date,
+    to_date=args.to_date
+)
     else:
         run_years(years=years, tpc_map=tpc_map, verbose=args.verbose,
                   requested_tournament_ids=requested_ids,
                   created_files_out=args.created_files_out)
+        
+        #XXXX
+        run_years(
+    years=years,
+    tpc_map=tpc_map,
+    verbose=args.verbose,
+    requested_tournament_ids=requested_ids,
+    created_files_out=args.created_files_out,
+    from_date=args.from_date,
+    to_date=args.to_date
+)
         
 
 if __name__ == "__main__":
