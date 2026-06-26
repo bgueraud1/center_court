@@ -1918,14 +1918,14 @@ def run_years(years=None,tpc_map=None,verbose=True,
             continue
         try:
             # on passe requested_tournament_ids et created_files_out à main()
-            per_tid = main(
-                            year=y,
-                            tournament_player_counts=tpc,
-                            verbose=verbose,
-                            requested_tournament_ids=requested_tournament_ids,
-                            created_files_out=created_files_out,
-                            ignore_last_scraped=ignore_last_scraped
-                        )
+            #per_tid = main(
+            #                year=y,
+            #                tournament_player_counts=tpc,
+            #                verbose=verbose,
+            #                requested_tournament_ids=requested_tournament_ids,
+            #                created_files_out=created_files_out,
+            #                ignore_last_scraped=ignore_last_scraped
+            #            )
             
 
             #XXXX
@@ -2018,9 +2018,9 @@ def parse_args_and_run():
 
     if args.all:
         # pass through requested ids / tpc_map if present
-        run_years(years=None, tpc_map=tpc_map, verbose=args.verbose,
-                  requested_tournament_ids=requested_ids,
-                  created_files_out=args.created_files_out)
+        #run_years(years=None, tpc_map=tpc_map, verbose=args.verbose,
+        #          requested_tournament_ids=requested_ids,
+        #          created_files_out=args.created_files_out)
         
 #XXXX
         run_years(
@@ -2033,9 +2033,9 @@ def parse_args_and_run():
     to_date=args.to_date
 )
     else:
-        run_years(years=years, tpc_map=tpc_map, verbose=args.verbose,
-                  requested_tournament_ids=requested_ids,
-                  created_files_out=args.created_files_out)
+        #run_years(years=years, tpc_map=tpc_map, verbose=args.verbose,
+        #          requested_tournament_ids=requested_ids,
+        #          created_files_out=args.created_files_out)
         
         #XXXX
         run_years(
