@@ -616,15 +616,17 @@ def get_last_scraped_date(file_path="last_scraped_date.txt"):
     except Exception:
         return datetime(1900,1,1)
 
-def tournaments_to_scrape(tournament_player_counts, last_scraped_date, today_date):
-    """Retourne la liste (tid, is_gc) à scraper selon dates."""
-    out=[]
+def tournaments_to_scrape(tournament_player_counts, from_date, to_date):
+    """Retourne les tournois dont l'intervalle [start, end] intersecte [from_date, to_date]."""
+    out = []
     for tid, details in tournament_player_counts.items():
         try:
             start = datetime.strptime(details[1], "%Y-%m-%d")
             end = datetime.strptime(details[2], "%Y-%m-%d")
             is_gc = details[3] == 1
-            if last_scraped_date <= end <= today_date:
+
+            # intersection d'intervalles
+            if start <= to_date and end >= from_date:
                 out.append((tid, is_gc))
         except Exception:
             continue
@@ -1573,26 +1575,40 @@ def main(
 #XXXX
 
     if from_date:
-        last_scraped = datetime.strptime(from_date, "%Y-%m-%d")
+        from_dt = datetime.strptime(from_date, "%Y-%m-%d")
     else:
         state = load_scrape_state()
-        last_scraped = datetime.fromisoformat(state["wta"])
+        from_dt = datetime.fromisoformat(state["wta"])
 
     if to_date:
-        today = datetime.strptime(to_date, "%Y-%m-%d")
+        to_dt = datetime.strptime(to_date, "%Y-%m-%d")
     else:
-        today = today_paris()
+        to_dt = today_paris()
 #XXXX
 
     if verbose:
-        print(f"[DEBUG] last_scraped={last_scraped} | today={today}")
+        print(f"[DEBUG] from_dt={from_dt} | to_dt={to_dt}")
 
     if ignore_last_scraped:
         to_scrape = [(tid, (details[3] == 1)) for tid, details in tpc.items()]
         if verbose:
             print(f"[DEBUG] ignore_last_scraped=True -> scraping all tournaments of the dict")
     else:
-        to_scrape = tournaments_to_scrape(tpc, last_scraped, today)
+        to_scrape = tournaments_to_scrape(tpc, from_dt, to_dt)
+
+    if verbose:
+        print(f"[DEBUG] nb tournois dans le dict = {len(tpc)}")
+        print(f"[DEBUG] to_scrape final = {to_scrape}")
+
+    if verbose:
+        for tid, details in tpc.items():
+            try:
+                start = datetime.strptime(details[1], "%Y-%m-%d")
+                end = datetime.strptime(details[2], "%Y-%m-%d")
+                keep = (start <= to_dt and end >= from_dt)
+                print(f"[DEBUG] tid={tid} start={start.date()} end={end.date()} keep={keep}")
+            except Exception as e:
+                print(f"[DEBUG] tid={tid} parse error: {e}")
 
     if verbose:
         print(f"[DEBUG] to_scrape={to_scrape}")
