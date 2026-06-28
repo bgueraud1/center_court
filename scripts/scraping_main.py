@@ -20,13 +20,20 @@ from scrape_state import load_scrape_state, save_scrape_state, today_paris
 
 YEAR = 2026
 
-# Répertoire final unique pour tous les CSV finaux
-OUT_DIR = os.path.join("matches", "wta_matches")
-# Emplacement potentiellement utilisé par process_matches(); on nettoie après appel
-POTENTIAL_TEMP_DIR = "data_wta"
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+OUT_DIR = REPO_ROOT / "docs" / "matches" / "wta_matches"
+
+def ensure_out_dir():
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+
 
 # ---------------- utilitaires ----------------
 # -------------------- Helpers pour normalisation ATP --------------------
+
 
 
 
@@ -92,7 +99,39 @@ def convert_wta_json_obj_to_tpc(js_obj):
     except Exception:
         return {}
     
+def build_wta_tournament_meta(js_obj):
+    """
+    Retourne un dict {tid_str: {level, tournamentLink, tournamentGroupId, title, year}}
+    """
+    try:
+        if isinstance(js_obj, dict) and "content" in js_obj:
+            items = js_obj.get("content", []) or []
+        elif isinstance(js_obj, list):
+            items = js_obj
+        else:
+            return {}
 
+        meta = {}
+        for it in items:
+            try:
+                tg = it.get("tournamentGroup") or {}
+                live = str(it.get("liveScoringId") or "").strip()
+                tid = live or str(tg.get("id") or "").strip() or str(it.get("id") or "").strip()
+                if not tid:
+                    continue
+
+                meta[tid] = {
+                    "level": (it.get("level") or "").strip(),
+                    "tournamentLink": it.get("tournamentLink"),
+                    "tournamentGroupId": tg.get("id"),
+                    "title": it.get("title"),
+                    "year": it.get("year"),
+                }
+            except Exception:
+                continue
+        return meta
+    except Exception:
+        return {}
 
 def _safe_float(v):
     try:
@@ -1544,6 +1583,7 @@ def select_rows_for_tid(df, tid):
 def main(
     year=None,
     tournament_player_counts=None,
+    tournament_meta_map=None,
     verbose=True,
     requested_tournament_ids=None,
     created_files_out=None,
@@ -1666,27 +1706,53 @@ def main(
         gc_collected.append((tid, df_gc))
 
     # --- 2) non-GC fetch via process_matches (peut créer des fichiers temporaires) ---
-    non_gc_map = {}
+    non_itf_map = {}
+    itf_tids = {}
+
     for tid, is_gc in to_scrape:
-        if not is_gc:
-            details = tpc.get(tid)
-            draw = details[0] if details else None
-            non_gc_map[tid] = draw
+        if is_gc:
+            continue
+
+        meta = (tournament_meta_map or {}).get(str(tid), {})
+        level = str(meta.get("level") or "").strip().upper()
+
+        details = tpc.get(tid)
+        draw = details[0] if details else None
+
+        if level == "ITF":
+            itf_tids[str(tid)] = meta
+        else:
+            non_itf_map[tid] = draw
 
     non_gc_raw = pd.DataFrame()
-    if non_gc_map:
-        if verbose:
-            print(f"[non-GC] calling process_matches for {len(non_gc_map)} tournaments ...")
-        try:
-            non_gc_raw = process_matches(non_gc_map, year_str)
-            if non_gc_raw is None:
-                non_gc_raw = pd.DataFrame()
-        except Exception as e:
-            print(f"[non-GC] process_matches exception: {e}")
-            non_gc_raw = pd.DataFrame()
-        finally:
-            # cleanup immédiat de tout fichier que process_matches aurait laissé
-            cleanup_potential_temp_dir(verbose=verbose)
+    if non_itf_map:
+        non_gc_raw = process_matches(non_itf_map, year_str)
+
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    def run_itf_scraper_for_tournament(meta, year_str):
+        url = meta["tournamentLink"]
+
+        cmd = [
+            sys.executable,
+            "scripts/scraping_wta_itf_full.py",
+            url,
+        ]
+
+        subprocess.run(cmd, check=True)
+
+        # remplace ce chemin par le vrai chemin créé par le script ITF
+        return Path("docs/matches/wta_matches/TON_FICHIER_ITF.csv")
+
+
+    itf_csv_by_tid = {}
+
+    for tid_str, meta in itf_tids.items():
+        run_itf_scraper_for_tournament(meta, year_str)
+        # si le script écrit un csv connu, mets son chemin ici :
+        itf_csv_by_tid[tid_str] = Path("CHEMIN_DU_CSV_GENERE_PAR_LE_SCRIPT")
 
     # DEBUG summary
     total_gc_rows = 0
@@ -1803,26 +1869,31 @@ def main(
     tids_to_write = [tid for tid, _ in to_scrape]
     for tid in tids_to_write:
         tid_str = str(tid)
-        frames = []
-        # sélection robuste dans GC normalisé
-        try:
-            sel_gc = select_rows_for_tid(gc_all, tid)
-            if not sel_gc.empty:
-                frames.append(sel_gc)
-        except Exception:
-            pass
-        # sélection robuste dans non-GC normalisé
-        try:
-            sel_non = select_rows_for_tid(normalized_non_gc, tid)
-            if not sel_non.empty:
-                frames.append(sel_non)
-        except Exception:
-            pass
+
+        if tid_str in itf_csv_by_tid:
+            df_tid = pd.read_csv(itf_csv_by_tid[tid_str])
+        else:
+            frames = []
+
+            # sélection robuste dans GC normalisé
+            try:
+                sel_gc = select_rows_for_tid(gc_all, tid)
+                if not sel_gc.empty:
+                    frames.append(sel_gc)
+            except Exception:
+                pass
+
+            # sélection robuste dans non-GC normalisé
+            try:
+                sel_non = select_rows_for_tid(normalized_non_gc, tid)
+                if not sel_non.empty:
+                    frames.append(sel_non)
+            except Exception:
+                pass
 
         if frames:
             df_tid = pd.concat(frames, ignore_index=True, sort=False)
         else:
-            # si aucune ligne trouvée, on crée un DataFrame vide avec colonnes CORE_COLS
             df_tid = pd.DataFrame(columns=CORE_COLS)
 
         # nettoyage final colonnes indésirables si présentes
@@ -1834,6 +1905,7 @@ def main(
         # --- write csv into OUT_DIR (ensured earlier with ensure_out_dir())
         outfile = os.path.join(OUT_DIR, f"wta_{tid_str}_{year_str}.csv")
         try:
+            outfile = OUT_DIR / f"wta_{tid_str}_{year_str}.csv"
             df_tid.to_csv(outfile, index=False)
             # sanity check: ensure file was actually written
             if not os.path.exists(outfile):
@@ -1893,9 +1965,9 @@ def main(
 #              requested_tournament_ids=None, created_files_out=None,
 #              ignore_last_scraped=False):
 #XXXX    
-def run_years(years=None,tpc_map=None,verbose=True,
-              requested_tournament_ids=None,created_files_out=None,
-              ignore_last_scraped=False,from_date=None,to_date=None,):
+def run_years(years=None, tpc_map=None, tpc_meta_map=None, verbose=True,
+              requested_tournament_ids=None, created_files_out=None,
+              ignore_last_scraped=False, from_date=None, to_date=None):
     """
     Autoscanning des variables tournament_player_counts_<YYYY> dans globals() sauf si tpc_map fourni.
     Peut recevoir requested_tournament_ids (set/iterable de str) pour forcer le scraping de certains tid seulement.
@@ -1948,6 +2020,7 @@ def run_years(years=None,tpc_map=None,verbose=True,
             per_tid = main(
     year=y,
     tournament_player_counts=tpc,
+    tournament_meta_map=tpc_meta_map.get(str(y), {}) if isinstance(tpc_meta_map, dict) else {},
     verbose=verbose,
     requested_tournament_ids=requested_tournament_ids,
     created_files_out=created_files_out,
@@ -1969,6 +2042,7 @@ def parse_args_and_run():
     parser.add_argument("--verbose", help="Verbose output", action="store_true")
     parser.add_argument("--tournament-ids", help='Comma-separated tournament ids to process (ex: "800,1050")', default=None)
     parser.add_argument("--tournament-dict-path", help='Path to tournament dict JSON (optional)', default=None)
+    parser.add_argument("--tournament-meta-by-tid",default=None)
     parser.add_argument("--created-files-out", help='Path to write created files list (one per line)', default="created_files.txt")
     parser.add_argument("--ignore-last-scraped", action="store_true")
 
@@ -1987,38 +2061,44 @@ def parse_args_and_run():
     # load external tournament dict if provided
         # load external tournament dict if provided
     tpc_map = None
+    tpc_meta_map = None
+
     if args.tournament_dict_path:
         try:
             with open(args.tournament_dict_path, "r", encoding="utf-8") as fh:
                 raw = json.load(fh)
-            # si le JSON est du nouveau format (pageInfo/content ou liste d'objets), le convertir
+
             if isinstance(raw, dict) and (("pageInfo" in raw) or ("content" in raw)):
                 tpc_map = convert_wta_json_obj_to_tpc(raw)
+                tpc_meta_map = build_wta_tournament_meta(raw)
                 print(f"Loaded & converted WTA tournaments JSON from {args.tournament_dict_path}")
             elif isinstance(raw, list):
                 tpc_map = convert_wta_json_obj_to_tpc(raw)
+                tpc_meta_map = build_wta_tournament_meta(raw)
                 print(f"Loaded & converted WTA tournaments JSON (list) from {args.tournament_dict_path}")
             else:
-                # supposer que c'est déjà le mapping attendu (ancien format)
                 tpc_map = raw
+                tpc_meta_map = {}
                 print(f"Loaded tournament dict from {args.tournament_dict_path}")
         except Exception as e:
             print(f"Cannot load tournament dict from {args.tournament_dict_path}: {e}")
             tpc_map = None
-            
+            tpc_meta_map = None
+          
 
 
 
         # --- normalize shape: if tpc_map looks like { tid: details }, wrap under YEAR -> { "2026": { tid: details } }
     try:
-        if isinstance(tpc_map, dict) and tpc_map:
-            # sample value: if it's a list/tuple (draw,start,end,is_gc) -> it's tid->details mapping
-            sample_val = next(iter(tpc_map.values()))
-            if isinstance(sample_val, (list, tuple)):
-                # wrap under YEAR string so run_years will detect it as an year's dict
-                # keep YEAR as string because parse_args_and_run earlier turns years into strings
-                tpc_map = { str(YEAR): tpc_map }
-                print(f"Note: wrapped tournament dict under year {YEAR} (detected tid->details mapping).")
+        if isinstance(tpc_meta_map, dict) and tpc_meta_map:
+            sample_val = next(iter(tpc_meta_map.values()))
+            if isinstance(sample_val, dict):
+                tpc_meta_map = {str(YEAR): tpc_meta_map}
+
+        if isinstance(tpc_meta_map, dict) and tpc_meta_map:
+            sample_val = next(iter(tpc_meta_map.values()))
+            if isinstance(sample_val, dict):
+                tpc_meta_map = {str(YEAR): tpc_meta_map}
     except Exception:
         # non-fatal: if detection fails, keep original tpc_map and let run_years handle missing years
         pass
@@ -2042,6 +2122,7 @@ def parse_args_and_run():
         run_years(
     years=None,
     tpc_map=tpc_map,
+    tpc_meta_map=tpc_meta_map,
     verbose=args.verbose,
     requested_tournament_ids=requested_ids,
     created_files_out=args.created_files_out,
@@ -2055,8 +2136,9 @@ def parse_args_and_run():
         
         #XXXX
         run_years(
-    years=years,
+    years=None,
     tpc_map=tpc_map,
+    tpc_meta_map=tpc_meta_map,
     verbose=args.verbose,
     requested_tournament_ids=requested_ids,
     created_files_out=args.created_files_out,
