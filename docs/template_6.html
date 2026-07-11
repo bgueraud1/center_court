@@ -1407,6 +1407,25 @@ function debounce(fn, wait=120){
 /* ---------- FILL FROM MATCH MAP (no seed reorder) ---------- */
 let _indexPromise = null; // promise de chargement de l'index courant (selon gender)
 
+
+
+function extractOnlyScore(raw) {
+  if (!raw) return '';
+  const text = String(raw).replace(/\r?\n/g, ' ').trim();
+
+  // récupère toutes les séquences du type 6-1, 7-6(5), 6-7(4), etc.
+  const tokens = text.match(/\d+-\d+(?:\(\d+\))?/g);
+
+  // si on trouve des scores, on les renvoie en les séparant par des espaces
+  if (tokens && tokens.length) {
+    return tokens.join(' ');
+  }
+
+  // sinon, on renvoie le texte brut
+  return text;
+}
+
+
 async function fillFromMap(matchMap) {
   const rawData = window._bracketData || {};
   const useWta = isWTAFromData(rawData);
@@ -1619,7 +1638,7 @@ document.querySelectorAll('[data-field="score"]').forEach(el => {
   else if ('scoreString' in m) rawScore = m.scoreString;
   else rawScore = '';
 
-  const score = (rawScore === null || rawScore === undefined) ? '' : String(rawScore).trim();
+  const score = extractOnlyScore(m.score_string || m.score || m.scoreString || el.textContent || '');
 
   // vide -> afficher chaîne vide (ne pas retomber sur le placeholder du DOM)
   el.innerHTML = '';
