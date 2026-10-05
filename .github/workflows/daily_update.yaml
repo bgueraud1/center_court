@@ -2,11 +2,8 @@ name: Daily birthday update
 
 permissions:
   contents: write
-
 on:
   schedule:
-    # Une seule exécution quotidienne, en heure de Paris.
-    # 01:07 évite le pic de charge du début d'heure.
     - cron: '7 1 * * *'
       timezone: "Europe/Paris"
   workflow_dispatch: {}
@@ -84,38 +81,17 @@ jobs:
           echo "--- now calling check_and_dispatch_update_tournament.py ---"
           python3 scripts/check_and_dispatch_update_tournament.py
 
-      - name: Decide whether to proceed (Europe/Paris window)
-        id: check_time
-        run: |
-          python - <<'PY'
-          import os
-          from datetime import datetime
-          from zoneinfo import ZoneInfo
-
-          now = datetime.now(ZoneInfo("Europe/Paris"))
-          print("Europe/Paris now:", now.isoformat())
-
-          # Autorise le run pendant l'heure de 01h, même si le runner démarre un peu en retard.
-          proceed = (now.hour == 1 and now.minute < 55)
-
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
-              fh.write(f"proceed={str(proceed).lower()}\n")
-              fh.write(f"local_time_iso={now.isoformat()}\n")
-          PY
-
+     
       - name: Setup Python
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
       - name: Install minimal deps (if required)
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
           python -m pip install --upgrade pip
 
       - name: Prepare tmp branch from origin/main
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_UPDATE_TOURNAMENT || secrets.GITHUB_TOKEN }}
           GITHUB_RUN_ID: ${{ github.run_id }}
@@ -155,7 +131,6 @@ jobs:
           git status --porcelain || true
 
       - name: Generate birthday_today.json and game assets
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
           set -euo pipefail
 
@@ -214,7 +189,6 @@ jobs:
           ls -la docs/games || true
 
       - name: Copy generated files to repo locations
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
           set -euo pipefail
 
@@ -264,7 +238,6 @@ jobs:
           ls -la site_static/games || true
 
       - name: Commit new generated JSON (whitelist safe commit)
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         env:
           GIT_AUTHOR_NAME: "github-actions[bot]"
           GIT_AUTHOR_EMAIL: "github-actions[bot]@users.noreply.github.com"
@@ -330,7 +303,6 @@ jobs:
           fi
 
       - name: Clean build artefacts to avoid rebase conflicts
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
           set -euo pipefail
           if [ -d "${BUILD_DIR}/tools" ]; then
@@ -341,7 +313,6 @@ jobs:
           echo "Workspace cleaned (dry-run shown above)."
 
       - name: Push changes (tmp branch -> main)
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         env:
           PAT: ${{ secrets.PAT_UPDATE_TOURNAMENT }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -424,7 +395,6 @@ jobs:
           git ls-remote --heads origin main "${TMP_BRANCH}" || true
 
       - name: Trigger Netlify deploy via build hook
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         env:
           NETLIFY_BUILD_HOOK_DAILY: ${{ secrets.NETLIFY_BUILD_HOOK_DAILY }}
         run: |
