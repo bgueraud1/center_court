@@ -69,6 +69,54 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xvfb faketime
 
+
+
+      - name: Compute TARGET_DATE / TODAY in Europe/Paris
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        env:
+          INPUT_TARGET_DATE: ${{ inputs.target_date || '' }}
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import os
+          from datetime import datetime, timezone
+          from zoneinfo import ZoneInfo
+
+          requested = os.environ.get("INPUT_TARGET_DATE", "").strip()
+
+          if requested:
+              try:
+                  target = datetime.strptime(
+                      requested,
+                      "%Y-%m-%d"
+                  ).replace(tzinfo=ZoneInfo("Europe/Paris"))
+              except ValueError:
+                  raise SystemExit(
+                      f"Invalid target_date '{requested}'. "
+                      "Expected format: YYYY-MM-DD"
+                  )
+
+              source = "manual"
+          else:
+              target = datetime.now(ZoneInfo("Europe/Paris"))
+              source = "automatic"
+
+          today = target.strftime("%Y-%m-%d")
+          today_underscore = target.strftime("%Y_%m_%d")
+
+          print("TARGET DATE SOURCE:", source)
+          print("TARGET DATE:", today)
+          print("TARGET DATE UNDERSCORE:", today_underscore)
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:
+              fh.write(f"TODAY={today}\n")
+              fh.write(f"TODAY_UNDERSCORE={today_underscore}\n")
+              fh.write(f"TARGET_DATE={today}\n")
+              fh.write(f"TARGET_DATE_UNDERSCORE={today_underscore}\n")
+              fh.write(f"TARGET_DATE_SOURCE={source}\n")
+          PY
+
       - name: Enable simulated date for Python scripts
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
@@ -121,51 +169,7 @@ jobs:
           print(now.isoformat())
           PY
 
-      - name: Compute TARGET_DATE / TODAY in Europe/Paris
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
-        env:
-          INPUT_TARGET_DATE: ${{ inputs.target_date || '' }}
-        run: |
-          set -euo pipefail
-
-          python - <<'PY'
-          import os
-          from datetime import datetime, timezone
-          from zoneinfo import ZoneInfo
-
-          requested = os.environ.get("INPUT_TARGET_DATE", "").strip()
-
-          if requested:
-              try:
-                  target = datetime.strptime(
-                      requested,
-                      "%Y-%m-%d"
-                  ).replace(tzinfo=ZoneInfo("Europe/Paris"))
-              except ValueError:
-                  raise SystemExit(
-                      f"Invalid target_date '{requested}'. "
-                      "Expected format: YYYY-MM-DD"
-                  )
-
-              source = "manual"
-          else:
-              target = datetime.now(ZoneInfo("Europe/Paris"))
-              source = "automatic"
-
-          today = target.strftime("%Y-%m-%d")
-          today_underscore = target.strftime("%Y_%m_%d")
-
-          print("TARGET DATE SOURCE:", source)
-          print("TARGET DATE:", today)
-          print("TARGET DATE UNDERSCORE:", today_underscore)
-
-          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:
-              fh.write(f"TODAY={today}\n")
-              fh.write(f"TODAY_UNDERSCORE={today_underscore}\n")
-              fh.write(f"TARGET_DATE={today}\n")
-              fh.write(f"TARGET_DATE_UNDERSCORE={today_underscore}\n")
-              fh.write(f"TARGET_DATE_SOURCE={source}\n")
-          PY
+      
 
       - name: Prepare tmp branch from origin/main
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
