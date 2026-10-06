@@ -1246,7 +1246,7 @@ try{
       const retire = sc.retirements || {};
       const samples = sc.samples || {};
 
-      let html = `<div style="font-weight:700;margin-bottom:8px">Scenarios (source: ${escapeHtml(sourceUrl)})</div>`;
+      let html = `<div style="font-weight:700;margin-bottom:8px">Scenarios</div>`;
       html += `<div class="scenarios-grid">`;
 
       // NON-GS card
@@ -1318,18 +1318,8 @@ try{
       
       html += `</div>`;
 
-      // raw JSON preview toggle
-      html += `<div style="margin-top:12px" class="scenario-card"><div style="display:flex;align-items:center;gap:12px"><div style="font-weight:700">Raw scenarios JSON</div><button id="scenarios-toggle-raw" class="tab-btn" style="padding:6px 8px">Toggle</button></div><div id="scenarios-raw" style="display:none;margin-top:8px;max-height:320px;overflow:auto;border:1px solid var(--border);padding:8px;background:#fff"><pre class="muted-small">${escapeHtml(JSON.stringify(data, null, 2).slice(0,20000))}${String(JSON.stringify(data).length>20000 ? '…' : '')}</pre></div></div>`;
 
-      targetDiv.innerHTML = html;
-
-      const toggle = document.getElementById('scenarios-toggle-raw');
-      if(toggle){
-        toggle.addEventListener('click', ()=>{
-          const pre = document.getElementById('scenarios-raw');
-          if(pre) pre.style.display = (pre.style.display === 'none' ? 'block' : 'none');
-        });
-      }
+    targetDiv.innerHTML = html;
     }catch(e){
       console.error('renderScenarios error', e);
       targetDiv.innerHTML = '<div class="no-data">Error rendering scenarios.</div>';
@@ -2265,12 +2255,10 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
     const bigNumeric = bigObj && bigObj.numeric ? bigObj.numeric : bigObj;
 
     // Build shell
-    let html = `<div style="display:flex;justify-content:space-between;align-items:center"><div style="font-weight:700">Advanced statistics</div><div style="font-size:12px;color:#666">Source: ${esc(sourceUrl||'(inline)')}</div></div>`;
+    let html = `<div style="font-weight:700">Advanced statistics</div>`;
     const matchesAgg = readFrom(data && data.meta ? data.meta : {}, 'matches_aggregated','matches_count','matchesCount') || readFrom(bigNumeric, 'matches_count','matchesCount');
     if(matchesAgg !== null && matchesAgg !== undefined) html += `<div style="margin-top:6px;color:#333;font-size:13px"><strong>Matches aggregated:</strong> ${esc(String(matchesAgg))}</div>`;
 
-    html += `<div style="margin-top:8px"><button id="adv-show-raw" style="padding:6px 8px">Show raw JSON</button></div>`;
-    html += `<div id="adv-raw-json" style="display:none;max-height:260px;overflow:auto;border:1px solid #eee;padding:8px;background:#fff;margin-top:8px"><pre>${esc(JSON.stringify(data, null, 2).slice(0,20000))}${JSON.stringify(data).length>20000? '…':''}</pre></div>`;
 
     // containers
     html += `<div id="adv-rally" style="margin-top:12px"></div>`;
@@ -2279,9 +2267,6 @@ function renderAdvancedStatsFrom(data, sourceUrl, panelElement){
     container.style.display = 'block';
     container.innerHTML = html;
 
-    // raw toggle
-    const rawBtn = panelElement.querySelector('#adv-show-raw');
-    if(rawBtn) rawBtn.addEventListener('click', () => { const r = panelElement.querySelector('#adv-raw-json'); if(r) r.style.display = (r.style.display === 'none' ? 'block' : 'none'); });
 
     // shared legend (single place)
     const ensureSharedLegend = () => {
