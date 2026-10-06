@@ -24,6 +24,7 @@ import json
 import os
 import re
 import unicodedata
+from collections import Counter
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -40,22 +41,27 @@ WTA_OUT_INDEX_FILE = os.path.join(OUT_INDEX_DIR, "players_wta_index.json")
 ATP_OUT_INDEX_FILE = os.path.join(OUT_INDEX_DIR, "players_atp_index.json")
 
 
-# -----------------------------
+# ============================================================
 # Colonnes candidates WTA
-# -----------------------------
+# ============================================================
 #
 # IMPORTANT :
-# Les colonnes winner/loser sont indépendantes de player_a/player_b.
+# Les groupes winner/loser et A/B sont traités comme DEUX SOURCES
+# INDÉPENDANTES.
 #
-# Exemple :
-#   winner = Petra Martic
-#   player_a = Marketa Vondrousova
+# Si une ligne possède winner/loser :
+#   -> on utilise winner + winner_country + player_id_winner
+#   -> on utilise loser  + loser_country  + player_id_loser
+#   -> on ne consulte PAS player_a/player_b/PlayerIDA/PlayerIDB
 #
-# Donc PlayerIDA ne doit PAS être utilisé comme ID du winner
-# simplement parce qu'il s'agit du joueur A.
+# Si winner/loser sont absents :
+#   -> on utilise player_a/player_b
+#   -> avec country_a/country_b
+#   -> et PlayerIDA/PlayerIDB
 #
-# On utilise les colonnes explicites winner/loser en priorité.
-#
+# Aucun mélange entre les deux groupes.
+# ============================================================
+
 WTA_WINNER_NAME_CANDIDATES = [
     "winner",
     "winner_player_name",
@@ -96,18 +102,41 @@ WTA_MATCH_ID_CANDIDATES = [
     "ls_match_id",
 ]
 
-# Fallback si winner/loser sont absents.
-# Dans ce cas, on travaille bien en paire A/B.
-WTA_NAME_PAIR_CANDIDATES = [
-    ("player_a", "player_b"),
-    ("PlayerNameA", "PlayerNameB"),
+WTA_A_NAME_CANDIDATES = [
+    "player_a",
+    "PlayerNameA",
+]
+
+WTA_B_NAME_CANDIDATES = [
+    "player_b",
+    "PlayerNameB",
+]
+
+WTA_A_COUNTRY_CANDIDATES = [
+    "country_a",
+]
+
+WTA_B_COUNTRY_CANDIDATES = [
+    "country_b",
+]
+
+WTA_A_ID_CANDIDATES = [
+    "PlayerIDA",
+    "PlayerIDA2",
+]
+
+WTA_B_ID_CANDIDATES = [
+    "PlayerIDB",
+    "PlayerIDB2",
 ]
 
 
-# -----------------------------
+# ============================================================
 # Colonnes candidates ATP
-# -----------------------------
-# NE PAS MODIFIER : cette partie fonctionne correctement.
+# ============================================================
+# PARTIE ATP CONSERVÉE
+# ============================================================
+
 ATP_WINNER_NAME_CANDIDATES = ["player_winner", "winner_player_name", "winner_name"]
 ATP_LOSER_NAME_CANDIDATES = ["player_loser", "loser_player_name", "loser_name"]
 
@@ -120,9 +149,10 @@ ATP_LOSER_ID_CANDIDATES = ["player_id_loser"]
 ATP_MATCH_ID_CANDIDATES = ["match_id", "Match ID", "MatchID", "MatchId"]
 
 
-# -----------------------------
+# ============================================================
 # Utilitaires
-# -----------------------------
+# ============================================================
+
 def slugify(name: str) -> str:
     """Transforme un nom en slug sûre: minuscules, sans accents, alnum + '-'."""
     if name is None:
@@ -144,7 +174,10 @@ def make_player_id_from_slug(slug_name: str) -> str:
 
 
 def safe_get_series_val(row: pd.Series, cols: List[str]) -> Optional[str]:
-    """Renvoie la première valeur non nulle trouvée dans row pour la liste de colonnes."""
+    """
+    Renvoie la première valeur non nulle trouvée dans row
+    pour la liste de colonnes.
+    """
     for c in cols:
         if c in row.index and pd.notna(row[c]) and str(row[c]).strip() != "":
             return str(row[c]).strip()
@@ -159,15 +192,11 @@ def normalize_name(name: str) -> str:
 
 def normalize_wta_player_id(value: Optional[str]) -> Optional[str]:
     """
-    Normalise un ID joueur WTA provenant de pandas.
+    Normalise les IDs WTA.
 
     Exemple :
-        "311243.0"  -> "311243"
-        "311243.00" -> "311243"
-        "311243"    -> "311243"
-
-    On ne modifie rien d'autre afin de préserver les éventuels formats
-    particuliers des identifiants.
+        311243.0 -> 311243
+        311243   -> 311243
     """
     if value is None:
         return None
@@ -177,28 +206,32 @@ def normalize_wta_player_id(value: Optional[str]) -> Optional[str]:
     if not s:
         return None
 
-    # Cas classique causé par pandas lorsque la colonne contient des NaN :
-    # 311243 devient parfois 311243.0
+    # Evite les IDs du style "311243.0" produits par pandas.
     if re.fullmatch(r"[+-]?\d+\.0+", s):
         return s.split(".", 1)[0]
 
     return s
 
 
-def names_match(name1: Optional[str], name2: Optional[str]) -> bool:
+def name_key(name: str) -> str:
     """
-    Compare deux noms de manière robuste.
+    Clé canonique pour comparer deux noms.
 
-    On utilise le slug pour neutraliser :
-      - majuscules/minuscules
-      - accents
-      - espaces
-      - ponctuation
+    Les accents, espaces, ponctuations et majuscules/minuscules
+    sont neutralisés.
     """
-    if not name1 or not name2:
-        return False
+    return slugify(normalize_name(name))
 
-    return slugify(normalize_name(name1)) == slugify(normalize_name(name2))
+
+def most_common_value(counter: Counter) -> Optional[str]:
+    """
+    Retourne la valeur la plus fréquente.
+    En cas d'égalité, Counter conserve l'ordre d'apparition.
+    """
+    if not counter:
+        return None
+
+    return counter.most_common(1)[0][0]
 
 
 def iter_csv_files(root_dir: str) -> List[str]:
@@ -223,22 +256,6 @@ def read_csv_safe(path: str) -> Optional[pd.DataFrame]:
         except Exception as e2:
             print(f"[WARN] Impossible de lire {path}: {e2}")
             return None
-
-
-def better_name(current: Optional[str], candidate: str) -> str:
-    """
-    Garde le nom le plus utile.
-    En pratique, on préfère souvent le plus long, car il est plus complet.
-    """
-    candidate = normalize_name(candidate)
-
-    if not current:
-        return candidate
-
-    if len(candidate) > len(current):
-        return candidate
-
-    return current
 
 
 def build_entry(
@@ -288,305 +305,399 @@ def build_entry(
 
 
 # ============================================================
-# Extraction WTA
+# EXTRACTION WTA
 # ============================================================
 
-def get_wta_ab_participants(row: pd.Series) -> Dict[str, Dict[str, Optional[str]]]:
-    """
-    Récupère les informations player A / player B du CSV WTA.
-
-    IMPORTANT :
-    A/B n'indique PAS winner/loser.
-
-    Exemple :
-        player_a = Marketa Vondrousova
-        player_b = Petra Martic
-
-        alors que :
-        winner = Petra Martic
-        loser  = Marketa Vondrousova
-
-    On conserve donc A/B comme un système indépendant.
-    """
-    for name_a_col, name_b_col in WTA_NAME_PAIR_CANDIDATES:
-        if name_a_col not in row.index and name_b_col not in row.index:
-            continue
-
-        name_a = safe_get_series_val(row, [name_a_col])
-        name_b = safe_get_series_val(row, [name_b_col])
-
-        if not name_a and not name_b:
-            continue
-
-        country_a = safe_get_series_val(row, ["country_a"])
-        country_b = safe_get_series_val(row, ["country_b"])
-
-        player_id_a = normalize_wta_player_id(
-            safe_get_series_val(row, ["PlayerIDA", "PlayerIDA2"])
-        )
-
-        player_id_b = normalize_wta_player_id(
-            safe_get_series_val(row, ["PlayerIDB", "PlayerIDB2"])
-        )
-
-        return {
-            "a": {
-                "name": name_a,
-                "country": country_a,
-                "player_id": player_id_a,
-            },
-            "b": {
-                "name": name_b,
-                "country": country_b,
-                "player_id": player_id_b,
-            },
-        }
-
-    return {}
-
-
-def find_wta_ab_participant(
-    ab_participants: Dict[str, Dict[str, Optional[str]]],
-    target_name: Optional[str],
-) -> Optional[Dict[str, Optional[str]]]:
-    """
-    Retrouve A ou B en comparant son nom avec target_name.
-
-    On ne se base JAMAIS simplement sur la position A/B.
-    """
-    if not target_name:
-        return None
-
-    for side in ("a", "b"):
-        participant = ab_participants.get(side)
-
-        if not participant:
-            continue
-
-        participant_name = participant.get("name")
-
-        if names_match(target_name, participant_name):
-            return participant
-
-    return None
-
-
 def gather_players_from_row_wta(
-    row: pd.Series, row_unique_id: str
+    row: pd.Series,
+    row_unique_id: str,
 ) -> List[Tuple[str, Optional[str], str, Optional[str]]]:
     """
-    Retourne une liste de tuples:
-        (name, country, match_uid, player_id_raw)
+    Extrait les joueuses d'une ligne WTA.
 
-    Logique WTA corrigée :
+    RÈGLE ABSOLUE :
 
-    1) winner / loser sont les références principales.
+    SOURCE 1 - winner/loser
+    -----------------------
+    Dès qu'un nom winner ou loser existe, on travaille UNIQUEMENT
+    avec le groupe winner/loser :
 
-    2) Pour winner :
-         - nom    -> winner / winner_player_name / ...
-         - pays   -> winner_country / country_winner
-         - ID     -> player_id_winner
+        winner
+        winner_country
+        player_id_winner
 
-    3) Pour loser :
-         - nom    -> loser / loser_player_name / ...
-         - pays   -> loser_country / country_loser
-         - ID     -> player_id_loser
+        loser
+        loser_country
+        player_id_loser
 
-    4) Si un ID ou un pays winner/loser manque :
-         on peut chercher A/B, MAIS uniquement en faisant
-         correspondre le NOM de winner/loser avec player_a/player_b.
+    On ne regarde alors PAS :
+        player_a
+        player_b
+        country_a
+        country_b
+        PlayerIDA
+        PlayerIDB
 
-         Ainsi :
-             winner = Petra Martic
-             player_a = Marketa Vondrousova
-             player_b = Petra Martic
+    SOURCE 2 - A/B
+    --------------
+    Si aucun winner/loser n'est disponible, on travaille
+    UNIQUEMENT avec :
 
-         donnera bien Petra -> PlayerIDB,
-         et non Petra -> PlayerIDA.
+        player_a
+        country_a
+        PlayerIDA
 
-    5) Si winner/loser sont totalement absents :
-         fallback A/B classique avec leurs propres IDs/pays.
+        player_b
+        country_b
+        PlayerIDB
+
+    Il n'y a volontairement AUCUN mélange entre les deux sources.
     """
     results: List[Tuple[str, Optional[str], str, Optional[str]]] = []
 
     # --------------------------------------------------------
-    # Identifiant du match
+    # Match ID
     # --------------------------------------------------------
     match_id_val = safe_get_series_val(row, WTA_MATCH_ID_CANDIDATES)
     match_uid = match_id_val if match_id_val is not None else row_unique_id
 
-    # --------------------------------------------------------
-    # Informations winner / loser
-    # --------------------------------------------------------
-    winner_name = safe_get_series_val(row, WTA_WINNER_NAME_CANDIDATES)
-    loser_name = safe_get_series_val(row, WTA_LOSER_NAME_CANDIDATES)
+    # ========================================================
+    # SOURCE 1 : WINNER / LOSER
+    # ========================================================
 
-    # IMPORTANT :
-    # On ne prend PLUS country_a pour le winner,
-    # ni country_b pour le loser.
-    winner_country = safe_get_series_val(
+    winner_name = safe_get_series_val(
         row,
-        WTA_WINNER_COUNTRY_CANDIDATES,
+        WTA_WINNER_NAME_CANDIDATES,
     )
 
-    loser_country = safe_get_series_val(
+    loser_name = safe_get_series_val(
         row,
-        WTA_LOSER_COUNTRY_CANDIDATES,
+        WTA_LOSER_NAME_CANDIDATES,
     )
 
-    # IMPORTANT :
-    # On ne prend PLUS PlayerIDA pour le winner,
-    # ni PlayerIDB pour le loser sans vérification.
-    winner_id = normalize_wta_player_id(
-        safe_get_series_val(row, WTA_WINNER_ID_CANDIDATES)
-    )
+    # Dès qu'on possède au moins un nom winner/loser,
+    # cette ligne est considérée comme une ligne WINNER/LOSER.
+    #
+    # On ne bascule surtout pas vers A/B pour compléter
+    # une information manquante.
+    if winner_name or loser_name:
 
-    loser_id = normalize_wta_player_id(
-        safe_get_series_val(row, WTA_LOSER_ID_CANDIDATES)
-    )
-
-    # --------------------------------------------------------
-    # Informations A/B
-    # --------------------------------------------------------
-    ab_participants = get_wta_ab_participants(row)
-
-    # --------------------------------------------------------
-    # Si winner est présent, on complète les infos manquantes
-    # en retrouvant le bon joueur A ou B PAR SON NOM.
-    # --------------------------------------------------------
-    if winner_name:
-        ab_winner = find_wta_ab_participant(
-            ab_participants,
-            winner_name,
+        winner_country = safe_get_series_val(
+            row,
+            WTA_WINNER_COUNTRY_CANDIDATES,
         )
 
-        if ab_winner:
-            if winner_id is None:
-                winner_id = normalize_wta_player_id(
-                    ab_winner.get("player_id")
-                )
+        loser_country = safe_get_series_val(
+            row,
+            WTA_LOSER_COUNTRY_CANDIDATES,
+        )
 
-            if winner_country is None:
-                winner_country = ab_winner.get("country")
-
-        results.append(
-            (
-                winner_name,
-                winner_country,
-                match_uid,
-                winner_id,
+        winner_id = normalize_wta_player_id(
+            safe_get_series_val(
+                row,
+                WTA_WINNER_ID_CANDIDATES,
             )
         )
 
-    # --------------------------------------------------------
-    # Même logique pour le loser
-    # --------------------------------------------------------
-    if loser_name:
-        ab_loser = find_wta_ab_participant(
-            ab_participants,
-            loser_name,
-        )
-
-        if ab_loser:
-            if loser_id is None:
-                loser_id = normalize_wta_player_id(
-                    ab_loser.get("player_id")
-                )
-
-            if loser_country is None:
-                loser_country = ab_loser.get("country")
-
-        results.append(
-            (
-                loser_name,
-                loser_country,
-                match_uid,
-                loser_id,
+        loser_id = normalize_wta_player_id(
+            safe_get_series_val(
+                row,
+                WTA_LOSER_ID_CANDIDATES,
             )
         )
 
-    # --------------------------------------------------------
-    # Si on a trouvé au moins une joueuse via winner/loser,
-    # c'est suffisant : on ne bascule pas vers un fallback
-    # qui risquerait d'inventer une association.
-    # --------------------------------------------------------
-    if results:
+        if winner_name:
+            results.append(
+                (
+                    normalize_name(winner_name),
+                    winner_country,
+                    match_uid,
+                    winner_id,
+                )
+            )
+
+        if loser_name:
+            results.append(
+                (
+                    normalize_name(loser_name),
+                    loser_country,
+                    match_uid,
+                    loser_id,
+                )
+            )
+
         return results
 
     # ========================================================
-    # FALLBACK WTA : winner/loser totalement absents
+    # SOURCE 2 : PLAYER A / PLAYER B
     # ========================================================
     #
-    # Dans ce cas, A et B sont utilisés directement avec
-    # leurs propres informations.
-    #
-    # A -> PlayerIDA + country_a
-    # B -> PlayerIDB + country_b
-    #
-    # Ici seulement, la correspondance A/B est directe.
-    #
+    # On n'arrive ici QUE si winner ET loser sont absents.
     # ========================================================
-    if ab_participants:
-        participant_a = ab_participants.get("a")
-        participant_b = ab_participants.get("b")
 
-        if participant_a and participant_a.get("name"):
-            results.append(
-                (
-                    str(participant_a["name"]),
-                    participant_a.get("country"),
-                    match_uid,
-                    normalize_wta_player_id(
-                        participant_a.get("player_id")
-                    ),
-                )
-            )
-
-        if participant_b and participant_b.get("name"):
-            results.append(
-                (
-                    str(participant_b["name"]),
-                    participant_b.get("country"),
-                    match_uid,
-                    normalize_wta_player_id(
-                        participant_b.get("player_id")
-                    ),
-                )
-            )
-
-        if results:
-            return results
-
-    # --------------------------------------------------------
-    # Dernier recours :
-    # n'importe quelle colonne plausible contenant un nom.
-    # Aucun ID artificiel ni pays artificiel n'est inventé ici.
-    # --------------------------------------------------------
-    fallback_cols = (
-        WTA_WINNER_NAME_CANDIDATES
-        + WTA_LOSER_NAME_CANDIDATES
-        + [c for pair in WTA_NAME_PAIR_CANDIDATES for c in pair]
+    name_a = safe_get_series_val(
+        row,
+        WTA_A_NAME_CANDIDATES,
     )
 
-    for c in fallback_cols:
-        if c in row.index and pd.notna(row[c]) and str(row[c]).strip() != "":
+    name_b = safe_get_series_val(
+        row,
+        WTA_B_NAME_CANDIDATES,
+    )
+
+    if name_a or name_b:
+
+        country_a = safe_get_series_val(
+            row,
+            WTA_A_COUNTRY_CANDIDATES,
+        )
+
+        country_b = safe_get_series_val(
+            row,
+            WTA_B_COUNTRY_CANDIDATES,
+        )
+
+        player_id_a = normalize_wta_player_id(
+            safe_get_series_val(
+                row,
+                WTA_A_ID_CANDIDATES,
+            )
+        )
+
+        player_id_b = normalize_wta_player_id(
+            safe_get_series_val(
+                row,
+                WTA_B_ID_CANDIDATES,
+            )
+        )
+
+        if name_a:
             results.append(
                 (
-                    str(row[c]).strip(),
-                    None,
+                    normalize_name(name_a),
+                    country_a,
                     match_uid,
-                    None,
+                    player_id_a,
                 )
             )
-            break
 
-    return results
+        if name_b:
+            results.append(
+                (
+                    normalize_name(name_b),
+                    country_b,
+                    match_uid,
+                    player_id_b,
+                )
+            )
+
+        return results
+
+    # Aucun système d'identification fiable sur cette ligne.
+    return []
 
 
 # ============================================================
-# Extraction ATP
+# AGRÉGATION WTA
 # ============================================================
-# PARTIE ATP CONSERVÉE TELLE QUELLE
+
+def aggregate_wta_observation(
+    observations_by_id: Dict[str, dict],
+    observations_by_name: Dict[str, dict],
+    name_raw: str,
+    country_raw: Optional[str],
+    match_uid: str,
+    player_id_raw: Optional[str],
+) -> None:
+    """
+    Ajoute une observation WTA aux structures d'agrégation.
+
+    L'objectif est d'éviter qu'une association erronée sur UNE ligne
+    écrase le vrai nom d'un joueur sur l'ensemble du JSON.
+
+    Pour chaque ID, on conserve :
+      - tous les noms observés et leur fréquence
+      - tous les pays observés et leur fréquence
+      - tous les matchs
+
+    Le nom final sera celui observé le plus souvent pour cet ID.
+    """
+
+    name_norm = normalize_name(name_raw)
+
+    if not name_norm:
+        return
+
+    player_id = normalize_wta_player_id(player_id_raw)
+
+    if player_id:
+        if player_id not in observations_by_id:
+            observations_by_id[player_id] = {
+                "names": Counter(),
+                "countries": Counter(),
+                "match_ids": set(),
+            }
+
+        rec = observations_by_id[player_id]
+
+        rec["names"][name_norm] += 1
+
+        if country_raw:
+            rec["countries"][str(country_raw).strip()] += 1
+
+        rec["match_ids"].add(str(match_uid))
+
+        return
+
+    # Aucun ID :
+    # on agrège par nom comme fallback.
+    key = name_key(name_norm)
+
+    if not key:
+        return
+
+    if key not in observations_by_name:
+        observations_by_name[key] = {
+            "names": Counter(),
+            "countries": Counter(),
+            "match_ids": set(),
+        }
+
+    rec = observations_by_name[key]
+
+    rec["names"][name_norm] += 1
+
+    if country_raw:
+        rec["countries"][str(country_raw).strip()] += 1
+
+    rec["match_ids"].add(str(match_uid))
+
+
+def build_wta_players_list(
+    observations_by_id: Dict[str, dict],
+    observations_by_name: Dict[str, dict],
+) -> List[dict]:
+    """
+    Construit la liste finale des joueuses WTA.
+
+    Étape importante :
+    pour chaque player_id, le nom final est le NOM LE PLUS OBSERVÉ
+    pour cet ID.
+
+    Cela évite le comportement problématique de l'ancien better_name()
+    qui pouvait remplacer :
+
+        Victoria Azarenka
+
+    par :
+
+        Agnieszka Radwanska
+
+    simplement parce que le second nom était plus long.
+
+    Le slug est recalculé à partir du nom canonique.
+    """
+
+    players_by_name: Dict[str, dict] = {}
+
+    # ========================================================
+    # 1) Joueurs avec ID
+    # ========================================================
+
+    for player_id, rec in observations_by_id.items():
+
+        canonical_name = most_common_value(rec["names"])
+
+        if not canonical_name:
+            continue
+
+        canonical_country = most_common_value(
+            rec["countries"]
+        )
+
+        canonical_slug = slugify(canonical_name) or "unknown"
+
+        slug = f"{player_id.lower()}-{canonical_slug}"
+
+        entry = {
+            "player_id": player_id,
+            "name": canonical_name,
+            "slug": slug,
+            "page_href": f"players/{slug}",
+            "data_path": f"players/data/{slug}.json",
+            "country": canonical_country if canonical_country else None,
+            "matches_count": len(rec["match_ids"]),
+        }
+
+        key = name_key(canonical_name)
+
+        # ----------------------------------------------------
+        # Si plusieurs IDs finissent par correspondre au même
+        # nom canonique, on garde l'entrée avec le plus grand
+        # nombre de matchs et on fusionne les matchs.
+        #
+        # Ceci gère aussi les éventuels changements / erreurs
+        # d'ID dans les données historiques.
+        # ----------------------------------------------------
+        if key not in players_by_name:
+            players_by_name[key] = entry
+
+        else:
+            existing = players_by_name[key]
+
+            if entry["matches_count"] > existing["matches_count"]:
+                # On conserve l'ID de l'entrée la plus représentative.
+                #
+                # Les match_ids ne sont pas disponibles ici dans
+                # l'objet final, donc on ne les fusionne pas au niveau
+                # détaillé. Le but ici est surtout de garantir une
+                # joueuse unique dans l'index.
+                players_by_name[key] = entry
+
+    # ========================================================
+    # 2) Joueurs sans ID
+    # ========================================================
+
+    for key, rec in observations_by_name.items():
+
+        canonical_name = most_common_value(rec["names"])
+
+        if not canonical_name:
+            continue
+
+        canonical_country = most_common_value(
+            rec["countries"]
+        )
+
+        stable_id = make_player_id_from_slug(
+            slugify(canonical_name)
+        )
+
+        canonical_slug = slugify(canonical_name) or "unknown"
+        slug = f"{stable_id.lower()}-{canonical_slug}"
+
+        entry = {
+            "player_id": stable_id,
+            "name": canonical_name,
+            "slug": slug,
+            "page_href": f"players/{slug}",
+            "data_path": f"players/data/{slug}.json",
+            "country": canonical_country if canonical_country else None,
+            "matches_count": len(rec["match_ids"]),
+        }
+
+        # Si un joueur sans ID porte le même nom qu'un joueur
+        # possédant déjà un ID, on ne crée pas de deuxième entrée.
+        if key not in players_by_name:
+            players_by_name[key] = entry
+
+    return list(players_by_name.values())
+
+
+# ============================================================
+# EXTRACTION ATP
+# ============================================================
+# NE PAS MODIFIER : cette partie fonctionne bien actuellement.
 # ============================================================
 
 def gather_players_from_row_atp(
@@ -642,6 +753,11 @@ def build_index(mode: str) -> dict:
         matches_dir = WTA_MATCHES_DIR
         out_file = WTA_OUT_INDEX_FILE
         extractor = gather_players_from_row_wta
+
+        # Structures spécifiques au traitement robuste WTA.
+        observations_by_id: Dict[str, dict] = {}
+        observations_by_name: Dict[str, dict] = {}
+
     else:
         matches_dir = ATP_MATCHES_DIR
         out_file = ATP_OUT_INDEX_FILE
@@ -652,19 +768,149 @@ def build_index(mode: str) -> dict:
             f"Directory not found: {matches_dir}"
         )
 
-    players: Dict[str, dict] = {}
-
     file_list = iter_csv_files(matches_dir)
 
+    # ========================================================
+    # WTA
+    # ========================================================
+
+    if mode == "wta":
+
+        total_rows = 0
+        total_observations = 0
+
+        for file_path in file_list:
+
+            df = read_csv_safe(file_path)
+
+            if df is None:
+                continue
+
+            for idx, row in df.iterrows():
+
+                total_rows += 1
+
+                row_uid = f"{os.path.basename(file_path)}::{idx}"
+
+                entries = extractor(
+                    row,
+                    row_uid,
+                )
+
+                for (
+                    name_raw,
+                    country_raw,
+                    match_uid,
+                    player_id_raw,
+                ) in entries:
+
+                    if (
+                        not name_raw
+                        or str(name_raw).strip() == ""
+                    ):
+                        continue
+
+                    aggregate_wta_observation(
+                        observations_by_id=observations_by_id,
+                        observations_by_name=observations_by_name,
+                        name_raw=name_raw,
+                        country_raw=country_raw,
+                        match_uid=match_uid,
+                        player_id_raw=player_id_raw,
+                    )
+
+                    total_observations += 1
+
+        players_list = build_wta_players_list(
+            observations_by_id=observations_by_id,
+            observations_by_name=observations_by_name,
+        )
+
+        players_list = sorted(
+            players_list,
+            key=lambda x: (
+                -x["matches_count"],
+                x["name"].lower(),
+            ),
+        )
+
+        out = {
+            "players": players_list,
+            "mode": mode,
+        }
+
+        os.makedirs(
+            os.path.dirname(out_file),
+            exist_ok=True,
+        )
+
+        with open(
+            out_file,
+            "w",
+            encoding="utf-8",
+        ) as f:
+            json.dump(
+                out,
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
+
+        # Statistiques utiles pour vérifier le nouveau traitement.
+        conflicting_ids = 0
+
+        for rec in observations_by_id.values():
+            if len(rec["names"]) > 1:
+                conflicting_ids += 1
+
+        print(
+            f"[OK] {mode.upper()} index écrit dans "
+            f"{out_file} ({len(players_list)} joueuses)."
+        )
+
+        print(
+            f"[INFO] WTA : {len(file_list)} CSV, "
+            f"{total_rows} lignes, "
+            f"{total_observations} observations."
+        )
+
+        print(
+            f"[INFO] WTA : {len(observations_by_id)} IDs joueurs "
+            f"identifiés."
+        )
+
+        print(
+            f"[INFO] WTA : {conflicting_ids} IDs avaient "
+            f"plusieurs noms observés ; le nom majoritaire a été retenu."
+        )
+
+        return out
+
+    # ========================================================
+    # ATP
+    # ========================================================
+    #
+    # Cette partie reprend la logique de construction originale,
+    # sans modifier son fonctionnement.
+    # ========================================================
+
+    players: Dict[str, dict] = {}
+
     for file_path in file_list:
+
         df = read_csv_safe(file_path)
 
         if df is None:
             continue
 
         for idx, row in df.iterrows():
+
             row_uid = f"{os.path.basename(file_path)}::{idx}"
-            entries = extractor(row, row_uid)
+
+            entries = extractor(
+                row,
+                row_uid,
+            )
 
             for (
                 name_raw,
@@ -673,17 +919,11 @@ def build_index(mode: str) -> dict:
                 player_id_raw,
             ) in entries:
 
-                if not name_raw or str(name_raw).strip() == "":
+                if (
+                    not name_raw
+                    or str(name_raw).strip() == ""
+                ):
                     continue
-
-                #
-                # Pour WTA uniquement, on normalise une dernière fois
-                # l'ID au cas où il serait passé sous forme "12345.0".
-                #
-                if mode == "wta":
-                    player_id_raw = normalize_wta_player_id(
-                        player_id_raw
-                    )
 
                 key, entry = build_entry(
                     mode=mode,
@@ -694,11 +934,13 @@ def build_index(mode: str) -> dict:
                 )
 
                 if key not in players:
+
                     players[key] = entry
 
                 else:
-                    # On garde l'id stable / slug existant,
-                    # mais on améliore le nom si possible.
+
+                    # On garde l'id stable / slug existant, mais on
+                    # améliore si possible.
                     players[key]["name"] = better_name(
                         players[key].get("name"),
                         name_raw,
@@ -717,6 +959,7 @@ def build_index(mode: str) -> dict:
     players_list = []
 
     for v in players.values():
+
         players_list.append(
             {
                 "player_id": v["player_id"],
@@ -771,6 +1014,10 @@ def build_index(mode: str) -> dict:
     return out
 
 
+# ============================================================
+# Main
+# ============================================================
+
 def main():
     parser = argparse.ArgumentParser(
         description=(
@@ -791,6 +1038,7 @@ def main():
     args = parser.parse_args()
 
     try:
+
         if args.tour in {"wta", "all"}:
             build_index("wta")
 
