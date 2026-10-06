@@ -7,7 +7,14 @@ on:
   schedule:
     - cron: '7 2 * * 1'
       timezone: "Europe/Paris"
-  workflow_dispatch: {}
+
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: "Date à simuler (YYYY-MM-DD). Laisser vide pour utiliser la date réelle."
+        required: false
+        default: ""
+        type: string
 
 jobs:
   weekly_update:
@@ -60,30 +67,104 @@ jobs:
           pip install pandas requests selenium webdriver-manager playwright folium branca pycountry geopy beautifulsoup4
           python -m playwright install --with-deps chromium
           sudo apt-get update
-          sudo apt-get install -y xvfb
+          sudo apt-get install -y xvfb faketime
 
-      - name: Compute TODAY in Europe/Paris
+      - name: Enable simulated date for Python scripts
         if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
         run: |
+          set -euo pipefail
+
+          REAL_PYTHON="$(command -v python3)"
+
+          mkdir -p "$GITHUB_WORKSPACE/.github/fakebin"
+
+          cat > "$GITHUB_WORKSPACE/.github/fakebin/python3" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          exec faketime -m "${FAKETIME_TIMESTAMP}" "${REAL_PYTHON}" "$@"
+          EOF
+
+          cat > "$GITHUB_WORKSPACE/.github/fakebin/python" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          exec faketime -m "${FAKETIME_TIMESTAMP}" "${REAL_PYTHON}" "$@"
+          EOF
+
+          chmod +x \
+            "$GITHUB_WORKSPACE/.github/fakebin/python" \
+            "$GITHUB_WORKSPACE/.github/fakebin/python3"
+
+          echo "REAL_PYTHON=${REAL_PYTHON}" >> "$GITHUB_ENV"
+          echo "FAKETIME_TIMESTAMP=${TARGET_DATE} 12:00:00" >> "$GITHUB_ENV"
+
+          echo "$GITHUB_WORKSPACE/.github/fakebin" >> "$GITHUB_PATH"
+
+          echo "Real Python: ${REAL_PYTHON}"
+          echo "Fake timestamp: ${TARGET_DATE} 12:00:00"
+
+      - name: Verify simulated date
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Testing simulated Python date..."
+
+          python3 - <<'PY'
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+
+          now = datetime.now(ZoneInfo("Europe/Paris"))
+
+          print("Python simulated date:")
+          print(now.isoformat())
+          PY
+
+      - name: Compute TARGET_DATE / TODAY in Europe/Paris
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
+        env:
+          INPUT_TARGET_DATE: ${{ inputs.target_date || '' }}
+        run: |
+          set -euo pipefail
+
           python - <<'PY'
           import os
           from datetime import datetime, timezone
+          from zoneinfo import ZoneInfo
 
-          try:
-              from zoneinfo import ZoneInfo
-              now = datetime.now(ZoneInfo("Europe/Paris"))
-          except Exception:
-              now = datetime.now(timezone.utc)
+          requested = os.environ.get("INPUT_TARGET_DATE", "").strip()
 
-          today = now.strftime("%Y-%m-%d")
-          today_underscore = now.strftime("%Y_%m_%d")
+          if requested:
+              try:
+                  target = datetime.strptime(
+                      requested,
+                      "%Y-%m-%d"
+                  ).replace(tzinfo=ZoneInfo("Europe/Paris"))
+              except ValueError:
+                  raise SystemExit(
+                      f"Invalid target_date '{requested}'. "
+                      "Expected format: YYYY-MM-DD"
+                  )
 
-          print("TODAY:", today)
-          print("TODAY_UNDERSCORE:", today_underscore)
+              source = "manual"
+          else:
+              target = datetime.now(ZoneInfo("Europe/Paris"))
+              source = "automatic"
+
+          today = target.strftime("%Y-%m-%d")
+          today_underscore = target.strftime("%Y_%m_%d")
+
+          print("TARGET DATE SOURCE:", source)
+          print("TARGET DATE:", today)
+          print("TARGET DATE UNDERSCORE:", today_underscore)
 
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:
               fh.write(f"TODAY={today}\n")
               fh.write(f"TODAY_UNDERSCORE={today_underscore}\n")
+              fh.write(f"TARGET_DATE={today}\n")
+              fh.write(f"TARGET_DATE_UNDERSCORE={today_underscore}\n")
+              fh.write(f"TARGET_DATE_SOURCE={source}\n")
           PY
 
       - name: Prepare tmp branch from origin/main
@@ -171,8 +252,8 @@ jobs:
           echo "Running WTA match scraper for ${TODAY}..."
           python3 scripts/scraping_main.py \
             --tournament-dict-path docs/wta_tournaments_2026.json \
-            --from-date 2026-03-31 \
-            --to-date 2026-04-30 \
+            --from-date "${TODAY}" \
+            --to-date "${TODAY}"\
             --verbose
 
 
