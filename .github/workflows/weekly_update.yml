@@ -67,7 +67,7 @@ jobs:
           pip install pandas requests selenium webdriver-manager playwright folium branca pycountry geopy beautifulsoup4
           python -m playwright install --with-deps chromium
           sudo apt-get update
-          sudo apt-get install -y xvfb faketime
+          sudo apt-get install -y xvfb
 
 
 
@@ -117,58 +117,7 @@ jobs:
               fh.write(f"TARGET_DATE_SOURCE={source}\n")
           PY
 
-      - name: Enable simulated date for Python scripts
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
-        run: |
-          set -euo pipefail
-
-          REAL_PYTHON="$(command -v python3)"
-
-          mkdir -p "$GITHUB_WORKSPACE/.github/fakebin"
-
-          cat > "$GITHUB_WORKSPACE/.github/fakebin/python3" <<'EOF'
-          #!/usr/bin/env bash
-          set -euo pipefail
-
-          exec faketime -m "${FAKETIME_TIMESTAMP}" "${REAL_PYTHON}" "$@"
-          EOF
-
-          cat > "$GITHUB_WORKSPACE/.github/fakebin/python" <<'EOF'
-          #!/usr/bin/env bash
-          set -euo pipefail
-
-          exec faketime -m "${FAKETIME_TIMESTAMP}" "${REAL_PYTHON}" "$@"
-          EOF
-
-          chmod +x \
-            "$GITHUB_WORKSPACE/.github/fakebin/python" \
-            "$GITHUB_WORKSPACE/.github/fakebin/python3"
-
-          echo "REAL_PYTHON=${REAL_PYTHON}" >> "$GITHUB_ENV"
-          echo "FAKETIME_TIMESTAMP=${TARGET_DATE} 12:00:00" >> "$GITHUB_ENV"
-
-          echo "$GITHUB_WORKSPACE/.github/fakebin" >> "$GITHUB_PATH"
-
-          echo "Real Python: ${REAL_PYTHON}"
-          echo "Fake timestamp: ${TARGET_DATE} 12:00:00"
-
-      - name: Verify simulated date
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.check_time.outputs.proceed == 'true' }}
-        run: |
-          set -euo pipefail
-
-          echo "Testing simulated Python date..."
-
-          python3 - <<'PY'
-          from datetime import datetime
-          from zoneinfo import ZoneInfo
-
-          now = datetime.now(ZoneInfo("Europe/Paris"))
-
-          print("Python simulated date:")
-          print(now.isoformat())
-          PY
-
+     
       
 
       - name: Prepare tmp branch from origin/main

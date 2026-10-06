@@ -421,7 +421,7 @@ def tournament_date_for_history(meta: dict) -> str:
             return parsed.isoformat()
     if meta.get("year"):
         return f"{meta['year']}-01-01"
-    return date.today().isoformat()
+    return get_reference_date().isoformat()
 
 
 def load_atp_metadata_index(path_like: str) -> Dict[str, dict]:
@@ -756,7 +756,7 @@ def update_user_performance_text(existing_text: Any, new_item: dict) -> str:
             filtered.append(item)
     filtered.append(new_item)
 
-    cutoff = date.today() - timedelta(weeks=52)
+    cutoff = get_reference_date() - timedelta(weeks=52)
     filtered = keep_last_52_weeks(filtered, cutoff)
 
     # Sort by date if possible.

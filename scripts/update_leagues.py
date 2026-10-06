@@ -21,6 +21,7 @@ import math
 import os
 import sys
 from collections import defaultdict, OrderedDict
+from runtime_date import get_reference_date
 
 import pandas as pd
 
@@ -258,7 +259,7 @@ def main():
     if args.week_date:
         week_date = datetime.datetime.strptime(args.week_date, "%Y-%m-%d").date()
     else:
-        week_date = monday_of(datetime.date.today())
+        week_date = monday_of(datetime.get_reference_date())
     week_date_str = week_date.isoformat()
     print(f"[INFO] Week date: {week_date_str}")
 

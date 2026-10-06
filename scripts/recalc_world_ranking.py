@@ -564,7 +564,7 @@ def tournament_date_for_history(meta: dict) -> str:
             return parsed.isoformat()
     if meta.get("year"):
         return f"{meta['year']}-01-01"
-    return date.today().isoformat()
+    return get_reference_date().isoformat()
 
 
 def load_atp_metadata_index(path_like: str) -> Dict[str, dict]:
@@ -995,7 +995,7 @@ def dedupe_history_items(items: List[dict]) -> List[dict]:
 
 
 def keep_last_n_weeks(items: List[dict], weeks: int) -> List[dict]:
-    cutoff = date.today() - timedelta(weeks=weeks)
+    cutoff = get_reference_date() - timedelta(weeks=weeks)
     kept = []
     for item in items:
         d = try_parse_date(item.get("date"))
