@@ -323,9 +323,25 @@ function dateWithoutYear(isoDate){
     return new Intl.DateTimeFormat('en', { day: '2-digit', month: 'long' }).format(d);
   }catch(e){ return isoDate; }
 }
-function fetchJsonSafe(url){
-  try{ return fetch(url).then(r => { if(!r.ok) return null; return r.json().catch(()=>null); }).catch(()=>null); }
-  catch(e){ console.warn('fetch failed',url,e); return Promise.resolve(null); }
+async function fetchJsonSafe(url){
+  try{
+    const r = await fetch(url);
+    if(!r.ok) return null;
+
+    const text = await r.text();
+
+    // Certains JSON générés contiennent NaN, qui n'est pas valide en JSON.
+    // On le convertit en null avant JSON.parse().
+    const normalizedText = text.replace(
+      /(:\s*)NaN(\s*[,}])/g,
+      '$1null$2'
+    );
+
+    return JSON.parse(normalizedText);
+  }catch(e){
+    console.warn('fetch failed', url, e);
+    return null;
+  }
 }
 
 function normalizeCourtVisionPart(value){
@@ -1247,7 +1263,6 @@ try{
       const retire = sc.retirements || {};
       const samples = sc.samples || {};
 
-      let html = `<div style="font-weight:700;margin-bottom:8px">Scenarios (source: ${escapeHtml(sourceUrl)})</div>`;
       html += `<div class="scenarios-grid">`;
 
       // NON-GS card
@@ -1270,22 +1285,7 @@ try{
         html += `<tr><td style="font-weight:700">${escapeHtml(humanizeScenarioKey(k))}</td><td>${escapeHtml(String(count))}</td><td>${escapeHtml(pct !== null ? smartPercentFromFraction(pct) : '—')}</td></tr>`;
       });
       html += `</tbody></table>`;
-      // samples for non-GS (if present)
-      html += `<div style="margin-top:8px;"><strong>Samples</strong>`;
-      const sampleKeys = Object.keys(samples || {});
-      if(sampleKeys.length){
-        html += `<div class="sample-list">`;
-        ['wins_after_losing_first_set','losses_after_winning_first_set','wins_in_2_sets','wins_in_3_sets'].forEach(sk=>{
-          if(samples[sk] && samples[sk].length){
-            html += `<div><div style="font-weight:700;margin-top:6px">${escapeHtml(humanizeScenarioKey(sk))} (${samples[sk].length})</div>`;
-            samples[sk].slice(0,6).forEach(it=>{
-              html += `<div class="sample-item"><div><strong>${escapeHtml(it.score || it.match_id || '')}</strong> — ${escapeHtml(it.start_date || '')}</div></div>`;
-            });
-            html += `</div>`;
-          }
-        });
-        html += `</div>`;
-      }
+      
       html += `</div></div>`;
 
       // GS card
@@ -1314,21 +1314,7 @@ try{
         html += `<tr><td style="font-weight:700">${escapeHtml(humanizeScenarioKey(k))}</td><td>${escapeHtml(String(count))}</td><td>${escapeHtml(pct !== null ? smartPercentFromFraction(pct) : '—')}</td></tr>`;
       });
       html += `</tbody></table>`;
-      // GS samples
-      html += `<div style="margin-top:8px;"><strong>Samples (GS)</strong>`;
-      if(sampleKeys.length){
-        html += `<div class="sample-list">`;
-        ['wins_after_losing_first_two_sets','wins_after_down_2_1','wins_in_5_sets'].forEach(sk=>{
-          if(samples[sk] && samples[sk].length){
-            html += `<div><div style="font-weight:700;margin-top:6px">${escapeHtml(humanizeScenarioKey(sk))} (${samples[sk].length})</div>`;
-            samples[sk].slice(0,6).forEach(it=>{
-              html += `<div class="sample-item"><div><strong>${escapeHtml(it.score || it.match_id || '')}</strong> — ${escapeHtml(it.start_date || '')}</div></div>`;
-            });
-            html += `</div>`;
-          }
-        });
-        html += `</div>`;
-      }
+      
       html += `</div></div>`;
 
       html += `</div>`; // end grid
@@ -1349,7 +1335,6 @@ try{
       html += `</div>`;
 
       // raw JSON preview toggle
-      html += `<div style="margin-top:12px" class="scenario-card"><div style="display:flex;align-items:center;gap:12px"><div style="font-weight:700">Raw scenarios JSON</div><button id="scenarios-toggle-raw" class="tab-btn" style="padding:6px 8px">Toggle</button></div><div id="scenarios-raw" style="display:none;margin-top:8px;max-height:320px;overflow:auto;border:1px solid var(--border);padding:8px;background:#fff"><pre class="muted-small">${escapeHtml(JSON.stringify(data, null, 2).slice(0,20000))}${String(JSON.stringify(data).length>20000 ? '…' : '')}</pre></div></div>`;
 
       targetDiv.innerHTML = html;
 
