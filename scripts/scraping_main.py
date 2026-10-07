@@ -11,7 +11,7 @@ import argparse
 import shutil
 import json
 
-# Import de tes modules existants (doivent exister et fonctionner)
+
 from scraping_gc_matches import fetch_tournament_data
 from transform_gc_data import transform_home_away_data
 from scraping_wta import process_matches
@@ -2088,20 +2088,28 @@ def parse_args_and_run():
 
 
 
-        # --- normalize shape: if tpc_map looks like { tid: details }, wrap under YEAR -> { "2026": { tid: details } }
     try:
-        if isinstance(tpc_meta_map, dict) and tpc_meta_map:
-            sample_val = next(iter(tpc_meta_map.values()))
-            if isinstance(sample_val, dict):
-                tpc_meta_map = {str(YEAR): tpc_meta_map}
+        # tpc_map:
+        # Detect {tid: [draw, start, end, is_gc]}
+        if isinstance(tpc_map, dict) and tpc_map:
+            sample_val = next(iter(tpc_map.values()))
 
+            if isinstance(sample_val, (list, tuple)) and len(sample_val) >= 4:
+                tpc_map = {str(YEAR): tpc_map}
+                print(f"[DEBUG] Wrapped tpc_map under year {YEAR}")
+
+        # tpc_meta_map:
+        # Detect {tid: {metadata...}}
         if isinstance(tpc_meta_map, dict) and tpc_meta_map:
             sample_val = next(iter(tpc_meta_map.values()))
+
             if isinstance(sample_val, dict):
                 tpc_meta_map = {str(YEAR): tpc_meta_map}
-    except Exception:
-        # non-fatal: if detection fails, keep original tpc_map and let run_years handle missing years
-        pass
+                print(f"[DEBUG] Wrapped tpc_meta_map under year {YEAR}")
+
+    except Exception as e:
+        print(f"[DEBUG] Tournament-map normalization warning: {e}")
+
 
     # parse requested ids
     requested_ids = None
@@ -2136,15 +2144,15 @@ def parse_args_and_run():
         
         #XXXX
         run_years(
-    years=None,
-    tpc_map=tpc_map,
-    tpc_meta_map=tpc_meta_map,
-    verbose=args.verbose,
-    requested_tournament_ids=requested_ids,
-    created_files_out=args.created_files_out,
-    from_date=args.from_date,
-    to_date=args.to_date
-)
+            years=years,
+            tpc_map=tpc_map,
+            tpc_meta_map=tpc_meta_map,
+            verbose=args.verbose,
+            requested_tournament_ids=requested_ids,
+            created_files_out=args.created_files_out,
+            from_date=args.from_date,
+            to_date=args.to_date
+        )
         
 
 if __name__ == "__main__":
