@@ -24,6 +24,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = REPO_ROOT / "docs" / "matches" / "wta_matches"
+POTENTIAL_TEMP_DIR = REPO_ROOT / "data_wta"
 
 def ensure_out_dir():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
