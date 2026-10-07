@@ -35,7 +35,23 @@ def ensure_out_dir():
 # ---------------- utilitaires ----------------
 # -------------------- Helpers pour normalisation ATP --------------------
 
+def normalize_tournament_id(value):
+    """
+    Normalise un identifiant de tournoi numérique en supprimant
+    les zéros en tête.
+    """
+    if value is None:
+        return None
 
+    s = str(value).strip()
+
+    if not s:
+        return None
+
+    if re.fullmatch(r"\d+", s):
+        return str(int(s))
+
+    return s
 
 
 # ---------- Conversion JSON WTA -> tournament_player_counts (format attendu) ----------
@@ -1312,7 +1328,7 @@ def map_core_from_non_gc_row(r):
 
      # --- (après tes calculs existants) ---
     result_core = {
-        "tourney_id": str(r.get("event_id") or r.get("tourney_id") or ""),
+        "tourney_id": normalize_tournament_id(r.get("event_id") or r.get("tourney_id") or "") or "",
         "tourney_year": str(r.get("event_year") or r.get("tourney_year") or ""),
         "tourney_name": r.get("tournament_name") or r.get("tournament_title") or r.get("tourney_name"),
         "level": r.get("level"),

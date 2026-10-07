@@ -8,6 +8,32 @@ import re
 
 MATCH_ID_PREFIX = "LS"
 
+def normalize_tournament_id(value):
+    """
+    Normalise un identifiant de tournoi numérique en supprimant
+    tous les zéros en tête.
+
+    Exemples :
+        0806   -> "806"
+        "0806" -> "806"
+        "806"  -> "806"
+        0      -> "0"
+
+    Les identifiants non numériques sont conservés tels quels.
+    """
+    if value is None:
+        return None
+
+    s = str(value).strip()
+
+    if not s:
+        return None
+
+    if re.fullmatch(r"\d+", s):
+        return str(int(s))
+
+    return s
+
 def _fmt_date_from_timestamp(ts):
     """Convertit '2026-01-11T05:50:10.863+00:00' -> 'YYYY-MM-DD' ou None."""
     if not ts:
@@ -187,9 +213,12 @@ def scrape_and_merge_match_data(tournament_id, year, match_id):
             player_id_winner = None
             player_id_loser = None
 
-        # Build main record (inclut maintenant PlayerIDA / PlayerIDB et player_id_winner/loser)
+        event_id = normalize_tournament_id(
+            _safe_get(score_data, "EventID")
+        )
+
         match_info = {
-            "event_id": _safe_get(score_data, "EventID"),
+            "event_id": event_id,
             "event_year": _safe_get(score_data, "EventYear"),
             "match_id": _safe_get(score_data, "MatchID"),
             "player_a": player_a,
