@@ -36,6 +36,9 @@ from scripts.geocode_utils_atp import (
 # ── CACHE I/O robuste (identique à la version WTA, mais isolée ici pour clarté)
 import tempfile
 
+CARTO_KEY = "cb1_4el8_1_3f87b3b0b5264a4fa610a232"
+
+
 def load_cache_safe(path: str) -> dict:
     """Wrapper sur load_cache (déjà robuste) pour compatibilité."""
     return load_cache(path)
@@ -361,7 +364,29 @@ def build_points_and_migrations_from_atp(cache_file: str, geolocator, df: pd.Dat
 # ── BUILD MAP & SAVE ────────────────────────────────────────────────────────
 
 def build_and_save_map_migration_from_atp(all_pts, migrations, out_html: str):
-    map_obj = folium.Map(location=[20, 0], zoom_start=2, tiles="CartoDB Positron")
+    # create the folium map (keep a clear name)
+    map_obj = folium.Map(
+        location=[20, 0],
+        zoom_start=2,
+        tiles=None
+    )
+
+    folium.TileLayer(
+        tiles=(
+            f"https://basemaps.cartocdn.com/rastertiles/"
+            f"light_all/{{z}}/{{x}}/{{y}}.png?key={CARTO_KEY}"
+        ),
+        name="CARTO Positron",
+        attr=(
+            '&copy; <a href="https://www.openstreetmap.org/copyright">'
+            'OpenStreetMap</a> contributors &copy; '
+            '<a href="https://carto.com/attributions">CARTO</a>'
+        ),
+        min_zoom=0,
+        max_zoom=20,
+        overlay=False,
+        control=False
+    ).add_to(map_obj)
 
     # debug print (Python-side)
     print("First 20 migrations (raw):")
@@ -696,6 +721,7 @@ const SITE_BASE = (typeof globalThis !== 'undefined' && globalThis.SITE_BASE !==
                   slug = encodeURIComponent(slug);
 
                                 // use SITE_BASE defined once at script top (do not redeclare here)
+                  const localId = l._meta.player_id || '';
                   const localUrl = (typeof SITE_BASE !== 'undefined' ? SITE_BASE.replace(/\/$/, '') : 'https://www.center-court.net')
   + '/players_atp/'
   + (pid ? (encodeURIComponent(pid) + '-' + slug) : slug);

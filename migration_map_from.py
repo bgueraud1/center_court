@@ -17,6 +17,9 @@ from scripts.geocode_utils import load_cache, save_cache, geocode_place, reverse
 import tempfile
 import re
 
+
+CARTO_KEY = "cb1_4el8_1_3f87b3b0b5264a4fa610a232"
+
 def load_cache(path: str) -> dict:
     """
     Charge le cache JSON en essayant UTF-8, puis latin-1, puis nettoyage
@@ -245,7 +248,28 @@ from branca.colormap import linear
 
 def build_and_save_map_migration(all_pts, migrations, out_html: str):
     # create the folium map (keep a clear name)
-    map_obj = folium.Map(location=[20,0], zoom_start=2, tiles="CartoDB Positron")
+    map_obj = folium.Map(
+        location=[20, 0],
+        zoom_start=2,
+        tiles=None
+    )
+
+    folium.TileLayer(
+        tiles=(
+            f"https://basemaps.cartocdn.com/rastertiles/"
+            f"light_all/{{z}}/{{x}}/{{y}}.png?key={CARTO_KEY}"
+        ),
+        name="CARTO Positron",
+        attr=(
+            '&copy; <a href="https://www.openstreetmap.org/copyright">'
+            'OpenStreetMap</a> contributors &copy; '
+            '<a href="https://carto.com/attributions">CARTO</a>'
+        ),
+        min_zoom=0,
+        max_zoom=20,
+        overlay=False,
+        control=False
+    ).add_to(map_obj)
 
     # show first 20 migrations (raw) — use different var names so we don't shadow map_obj
     print("First 20 migrations (raw):")
@@ -605,7 +629,13 @@ const SITE_BASE = (typeof globalThis !== 'undefined' && globalThis.SITE_BASE !==
                 let slug = safeName.toLowerCase().replace(/[^a-z0-9\u00C0-\u024F]+/g,'-').replace(/(^-|-$)/g,'');
                 slug = encodeURIComponent(slug);
 
-                const localUrl = SITE_BASE + '/players/' + (id && /^\d+$/.test(id)? (encodeURIComponent(id) + '-' + slug): slug);
+
+                const localId = l._meta.player_id || '';
+                const localUrl = SITE_BASE + '/players/' + (
+    localId && /^\d+$/.test(String(localId))
+        ? (encodeURIComponent(String(localId)) + '-' + slug)
+        : slug
+);
                 const wtaUrl = pid ? ('https://www.wtatennis.com/players/' + pid + '/' + slug) : '#';
 
                 const originText = l._meta.birthplace_text || '';
