@@ -4,7 +4,7 @@ from geopy.geocoders import Nominatim
 from pathlib import Path
 
 # Cache coords (relative to repo root)
-CACHE_FILE = Path("maps_html") / "coords_cache_atp.json"
+CACHE_FILE = Path("docs") / "coords_cache_atp.json"
 
 # Input CSV ATP
 INPUT_CSV = Path("player_data_atp.csv")
@@ -12,14 +12,14 @@ INPUT_CSV = Path("player_data_atp.csv")
 
 
 # Output HTML files (maps)
-OUTPUT_HTML_BIRTHPLACE = Path("maps_html") / "birthplace_map_atp.html"
-OUTPUT_HTML_FROM = Path("maps_html") / "migration_map_from_atp.html"
-OUTPUT_HTML_TO = Path("maps_html") / "migration_map_to_atp.html"
-OUTPUT_HTML_PERCENTAGE = Path("maps_html") / "map_percentage_atp.html"
-OUTPUT_HTML_FALSE = Path("maps_html") / "map_birthplace_false_atp.html"
+OUTPUT_HTML_BIRTHPLACE = Path("docs") / "birthplace_map_atp.html"
+OUTPUT_HTML_FROM = Path("docs") / "migration_map_from_atp.html"
+OUTPUT_HTML_TO = Path("docs") / "migration_map_to_atp.html"
+OUTPUT_HTML_PERCENTAGE = Path("docs") / "map_percentage_atp.html"
+OUTPUT_HTML_FALSE = Path("docs") / "map_birthplace_false_atp.html"
 
 # migration cache (separate to avoid conflicts)
-CACHE_FILE_MIGRATION = Path("maps_html") / "coords_cache_migrations_atp.json"
+CACHE_FILE_MIGRATION = Path("docs") / "coords_cache_migrations_atp.json"
 
 # IOC -> ISO3 common overrides (reuse/extend your existing map if needed)
 IOC_TO_ISO3 = {

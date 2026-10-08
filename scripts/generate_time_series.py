@@ -353,7 +353,7 @@ def build_timeseries_from_stats_file(path, out_dir, rolling_window=20):
     }
 
     # write out
-    players_dir = os.path.join(out_dir, "players_atp")
+    players_dir = out_dir
     safe_mkdir(players_dir)
     # filename: prefer slug lower or player_id
     fname = str(slug).lower() if slug else str(player_id).lower()

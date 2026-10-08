@@ -600,7 +600,7 @@ def main(matches_dir: str, out_dir: str, limit_players: int = None, player_data_
 
     out_dir = Path(out_dir)
     idx_dir = out_dir / "index"
-    players_dir = out_dir / "players_atp"
+    players_dir = out_dir 
     players_data_dir = players_dir / "data"
     safe_mkdir(idx_dir)
     safe_mkdir(players_dir)

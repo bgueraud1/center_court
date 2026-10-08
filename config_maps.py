@@ -2,18 +2,18 @@ from geopy.geocoders import Nominatim
 from pathlib import Path
 
 # Use paths relative to repo root (do NOT prefix with repo dirname)
-CACHE_FILE = Path("maps_html") / "coords_cache.json"
+CACHE_FILE = Path("docs") / "coords_cache.json"
 
 INPUT_CSV = Path("player_data_wta.csv")
-OUTPUT_HTML_BIRTHPLACE = Path("maps_html") / "birthplace_map.html"
+OUTPUT_HTML_BIRTHPLACE = Path("docs") / "birthplace_map.html"
 
-OUTPUT_HTML_FROM = Path("maps_html") / "migration_map_from.html"
-OUTPUT_HTML_TO = Path("maps_html") / "migration_map_to.html"
-OUTPUT_HTML_PERCENTAGE = Path("maps_html") / "map_percentage.html"
-OUTPUT_HTML_FALSE = Path("maps_html") / "map_birthplace_false.html"
+OUTPUT_HTML_FROM = Path("docs") / "migration_map_from.html"
+OUTPUT_HTML_TO = Path("docs") / "migration_map_to.html"
+OUTPUT_HTML_PERCENTAGE = Path("docs") / "map_percentage.html"
+OUTPUT_HTML_FALSE = Path("docs") / "map_birthplace_false.html"
 
 # Use posix paths via Path — avoid backslash literals
-CACHE_FILE_MIGRATION = Path("maps_html") / "coords_cache_migrations.json"
+CACHE_FILE_MIGRATION = Path("docs") / "coords_cache_migrations.json"
 
 IOC_TO_ISO3 = {
     "RSA": "ZAF", "GER": "DEU", "NED": "NLD", "INA": "IDN",
