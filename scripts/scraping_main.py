@@ -105,7 +105,11 @@ def convert_wta_json_obj_to_tpc(js_obj):
                 end = parse_date_to_iso(it.get("endDate") or it.get("end_date"))
 
                 # detect Grand Slam
-                level = (it.get("level") or "").strip() if isinstance(it, dict) else ""
+                level = str(
+                    (tg.get("level") if isinstance(tg, dict) else None)
+                    or it.get("level")
+                    or ""
+                ).strip()
                 is_gc = 1 if (str(level).strip().lower() == "grand slam" or str(level).strip().upper() in ("GC","GRAND SLAM")) else 0
 
                 tpc[tid] = [draw, start, end, is_gc]
@@ -138,7 +142,11 @@ def build_wta_tournament_meta(js_obj):
                     continue
 
                 meta[tid] = {
-                    "level": (it.get("level") or "").strip(),
+                    "level": str(
+                        (tg.get("level") if isinstance(tg, dict) else None)
+                        or it.get("level")
+                        or ""
+                    ).strip(),
                     "tournamentLink": it.get("tournamentLink"),
                     "tournamentGroupId": tg.get("id"),
                     "title": it.get("title"),
@@ -1749,27 +1757,108 @@ def main(
     import sys
     from pathlib import Path
 
-    def run_itf_scraper_for_tournament(meta, year_str):
-        url = meta["tournamentLink"]
+    def run_itf_scraper_for_tournament(meta, year_str, tid_str):
+        # 1. Construire l'URL complète
+        raw_link = str(meta.get("tournamentLink") or "").strip()
 
+        if not raw_link:
+            raise ValueError(
+                f"[ITF] tournamentLink manquant pour le tournoi {tid_str}"
+            )
+
+        if raw_link.startswith(("https://", "http://")):
+            url = raw_link
+        else:
+            url = (
+                "https://www.itftennis.com/"
+                + raw_link.lstrip("/")
+            )
+
+        # 2. Récupérer l'ID du tournoi et son année
+        # Le scraper ITF utilise tournamentGroup.id pour identifier
+        # le tournoi et construire le nom du CSV.
+        event_id = str(
+            meta.get("tournamentGroupId") or tid_str
+        ).strip()
+
+        event_year = str(meta.get("year") or year_str)
+
+        # 3. Chemins absolus pour éviter les problèmes
+        # de répertoire de travail
+        script_path = (
+            REPO_ROOT / "scripts" / "scraping_wta_itf_full.py"
+        )
+
+        player_csv_path = REPO_ROOT / "player_data_wta.csv"
+
+        tournaments_json_path = (
+            REPO_ROOT / "docs" / f"wta_tournaments_{event_year}.json"
+        )
+
+        # 4. Pré-vérifier les fichiers nécessaires
+        for path in (
+            script_path,
+            player_csv_path,
+            tournaments_json_path,
+        ):
+            if not path.is_file():
+                raise FileNotFoundError(
+                    f"[ITF] Fichier introuvable : {path}"
+                )
+
+        # 5. Construire la commande sur le modèle validé
         cmd = [
             sys.executable,
-            "scripts/scraping_wta_itf_full.py",
+            str(script_path),
             url,
+            "--csv", str(player_csv_path),
+            "--tournaments", str(tournaments_json_path),
+            "--event-id", event_id,
+            "--event-year", event_year,
         ]
 
-        subprocess.run(cmd, check=True)
+        print(f"[ITF] Tournoi : {meta.get('title') or tid_str}")
+        print(f"[ITF] URL : {url}")
+        print(f"[ITF] Event ID : {event_id}")
+        print(f"[ITF] Année : {event_year}")
 
-        # remplace ce chemin par le vrai chemin créé par le script ITF
-        return Path("docs/matches/wta_matches/TON_FICHIER_ITF.csv")
+        # 6. Lancer le scraper depuis la racine du projet
+        subprocess.run(
+            cmd,
+            check=True,
+            cwd=str(REPO_ROOT),
+        )
+
+        # 7. Le scraper écrit lui-même son CSV dans ce dossier
+        output_csv = (
+            OUT_DIR / f"wta_{event_id}_{event_year}.csv"
+        )
+
+        if not output_csv.is_file():
+            raise FileNotFoundError(
+                f"[ITF] Le scraper n'a pas créé le CSV attendu : "
+                f"{output_csv}"
+            )
+
+        return output_csv
 
 
     itf_csv_by_tid = {}
 
     for tid_str, meta in itf_tids.items():
-        run_itf_scraper_for_tournament(meta, year_str)
-        # si le script écrit un csv connu, mets son chemin ici :
-        itf_csv_by_tid[tid_str] = Path("CHEMIN_DU_CSV_GENERE_PAR_LE_SCRIPT")
+        csv_path = run_itf_scraper_for_tournament(
+            meta,
+            year_str,
+            tid_str,
+        )
+
+        itf_csv_by_tid[tid_str] = csv_path
+
+        if verbose:
+            print(
+                f"[ITF] CSV récupéré pour le tournoi {tid_str} : "
+                f"{csv_path}"
+            )
 
     # DEBUG summary
     total_gc_rows = 0
@@ -1887,12 +1976,29 @@ def main(
     for tid in tids_to_write:
         tid_str = str(tid)
 
+        # --- CAS 1 : tournoi ITF ---
         if tid_str in itf_csv_by_tid:
-            df_tid = pd.read_csv(itf_csv_by_tid[tid_str])
+            csv_path = itf_csv_by_tid[tid_str]
+
+            if not csv_path.is_file():
+                raise FileNotFoundError(
+                    f"[ITF] CSV introuvable pour {tid_str} : "
+                    f"{csv_path}"
+                )
+
+            df_tid = pd.read_csv(csv_path)
+
+            if verbose:
+                print(
+                    f"[ITF] {tid_str} : {len(df_tid)} matchs chargés "
+                    f"depuis {csv_path}"
+                )
+
+        # --- CAS 2 : autres tournois ---
         else:
             frames = []
 
-            # sélection robuste dans GC normalisé
+            # Sélection dans les données GC normalisées
             try:
                 sel_gc = select_rows_for_tid(gc_all, tid)
                 if not sel_gc.empty:
@@ -1900,18 +2006,26 @@ def main(
             except Exception:
                 pass
 
-            # sélection robuste dans non-GC normalisé
+            # Sélection dans les données non-GC normalisées
             try:
-                sel_non = select_rows_for_tid(normalized_non_gc, tid)
+                sel_non = select_rows_for_tid(
+                    normalized_non_gc, tid
+                )
                 if not sel_non.empty:
                     frames.append(sel_non)
             except Exception:
                 pass
 
-        if frames:
-            df_tid = pd.concat(frames, ignore_index=True, sort=False)
-        else:
-            df_tid = pd.DataFrame(columns=CORE_COLS)
+            if frames:
+                df_tid = pd.concat(
+                    frames,
+                    ignore_index=True,
+                    sort=False,
+                )
+            else:
+                df_tid = pd.DataFrame(columns=CORE_COLS)
+
+
 
         # nettoyage final colonnes indésirables si présentes
         for c in cols_to_remove_global:
