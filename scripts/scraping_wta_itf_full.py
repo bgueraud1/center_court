@@ -5,6 +5,7 @@ import argparse
 import csv
 import json
 import re
+import os
 import sys
 import time
 import unicodedata
@@ -929,11 +930,26 @@ def main():
 
     with sync_playwright() as p:
         print("[debug] lancement du navigateur...")
-        browser = p.chromium.launch(
-            headless=False,
-            args=["--start-maximized"],
+        
+        # Détecter si le script tourne sur GitHub Actions
+        is_github_actions = (
+            os.environ.get("GITHUB_ACTIONS", "").lower() == "true"
         )
-        context = browser.new_context(no_viewport=True)
+
+        print(
+            f"[debug] mode navigateur : "
+            f"{'headless' if is_github_actions else 'headed'}"
+        )
+
+        browser = p.chromium.launch(
+            headless=is_github_actions,
+            args=[] if is_github_actions else ["--start-maximized"],
+        )
+
+        context = browser.new_context(
+            no_viewport=not is_github_actions
+        )
+
         page = context.new_page()
         page.set_default_timeout(10000)
 
