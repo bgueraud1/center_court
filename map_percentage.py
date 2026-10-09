@@ -9,6 +9,9 @@ from branca.element import Template, MacroElement
 from branca.colormap import linear
 import pycountry
 
+CARTO_KEY = "cb1_4el8_1_3f87b3b0b5264a4fa610a232"
+
+
 def load_and_normalize_percentage(ioc_to_iso3, csv_path: str) -> pd.DataFrame:
     df = pd.read_csv(csv_path)
 
@@ -117,7 +120,34 @@ def build_and_save_presence_map(players: list, out_html: str, geojson):
     colormap.caption = "Percent with birthplace recorded (%)"
     pct2color = {i: colormap(i) for i in range(0, 101)}
 
-    m = folium.Map(location=[20,0], zoom_start=2, tiles="CartoDB Positron")
+    m = folium.Map(
+      location=[20, 0],
+      zoom_start=2,
+      tiles=None
+  )
+
+    # URL CARTO avec la clé API
+    carto_tiles_url = (
+        "https://basemaps.cartocdn.com/rastertiles/"
+        f"light_all/{{z}}/{{x}}/{{y}}.png?key={CARTO_KEY}"
+    )
+
+    # Ajout de la seule couche de fond CARTO
+    folium.TileLayer(
+        tiles=carto_tiles_url,
+        name="CARTO Positron",
+        attr=(
+            '&copy; <a href="https://www.openstreetmap.org/copyright">'
+            'OpenStreetMap</a> contributors &copy; '
+            '<a href="https://carto.com/attributions">CARTO</a>'
+        ),
+        min_zoom=0,
+        max_zoom=20,
+        overlay=False,
+        control=False
+    ).add_to(m)
+
+    # Conservation de la légende de couleurs
     colormap.add_to(m)
 
     m.get_root().html.add_child(Element(
