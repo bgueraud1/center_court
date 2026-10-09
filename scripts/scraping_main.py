@@ -1843,55 +1843,87 @@ def main(
         return output_csv
 
 
+    
     itf_csv_by_tid = {}
+    itf_failed_tids = set()
 
     for tid_str, meta in itf_tids.items():
-        csv_path = run_itf_scraper_for_tournament(
-            meta,
-            year_str,
-            tid_str,
-        )
-
-        itf_csv_by_tid[tid_str] = csv_path
-
-        if verbose:
+        try:
             print(
-                f"[ITF] CSV récupéré pour le tournoi {tid_str} : "
+                f"\n[ITF] Début du scraping du tournoi {tid_str}"
+            )
+
+            csv_path = run_itf_scraper_for_tournament(
+                meta,
+                year_str,
+                tid_str,
+            )
+
+            # Le tournoi est réussi uniquement si le scraper
+            # a terminé et que le CSV attendu existe.
+            itf_csv_by_tid[tid_str] = csv_path
+            print(
+                f"[ITF][OK] Tournoi {tid_str} terminé : "
                 f"{csv_path}"
             )
 
-    # DEBUG summary
-    total_gc_rows = 0
-    for tid, df in gc_collected:
-        n = 0 if df is None else len(df)
+        except subprocess.CalledProcessError as exc:
+            itf_failed_tids.add(tid_str)
+            print(
+                f"\n[ITF][ERREUR] Tournoi {tid_str} échoué "
+                f"(code retour {exc.returncode})."
+            )
+            print("[ITF][SKIP] Tournoi ignoré, passage au suivant.")
+
+        except Exception as exc:
+            itf_failed_tids.add(tid_str)
+            print(
+                f"\n[ITF][ERREUR] Tournoi {tid_str} : "
+                f"{type(exc).__name__}: {exc}"
+            )
+            print("[ITF][SKIP] Tournoi ignoré, passage au suivant.")
+
+            # La boucle continue dans tous les cas.
+
+
+            if verbose:
+                print(
+                    f"[ITF] CSV récupéré pour le tournoi {tid_str} : "
+                    f"{csv_path}"
+                )
+
+        # DEBUG summary
+        total_gc_rows = 0
+        for tid, df in gc_collected:
+            n = 0 if df is None else len(df)
+            if verbose:
+                print(f"[DEBUG] GC tid={tid} | rows={n} | sample cols={(list(df.columns)[:10] if (df is not None and len(df.columns)>0) else [])}")
+            total_gc_rows += n
         if verbose:
-            print(f"[DEBUG] GC tid={tid} | rows={n} | sample cols={(list(df.columns)[:10] if (df is not None and len(df.columns)>0) else [])}")
-        total_gc_rows += n
-    if verbose:
-        print(f"[DEBUG] total GC rows (year {year_str}): {total_gc_rows}")
-        print(f"[DEBUG] non-GC raw shape: {non_gc_raw.shape if non_gc_raw is not None else (0,0)}")
-        if non_gc_raw is not None:
-            print(f"[DEBUG] non-GC sample cols: {list(non_gc_raw.columns)[:40]}")
+            print(f"[DEBUG] total GC rows (year {year_str}): {total_gc_rows}")
+            print(f"[DEBUG] non-GC raw shape: {non_gc_raw.shape if non_gc_raw is not None else (0,0)}")
+            if non_gc_raw is not None:
+                print(f"[DEBUG] non-GC sample cols: {list(non_gc_raw.columns)[:40]}")
 
-    # --- Normalize en mémoire (sans écrire) ---
-    normalized_gc_list = []
-    for tid, df in gc_collected:
-        norm = normalize_preserve_all(df, is_gc=True, tournament_id=tid, year_str=year_str)
-        normalized_gc_list.append(norm)
+        # --- Normalize en mémoire (sans écrire) ---
+        normalized_gc_list = []
+        for tid, df in gc_collected:
+            norm = normalize_preserve_all(df, is_gc=True, tournament_id=tid, year_str=year_str)
+            normalized_gc_list.append(norm)
+            if verbose:
+                print(f"[DEBUG] normalized GC tid={tid} -> {norm.shape}")
+
+        gc_all = pd.concat(normalized_gc_list, ignore_index=True, sort=False) if normalized_gc_list else pd.DataFrame(columns=CORE_COLS)
+        normalized_non_gc = normalize_preserve_all(non_gc_raw, is_gc=False)
+
         if verbose:
-            print(f"[DEBUG] normalized GC tid={tid} -> {norm.shape}")
-
-    gc_all = pd.concat(normalized_gc_list, ignore_index=True, sort=False) if normalized_gc_list else pd.DataFrame(columns=CORE_COLS)
-    normalized_non_gc = normalize_preserve_all(non_gc_raw, is_gc=False)
-
-    if verbose:
-        print(f"[DEBUG] gc_all.shape = {gc_all.shape}")
-        print(f"[DEBUG] normalized_non_gc.shape = {normalized_non_gc.shape}")
-
-    # Ensure indoor_outdoor exists
-    for df in (gc_all, normalized_non_gc):
-        if df is not None and 'indoor_outdoor' not in df.columns:
-            df['indoor_outdoor'] = None
+            print(f"[DEBUG] gc_all.shape = {gc_all.shape}")
+            print(f"[DEBUG] normalized_non_gc.shape = {normalized_non_gc.shape}")
+    
+        # Ensure indoor_outdoor exists
+        for df in (gc_all, normalized_non_gc):
+            if df is not None and 'indoor_outdoor' not in df.columns:
+                df['indoor_outdoor'] = None
 
     # Combined internal (ne sera pas sauvegardé)
     combined = pd.concat([gc_all, normalized_non_gc], axis=0, ignore_index=True, sort=False) if (not gc_all.empty or not normalized_non_gc.empty) else pd.DataFrame(columns=CORE_COLS)
@@ -1975,6 +2007,13 @@ def main(
     tids_to_write = [tid for tid, _ in to_scrape]
     for tid in tids_to_write:
         tid_str = str(tid)
+
+        if tid_str in itf_failed_tids:
+            print(
+                f"[ITF][SKIP] Aucun CSV final pour {tid_str} "
+                "car le scraping a échoué."
+            )
+            continue
 
         # --- CAS 1 : tournoi ITF ---
         if tid_str in itf_csv_by_tid:
