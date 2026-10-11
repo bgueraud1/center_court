@@ -377,20 +377,161 @@ def scrape_for_date(driver, date_str, max_players=None):
 # ---------------------------
 # Save CSV & logs
 # ---------------------------
+
+
+def is_valid_ranking_csv(path: Path) -> bool:
+    """Retourne True si le CSV contient au moins une ligne de classement valide."""
+    required_columns = {"full_name", "ranking", "points", "date"}
+
+    try:
+        sample = pd.read_csv(
+            path,
+            nrows=1,
+            dtype=str,
+            keep_default_na=False,
+        )
+
+        columns = {
+            str(column).strip().lower()
+            for column in sample.columns
+        }
+
+        return (
+            not sample.empty
+            and required_columns.issubset(columns)
+        )
+
+    except Exception:
+        return False
+
+
+def find_previous_valid_ranking_csv(
+    out_dir: Path,
+    target_date: str,
+) -> Optional[Path]:
+    """
+    Recherche le CSV valide le plus récent dont la date est antérieure
+    à la date cible.
+    """
+    target = datetime.strptime(target_date, "%Y-%m-%d").date()
+    candidates = []
+
+    for path in out_dir.glob("data_????_??_??.csv"):
+        try:
+            filename_date = path.stem[len("data_"):]
+            ranking_date = datetime.strptime(
+                filename_date,
+                "%Y_%m_%d",
+            ).date()
+        except ValueError:
+            continue
+
+        # Ne jamais reprendre un classement de la date cible ou du futur.
+        if ranking_date >= target:
+            continue
+
+        if is_valid_ranking_csv(path):
+            candidates.append((ranking_date, path))
+
+    if not candidates:
+        return None
+
+    # Prendre le classement antérieur le plus récent.
+    return max(candidates, key=lambda item: item[0])[1]
+
+
+def copy_previous_ranking_csv(
+    out_dir: Path,
+    target_date: str,
+) -> Path:
+    """
+    Duplique le dernier CSV antérieur valide et actualise sa colonne date.
+    Le nom du fichier correspond à target_date.
+    """
+    previous_path = find_previous_valid_ranking_csv(
+        out_dir,
+        target_date,
+    )
+
+    if previous_path is None:
+        raise RuntimeError(
+            f"No valid previous ATP ranking CSV found before {target_date}. "
+            "Cannot create a fallback ranking."
+        )
+
+    previous_df = pd.read_csv(
+        previous_path,
+        dtype=str,
+        keep_default_na=False,
+    )
+
+    if previous_df.empty:
+        raise RuntimeError(
+            f"The previous ranking CSV is unexpectedly empty: {previous_path}"
+        )
+
+    date_column = next(
+        (
+            column
+            for column in previous_df.columns
+            if str(column).strip().lower() == "date"
+        ),
+        None,
+    )
+
+    if date_column is None:
+        raise RuntimeError(
+            f"Missing date column in previous ranking CSV: {previous_path}"
+        )
+
+    # Conserver les joueurs, les classements et les points.
+    # Seule la date est actualisée.
+    previous_df[date_column] = target_date
+
+    target_filename = f"data_{target_date.replace('-', '_')}.csv"
+    target_path = out_dir / target_filename
+
+    previous_df.to_csv(
+        target_path,
+        index=False,
+        encoding="utf-8-sig",
+    )
+
+    print(
+        f"WARNING: No ATP ranking available for {target_date}. "
+        f"Copied {len(previous_df)} rows from {previous_path.name} "
+        f"to {target_path.name}."
+    )
+
+    return target_path
+
+
 def save_df_for_date(df_to_save, out_dir: Path, date_iso: str):
     """date_iso expected YYYY-MM-DD (Monday)"""
     fn_date = date_iso.replace("-", "_")
     csv_path = out_dir / f"data_{fn_date}.csv"
 
+    
     if df_to_save is None or df_to_save.empty:
-        out_df = pd.DataFrame(columns=["full_name","ranking","points","date"])
-    else:
-        mapping = {"Player":"full_name", "Rank":"ranking", "Official Points":"points", "Date":"date"}
-        out_df = df_to_save.rename(columns=mapping)
-        for col in ["full_name","ranking","points","date"]:
-            if col not in out_df.columns:
-                out_df[col] = ""
-        out_df = out_df[["full_name","ranking","points","date"]]
+        print(
+            f"WARNING: Empty ATP dataframe for {date_iso}. "
+            "Using the most recent previous valid ranking."
+        )
+
+        return copy_previous_ranking_csv(
+            out_dir,
+            date_iso,
+        )
+
+    mapping = {
+        "Player": "full_name",
+        "Rank": "ranking",
+        "Official Points": "points",
+        "Date": "date",
+    }
+    
+    out_df = df_to_save.rename(columns=mapping)
+
 
     out_df.to_csv(csv_path, index=False, encoding="utf-8-sig")
     print(f"Saved {len(out_df)} rows -> {csv_path} (abs: {csv_path.resolve()})")
@@ -524,13 +665,28 @@ def iterate_dates_from_list(dates_list: List[str], headless=False,
 
 
     # filter out monday-dates that already have a CSV
+    
+    # Ne sauter que les dates dont le CSV contient déjà des données valides.
     to_process = []
+
     for inp, monday in mapped:
         fn = out_dir / f"data_{monday.replace('-', '_')}.csv"
-        if fn.exists():
-            print(f"Skipping {inp} -> {monday}: already exists -> {fn.name}")
+
+        if fn.exists() and is_valid_ranking_csv(fn):
+            print(
+                f"Skipping {inp} -> {monday}: "
+                f"valid ranking already exists -> {fn.name}"
+            )
             continue
+
+        if fn.exists():
+            print(
+                f"WARNING: Existing ranking file is empty or invalid: {fn}. "
+                "It will be regenerated."
+            )
+
         to_process.append((inp, monday))
+
 
     if not to_process:
         print("No dates to process (all present in atp_rankings). Exiting.")
@@ -574,6 +730,7 @@ def iterate_dates_from_list(dates_list: List[str], headless=False,
             captcha_flag = False
             wait_seconds = 2.0
             df = None
+            empty_result_exhausted = False
 
             # NOTE: we use monday_date for the actual scraping (ATP expects week Mondays)
             while attempt <= max_retries_captcha and not success:
@@ -589,8 +746,45 @@ def iterate_dates_from_list(dates_list: List[str], headless=False,
                         driver = make_driver(headless=headless, user_agent=current_ua, proxy=current_proxy, user_data_dir=user_data_dir)
                         print(f"[{monday_date}] Retry {attempt}: restarted driver with UA={current_ua[:60]}..., proxy={current_proxy}")
 
-                    df = scrape_for_date(driver, monday_date, max_players=max_players)
-                    success = True
+                    
+                    # Trois tentatives au total si le scraping retourne un dataframe vide.
+                    for empty_attempt in range(1, 4):
+                        df = scrape_for_date(
+                            driver,
+                            monday_date,
+                            max_players=max_players,
+                        )  
+
+                        if df is not None and not df.empty:
+                            success = True
+                            print(
+                                f"[{monday_date}] Ranking retrieved successfully "
+                                f"on empty-result attempt {empty_attempt}/3."
+                            )
+                            break
+                        
+                        print(
+                            f"[{monday_date}] No ranking rows returned "
+                            f"(attempt {empty_attempt}/3)."
+                        )
+
+                        if empty_attempt < 3:
+                            print(
+                                f"[{monday_date}] Waiting 5 seconds "
+                                "before retrying..."
+                            )
+                            time.sleep(5)
+                    
+                    if not success:
+                        empty_result_exhausted = True
+                    
+                        print(
+                            f"[{monday_date}] No ranking rows after 3 attempts. "
+                            "The previous valid ranking will be reused."
+                        )
+                    
+                        break
+
                 except CaptchaDetected as cex:
                     captcha_flag = True
                     print(f"[{monday_date}] CaptchaDetected: {cex}. Attempt {attempt}/{max_retries_captcha}. Backing off {wait_seconds}s.")
@@ -619,43 +813,63 @@ def iterate_dates_from_list(dates_list: List[str], headless=False,
                     time.sleep(min(wait_seconds, 15))
                     wait_seconds = min(wait_seconds * backoff_factor, 60)
 
-            if not success and captcha_flag:
-                append_missed_date_log(out_dir, monday_date, "captcha_detected")
-                # don't create CSV
-            elif not success:
-                print(f"[{monday_date}] Failed after retries (no captcha).")
-                if previous_df is not None and not previous_df.empty:
-                    df_to_write = previous_df.copy()
-                    df_to_write["Date"] = monday_date
-                    save_df_for_date(df_to_write, out_dir, monday_date)
+            
+            if not success:
+                # Tracer la raison de l'échec.
+                if empty_result_exhausted:
+                    reason = "empty_ranking_after_3_attempts"
+            
+                elif captcha_flag:
+                    reason = "captcha_detected"
+                    print(
+                        f"[{monday_date}] Captcha retries exhausted. "
+                        "Using the previous valid ranking as fallback."
+                    )
+            
                 else:
-                    save_df_for_date(pd.DataFrame(), out_dir, monday_date)
+                    reason = "scrape_failed_after_retries"
+                    print(
+                        f"[{monday_date}] Scraping failed. "
+                        "Using the previous valid ranking as fallback."
+                    )
+            
+                append_missed_date_log(
+                    out_dir,
+                    monday_date,
+                    reason,
+                )
+
+                # Copie le dernier CSV antérieur valide, sans créer de CSV vide.
+                copy_previous_ranking_csv(
+                    out_dir,
+                    monday_date,
+                )
+
             else:
-                if df is None or df.empty:
-                    if previous_df is not None and not previous_df.empty:
-                        print(f"[{monday_date}] Empty result — using previous date content")
-                        df_to_write = previous_df.copy()
-                        df_to_write["Date"] = monday_date
-                        save_df_for_date(df_to_write, out_dir, monday_date)
-                    else:
-                        save_df_for_date(pd.DataFrame(), out_dir, monday_date)
-                else:
-                    df["Date"] = monday_date
-                    save_df_for_date(df, out_dir, monday_date)
-                    previous_df = df.copy()
-
-            # small randomized pause between dates (bounded)
-            sleep_for = random.uniform(5, 10)
-            print(f"[{monday_date}] Sleeping {min(sleep_for, 15):.1f}s before next date...")
-            time.sleep(min(sleep_for, 15))
-
-        print("\nFinished processing dates from CSV.")
-    finally:
-        try:
-            if driver:
-                driver.quit()
-        except Exception:
-            pass
+                # success=True signifie ici que df contient des lignes.
+                df["Date"] = monday_date
+            
+                save_df_for_date(
+                    df,
+                    out_dir,
+                    monday_date,
+                )
+            
+                previous_df = df.copy()
+            
+            
+                        # small randomized pause between dates (bounded)
+                        sleep_for = random.uniform(5, 10)
+                        print(f"[{monday_date}] Sleeping {min(sleep_for, 15):.1f}s before next date...")
+                        time.sleep(min(sleep_for, 15))
+            
+                    print("\nFinished processing dates from CSV.")
+                finally:
+                    try:
+                        if driver:
+                            driver.quit()
+                    except Exception:
+                        pass
 
 # ---------------------------
 # Backwards-compatible main
