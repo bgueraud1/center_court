@@ -813,63 +813,62 @@ def iterate_dates_from_list(dates_list: List[str], headless=False,
                     time.sleep(min(wait_seconds, 15))
                     wait_seconds = min(wait_seconds * backoff_factor, 60)
 
-            
+
             if not success:
-                # Tracer la raison de l'échec.
                 if empty_result_exhausted:
                     reason = "empty_ranking_after_3_attempts"
-            
+
                 elif captcha_flag:
                     reason = "captcha_detected"
                     print(
                         f"[{monday_date}] Captcha retries exhausted. "
                         "Using the previous valid ranking as fallback."
                     )
-            
+
                 else:
                     reason = "scrape_failed_after_retries"
                     print(
                         f"[{monday_date}] Scraping failed. "
                         "Using the previous valid ranking as fallback."
                     )
-            
+
                 append_missed_date_log(
                     out_dir,
                     monday_date,
                     reason,
                 )
 
-                # Copie le dernier CSV antérieur valide, sans créer de CSV vide.
+                # Copier le dernier classement antérieur valide.
                 copy_previous_ranking_csv(
                     out_dir,
                     monday_date,
                 )
 
             else:
-                # success=True signifie ici que df contient des lignes.
+                # Le scraping a récupéré des lignes.
                 df["Date"] = monday_date
-            
+
                 save_df_for_date(
                     df,
                     out_dir,
                     monday_date,
                 )
-            
+
                 previous_df = df.copy()
-            
-            
-                        # small randomized pause between dates (bounded)
-                        sleep_for = random.uniform(5, 10)
-                        print(f"[{monday_date}] Sleeping {min(sleep_for, 15):.1f}s before next date...")
-                        time.sleep(min(sleep_for, 15))
-            
-                    print("\nFinished processing dates from CSV.")
-                finally:
-                    try:
-                        if driver:
-                            driver.quit()
-                    except Exception:
-                        pass
+
+
+            # small randomized pause between dates (bounded)
+            sleep_for = random.uniform(5, 10)
+            print(f"[{monday_date}] Sleeping {min(sleep_for, 15):.1f}s before next date...")
+            time.sleep(min(sleep_for, 15))
+
+        print("\nFinished processing dates from CSV.")
+    finally:
+        try:
+            if driver:
+                driver.quit()
+        except Exception:
+            pass
 
 # ---------------------------
 # Backwards-compatible main
